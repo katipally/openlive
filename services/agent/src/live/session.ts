@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
-import { createChat, addMessage, listMessages, renameChat } from "@openlive/db";
+import { createChat, addMessage, listMessages } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, TaktTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
@@ -36,7 +36,6 @@ export class LiveSession {
   private cameraOn = false;
   private lastFrame: Frame | null = null; // freshest camera frame, attached per turn
   private closed = false;
-  private titled = false; // chat gets its title from the first user message
 
   // `look` tool ↔ client hi-res frame handshake.
   private lookPending: { reqId: string; resolve: (f: Frame | null) => void } | null = null;
@@ -70,7 +69,6 @@ export class LiveSession {
     if (this.chatId) {
       createChat(this.chatId);
       const prior = this.rehydrate();
-      this.titled = prior.length > 0;
       if (prior.length) this.runner.seed(prior);
     }
   }
@@ -134,10 +132,7 @@ export class LiveSession {
     const blocks: MessageBlock[] = [];
     const emit = this.blockEmit(blocks, ac.signal);
 
-    if (this.chatId) {
-      if (!this.titled) { this.titled = true; try { renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 60) || "Live conversation"); } catch { /* */ } }
-      addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
-    }
+    if (this.chatId) addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
     try {
       await this.runner.runTurn(text, frames, emit, ac.signal);
     } catch (e) {

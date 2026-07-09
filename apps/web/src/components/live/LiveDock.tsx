@@ -6,6 +6,8 @@ import { X } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
+import { api } from "@/lib/api";
+import { chatStore } from "@/lib/chatStore";
 import { PreCall } from "./LiveStage";
 import { InCall } from "./InCall";
 
@@ -13,11 +15,13 @@ import { InCall } from "./InCall";
 // mic/camera, model download, model pick), then the full-screen in-call view
 // (orb + transcript) once active.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, toggleScreen, changeScreen, getLevels, refreshDevices, setMic, setCam } = useLiveSession(chatId, null);
+  const { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, toggleScreen, getLevels, refreshDevices, setMic, setCam } = useLiveSession(chatId, null);
   const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, pttEnabled, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId } = useLiveStore();
   const openSettings = useUi((s) => s.openSettings);
 
   useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+  // Preload a resumed conversation's transcript from the saved store.
+  useEffect(() => { api.messages(chatId).then((m) => chatStore.preload(chatId, m as never)).catch(() => {}); }, [chatId]);
   useEffect(() => () => stop(), [stop]);
 
   const end = () => { stop(); onExit(); };
@@ -49,9 +53,9 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
       {active && (
         <InCall chatId={chatId} phase={phase} muted={muted} pttEnabled={pttEnabled} cameraOn={cameraOn} screenOn={screenOn}
           cameraStream={cameraStream} screenStream={screenStream} error={error}
-          mics={mics} cams={cams} micId={micId} camId={camId}
-          toggleMute={toggleMute} setPtt={setPtt} holdTalk={holdTalk} toggleCamera={toggleCamera} toggleScreen={toggleScreen} changeScreen={changeScreen}
-          setMic={setMic} setCam={setCam} getLevels={getLevels} onEnd={end} />
+          toggleMute={toggleMute} setPtt={setPtt} holdTalk={holdTalk} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
+          setMic={(id) => void setMic(id)} setCam={setCam}
+          getLevels={getLevels} onEnd={end} />
       )}
     </>
   );

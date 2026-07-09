@@ -270,7 +270,7 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
   const toggleCamera = useCallback(async () => {
     const on = !useLiveStore.getState().cameraOn;
     if (on) {
-      if (useLiveStore.getState().screenOn) { cam.current?.stop(); cam.current = null; client.current?.control("camera_off"); set({ screenOn: false }); }
+      if (useLiveStore.getState().screenOn) { cam.current?.stop(); cam.current = null; client.current?.control("camera_off"); set({ screenOn: false, screenStream: null }); }
       const camera = new CameraCapture();
       cam.current = camera;
       try {
@@ -324,26 +324,8 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
     }
   }, [set]);
 
-  // Re-pick the shared screen/window (live, while sharing).
-  const changeScreen = useCallback(async () => {
-    if (!useLiveStore.getState().screenOn) return;
-    const cap = new CameraCapture();
-    try {
-      await cap.startScreen(() => {
-        client.current?.control("camera_off");
-        try { cam.current?.stop(); } catch { /* */ }
-        cam.current = null;
-        set({ screenOn: false, screenStream: null });
-      });
-    } catch { try { cap.stop(); } catch { /* */ } return; } // cancelled → keep current
-    const old = cam.current;
-    cam.current = cap;
-    old?.stop();
-    set({ screenStream: cap.getStream() ?? null });
-  }, [set]);
-
   const getLevels = useCallback(() => ({ mic: engine.current?.micLevel() ?? 0, agent: engine.current?.agentLevel() ?? 0 }), []);
   const getSpeechProgress = useCallback(() => engine.current?.speechProgress() ?? 1, []);
 
-  return { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, toggleScreen, changeScreen, getLevels, getSpeechProgress, refreshDevices, setMic, setCam };
+  return { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, toggleScreen, getLevels, getSpeechProgress, refreshDevices, setMic, setCam };
 }

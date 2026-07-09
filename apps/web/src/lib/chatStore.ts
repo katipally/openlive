@@ -63,22 +63,20 @@ export const chatStore = {
   liveFinish(chatId: string, id: string) {
     patch(chatId, id, (m) => (m.done ? m : { ...m, done: true }));
   },
+  // Seed the transcript from saved messages (resuming a conversation).
+  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; tool?: string }> }>) {
+    const msgs: ChatMsg[] = [];
+    for (const m of messages) {
+      if (m.role !== "user" && m.role !== "assistant") continue;
+      const text = m.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
+      const tools = m.content.filter((b) => b.type === "tool").map((b) => ({ tool: b.tool ?? "" }));
+      if (!text && !tools.length) continue;
+      msgs.push({ id: m.id, role: m.role, text, tools, done: true });
+    }
+    useChatState.getState()._set(chatId, () => msgs);
+  },
   reset(chatId: string) {
     useChatState.getState()._set(chatId, () => []);
-  },
-  // Load a saved conversation's transcript for viewing.
-  hydrate(chatId: string, messages: { role: string; content: { type: string; text?: string; tool?: string; summary?: string; detail?: string }[] }[]) {
-    const msgs: ChatMsg[] = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m, i) => ({
-        id: `h${i}`,
-        role: m.role as "user" | "assistant",
-        text: m.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
-        tools: m.content.filter((b) => b.type === "tool").map((b) => ({ tool: b.tool ?? "", summary: b.summary, detail: b.detail })),
-        done: true,
-      }))
-      .filter((m) => m.text.trim() || m.tools.length);
-    useChatState.getState()._set(chatId, () => msgs);
   },
 };
 
