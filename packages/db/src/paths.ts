@@ -8,6 +8,4 @@ export const REPO_ROOT = resolve(here, "../../..");
 export const DATA_DIR = process.env.OPENLIVE_DATA_DIR
   ? resolve(process.env.OPENLIVE_DATA_DIR)
   : resolve(REPO_ROOT, "data");
-export const DB_PATH = resolve(DATA_DIR, "openlive.db");
-// The agent's writable scratch space (e.g. saved camera frames), if needed.
 export const SCRATCH_DIR = resolve(DATA_DIR, "scratch");

@@ -3,131 +3,144 @@ import type {
   Provider, ChatSummary, ChatMessage,
   ProviderKind, MessageBlock, MessageRole,
 } from "@openlive/shared";
-import { getDb } from "./connection";
+import { readJson, writeJson } from "./store";
 import { encryptSecret, decryptSecret } from "./crypto";
 
-const db = () => getDb();
+// Stored shapes (on disk).
+interface ProviderRow { id: string; name: string; kind: string; apiKeyCiphertext: string | null; keyLast4: string | null; isDefault: boolean }
+interface ChatRow { id: string; title: string; createdAt: string }
+interface MessageRow { id: string; chatId: string; role: MessageRole; content: MessageBlock[]; live: boolean; createdAt: string }
+interface Conversations { chats: ChatRow[]; messages: MessageRow[] }
+
+const PROVIDERS = "providers.json";
+const SETTINGS = "settings.json";
+const CONVOS = "conversations.json";
+
+const readProviders = () => readJson<ProviderRow[]>(PROVIDERS, []);
+const readConvos = () => readJson<Conversations>(CONVOS, { chats: [], messages: [] });
 
 // ─── Providers ─────────────────────────────────────────────────────────────
-function rowToProvider(r: any): Provider {
-  return {
-    id: r.id, name: r.name, kind: r.kind,
-    keyLast4: r.keyLast4, hasKey: !!r.hasKey, isDefault: !!r.isDefault,
-  };
+function toProvider(r: ProviderRow): Provider {
+  return { id: r.id, name: r.name, kind: r.kind, keyLast4: r.keyLast4, hasKey: !!r.apiKeyCiphertext, isDefault: !!r.isDefault };
 }
 
 export function listProviders(): Provider[] {
-  return (db().prepare(
-    `SELECT id, name, kind, key_last4 AS keyLast4,
-            (api_key_ciphertext IS NOT NULL) AS hasKey, is_default AS isDefault
-     FROM providers ORDER BY is_default DESC, name`,
-  ).all() as any[]).map(rowToProvider);
+  return readProviders()
+    .map(toProvider)
+    .sort((a, b) => (Number(b.isDefault) - Number(a.isDefault)) || a.name.localeCompare(b.name));
 }
 
 export function createProvider(p: {
   name: string; kind: ProviderKind; apiKey?: string | null; isDefault?: boolean;
 }): Provider {
-  const id = randomUUID();
+  const rows = readProviders();
   const key = p.apiKey?.trim() || null; // trim: pasted keys often carry a stray space/newline → 401
-  const ciphertext = key ? encryptSecret(key) : null;
-  const last4 = key ? key.slice(-4) : null;
-  if (p.isDefault) db().prepare(`UPDATE providers SET is_default = 0`).run();
-  db().prepare(
-    `INSERT INTO providers (id, name, kind, api_key_ciphertext, key_last4, is_default)
-     VALUES (?,?,?,?,?,?)`,
-  ).run(id, p.name, p.kind, ciphertext, last4, p.isDefault ? 1 : 0);
-  return listProviders().find((x) => x.id === id)!;
+  if (p.isDefault) rows.forEach((r) => (r.isDefault = false));
+  const row: ProviderRow = {
+    id: randomUUID(), name: p.name, kind: p.kind,
+    apiKeyCiphertext: key ? encryptSecret(key) : null, keyLast4: key ? key.slice(-4) : null,
+    isDefault: !!p.isDefault,
+  };
+  rows.push(row);
+  writeJson(PROVIDERS, rows);
+  return toProvider(row);
 }
 
 export function updateProvider(id: string, p: {
   name?: string; apiKey?: string | null; isDefault?: boolean;
 }): Provider | undefined {
-  if (p.name !== undefined) db().prepare(`UPDATE providers SET name=? WHERE id=?`).run(p.name, id);
-  const key = p.apiKey?.trim(); // trim: pasted keys often carry a stray space/newline → 401
-  if (key) {
-    db().prepare(`UPDATE providers SET api_key_ciphertext=?, key_last4=? WHERE id=?`)
-      .run(encryptSecret(key), key.slice(-4), id);
-  }
-  if (p.isDefault) {
-    db().prepare(`UPDATE providers SET is_default = 0`).run();
-    db().prepare(`UPDATE providers SET is_default = 1 WHERE id=?`).run(id);
-  }
-  return listProviders().find((x) => x.id === id);
+  const rows = readProviders();
+  const row = rows.find((r) => r.id === id);
+  if (!row) return undefined;
+  if (p.name !== undefined) row.name = p.name;
+  const key = p.apiKey?.trim();
+  if (key) { row.apiKeyCiphertext = encryptSecret(key); row.keyLast4 = key.slice(-4); }
+  if (p.isDefault) { rows.forEach((r) => (r.isDefault = false)); row.isDefault = true; }
+  writeJson(PROVIDERS, rows);
+  return toProvider(row);
 }
 
 /** Remove a provider's stored key (so a wrong/stale one can be cleared). */
 export function clearProviderKey(id: string): Provider | undefined {
-  db().prepare(`UPDATE providers SET api_key_ciphertext=NULL, key_last4=NULL WHERE id=?`).run(id);
-  return listProviders().find((x) => x.id === id);
+  const rows = readProviders();
+  const row = rows.find((r) => r.id === id);
+  if (!row) return undefined;
+  row.apiKeyCiphertext = null; row.keyLast4 = null;
+  writeJson(PROVIDERS, rows);
+  return toProvider(row);
 }
 
-/** Server-only: decrypt a provider's API key. Never exposed over HTTP.
- * Tolerant of a decrypt failure (e.g. the enc-key changed after a restart):
- * returns null so the app degrades to "no key set" instead of throwing. */
+/** Server-only: decrypt a provider's API key. Never exposed over HTTP. Tolerant
+ *  of a decrypt failure (e.g. the enc-key changed) — returns null. */
 export function getProviderApiKey(id: string): string | null {
-  const row = db().prepare(`SELECT api_key_ciphertext AS c FROM providers WHERE id=?`).get(id) as { c: string | null } | undefined;
-  if (!row?.c) return null;
-  try { return decryptSecret(row.c); } catch { return null; }
+  const row = readProviders().find((r) => r.id === id);
+  if (!row?.apiKeyCiphertext) return null;
+  try { return decryptSecret(row.apiKeyCiphertext); } catch { return null; }
 }
 
 // ─── Chats + messages ──────────────────────────────────────────────────────
 export function createChat(id?: string, title = "Live conversation"): ChatSummary {
   const chatId = id ?? randomUUID();
-  db().prepare(`INSERT OR IGNORE INTO chats (id, title) VALUES (?,?)`).run(chatId, title);
-  return db().prepare(
-    `SELECT id, title, created_at AS createdAt FROM chats WHERE id=?`,
-  ).get(chatId) as ChatSummary;
+  const c = readConvos();
+  let chat = c.chats.find((x) => x.id === chatId);
+  if (!chat) { chat = { id: chatId, title, createdAt: new Date().toISOString() }; c.chats.push(chat); writeJson(CONVOS, c); }
+  return { id: chat.id, title: chat.title, createdAt: chat.createdAt };
 }
 
 export function listChats(): ChatSummary[] {
-  return db().prepare(
-    `SELECT id, title, created_at AS createdAt FROM chats ORDER BY created_at DESC`,
-  ).all() as ChatSummary[];
+  return readConvos().chats
+    .map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt }))
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 export function renameChat(id: string, title: string): void {
-  db().prepare(`UPDATE chats SET title=? WHERE id=?`).run(title, id);
+  const c = readConvos();
+  const chat = c.chats.find((x) => x.id === id);
+  if (chat) { chat.title = title; writeJson(CONVOS, c); }
 }
 
 export function deleteChat(id: string): void {
-  db().prepare(`DELETE FROM chats WHERE id=?`).run(id);
+  const c = readConvos();
+  c.chats = c.chats.filter((x) => x.id !== id);
+  c.messages = c.messages.filter((m) => m.chatId !== id);
+  writeJson(CONVOS, c);
 }
 
 // ─── Settings (key/value) ──────────────────────────────────────────────────
 export function getSetting(key: string): string | undefined {
-  return (db().prepare(`SELECT value FROM settings WHERE key=?`).get(key) as { value: string } | undefined)?.value;
+  return readJson<Record<string, string>>(SETTINGS, {})[key];
 }
 
 export function setSetting(key: string, value: string): void {
-  db().prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, value);
+  const s = readJson<Record<string, string>>(SETTINGS, {});
+  s[key] = value;
+  writeJson(SETTINGS, s);
 }
 
 export function getAllSettings(): Record<string, string> {
-  const rows = db().prepare(`SELECT key, value FROM settings`).all() as { key: string; value: string }[];
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return readJson<Record<string, string>>(SETTINGS, {});
 }
 
+// ─── Messages ────────────────────────────────────────────────────────────────
+// Array insertion order == chronological order (append-only), so listMessages
+// preserves user→assistant ordering without a separate tiebreaker.
 export function addMessage(chatId: string, role: MessageRole, content: MessageBlock[], live = false): ChatMessage {
-  const id = randomUUID();
-  db().prepare(`INSERT INTO messages (id, chat_id, role, content_json, live) VALUES (?,?,?,?,?)`)
-    .run(id, chatId, role, JSON.stringify(content), live ? 1 : 0);
-  return db().prepare(
-    `SELECT id, chat_id AS chatId, role, content_json AS content, live, created_at AS createdAt FROM messages WHERE id=?`,
-  ).get(id) as any as ChatMessage;
+  const c = readConvos();
+  const row: MessageRow = { id: randomUUID(), chatId, role, content, live, createdAt: new Date().toISOString() };
+  c.messages.push(row);
+  writeJson(CONVOS, c);
+  return { ...row };
 }
 
 export function listMessages(chatId: string): ChatMessage[] {
-  const rows = db().prepare(
-    // `created_at` is second-granularity, so live-mode turns written in the same
-    // second tie. `rowid` (insertion order) breaks the tie so a reloaded live chat
-    // keeps user→assistant order.
-    `SELECT id, chat_id AS chatId, role, content_json AS content, live, created_at AS createdAt
-     FROM messages WHERE chat_id=? ORDER BY created_at, rowid`,
-  ).all(chatId) as any[];
-  return rows.map((r) => ({ ...r, live: !!r.live, content: JSON.parse(r.content) as MessageBlock[] }));
+  return readConvos().messages
+    .filter((m) => m.chatId === chatId)
+    .map((m) => ({ id: m.id, chatId: m.chatId, role: m.role, content: m.content, live: !!m.live, createdAt: m.createdAt }));
 }
 
 /** Overwrite a message's blocks. */
 export function updateMessage(id: string, content: MessageBlock[]): void {
-  db().prepare(`UPDATE messages SET content_json=? WHERE id=?`).run(JSON.stringify(content), id);
+  const c = readConvos();
+  const m = c.messages.find((x) => x.id === id);
+  if (m) { m.content = content; writeJson(CONVOS, c); }
 }

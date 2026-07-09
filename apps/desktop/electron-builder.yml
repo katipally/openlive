@@ -1,0 +1,64 @@
+appId: com.openlive.desktop
+productName: OpenLive
+copyright: © OpenLive
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the shell code goes in the asar; the servers ride along as unpacked
+# resources (they're spawned as child Node processes).
+files:
+  - main.cjs
+  - preload.cjs
+  - splash.html
+
+extraResources:
+  - from: dist/web
+    to: web
+  - from: dist/agent
+    to: agent
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: build/icon.png
+  extendInfo:
+    NSMicrophoneUsageDescription: OpenLive listens to your microphone to hear you speak.
+    NSCameraUsageDescription: OpenLive uses your camera so the assistant can see what you show it.
+    LSMinimumSystemVersion: "11.0"
+
+# Notarization: set mac.notarize + Apple creds in the environment (APPLE_ID,
+# APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID) to enable. Off by default so local
+# builds stay unsigned for testing.
+
+dmg:
+  title: OpenLive
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true

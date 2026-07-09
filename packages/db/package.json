@@ -11,11 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openlive/shared": "workspace:*",
-    "better-sqlite3": "^12.11.1"
+    "@openlive/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

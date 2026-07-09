@@ -37,9 +37,10 @@ const CSP = [
 ].join("; ");
 
 const config: NextConfig = {
+  // Self-contained server output for the Electron desktop build.
+  output: "standalone",
   // Transpile our workspace TS packages; keep native deps out of the bundle.
   transpilePackages: ["@openlive/db", "@openlive/shared", "@openlive/harness"],
-  serverExternalPackages: ["better-sqlite3"],
   // Pin the workspace root so file tracing is deterministic in the monorepo.
   turbopack: { root: join(import.meta.dirname, "..", "..") },
   outputFileTracingRoot: join(import.meta.dirname, "..", ".."),

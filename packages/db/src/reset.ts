@@ -1,8 +1,8 @@
 import { rmSync, existsSync } from "node:fs";
-import { DB_PATH, SCRATCH_DIR } from "./paths";
+import { resolve } from "node:path";
+import { DATA_DIR, SCRATCH_DIR } from "./paths";
 
-// Wipe the local DB (provider keys, settings, saved conversations) + scratch.
-for (const p of [DB_PATH, `${DB_PATH}-shm`, `${DB_PATH}-wal`, SCRATCH_DIR]) {
+for (const p of ["providers.json", "settings.json", "conversations.json"].map((f) => resolve(DATA_DIR, f)).concat(SCRATCH_DIR)) {
   if (existsSync(p)) rmSync(p, { recursive: true, force: true });
 }
-console.log("Reset: removed local DB and scratch.");
+console.log("Reset: cleared local data.");

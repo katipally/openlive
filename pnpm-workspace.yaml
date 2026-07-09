@@ -10,6 +10,8 @@ overrides:
 
 # Native modules we trust and need compiled on install.
 allowBuilds:
+  electron: true
+  electron-builder: true
   better-sqlite3: true
   esbuild: true
   onnxruntime-node: true

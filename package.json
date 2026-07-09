@@ -13,7 +13,11 @@
     "stop": "bash scripts/free-ports.sh",
     "build": "pnpm -r --filter @openlive/web build",
     "db:reset": "pnpm --filter @openlive/db reset",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "desktop:dev": "concurrently -k --kill-others -n web,agent,app -c cyan,magenta,green \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\" \"pnpm --filter @openlive/desktop start:dev\"",
+    "desktop:build": "pnpm --filter @openlive/desktop build",
+    "desktop:build:mac": "pnpm --filter @openlive/desktop build:mac",
+    "desktop:build:win": "pnpm --filter @openlive/desktop build:win"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

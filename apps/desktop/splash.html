@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0b0b0c;
+    color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: grid;
+    place-items: center;
+    -webkit-user-select: none;
+    user-select: none;
+    overflow: hidden;
+  }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .badge {
+    width: 64px; height: 64px; border-radius: 18px;
+    display: grid; place-items: center;
+    background: rgba(91,157,255,0.12);
+  }
+  /* audio-lines motif, animated */
+  .bars { display: flex; align-items: center; gap: 4px; height: 30px; }
+  .bars i {
+    width: 4px; border-radius: 3px; background: #5b9dff;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .bars i:nth-child(1){ height: 10px; animation-delay: 0s; }
+  .bars i:nth-child(2){ height: 22px; animation-delay: .12s; }
+  .bars i:nth-child(3){ height: 30px; animation-delay: .24s; }
+  .bars i:nth-child(4){ height: 18px; animation-delay: .36s; }
+  .bars i:nth-child(5){ height: 12px; animation-delay: .48s; }
+  @keyframes pulse { 0%,100% { transform: scaleY(0.5); opacity: .6; } 50% { transform: scaleY(1); opacity: 1; } }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  p { font-size: 12.5px; color: #a1a1aa; }
+  .dots::after { content: ""; animation: dots 1.4s steps(4,end) infinite; }
+  @keyframes dots { 0%{content:"";} 25%{content:"·";} 50%{content:"· ·";} 75%{content:"· · ·";} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="badge">
+      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+    <div style="text-align:center; display:flex; flex-direction:column; gap:6px;">
+      <h1>OpenLive</h1>
+      <p>Starting up<span class="dots"></span></p>
+    </div>
+  </div>
+</body>
+</html>

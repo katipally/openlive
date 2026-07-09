@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DATA_DIR } from "./paths";
 
@@ -18,6 +18,7 @@ function loadKey(): Buffer {
     return Buffer.from(readFileSync(keyFile, "utf8").trim(), "hex");
   }
   const generated = randomBytes(32);
+  mkdirSync(DATA_DIR, { recursive: true }); // first write may precede any store write
   writeFileSync(keyFile, generated.toString("hex"), { mode: 0o600 });
   return generated;
 }

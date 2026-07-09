@@ -5,3 +5,7 @@ data
 .env
 .DS_Store
 *.log
+
+# Electron build output
+release/
+apps/desktop/dist/
