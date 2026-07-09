@@ -4,14 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_PUBLIC_LIVE_WS_URL=ws://localhost:${AGENT_PORT:-8787} next dev -p ${WEB_PORT:-3000}",
+    "dev": "next dev -p ${WEB_PORT:-3000}",
     "build": "next build",
-    "start": "node server.mjs",
+    "start": "next start -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
-    "@openlive/db": "workspace:*",
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
     "@ricky0123/vad-web": "^0.0.29",
@@ -26,7 +25,6 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^2.6.0",
-    "ws": "^8.18.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

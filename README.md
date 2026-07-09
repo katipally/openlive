@@ -1,14 +1,3 @@
----
-title: OpenLive
-emoji: 🎙️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: Live voice + vision AI assistant — the voice runs on-device
----
-
 # OpenLive
 
 A live voice + vision AI assistant. Talk to it, show it your camera, and it talks
@@ -17,31 +6,35 @@ back in real time.
 The trick: the whole voice pipeline runs **in your browser** — voice activity
 detection (Silero), speech-to-text (Whisper), end-of-turn detection (Smart-Turn),
 and text-to-speech (Kokoro), all on-device via `transformers.js` + WebGPU. No
-audio ever leaves your machine. The server is a thin proxy that takes your final
-text (plus a camera frame when the camera's on), runs an ordinary streaming
-chat-completion turn against the LLM you pick, and streams the reply text back —
-which the browser speaks sentence-by-sentence as it arrives.
+audio ever leaves your machine. Each completed turn is a single streaming request
+to a serverless route that runs an ordinary chat-completion against the LLM you
+pick and streams the reply text back — which the browser speaks sentence-by-
+sentence as it arrives. Barge-in just aborts the request.
+
+This is the **serverless / BYOK** build (deploys to Vercel). For the self-hosted
+version with a persistent WebSocket agent + encrypted server-side key store, see
+the [`docker-websocket`](../../tree/docker-websocket) branch.
 
 ## Using it
 
-1. Open **⚙ Settings** → pick a provider (Anthropic / OpenAI / MiniMax) → paste
-   your API key → **Save**. The key is encrypted at rest on the server; the
-   browser only ever sees the last 4 digits.
+1. **⚙ Settings** → pick a provider (Anthropic / OpenAI / MiniMax) → paste your
+   API key → **Save**. The key is stored in your browser (localStorage) and sent
+   per request to your own serverless function, which calls the provider — so
+   every provider works (no browser-CORS limits) and the key never goes to any
+   third party.
 2. Pick a model. The list is fetched live from the provider, annotated with
-   vision / reasoning / cost. Reasoning effort defaults to the lowest the model
-   supports (smoothest voice); raise it for depth over latency.
+   vision / reasoning / cost. Effort defaults to the lowest the model supports
+   (smoothest voice); raise it for depth over latency.
 3. **Start a live call** → download the on-device voice models once (~200 MB,
-   cached after) → **Start** → talk. Turn the camera on to show it things; it can
-   call `look` for a closer frame.
+   cached after) → **Start** → talk. Turn the camera on to show it things.
 
-> The API key is shared by anyone who can open this instance — there's no login.
-> Use a spend-limited key, or run a private copy.
+> Your key lives in this browser profile. Use a spend-limited key.
 
 ## Running locally
 
 ```bash
 pnpm install
-pnpm dev          # web on :3000, agent on :8787 (predev frees the ports first)
+pnpm dev          # http://localhost:3000
 ```
 
 Everything is configured in the UI — no `.env` required.
@@ -49,16 +42,25 @@ Everything is configured in the UI — no `.env` required.
 ## Layout
 
 ```
-apps/web        Next.js 16 + a custom server.mjs that proxies the /live WebSocket
-                to the agent. The on-device voice engine lives in src/lib/live/*.
-services/agent  Hono + ws. A thin LLM proxy: session lifecycle, barge-in, tools
-                (fetch_url, look, update_todos), conversation persistence.
-packages/shared The /live wire protocol + shared types.
-packages/harness Provider-neutral LLM adapters, live model listing, cost/effort.
-packages/db     SQLite: encrypted provider keys, settings, chats, messages.
+apps/web
+  src/lib/live/*        on-device voice engine (VAD, STT, turn-detect, TTS) + camera
+  src/lib/turn/run.ts   server-side turn logic (tool loop, prompt) — used by the route
+  src/app/api/turn      streaming SSE route: one live turn, all providers, server-side
+  src/app/api/models    live model list for a provider (key via header)
+  src/components/live/*  orb-center in-call UI + always-on transcript + lobby
+  src/components/settings ONE provider → key → model → effort flow
+packages/shared         SSE event schema + shared types
+packages/harness        provider-neutral LLM adapters, live model listing, cost/effort
 ```
 
-## Deploy (Hugging Face Space)
+## Deploy to Vercel
 
-A single Docker image runs web + agent together on port 7860 (see `Dockerfile` /
-`docker-entrypoint.sh`), which is how this Space is built.
+1. Push this repo to GitHub (done: `katipally/openlive`).
+2. In Vercel: **New Project** → import the repo.
+3. Set **Root Directory** to `apps/web` (Vercel then installs the pnpm workspace
+   from the repo root and builds the Next.js app).
+4. Deploy. No environment variables required — keys are entered in the UI.
+
+The `/api/turn` route runs on the Node runtime and streams responses, which
+Vercel's Hobby (free) plan supports. Reasoning turns are short, well within the
+function duration limit.

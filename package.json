@@ -8,15 +8,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "predev": "bash scripts/free-ports.sh",
-    "dev": "concurrently -k --kill-others -n web,agent -c cyan,magenta \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\"",
-    "stop": "bash scripts/free-ports.sh",
-    "build": "pnpm -r --filter @openlive/web build",
-    "db:reset": "pnpm --filter @openlive/db reset",
+    "dev": "pnpm --filter @openlive/web dev",
+    "build": "pnpm --filter @openlive/web build",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
     "typescript": "^5.7.3"
   }
 }

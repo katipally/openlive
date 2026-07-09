@@ -1,30 +1,22 @@
 import { NextResponse } from "next/server";
-import { listProviders, getProviderApiKey } from "@openlive/db";
 import { BUILTIN_PROVIDERS, fetchModels } from "@openlive/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Live model list for a provider, straight from its own endpoint (enriched with
-// models.dev metadata for context/cost). `?provider=<id>` selects which; falls
-// back to the default/first configured provider. No hardcoded vendor list.
+// Live model list for a provider, fetched server-side (so every provider works —
+// no browser CORS). `?provider=<id>`; the key rides in the `x-provider-key`
+// header (the client holds it in localStorage). Without a key we still return the
+// models.dev catalog so the picker isn't empty.
 export async function GET(req: Request) {
   const want = new URL(req.url).searchParams.get("provider");
-  const configured = listProviders();
-  const providerId =
-    (want && BUILTIN_PROVIDERS.some((p) => p.id === want) && want) ||
-    configured.find((p) => p.isDefault)?.kind ||
-    configured[0]?.kind ||
-    BUILTIN_PROVIDERS[0]!.id;
-
-  const provider = BUILTIN_PROVIDERS.find((p) => p.id === providerId)!;
-  const row = configured.find((p) => p.kind === providerId);
-  const key =
-    (row ? getProviderApiKey(row.id) : null) ??
-    provider.envKeys?.map((k) => process.env[k]?.trim()).find(Boolean);
+  const provider = BUILTIN_PROVIDERS.find((p) => p.id === want) ?? BUILTIN_PROVIDERS[0]!;
+  const key = req.headers.get("x-provider-key")?.trim()
+    || provider.envKeys?.map((k) => process.env[k]?.trim()).find(Boolean)
+    || undefined;
 
   try {
-    const models = await fetchModels(provider, key ?? undefined);
+    const models = await fetchModels(provider, key);
     return NextResponse.json(
       models.map((m) => ({
         id: m.id,

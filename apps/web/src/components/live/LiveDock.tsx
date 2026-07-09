@@ -13,7 +13,7 @@ import { InCall } from "./InCall";
 // mic/camera, model download, model pick), then the full-screen in-call view
 // (orb + transcript) once active.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, getLevels, refreshDevices, setMic, setCam } = useLiveSession(chatId, null);
+  const { start, stop, download, toggleMute, setPtt, holdTalk, toggleCamera, getLevels, refreshDevices, setMic, setCam } = useLiveSession(chatId);
   const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, pttEnabled, cameraOn, cameraStream, error, mics, cams, micId, camId } = useLiveStore();
   const openSettings = useUi((s) => s.openSettings);
 

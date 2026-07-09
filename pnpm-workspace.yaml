@@ -1,23 +1,20 @@
 packages:
   - "packages/*"
   - "apps/*"
-  - "services/*"
 
 # Force ONE @huggingface/transformers copy across the tree. kokoro-js pulls 3.8.1
-# while we use 4.2.0; two copies = two onnxruntime-node envs that clash and segfault.
+# while we use 4.2.0; two copies = two onnxruntime envs that clash and segfault.
 overrides:
   "@huggingface/transformers": "4.2.0"
 
 # Native modules we trust and need compiled on install.
 allowBuilds:
-  better-sqlite3: true
   esbuild: true
   onnxruntime-node: true
   protobufjs: true
   sharp: true
 
 minimumReleaseAgeExclude:
-  - '@anthropic-ai/sdk@0.107.0'
   - '@tailwindcss/node@4.3.2'
   - '@tailwindcss/oxide-darwin-arm64@4.3.2'
   - '@tailwindcss/oxide-darwin-x64@4.3.2'

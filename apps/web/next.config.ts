@@ -1,25 +1,13 @@
 import type { NextConfig } from "next";
 import { join } from "node:path";
 
-// CSP for the app. The canvas renders model-authored HTML DIRECTLY in the app
-// document (no iframe), so its scripts run in-origin — connect-src is the main
-// exfiltration fence, object-src/frame-src none block plugin/iframe escapes.
-//
 // Live voice runs on-device AI models (Whisper / Kokoro / smart-turn) via
 // transformers.js + onnxruntime-web: the weights download from the Hugging Face
 // hub, the ort runtime instantiates WebAssembly (needs 'wasm-unsafe-eval') and
 // spins up blob: workers/modules. So connect-src must allow the model hosts and
-// blob:, and script/worker-src must allow blob:.
-// ponytail: this widens the canvas-script exfiltration surface to the HF/jsdelivr
-// hosts (not arbitrary). Acceptable pre-launch; to fully re-fence, proxy model
-// downloads through a same-origin /api route with a host allowlist.
+// blob:, and script/worker-src must allow blob:. The LLM turn is a same-origin
+// POST to /api/turn ('self'), so no extra connect-src host is needed for it.
 const MODEL_HOSTS = "https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net";
-// Live voice connects to the agent over a WebSocket (direct, not via the Next
-// proxy). Allow its origin in connect-src, derived from env (dev: ws://localhost:8787).
-const LIVE_WS = (() => {
-  const raw = process.env.NEXT_PUBLIC_LIVE_WS_URL || `ws://localhost:${process.env.AGENT_PORT || 8787}`;
-  try { return new URL(raw).origin; } catch { return "ws://localhost:8787"; }
-})();
 // React's dev mode needs 'unsafe-eval' (callstack reconstruction); prod never
 // does. Add it in development only so the strict prod CSP stays tight.
 const DEV_EVAL = process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
@@ -27,7 +15,7 @@ const CSP = [
   "default-src 'self'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
-  `connect-src 'self' blob: data: ${LIVE_WS} ${MODEL_HOSTS}`,
+  `connect-src 'self' blob: data: ${MODEL_HOSTS}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "frame-src 'none'",
@@ -37,9 +25,8 @@ const CSP = [
 ].join("; ");
 
 const config: NextConfig = {
-  // Transpile our workspace TS packages; keep native deps out of the bundle.
-  transpilePackages: ["@openlive/db", "@openlive/shared", "@openlive/harness"],
-  serverExternalPackages: ["better-sqlite3"],
+  // Transpile our workspace TS packages (consumed as source).
+  transpilePackages: ["@openlive/shared", "@openlive/harness"],
   // Pin the workspace root so file tracing is deterministic in the monorepo.
   turbopack: { root: join(import.meta.dirname, "..", "..") },
   outputFileTracingRoot: join(import.meta.dirname, "..", ".."),

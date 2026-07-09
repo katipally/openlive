@@ -1,63 +1,56 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Check, Trash2, ShieldAlert, Eye, Brain, Zap } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, Trash2, ShieldAlert, Eye, Brain, Zap } from "lucide-react";
 // Pure subpaths only — the barrel pulls in catalog/models (node:fs), which can't
 // bundle into this client component.
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { allowedEfforts } from "@openlive/harness/types";
 import { modelVision } from "@openlive/shared";
 import { api, type ModelInfo } from "@/lib/api";
+import { useSettings } from "@/lib/settingsStore";
 import { cn } from "@/lib/cn";
 
 const inputCls = "w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-faint focus:border-border-heavy";
 const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`) : "—");
-
-// Every provider the harness supports. `protocol` drives which reasoning efforts
-// a model can take.
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, protocol: p.protocol, keyless: !!p.keyless }));
 
-// API-key entry bound to one provider (by registry id). Upserts the DB row on save.
+// API-key entry for one provider — stored in localStorage (BYOK), never on a server.
 function ProviderKey({ kind }: { kind: string }) {
-  const qc = useQueryClient();
-  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
-  const row = providers.find((p) => p.kind === kind);
+  const keys = useSettings((s) => s.keys);
+  const setKey = useSettings((s) => s.setKey);
+  const removeKey = useSettings((s) => s.removeKey);
   const info = PROVIDERS.find((p) => p.id === kind);
-  const [key, setKey] = useState("");
-  const refresh = () => { qc.invalidateQueries({ queryKey: ["providers"] }); qc.invalidateQueries({ queryKey: ["models"] }); };
-  const save = useMutation({ mutationFn: () => api.setProviderKey(kind, key.trim()), onSuccess: () => { setKey(""); refresh(); } });
-  const remove = useMutation({ mutationFn: () => api.removeProviderKey(row!.id), onSuccess: refresh });
+  const has = !!keys[kind];
+  const last4 = has ? keys[kind]!.slice(-4) : "";
+  const [draft, setDraft] = useState("");
 
   if (info?.keyless) return <p className="mt-2 text-[12px] text-muted-foreground">No key needed — {info.name} is a local provider.</p>;
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[12.5px] text-muted-foreground">
-        {row?.hasKey
-          ? <><Check className="size-3.5 text-success" /> Key set · ••••{row.keyLast4}</>
-          : "No key set"}
+        {has ? <><Check className="size-3.5 text-success" /> Key set · ••••{last4}</> : "No key set"}
       </div>
-      <input value={key} onChange={(e) => setKey(e.target.value)} type="password" name={`${kind}-api-key`}
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} type="password" name={`${kind}-api-key`}
         placeholder={`Paste ${info?.name ?? kind} key`} aria-label={`${info?.name ?? kind} API key`}
-        onKeyDown={(e) => { if (e.key === "Enter" && key.trim()) save.mutate(); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { setKey(kind, draft); setDraft(""); } }}
         className="w-56 rounded-lg border border-border bg-card px-3 py-2 text-[12.5px] text-foreground outline-none focus:border-border-heavy" />
-      <button onClick={() => save.mutate()} disabled={!key.trim() || save.isPending}
-        className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-[13px] font-medium text-background transition hover:opacity-90 disabled:opacity-30">
-        {save.isSuccess ? <Check className="size-4" /> : <KeyRound className="size-4" />} Save
+      <button onClick={() => { if (draft.trim()) { setKey(kind, draft); setDraft(""); } }} disabled={!draft.trim()}
+        className="rounded-lg bg-foreground px-3 py-2 text-[13px] font-medium text-background transition hover:opacity-90 disabled:opacity-30">
+        Save
       </button>
-      {row?.hasKey && (
-        <button onClick={() => remove.mutate()} disabled={remove.isPending} title="Remove the stored key"
+      {has && (
+        <button onClick={() => removeKey(kind)} title="Remove the stored key"
           className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[13px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
           <Trash2 className="size-4" /> Remove
         </button>
       )}
-      {save.isError && <p className="w-full text-[12px] text-destructive">{(save.error as Error).message}</p>}
     </div>
   );
 }
 
-// Per-model capability badges surfaced right in the picker.
 function ModelBadges({ providerId, m }: { providerId: string; m?: ModelInfo }) {
   if (!m) return null;
   const vision = modelVision(providerId, m.id);
@@ -75,30 +68,24 @@ function ModelBadges({ providerId, m }: { providerId: string; m?: ModelInfo }) {
 }
 
 export function ModelsSettings() {
-  const qc = useQueryClient();
-  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
-  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-
-  const providerId = settings?.liveProviderId ?? providers.find((p) => p.isDefault)?.kind ?? providers[0]?.kind ?? PROVIDERS[0]!.id;
-  const { data: models = [] } = useQuery({ queryKey: ["models", providerId], queryFn: () => api.models(providerId), enabled: !!providerId });
-
-  const saveSetting = useMutation({
-    mutationFn: (b: Record<string, string>) => api.updateSettings(b),
-    onSuccess: (s) => qc.setQueryData(["settings"], s),
+  const { keys, liveProviderId, liveModel, liveEffort, setProvider, setModel, setEffort } = useSettings();
+  const providerId = liveProviderId || PROVIDERS[0]!.id;
+  const key = keys[providerId];
+  const { data: models = [] } = useQuery({
+    queryKey: ["models", providerId, key ? "keyed" : "nokey"],
+    queryFn: () => api.models(providerId, key),
   });
 
   const provider = PROVIDERS.find((p) => p.id === providerId);
-  const model = models.find((m) => m.id === settings?.liveModel);
-  // "auto" = lowest the model supports (smoothest voice); the rest are overrides.
+  const model = models.find((m) => m.id === liveModel);
   const efforts = ["auto", ...allowedEfforts(provider?.protocol, model?.reasoning ?? true)];
-  const effort = settings?.liveEffort ?? "auto";
+  const effort = liveEffort || "auto";
 
   const changeModel = (id: string) => {
     const m = models.find((x) => x.id === id);
     const eff = ["auto", ...allowedEfforts(provider?.protocol, m?.reasoning ?? true)];
-    const patch: Record<string, string> = { liveModel: id };
-    if (effort !== "auto" && !eff.includes(effort)) patch.liveEffort = "auto";
-    saveSetting.mutate(patch);
+    setModel(id);
+    if (effort !== "auto" && !eff.includes(effort)) setEffort("auto");
   };
 
   return (
@@ -106,11 +93,11 @@ export function ModelsSettings() {
       <div>
         <h2 className="text-[15px] font-semibold">Provider &amp; API key</h2>
         <p className="mt-1 text-[12.5px] text-muted-foreground">
-          Pick a provider and paste its key. The key is encrypted at rest on this machine — only the last 4 digits are ever shown, and it never reaches the browser again.
+          Pick a provider and paste its key. It&apos;s stored only in this browser and sent per request to the model you chose — never to any third party.
         </p>
         <div className="mt-3 inline-flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1">
           {PROVIDERS.map((p) => (
-            <button key={p.id} onClick={() => saveSetting.mutate({ liveProviderId: p.id, liveModel: "" })}
+            <button key={p.id} onClick={() => setProvider(p.id)}
               className={cn("rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
                 providerId === p.id ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
               {p.name}
@@ -120,7 +107,7 @@ export function ModelsSettings() {
         <ProviderKey kind={providerId} />
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-[12px] text-muted-foreground">
           <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-arc" />
-          <span>This key is shared by anyone who can open this instance (there&apos;s no login). Use a spend-limited key, or remove it when you&apos;re done.</span>
+          <span>Your key stays in this browser (localStorage). Anyone using this browser profile can use it — use a spend-limited key.</span>
         </div>
       </div>
 
@@ -129,7 +116,7 @@ export function ModelsSettings() {
         <p className="mt-1 text-[12.5px] text-muted-foreground">
           Fetched live from {provider?.name}. Pick a fast one with vision — in a voice call, time-to-first-word matters and the camera needs a model that can see.
         </p>
-        <select className={cn(inputCls, "mt-3 max-w-md")} value={settings?.liveModel ?? ""} onChange={(e) => changeModel(e.target.value)}>
+        <select className={cn(inputCls, "mt-3 max-w-md")} value={liveModel} onChange={(e) => changeModel(e.target.value)}>
           <option value="" disabled>{models.length ? "Select a model…" : "Add a key to load models…"}</option>
           {models.map((m) => {
             const vision = modelVision(providerId, m.id);
@@ -142,11 +129,11 @@ export function ModelsSettings() {
       <div>
         <h2 className="text-[15px] font-semibold">Reasoning effort</h2>
         <p className="mt-1 text-[12.5px] text-muted-foreground">
-          <b className="text-foreground">Auto</b> keeps the voice snappy (lowest the model supports). Raise it for deeper answers — but higher effort means a longer pause before it starts speaking. Levels adapt to the selected model.
+          <b className="text-foreground">Auto</b> keeps the voice snappy (lowest the model supports). Raise it for deeper answers — but higher effort means a longer pause before it starts speaking.
         </p>
         <div className="mt-3 inline-flex rounded-lg border border-border bg-card p-1">
           {efforts.map((e) => (
-            <button key={e} onClick={() => saveSetting.mutate({ liveEffort: e })}
+            <button key={e} onClick={() => setEffort(e)}
               className={cn("rounded-md px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition",
                 effort === e ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
               {e}
