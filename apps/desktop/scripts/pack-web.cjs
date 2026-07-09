@@ -36,6 +36,24 @@ cp(path.join(standalone, "apps/web"), dist); // brings server.js + .next + packa
 cp(path.join(webDir, ".next/static"), path.join(dist, ".next/static"));
 cp(path.join(webDir, "public"), path.join(dist, "public"));
 
+// pnpm's node_modules is a symlink farm and Next's standalone tracer leaves some
+// intermediate .pnpm symlinks dangling in the copy (their real target lives
+// elsewhere, so the app runs fine). macOS code-signing stat()s every file in the
+// bundle and dies on a broken link — prune them. Recurse only into real dirs so
+// pnpm's symlink cycles can't loop us.
+function pruneBrokenSymlinks(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      if (!fs.existsSync(p)) fs.rmSync(p, { force: true }); // existsSync follows the link
+    } else if (entry.isDirectory()) {
+      pruneBrokenSymlinks(p);
+    }
+  }
+}
+const nm = path.join(dist, "node_modules");
+if (fs.existsSync(nm)) pruneBrokenSymlinks(nm);
+
 if (!fs.existsSync(path.join(dist, "server.js"))) {
   console.error("[pack-web] ERROR: server.js not found in dist/web — check the standalone output layout.");
   process.exit(1);
