@@ -79,9 +79,11 @@ export class LiveClient {
   }
 
   private sendJson(m: unknown) { if (this.ready) this.ws!.send(JSON.stringify(m)); }
-  userText(text: string) { this.sendJson({ t: "user_text", text }); }
+  userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[]) {
+    this.sendJson({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
+  }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken ? { spoken } : {}) }); }
-  control(action: "camera_on" | "camera_off" | "end") { this.sendJson({ t: "control", action }); }
+  control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
 
   sendFrame(jpeg: ArrayBuffer) {

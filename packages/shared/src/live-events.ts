@@ -29,15 +29,22 @@ export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [
-  // A completed user turn: the on-device STT's final transcript. The freshest
-  // camera frame (if the camera is on) is sent as a FRAME_IN binary just before.
-  z.object({ t: z.literal("user_text"), text: z.string() }),
+  // A completed user turn: the on-device STT's final transcript, plus the freshest
+  // frame(s) from any active visual source (camera and/or screen), base64 inline.
+  // Inline (not binary) so both sources arrive atomically with the turn — no
+  // accumulation/timing races. `source` labels each frame so the model is told
+  // whether it's a camera or a screen.
+  z.object({
+    t: z.literal("user_text"),
+    text: z.string(),
+    frames: z.array(z.object({ data: z.string(), mime: z.string(), source: z.enum(["camera", "screen"]) })).optional(),
+  }),
   // Barge-in: the user started talking over the agent — abort the in-flight LLM
   // stream. Audio is stopped locally; this only stops the server generating.
   // `spoken` is what the on-device TTS actually voiced before the cut, so the
   // server persists only that (not the text it generated ahead of the voice).
   z.object({ t: z.literal("cancel"), spoken: z.string().optional() }),
-  z.object({ t: z.literal("control"), action: z.enum(["camera_on", "camera_off", "end"]) }),
+  z.object({ t: z.literal("control"), action: z.enum(["camera_on", "camera_off", "screen_on", "screen_off", "end"]) }),
   // Answer to need_frame; the hi-res JPEG follows as the next FRAME_IN binary.
   z.object({ t: z.literal("frame_response"), reqId: z.string() }),
 ]);

@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
-import { createChat, addMessage, listMessages } from "@openlive/db";
+import { createChat, addMessage, listMessages, renameChat } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, TaktTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 
 type Frame = { data: string; mime: string };
+type TurnFrame = Frame & { source: "camera" | "screen" };
 const HISTORY_TURNS = 20; // recent messages to rehydrate on reconnect
 
 // Replace the assistant's spoken text in `blocks` with exactly what the client
@@ -34,7 +35,9 @@ export class LiveSession {
   private queuedText: string | null = null; // an utterance that arrived mid-turn (barge-in)
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
   private cameraOn = false;
-  private lastFrame: Frame | null = null; // freshest camera frame, attached per turn
+  private screenOn = false;
+  private titled = false;                  // rename the chat from the first user turn
+  private lastFrame: Frame | null = null;  // freshest frame, for the `look` handshake
   private closed = false;
 
   // `look` tool ↔ client hi-res frame handshake.
@@ -47,10 +50,11 @@ export class LiveSession {
       description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => {
-        if (!this.cameraOn) return { output: "The camera is off, so I can't see anything right now. Ask the user to turn on their camera." };
+        if (!this.cameraOn && !this.screenOn) return { output: "Nothing is being shared right now. Ask the user to turn on their camera or share their screen." };
         const frame = await this.requestFrame();
-        if (!frame) return { output: "Couldn't grab a camera frame (it timed out). Ask the user to check their camera." };
-        return { output: "This is what the user's camera is showing right now — talk about it naturally, as what you're both looking at.", images: [frame] };
+        if (!frame) return { output: "Couldn't grab a fresh frame (it timed out). Ask the user to check their camera / screen share." };
+        const what = this.screenOn ? "the user's screen" : "the user's camera";
+        return { output: `This is what ${what} is showing right now — talk about it naturally, as what you're both looking at.`, images: [frame] };
       },
     };
     this.runner = new LiveTurnRunner([lookTool]);
@@ -105,12 +109,15 @@ export class LiveSession {
     let msg;
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
-      case "user_text": return void this.runTurn(msg.text);
+      case "user_text": return void this.runTurn(msg.text, msg.frames ?? []);
       case "cancel": if (this.turnActive) this.bargeSpoken = msg.spoken ?? null; return this.interrupt();
       case "control":
         if (msg.action === "camera_on") this.cameraOn = true;
-        else if (msg.action === "camera_off") { this.cameraOn = false; this.lastFrame = null; }
+        else if (msg.action === "camera_off") this.cameraOn = false;
+        else if (msg.action === "screen_on") this.screenOn = true;
+        else if (msg.action === "screen_off") this.screenOn = false;
         else if (msg.action === "end") this.dispose();
+        if (!this.cameraOn && !this.screenOn) this.lastFrame = null;
         return;
       case "frame_response":
         if (this.lookPending?.reqId === msg.reqId) this.awaitingLookFrame = true;
@@ -119,7 +126,7 @@ export class LiveSession {
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
-  private async runTurn(text: string) {
+  private async runTurn(text: string, frames: TurnFrame[] = []) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
     // queue it (append) and the finally below drains it as one turn.
@@ -127,12 +134,15 @@ export class LiveSession {
     this.turnActive = true;
     const ac = new AbortController();
     this.ac = ac;
-    const frames = this.cameraOn && this.lastFrame ? [this.lastFrame] : [];
 
     const blocks: MessageBlock[] = [];
     const emit = this.blockEmit(blocks, ac.signal);
 
-    if (this.chatId) addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
+    if (this.chatId) {
+      addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
+      // Auto-title the conversation from the first thing the user says.
+      if (!this.titled) { this.titled = true; try { renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation"); } catch { /* */ } }
+    }
     try {
       await this.runner.runTurn(text, frames, emit, ac.signal);
     } catch (e) {

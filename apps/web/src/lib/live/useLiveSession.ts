@@ -9,6 +9,13 @@ import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { loadModels, disposeModels, modelsReady, modelsCached } from "./models";
 import { useLiveStore } from "./liveStore";
 
+function abToBase64(ab: ArrayBuffer): string {
+  const bytes = new Uint8Array(ab);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
 // Orchestrates one live call. THICK CLIENT: the VoiceEngine runs VAD+STT+TTS
 // on-device; this hook wires it to the /live socket (final text + camera frames
 // + cancel), the camera, and the chat store, and owns a single leak-proof
@@ -18,7 +25,8 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
   const client = useRef<LiveClient | null>(null);
   const engine = useRef<VoiceEngine | null>(null);
   const player = useRef<AudioPlayer | null>(null);
-  const cam = useRef<CameraCapture | null>(null);
+  const camRef = useRef<CameraCapture | null>(null);
+  const screenRef = useRef<CameraCapture | null>(null);
   const micStream = useRef<MediaStream | null>(null);
   const assistantId = useRef<string | null>(null);
   const tornDown = useRef(false);
@@ -42,11 +50,12 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
     try { engine.current?.stop(); } catch { /* */ }              // destroys VAD + closes audio
     try { player.current?.close(); } catch { /* */ }             // free the audio ctx (also if start() failed before the engine)
     player.current = null;
-    try { cam.current?.stop(); } catch { /* */ }                 // camera light off
+    try { camRef.current?.stop(); } catch { /* */ }              // camera light off
+    try { screenRef.current?.stop(); } catch { /* */ }             // stop screen share
     if (micStream.current) { micStream.current.getTracks().forEach((t) => t.stop()); micStream.current = null; }
     if (assistantId.current) { chatStore.liveFinish(chatId, assistantId.current); assistantId.current = null; }
     disposeModels();                                             // frees the WebGPU worker
-    client.current = null; engine.current = null; cam.current = null;
+    client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
     set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttEnabled: false, cameraStream: null, screenStream: null, turns: [], userCaption: "", userPartial: false, agentCaption: "" });
   }, [chatId, set]);
@@ -153,9 +162,10 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
           if (assistantId.current) chatStore.liveApply(chatId, assistantId.current, e);
         },
         onNeedFrame: async (reqId) => {
-          const camera = cam.current;
-          if (!camera || !(useLiveStore.getState().cameraOn || useLiveStore.getState().screenOn)) { client.current?.frameResponse(reqId); return; }
-          const jpeg = await camera.captureHiRes();
+          const st = useLiveStore.getState();
+          const src = st.cameraOn ? camRef.current : st.screenOn ? screenRef.current : null;
+          if (!src) { client.current?.frameResponse(reqId); return; }
+          const jpeg = await src.captureHiRes();
           client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
           if (jpeg) client.current?.sendFrame(jpeg);
         },
@@ -177,11 +187,13 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
   const handleUserText = useCallback(async (text: string) => {
-    if ((useLiveStore.getState().cameraOn || useLiveStore.getState().screenOn) && cam.current) {
-      const jpeg = await cam.current.captureFreshest();
-      if (jpeg) client.current?.sendFrame(jpeg);
-    }
-    client.current?.userText(text);
+    // Attach the freshest frame from every active visual source (camera + screen
+    // can both be on), inline with the turn so the model sees exactly this moment.
+    const st0 = useLiveStore.getState();
+    const frames: { data: string; mime: string; source: "camera" | "screen" }[] = [];
+    if (st0.cameraOn && camRef.current) { const j = await camRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "camera" }); }
+    if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
+    client.current?.userText(text, frames);
     const st = useLiveStore.getState();
     const turns = [...st.turns];
     if (st.agentCaption.trim()) turns.push({ role: "agent", text: st.agentCaption.trim() });
@@ -258,27 +270,26 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
 
   const setCam = useCallback(async (id: string) => {
     set({ camId: id });
-    if (cam.current && useLiveStore.getState().cameraOn) {
-      cam.current.stop();
+    if (camRef.current && useLiveStore.getState().cameraOn) {
+      camRef.current.stop();
       const c = new CameraCapture();
-      cam.current = c;
+      camRef.current = c;
       try { await c.start(id); set({ cameraStream: c.getStream() ?? null }); }
-      catch { cam.current = null; set({ error: "Couldn't switch camera.", cameraStream: null }); }
+      catch { camRef.current = null; set({ error: "Couldn't switch camera.", cameraStream: null }); }
     }
   }, [set]);
 
   const toggleCamera = useCallback(async () => {
     const on = !useLiveStore.getState().cameraOn;
     if (on) {
-      if (useLiveStore.getState().screenOn) { cam.current?.stop(); cam.current = null; client.current?.control("camera_off"); set({ screenOn: false, screenStream: null }); }
       const camera = new CameraCapture();
-      cam.current = camera;
+      camRef.current = camera;
       try {
         await camera.start(useLiveStore.getState().camId);
         await refreshDevices();
       } catch {
-        try { camera.stop(); } catch { /* */ }   // stop the stream BEFORE dropping the ref
-        cam.current = null;
+        try { camera.stop(); } catch { /* */ }
+        camRef.current = null;
         set({ error: "Camera access denied." });
         return;
       }
@@ -286,40 +297,38 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
       set({ cameraOn: true, cameraStream: camera.getStream() ?? null });
     } else {
       client.current?.control("camera_off");
-      cam.current?.stop();
-      cam.current = null;
+      camRef.current?.stop();
+      camRef.current = null;
       set({ cameraOn: false, cameraStream: null });
     }
   }, [set, refreshDevices]);
 
-  // Share a screen/window. One visual source at a time, so it turns the camera
-  // off. The model sees the shared screen through the same frame pipeline.
+  // Share a screen/window — independent of the camera (both can be on). The
+  // model sees the shared screen through the same inline-frame pipeline.
   const toggleScreen = useCallback(async () => {
     const on = !useLiveStore.getState().screenOn;
     if (on) {
-      if (useLiveStore.getState().cameraOn) { cam.current?.stop(); cam.current = null; client.current?.control("camera_off"); set({ cameraOn: false, cameraStream: null }); }
       const cap = new CameraCapture();
-      cam.current = cap;
+      screenRef.current = cap;
       try {
         await cap.startScreen(() => {
-          // user hit "Stop sharing" in the OS/browser bar
-          client.current?.control("camera_off");
-          try { cam.current?.stop(); } catch { /* */ }
-          cam.current = null;
+          client.current?.control("screen_off");
+          try { screenRef.current?.stop(); } catch { /* */ }
+          screenRef.current = null;
           set({ screenOn: false, screenStream: null });
         });
       } catch {
         try { cap.stop(); } catch { /* */ }
-        cam.current = null;
+        screenRef.current = null;
         set({ error: "Screen share was cancelled." });
         return;
       }
-      client.current?.control("camera_on");
+      client.current?.control("screen_on");
       set({ screenOn: true, screenStream: cap.getStream() ?? null });
     } else {
-      client.current?.control("camera_off");
-      cam.current?.stop();
-      cam.current = null;
+      client.current?.control("screen_off");
+      screenRef.current?.stop();
+      screenRef.current = null;
       set({ screenOn: false, screenStream: null });
     }
   }, [set]);

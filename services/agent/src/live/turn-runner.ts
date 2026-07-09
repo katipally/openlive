@@ -29,15 +29,23 @@ export class LiveTurnRunner {
     this.messages.splice(1, this.messages.length - 1, ...history);
   }
 
-  async runTurn(userText: string, frames: { data: string; mime: string }[], emit: Emit, signal: AbortSignal): Promise<void> {
+  async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal): Promise<void> {
     const { provider, model, apiKey, effort } = resolveLive();
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
     if (!apiKey && !provider.keyless) { await emit({ type: "error", message: `No API key for ${provider.name}. Add one in Settings.` }); return; }
-    // Only attach the camera frame if the live model can actually see.
+    // Only attach frames if the live model can actually see. Tell the model whether
+    // it's looking at a camera or a screen (both can be on at once).
     const canSee = modelVision(provider.id, model);
-    const imgs = canSee && frames.length ? frames : undefined;
-    this.messages.push({ role: "user", text: userText, images: imgs });
-    // Keep camera frames only on the 2 most recent user turns (cost + latency).
+    let text = userText;
+    if (frames.length) {
+      const sources = [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ");
+      text = canSee
+        ? `${userText}\n\n[You're viewing the user's ${sources} live right now — react to what's actually there.]`
+        : `${userText}\n\n[The user is sharing their ${sources}, but this model can't see images. Tell them to switch to a vision model like Claude Haiku 4.5 or GPT-5 mini in Settings.]`;
+    }
+    const imgs = canSee && frames.length ? frames.map((f) => ({ data: f.data, mime: f.mime })) : undefined;
+    this.messages.push({ role: "user", text, images: imgs });
+    // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
     for (const m of withImgs.slice(0, -2)) if (m.role === "user") m.images = undefined;
 
