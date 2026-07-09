@@ -1,5 +1,4 @@
 import { streamProvider, isReasoningModel, type Message, type Effort } from "@openlive/harness";
-import { modelVision } from "@openlive/shared";
 import { buildTaktTools, type TaktTool, type Emit } from "../tools.js";
 import { collectTurn } from "../turn.js";
 import { safeParseArgs } from "../turn-loop.js";
@@ -33,17 +32,16 @@ export class LiveTurnRunner {
     const { provider, model, apiKey, effort } = resolveLive();
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
     if (!apiKey && !provider.keyless) { await emit({ type: "error", message: `No API key for ${provider.name}. Add one in Settings.` }); return; }
-    // Only attach frames if the live model can actually see. Tell the model whether
-    // it's looking at a camera or a screen (both can be on at once).
-    const canSee = modelVision(provider.id, model);
+    // Attach frames from any active visual source (camera and/or screen — both can
+    // be on). We do NOT gate on a hardcoded vision list: the frames go to whatever
+    // model is picked, and if the provider genuinely can't take images it surfaces
+    // a real error (never a faked "I can see"). Tell the model which source it is.
     let text = userText;
     if (frames.length) {
       const sources = [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ");
-      text = canSee
-        ? `${userText}\n\n[You're viewing the user's ${sources} live right now — react to what's actually there.]`
-        : `${userText}\n\n[The user is sharing their ${sources}, but this model can't see images. Tell them to switch to a vision model like Claude Haiku 4.5 or GPT-5 mini in Settings.]`;
+      text = `${userText}\n\n[You're viewing the user's ${sources} live right now — talk about what's actually there, not "the image". If you truly can't make it out or got no picture, say so plainly and never invent details.]`;
     }
-    const imgs = canSee && frames.length ? frames.map((f) => ({ data: f.data, mime: f.mime })) : undefined;
+    const imgs = frames.length ? frames.map((f) => ({ data: f.data, mime: f.mime })) : undefined;
     this.messages.push({ role: "user", text, images: imgs });
     // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);

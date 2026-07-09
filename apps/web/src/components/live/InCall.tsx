@@ -1,9 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { modelVision } from "@openlive/shared";
-import { api } from "@/lib/api";
 import { useReducedMotion } from "motion/react";
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Hand, ScreenShare, ScreenShareOff, ChevronUp } from "lucide-react";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
@@ -34,8 +31,6 @@ export function InCall(props: InCallProps) {
   const { userCaption, userPartial, agentCaption, agentCaptionMs, mics, cams, micId, camId } = useLiveStore();
   const reduce = useReducedMotion();
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
-  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const noVision = sharing && !!settings?.liveModel && !modelVision(settings.liveProviderId ?? "", settings.liveModel);
 
   const [agentWindow, setAgentWindow] = useState("");
   useEffect(() => {
@@ -86,12 +81,7 @@ export function InCall(props: InCallProps) {
           {cameraOn && <CameraPiP stream={cameraStream} />}
           {screenOn && <ScreenTile stream={screenStream} />}
 
-          {noVision && (
-            <div className="absolute inset-x-0 top-3 mx-auto flex max-w-lg items-center justify-center gap-2 rounded-lg border border-arc/30 bg-arc/10 px-3 py-1.5 text-center text-[12px] text-arc">
-              This model can't see — switch to a vision model (Claude Haiku 4.5 or GPT-5 mini) in Settings to use camera / screen.
-            </div>
-          )}
-          {error && <p className="absolute inset-x-0 top-12 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
+          {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
 
           {/* control bar */}
           <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">

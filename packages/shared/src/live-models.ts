@@ -1,14 +1,13 @@
 // Curated "best for Live voice" model shortlist, per provider. Live mode wants
-// FAST time-to-first-token + short spoken replies, and vision when the camera is
-// on. This is a hand-picked convenience layer over each provider's full model
-// list (still fetched live) — NOT an allowlist. IDs are best-effort as of
-// mid-2026; if a provider renames one, the full picker still works and this table
-// is a one-file edit. `vision: false` means camera frames are skipped for it.
+// FAST time-to-first-token + short spoken replies. This is a hand-picked
+// convenience layer over each provider's full model list (still fetched live) —
+// NOT an allowlist and NOT a gate. `vision` is a hint for the picker badge only;
+// frames are attached regardless and the model/provider decides what it can do.
 export interface LiveModelRec {
   model: string;       // provider model id (what gets stored as `liveModel`)
   label: string;       // short human label for the chip
   note: string;        // why it's good for live
-  vision: boolean;     // can it take a camera frame?
+  vision: boolean;     // hint for the picker badge (does it take image input?)
   default?: boolean;   // the ✦ pick for this provider
 }
 
@@ -20,13 +19,9 @@ export const LIVE_MODEL_RECS: Record<string, LiveModelRec[]> = {
     { model: "gpt-5-mini", label: "GPT-5 mini", note: "fast, multimodal, cheap", vision: true, default: true },
     { model: "gpt-5-nano", label: "GPT-5 nano", note: "lowest latency", vision: true },
   ],
-  // MiniMax runs over its Anthropic-compatible endpoint, which does NOT accept
-  // image input (M3 400s on an image, M2.5 says "no image") — so live camera
-  // vision must NOT go to MiniMax. Text/voice-only here; for the camera the live
-  // resolver prefers a vision-capable provider (OpenAI / Anthropic).
   minimax: [
-    { model: "MiniMax-M2.5-highspeed", label: "M2.5 highspeed", note: "fast, strong tool use (voice only — no camera)", vision: false, default: true },
-    { model: "MiniMax-M3", label: "M3", note: "1M context (voice only — no camera)", vision: false },
+    { model: "MiniMax-M2.5-highspeed", label: "M2.5 highspeed", note: "fast, strong tool use", vision: true, default: true },
+    { model: "MiniMax-M3", label: "M3", note: "1M context, multimodal", vision: true },
   ],
 };
 
@@ -35,16 +30,15 @@ export function liveRecsFor(providerId: string): LiveModelRec[] {
   return LIVE_MODEL_RECS[providerId] ?? [];
 }
 
-/** Does this provider+model accept image input? Curated table wins; otherwise a
- *  per-provider heuristic. Consulted everywhere before attaching an image
- *  (chat gather, live camera frames, page-image tools). */
+/** Best-effort hint of whether a model takes image input — used only for the
+ *  picker's vision badge. NOT a gate: frames are attached regardless and the
+ *  provider surfaces a real error if it genuinely can't take them (never faked).
+ *  Optimistic by default so we don't wrongly bias against capable models. */
 export function modelVision(providerId: string, model: string): boolean {
   const rec = LIVE_MODEL_RECS[providerId]?.find((r) => r.model === model);
   if (rec) return rec.vision;
-  switch (providerId) {
-    case "anthropic": return true;                 // all current Claude models see
-    case "openai": return !/^(o1-mini|o3-mini)$/i.test(model); // gpt-5 / 4o / o-series see
-    case "minimax": return false;                  // no image input over the Anthropic-compat endpoint
-    default: return true;
-  }
+  // Known text/embedding-only families → no image badge; everything else assumed
+  // multimodal (most current chat models are).
+  if (/embed|whisper|tts|moderation|^text-|o1-mini|o3-mini/i.test(model)) return false;
+  return true;
 }
