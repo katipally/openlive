@@ -8,6 +8,14 @@ const path = require("node:path");
 const http = require("node:http");
 const crypto = require("node:crypto");
 
+// The on-device voice models (Whisper STT, Kokoro TTS) run on WebGPU. If it's
+// unavailable the app falls back to CPU/WASM, which is several times slower and
+// makes the conversation feel laggy. Expose WebGPU + don't let a blocklisted GPU
+// silently drop us to software. Must be set before app is ready.
+app.commandLine.appendSwitch("enable-unsafe-webgpu");
+app.commandLine.appendSwitch("enable-features", "WebGPU");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+
 const DEV = process.env.ELECTRON_DEV === "1";
 const AGENT_PORT = 47823;      // uncommon, baked into the web build's CSP/WS url
 const WEB_PORT = Number(process.env.WEB_PORT) || (DEV ? 3000 : 47824);

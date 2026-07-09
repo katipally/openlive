@@ -83,7 +83,9 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
       }
     };
     w.onerror = (e) => reject(new Error(e.message || "model worker failed to load"));
-    w.postMessage({ type: "load", device: hasWebGPU() ? "webgpu" : "wasm" });
+    const tier = deviceTier();
+    console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
+    w.postMessage({ type: "load", device: tier });
   });
   loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
   return loading;

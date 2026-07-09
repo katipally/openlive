@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, Video, VideoOff } from "lucide-react";
 import type { DeviceOpt } from "@/lib/live/liveStore";
 import type { ModelProgress } from "@/lib/live/models";
+import { hasWebGPU } from "@/lib/live/models";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { cn } from "@/lib/cn";
 
@@ -68,6 +69,11 @@ export function PreCall({ mics, cams, micId, camId, onMic, onCam, error, modelsD
         <div className="space-y-1">
           <h2 className="text-[18px] font-semibold tracking-tight">Talk with OpenLive</h2>
           <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
+          {typeof navigator !== "undefined" && !hasWebGPU() && (
+            <p className="mx-auto max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
+              Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
+            </p>
+          )}
         </div>
 
         <CameraPreview camId={camId} onGranted={refreshDevices} />
