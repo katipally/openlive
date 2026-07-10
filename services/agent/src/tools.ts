@@ -5,6 +5,10 @@ import { z, type ZodRawShape } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SseEvent } from "@openlive/shared";
 import { getSetting, setSetting } from "@openlive/db";
+import { exaSearch } from "./exa.js";
+
+/** A worker subagent that runs a tool loop on the main agent's behalf. */
+export type RunWorker = (task: string, emit: Emit, signal: AbortSignal) => Promise<string>;
 
 export type Emit = (e: SseEvent) => Promise<void> | void;
 
@@ -37,52 +41,6 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
-// Web search. The DuckDuckGo html endpoint gives real web results but must be
-// POSTed (GET → 202 challenge) and rate-limits from some IPs; the official
-// Instant-Answer JSON API is reliable but only covers entities/definitions. Run
-// both in parallel and prefer the richer html results, so a blocked scrape still
-// falls back to a real answer.
-async function ddgHtmlResults(q: string): Promise<string[]> {
-  const res = await fetch("https://html.duckduckgo.com/html/", {
-    method: "POST",
-    signal: AbortSignal.timeout(8000),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "accept-language": "en-US,en;q=0.9",
-      "referer": "https://duckduckgo.com/",
-    },
-    body: new URLSearchParams({ q }).toString(),
-  });
-  if (!res.ok) return [];
-  const html = await res.text();
-  const results: string[] = [];
-  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) && results.length < 6) {
-    if (/duckduckgo\.com\/y\.js|ad_domain=|ad_provider=/.test(m[1]!)) continue; // skip sponsored/ad links
-    const href = decodeURIComponent(m[1]!.match(/uddg=([^&]+)/)?.[1] ?? m[1]!);
-    const title = htmlToText(m[2]!);
-    if (title) results.push(`${title}\n  ${href}`);
-  }
-  return results;
-}
-async function ddgInstantAnswer(q: string): Promise<string[]> {
-  const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&t=openlive`, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) return [];
-  const j: any = await res.json();
-  const out: string[] = [];
-  const abs = String(j.AbstractText || j.Abstract || "").trim();
-  if (abs) out.push(`${j.Heading ? `${j.Heading} — ` : ""}${abs}${j.AbstractURL ? `\n  ${j.AbstractURL}` : ""}`);
-  if (j.Answer) out.push(String(j.Answer).replace(/\s+/g, " ").trim());
-  for (const t of Array.isArray(j.RelatedTopics) ? j.RelatedTopics : []) {
-    if (out.length >= 5) break;
-    if (t?.Text) out.push(`${t.Text}${t.FirstURL ? `\n  ${t.FirstURL}` : ""}`);
-  }
-  return out;
-}
-
 // Zod shape → JSON Schema for the model. Inline refs and drop $schema so every
 // provider adapter accepts it.
 function params(shape: ZodRawShape): Record<string, unknown> {
@@ -108,26 +66,37 @@ async function hostIsPrivate(hostname: string): Promise<boolean> {
   catch { return true; } // unresolvable → refuse
 }
 
-// The generic tool set the live agent always has. `look` (camera) is injected
-// per-session by LiveSession; register your own tools by passing them to the
-// turn runner's `extraTools`.
-export function buildTaktTools(ctx: { emit: Emit }): TaktTool[] {
-  const { emit } = ctx;
+// ── Individual tools (factories over the turn's `emit`) ──────────────────────
+// The WORKER tools (web_search, fetch_url) run inside the delegated subagent; the
+// MAIN agent never touches them directly — it hands work off via `delegate` and
+// keeps talking. `look` (camera) is injected per-session by LiveSession.
 
-  const updateTodos: TaktTool = {
-    name: "update_todos",
-    description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
-    parameters: params({ items: z.array(z.object({ text: z.string(), done: z.boolean() })).min(1).max(8) }),
+function makeWebSearch(emit: Emit): TaktTool {
+  return {
+    name: "web_search",
+    description: "Search the web for current or factual info — news, weather, prices, recent events, a specific fact. Returns titles, URLs, and highlights (fetch_url a result for its full text).",
+    parameters: params({ query: z.string().describe("What to search for") }),
     execute: async (args) => {
-      const items = Array.isArray(args?.items) ? args.items.map((i: any) => ({ text: String(i.text ?? ""), done: !!i.done })).filter((i: any) => i.text) : [];
-      await emit({ type: "todos", items });
-      return text("Checklist updated.");
+      const id = randomUUID();
+      const q = String(args.query ?? "").trim();
+      await emit({ type: "tool_start", id, tool: "web_search", summary: q });
+      if (!q) { await emit({ type: "tool_done", id, detail: "empty" }); return text("No search query given."); }
+      try {
+        const out = await exaSearch(q);
+        await emit({ type: "tool_done", id, detail: out ? "ok" : "no results" });
+        return text(out || `No results for "${q}".`);
+      } catch (e: any) {
+        await emit({ type: "tool_done", id, detail: "error" });
+        return text(`Couldn't reach the web just now (${String(e?.message ?? e).slice(0, 80)}). Tell the user search is temporarily unavailable.`);
+      }
     },
   };
+}
 
-  const fetchUrl: TaktTool = {
+function makeFetchUrl(emit: Emit): TaktTool {
+  return {
     name: "fetch_url",
-    description: "Fetch a public web page and return its readable text. Use when the user asks about a specific URL. Returns plain text (scripts/markup stripped).",
+    description: "Fetch a public web page and return its readable text. Use for a specific URL. Returns plain text (scripts/markup stripped).",
     parameters: params({ url: z.string().describe("The absolute http(s) URL to fetch") }),
     execute: async (args) => {
       const id = randomUUID();
@@ -147,30 +116,25 @@ export function buildTaktTools(ctx: { emit: Emit }): TaktTool[] {
       } catch (e: any) { await emit({ type: "tool_done", id, detail: "error" }); return text(`Could not fetch: ${String(e?.message ?? e)}`); }
     },
   };
+}
 
-  const webSearch: TaktTool = {
-    name: "web_search",
-    description: "Search the web for current or factual info you don't already know — news, weather, prices, recent events, a specific fact. Returns titles + URLs (fetch_url a result for its full text). Don't use it for things you already know.",
-    parameters: params({ query: z.string().describe("What to search for") }),
+function makeUpdateTodos(emit: Emit): TaktTool {
+  return {
+    name: "update_todos",
+    description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
+    parameters: params({ items: z.array(z.object({ text: z.string(), done: z.boolean() })).min(1).max(8) }),
     execute: async (args) => {
-      const id = randomUUID();
-      const q = String(args.query ?? "").trim();
-      await emit({ type: "tool_start", id, tool: "web_search", summary: q });
-      if (!q) { await emit({ type: "tool_done", id, detail: "empty" }); return text("No search query given."); }
-      const [html, instant] = await Promise.all([
-        ddgHtmlResults(q).catch(() => [] as string[]),
-        ddgInstantAnswer(q).catch(() => [] as string[]),
-      ]);
-      const results = html.length ? html : instant;
-      await emit({ type: "tool_done", id, detail: `${results.length} results` });
-      return text(results.length ? results.join("\n\n") : `No results found for "${q}" (search may be temporarily rate-limited — tell the user you couldn't reach the web just now).`);
+      const items = Array.isArray(args?.items) ? args.items.map((i: any) => ({ text: String(i.text ?? ""), done: !!i.done })).filter((i: any) => i.text) : [];
+      await emit({ type: "todos", items });
+      return text("Checklist updated.");
     },
   };
+}
 
-  // Lightweight persistent memory: append a fact to notes.json. Remembered notes
-  // are auto-injected into the system prompt on the next call (see buildLivePrompt),
-  // so there's no separate "recall" tool — the agent just knows them.
-  const remember: TaktTool = {
+// Lightweight persistent memory: append a fact to notes.json. Remembered notes
+// are auto-injected into the system prompt on the next call (see buildLivePrompt).
+function makeRemember(emit: Emit): TaktTool {
+  return {
     name: "remember",
     description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",
     parameters: params({ note: z.string().describe("The fact to remember, as one short sentence") }),
@@ -187,6 +151,33 @@ export function buildTaktTools(ctx: { emit: Emit }): TaktTool[] {
       return text("Got it — I'll remember that.");
     },
   };
+}
 
-  return [webSearch, fetchUrl, updateTodos, remember];
+// The delegation tool: the main voice agent hands a task to a worker subagent that
+// owns the web tools. The worker's own tool activity streams to the UI (so the user
+// watches it work) while the main agent keeps talking; it returns tight findings the
+// main agent then speaks. Present even without `runWorker` (for prompt-cache warming).
+function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: RunWorker): TaktTool {
+  return {
+    name: "delegate",
+    description: "Hand off anything that needs the web — a search, a lookup, reading a page, checking a current fact — to your assistant, who has those tools. Give the task in one clear line. Say a short natural line to the user FIRST ('let me look that up'), then delegate: your assistant works while you talk, and reports back what it found for you to relay. Don't delegate things you already know — answer those instantly.",
+    parameters: params({ task: z.string().describe("The lookup/research task, in one line") }),
+    execute: async (args) => {
+      const task = String(args.task ?? "").trim();
+      if (!task) return text("No task given.");
+      if (!runWorker || !signal) return text("(assistant unavailable right now)");
+      const out = await runWorker(task, emit, signal);
+      return text(out || "(no findings)");
+    },
+  };
+}
+
+/** Tools for the WORKER subagent — the web tools it actually runs. */
+export function buildWorkerTools(ctx: { emit: Emit }): TaktTool[] {
+  return [makeWebSearch(ctx.emit), makeFetchUrl(ctx.emit)];
+}
+
+/** Tools for the MAIN voice agent: it delegates web work and otherwise talks. */
+export function buildTaktTools(ctx: { emit: Emit; signal?: AbortSignal; runWorker?: RunWorker }): TaktTool[] {
+  return [makeDelegate(ctx.emit, ctx.signal, ctx.runWorker), makeUpdateTodos(ctx.emit), makeRemember(ctx.emit)];
 }

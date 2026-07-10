@@ -95,7 +95,7 @@ export default function Home() {
             <div className="space-y-2">
               <h1 className="text-[32px] font-semibold tracking-tight">OpenLive</h1>
               <p className="max-w-sm text-[14px] leading-relaxed text-muted-foreground">
-                Your on-device voice and vision assistant — talk to it, show it your screen, and it answers out loud.
+                Ears, eyes, and a voice for your AI.
               </p>
             </div>
             <div className="flex items-center gap-3">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen } from "lucide-react";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
+import { toolMeta } from "@/lib/live/toolMeta";
 import { useUi } from "@/lib/uiStore";
 import { Orb } from "./Orb";
 import { CameraPiP } from "./CameraPiP";
@@ -32,7 +33,7 @@ export interface InCallProps {
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
     toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd } = props;
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, mics, cams, micId, camId } = useLiveStore();
+  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, mics, cams, micId, camId } = useLiveStore();
   const setMinimized = useUi((s) => s.setMinimized);
   const reduce = useReducedMotion();
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
@@ -72,6 +73,11 @@ export function InCall(props: InCallProps) {
       ? <span className="font-medium text-foreground">{agentWindow || agentCaption}</span>
       : null;
 
+  // Status line: a live tool cue while a tool runs, "Warming up…" right after
+  // connecting (both blue shimmer), otherwise the plain phase label.
+  const statusLabel = toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
+  const statusBusy = !!toolStatus || warming;
+
   return (
     <div className={cn("fixed inset-0 z-40 flex flex-col bg-background", !reduce && "animate-live-in")}>
       <TopBar />
@@ -83,7 +89,7 @@ export function InCall(props: InCallProps) {
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={220} />
               <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-[20px] leading-snug tracking-tight">{words}</p>
-              <p className="mt-1 text-[12px] uppercase tracking-wide text-faint">{PHASE_LABEL[phase]}</p>
+              <p className={cn("mt-1 text-[12px] uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
             </div>
           )}
 
@@ -105,7 +111,7 @@ export function InCall(props: InCallProps) {
             <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={26} />
               <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">
-                {words ?? <span className="text-muted-foreground">{PHASE_LABEL[phase]}</span>}
+                {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
               </span>
             </div>
           )}

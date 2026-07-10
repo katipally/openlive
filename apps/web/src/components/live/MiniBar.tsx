@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff } from "lucide-react";
 import { useLiveStore, type LivePhase } from "@/lib/live/liveStore";
+import { toolMeta } from "@/lib/live/toolMeta";
 import { useUi } from "@/lib/uiStore";
 import { Orb } from "./Orb";
 import { cn } from "@/lib/cn";
@@ -47,7 +48,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
   getLevels: () => { mic: number; agent: number }; getBands: () => { mic: number[]; agent: number[] }; onEnd: () => void;
 }) {
   const setMinimized = useUi((s) => s.setMinimized);
-  const { userCaption, userPartial, agentCaption } = useLiveStore();
+  const { userCaption, userPartial, agentCaption, toolStatus, warming } = useLiveStore();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +70,11 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
     return () => ro.disconnect();
   }, []);
 
-  const caption = userPartial && userCaption ? userCaption : agentCaption || (phase === "thinking" ? "Thinking…" : "Listening…");
+  // While a tool runs or the model warms (and nothing's being spoken yet), surface
+  // that as the caption with a shimmer.
+  const cue = toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : "";
+  const caption = userPartial && userCaption ? userCaption : agentCaption || cue || (phase === "thinking" ? "Thinking…" : "Listening…");
+  const cueOnly = !!cue && !(userPartial && userCaption) && !agentCaption;
 
   return (
     <div className="fixed inset-0 flex flex-col justify-end bg-surface [-webkit-app-region:drag]">
@@ -88,7 +93,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
             </>
           ) : (
             <>
-              <span className="min-w-0 flex-1 truncate text-[12.5px]" aria-live="polite">{caption}</span>
+              <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
               <MiniBtn on={!muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute} icon={muted ? MicOff : Mic} danger={muted} />
               <MiniBtn on={cameraOn} title={cameraOn ? "Camera off" : "Camera on"} onClick={() => void toggleCamera()} icon={cameraOn ? Video : VideoOff} />
               <MiniBtn on={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />

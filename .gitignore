@@ -13,3 +13,6 @@ next-env.d.ts
 # Electron build output
 release/
 apps/desktop/dist/
+
+# demo videos are hosted as GitHub assets, not committed (100MB limit + no inline playback)
+*.mp4

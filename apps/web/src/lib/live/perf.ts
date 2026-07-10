@@ -1,6 +1,6 @@
 // Voice-to-voice latency instrumentation. It records the real per-turn breakdown
-// so the numbers in BENCHMARKS.md come from actual runs on real hardware, never
-// from estimates. Open the console during a call to watch per-turn lines, and run
+// (mic → VAD → STT → model → TTS → speaker) on actual hardware, never estimates.
+// Open the console during a call to watch per-turn lines, and run
 // `openlivePerf.summary()` to print medians and p95 across the session.
 //
 // Stages, all measured on-device except the model turn:

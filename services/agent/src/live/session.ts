@@ -106,10 +106,13 @@ export class LiveSession {
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
-    // Warm the prompt cache in the background so the first spoken turn answers fast
-    // (no cold prefill). Fire-and-forget; aborted on teardown.
+    // Warm the prompt cache + connection in the background so the first spoken turn
+    // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
+    // always signal ready, even on failure, so the indicator never sticks.
     this.warmAc = new AbortController();
-    void this.runner.warm(this.warmAc.signal).catch(() => {});
+    void this.runner.warm(this.warmAc.signal)
+      .catch(() => {})
+      .finally(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); });
   }
 
   /** Stored messages → harness messages (text only — enough for continuity). */

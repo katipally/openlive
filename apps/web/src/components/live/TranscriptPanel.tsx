@@ -1,22 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Brain, ChevronRight, Loader2, PanelRightClose, Search, Globe, Bookmark, ListTodo, Clipboard, ExternalLink, Eye, Wrench } from "lucide-react";
+import { Brain, ChevronRight, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
-
-const TOOL_META: Record<string, { label: string; active: string; icon: typeof Wrench }> = {
-  web_search: { label: "Searched the web", active: "Searching the web", icon: Search },
-  fetch_url: { label: "Read a page", active: "Reading a page", icon: Globe },
-  remember: { label: "Saved a note", active: "Saving a note", icon: Bookmark },
-  update_todos: { label: "Updated the plan", active: "Planning", icon: ListTodo },
-  clipboard_read: { label: "Read the clipboard", active: "Reading the clipboard", icon: Clipboard },
-  clipboard_write: { label: "Copied to clipboard", active: "Copying", icon: Clipboard },
-  open_url: { label: "Opened a link", active: "Opening a link", icon: ExternalLink },
-  look: { label: "Took a look", active: "Looking", icon: Eye },
-};
-const meta = (tool: string) => TOOL_META[tool] ?? { label: tool.replace(/_/g, " "), active: `Using ${tool.replace(/_/g, " ")}`, icon: Wrench };
 
 // The running conversation, beside the orb. Assistant turns render as they
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
@@ -122,7 +111,7 @@ function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
     <div className="rounded-lg border border-border bg-card/40">
       <button onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition hover:text-foreground">
-        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-arc" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
+        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
         {active ? (
           <span className="arc-shimmer font-medium">{running ? `${meta(running.tool).active}…` : "Thinking…"}</span>
         ) : (
@@ -152,7 +141,7 @@ function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
   const Icon = m.icon;
   return (
     <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-      {part.done ? <Icon className="size-3.5 shrink-0 text-faint" /> : <Loader2 className="size-3.5 shrink-0 animate-spin text-arc" />}
+      {part.done ? <Icon className="size-3.5 shrink-0 text-faint" /> : <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />}
       <span className="shrink-0">{part.done ? m.label : `${m.active}…`}</span>
       {part.summary && <span className="truncate text-faint">· {part.summary}</span>}
     </div>

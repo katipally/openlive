@@ -169,7 +169,7 @@ body::before {
 .animate-live-in { animation: live-in 320ms var(--ease-out-quart); }
 @media (prefers-reduced-motion: reduce) { .animate-live-in { animation: none; } }
 
-/* "arc" shimmer for the thinking / generating state — a quiet welding nod */
+/* shimmer for the thinking / generating state — blue accent sweep */
 @keyframes arc-sweep {
   0% { background-position: 140% 0; }
   100% { background-position: -40% 0; }
@@ -178,7 +178,7 @@ body::before {
   background: linear-gradient(
     100deg,
     var(--color-muted-foreground) 30%,
-    var(--color-arc) 50%,
+    var(--color-accent) 50%,
     var(--color-muted-foreground) 70%
   );
   background-size: 220% 100%;
