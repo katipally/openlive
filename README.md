@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.svg" alt="OpenLive" width="88" height="88" />
+<img src="assets/logo.svg" alt="OpenLive" width="88" height="88" />
 
 # OpenLive
 
@@ -21,7 +21,7 @@ An open alternative to ElevenLabs conversational agents and Gemini Live.
 </div>
 
 <div align="center">
-<img src="docs/hero.png" alt="OpenLive in a live call — the voice orb listening, with a live transcript" width="820" />
+<img src="assets/hero.png" alt="OpenLive in a live call — the voice orb listening, with a live transcript" width="820" />
 </div>
 
 ---
@@ -66,7 +66,7 @@ gives it ears, a mouth, and eyes.
 
 | Home | Settings — bring your own model | Pre-call setup |
 |---|---|---|
-| ![Home](docs/home.png) | ![Settings](docs/settings.png) | ![Pre-call](docs/lobby.png) |
+| ![Home](assets/home.png) | ![Settings](assets/settings.png) | ![Pre-call](assets/lobby.png) |
 
 ## Why on-device voice matters
 
@@ -105,28 +105,20 @@ pnpm desktop:dev      # runs the web + agent servers and opens the app window
 You can also run it in a browser during development with `pnpm dev`, then open
 `localhost:3000`.
 
-## Benchmarks
-
-Voice agents live or die on latency, so we measure the one number that matters:
-voice-to-voice, the gap between you finishing a sentence and the app starting to
-speak. The method and the numbers are in [BENCHMARKS.md](BENCHMARKS.md). They come
-from real runs, not marketing.
-
 ## Repo layout
 
 ```
 apps/desktop     Electron shell: spawns the local servers, media perms, window, auto-update
 apps/web         Next.js UI + the on-device voice engine (src/lib/live/*) + /api settings
-services/agent   Hono + ws: the /live WebSocket and agent tools (web_search, fetch_url,
-                 remember, update_todos, look, clipboard, open_url)
+services/agent   Hono + ws: the /live WebSocket, the delegate → worker tool loop
+                 (web search via Exa, fetch_url), remember, update_todos, look, clipboard
 packages/harness provider-neutral model adapters, live model listing, cost/effort
 packages/shared  wire protocol + shared types
 packages/db      JSON-file store: encrypted keys, settings, conversations
 ```
 
-The desktop app ships as a signed, notarized universal build for macOS and an
-installer for Windows. Releases are cut from a git tag and built in CI. See the
-[release workflow](.github/workflows/release.yml) and the maintainer notes below.
+For how the pieces fit together — the thin-server design, the voice loop, and the
+delegate/worker tool flow — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Other ways to run it
 
@@ -144,20 +136,6 @@ locally with a warm socket. Two other branches trade some latency for reach:
 OpenLive is open to contributions. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for
 how to set up, where things live, and how to send a change. Good first issues are
 labeled in the tracker.
-
-## Releasing (maintainers)
-
-CI typechecks every push and PR. A release is one tag, no manual version bump:
-
-```bash
-git tag v0.1.5 && git push origin v0.1.5
-```
-
-The tag drives the version. CI builds the macOS (universal, signed and notarized)
-and Windows installers, uploads them, and publishes the release with the two
-downloads shown clearly. Mac signing runs when these repo secrets are set:
-`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
-`APPLE_TEAM_ID`. Details in [`apps/desktop/README.md`](apps/desktop/README.md).
 
 ## License
 

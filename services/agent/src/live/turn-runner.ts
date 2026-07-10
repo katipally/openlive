@@ -3,6 +3,7 @@ import { buildTaktTools, type TaktTool, type Emit } from "../tools.js";
 import { collectTurn } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
 import { resolveLive } from "../providers.js";
+import { runWorker } from "./worker.js";
 
 /** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
 function safeParseArgs(s: string): any {
@@ -83,9 +84,9 @@ export class LiveTurnRunner {
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
     for (const m of withImgs.slice(0, -2)) if (m.role === "user") m.images = undefined;
 
-    // Build tools with THIS turn's emit so their events are dropped by the same
-    // epoch guard when a barge-in interrupts.
-    const tools = [...buildTaktTools({ emit }), ...this.extraTools]
+    // Build tools with THIS turn's emit + signal so their events are dropped by the
+    // same epoch guard when a barge-in interrupts. `runWorker` powers `delegate`.
+    const tools = [...buildTaktTools({ emit, signal, runWorker }), ...this.extraTools]
       .filter((t) => !LIVE_TOOL_DENY.has(t.name));
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 

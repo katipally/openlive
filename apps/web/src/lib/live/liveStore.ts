@@ -23,6 +23,8 @@ interface LiveState {
   userPartial: boolean; // true while the user caption is still interim (greyed)
   agentCaption: string;
   agentCaptionMs: number; // playback duration of the current agent chunk — paces the word-by-word caption reveal
+  toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
+  warming: boolean;   // true from socket-open until the agent signals warm-ready → shows "Warming up…"
   error?: string;
   micId?: string;
   camId?: string;
@@ -51,6 +53,8 @@ export const useLiveStore = create<LiveState>((set) => ({
   userPartial: false,
   agentCaption: "",
   agentCaptionMs: 0,
+  toolStatus: "",
+  warming: false,
   mics: [],
   cams: [],
   set: (p) => set(p),

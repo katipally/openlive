@@ -35,15 +35,13 @@ export function useLiveSession(chatId: string) {
   const onPageHide = useRef<() => void>(() => {});
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
   // `segText` = chunks of the CURRENT segment already voiced, `curChunk` = the one
-  // revealing now, `revealRaf` = its frame. `pendingTools` holds tool activity until
-  // the next chunk voices, so it lands BETWEEN what was said before it and the answer
-  // after — the transcript reads in spoken order (say "let me check" → tool → answer).
+  // revealing now, `revealRaf` = its frame. Tool activity is shown LIVE on tool_start
+  // (see the onSse handler), not buffered.
   const segText = useRef("");
   const curChunk = useRef<string | null>(null);
   const revealRaf = useRef<number | null>(null);
-  const pendingTools = useRef<{ id: string; tool: string; summary?: string; detail?: string }[]>([]);
   const stopReveal = () => { if (revealRaf.current != null) { cancelAnimationFrame(revealRaf.current); revealRaf.current = null; } };
-  const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; pendingTools.current = []; };
+  const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; };
 
   // ── single teardown authority — releases EVERYTHING, always ───────────────
   const teardown = useCallback(() => {
@@ -63,12 +61,12 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "" });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false });
   }, [chatId, set]);
 
   const start = useCallback(async () => {
     tornDown.current = false;
-    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "" });
+    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "" });
     // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
     // AudioContext playback that starts after an await, so priming here (before the
     // model download) is what lets the agent's voice actually play on iPhone.
@@ -92,8 +90,8 @@ export function useLiveSession(chatId: string) {
       const eng = new VoiceEngine({
         // Entering "listening" clears the previous answer's caption so the user
         // sees themselves (or "Listening…") the moment they start talking.
-        onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "" } : { phase: p }),
-        onPartial: (text) => set({ userCaption: text, userPartial: true }),
+        onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
+        onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
         onUserText: (text) => void handleUserText(text),
         // A chunk just STARTED voicing. Drive TWO things from it: the composer
         // subtitle (rolling 3-4 word window — VoiceBar reads agentCaption) AND the
@@ -105,18 +103,6 @@ export function useLiveSession(chatId: string) {
           // The previous chunk's audio has finished (this one is now playing) — commit
           // it into the current segment.
           if (curChunk.current) segText.current = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
-          // A tool ran AND we've already voiced part of this segment → drop the tool
-          // activity in HERE (after what was just said, before the answer that follows)
-          // and start a fresh segment. Gating on segText keeps it AFTER the "let me
-          // check" line regardless of when the tool event arrived on the wire.
-          if (pendingTools.current.length && segText.current && id) {
-            for (const t of pendingTools.current) {
-              chatStore.liveEvent(chatId, id, { type: "tool_start", id: t.id, tool: t.tool, summary: t.summary });
-              chatStore.liveEvent(chatId, id, { type: "tool_done", id: t.id, detail: t.detail });
-            }
-            pendingTools.current = [];
-            segText.current = "";
-          }
           curChunk.current = sentence;
           stopReveal();
           if (!id) return;
@@ -144,7 +130,7 @@ export function useLiveSession(chatId: string) {
           // Stop the in-flight word reveal and snap the transcript to `spoken`
           // (the engine's authoritative, sentence-granular cutoff).
           stopReveal();
-          pendingTools.current = [];
+          set({ toolStatus: "" });
           // Keep what's already revealed (voice-synced ≈ what was spoken); just stop
           // advancing. Commit the current chunk so the next turn starts clean.
           if (curChunk.current) segText.current = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
@@ -160,12 +146,14 @@ export function useLiveSession(chatId: string) {
       //    more optimistic "Listening" that lies when the connection never lands.
       set({ phase: "connecting" });
       const c = new LiveClient({
-        onOpen: () => set({ phase: "idle", error: undefined }),
+        onOpen: () => set({ phase: "idle", error: undefined, warming: true }),
         onReconnecting: () => set({ phase: "reconnecting" }),
         onClose: () => teardown(),
         onError: (m) => set({ error: m }),
         onSse: (e) => {
           if (e.type === "error") { set({ error: e.message }); return; }
+          // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
+          if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
           // Prose text drives the VOICE only; the chat transcript is filled word-by-word
           // as each chunk is spoken (onAgentText), NOT from the generated stream (which
           // races ahead) — so an interrupt leaves the panel showing only what was said.
@@ -173,6 +161,7 @@ export function useLiveSession(chatId: string) {
           // Reasoning streams into the transcript's work block (interleaved with tools).
           if (e.type === "reasoning_delta") { if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
           if (e.type === "done") {
+            set({ toolStatus: "" });
             engine.current?.endAgentTurn();
             // Finish the spoken turn but KEEP assistantId pointing at it, so any
             // trailing event still attaches. It rolls forward on the next user turn
@@ -180,13 +169,18 @@ export function useLiveSession(chatId: string) {
             if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
             return;
           }
-          // Buffer tool activity; it's placed into the transcript when the next chunk
-          // voices (onAgentText) so it sits in spoken order, not ahead of the voice.
-          if (e.type === "tool_start") { pendingTools.current.push({ id: e.id, tool: e.tool, summary: e.summary }); return; }
+          // Show tool activity LIVE — the moment it starts — so the user gets a real
+          // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
+          // not bundled in after the answer. toolStatus drives the in-call status line.
+          if (e.type === "tool_start") {
+            set({ toolStatus: e.tool });
+            if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+            return;
+          }
           if (e.type === "tool_done") {
-            const t = pendingTools.current.find((x) => x.id === e.id);
-            if (t) t.detail = e.detail;                                              // still buffered → flush marks it done
-            else if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e); // already shown → update
+            set({ toolStatus: "" });
+            if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+            return;
           }
         },
         onNeedFrame: async (reqId) => {
