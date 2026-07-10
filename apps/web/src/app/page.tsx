@@ -9,6 +9,7 @@ import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
+import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -64,43 +65,59 @@ export default function Home() {
   const activeChatId = useUi((s) => s.activeChatId);
   const newConversation = useUi((s) => s.newConversation);
   const resumeChat = useUi((s) => s.resumeChat);
+  const minimized = useUi((s) => s.minimized);
+
+  // Warm the on-device voice models in the background as soon as the app loads, so
+  // opening Live doesn't stall on "Preparing…". Only when the weights are already
+  // cached — a fresh install still downloads via the explicit pre-call button (we
+  // don't silently pull hundreds of MB on first launch).
+  useEffect(() => {
+    if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
+  }, []);
 
   const startNew = () => { newConversation(); setLiveOpen(true); };
   const resume = (id: string) => { resumeChat(id); setLiveOpen(true); };
 
   return (
     <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-      <button onClick={openSettings} aria-label="Settings"
-        className="absolute right-4 top-4 grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-        <Settings2 className="size-5" />
-      </button>
-
-      <div className="flex flex-col items-center gap-6">
-        <OpenLiveMark />
-        <div className="space-y-2">
-          <h1 className="text-[32px] font-semibold tracking-tight">OpenLive</h1>
-          <p className="max-w-md text-[14px] leading-relaxed text-muted-foreground">
-            Talk to it, show it your camera or screen, and it answers out loud in real time. The voice runs on your device, so nothing you say leaves the machine.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={startNew}
-            className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
-            <Plus className="size-5" /> New call
+      {!minimized && (
+        <>
+          {/* Frameless-window drag handle: a top strip clear of the window controls
+              (top-left) and the settings button (top-right). Desktop only (.desktop). */}
+          <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10" />
+          <button onClick={openSettings} aria-label="Settings"
+            className="absolute right-4 top-4 grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+            <Settings2 className="size-5" />
           </button>
-          <ResumeMenu onPick={resume} />
-        </div>
-      </div>
 
-      <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-2 text-[11px] text-faint">
-        <a href="https://github.com/katipally/openlive" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
-          Open source
-        </a>
-        {appVersion && <><span>·</span><span>v{appVersion}</span></>}
-      </footer>
+          <div className="flex flex-col items-center gap-6">
+            <OpenLiveMark />
+            <div className="space-y-2">
+              <h1 className="text-[32px] font-semibold tracking-tight">OpenLive</h1>
+              <p className="max-w-md text-[14px] leading-relaxed text-muted-foreground">
+                Talk to it, show it your camera or screen, and it answers out loud in real time. The voice runs on your device, so nothing you say leaves the machine.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={startNew}
+                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+                <Plus className="size-5" /> New call
+              </button>
+              <ResumeMenu onPick={resume} />
+            </div>
+          </div>
+
+          <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-2 text-[11px] text-faint">
+            <a href="https://github.com/katipally/openlive" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
+              Open source
+            </a>
+            {appVersion && <><span>·</span><span>v{appVersion}</span></>}
+          </footer>
+        </>
+      )}
 
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
-      <SettingsModal />
+      {!minimized && <SettingsModal />}
     </main>
   );
 }

@@ -122,6 +122,12 @@ body::before {
 }
 .dark body::before { opacity: 0.04; mix-blend-mode: overlay; }
 
+/* ─── Desktop shell (frameless window) ──────────────────────────────────────
+   The window has no native frame; drag it from any surface tagged .app-drag,
+   while every interactive control inside opts out so only empty space moves it. */
+.desktop .app-drag { -webkit-app-region: drag; }
+.desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
+
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
 .takt-scroll {
   scrollbar-width: thin;

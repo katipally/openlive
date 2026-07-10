@@ -47,7 +47,7 @@ export function ScreenTile({ stream }: { stream: MediaStream | null }) {
   };
 
   return (
-    <div ref={boxRef} onPointerDown={onDrag}
+    <div ref={boxRef} onPointerDown={onDrag} data-interactive
       style={{ left: pos.x < 0 ? undefined : pos.x, top: pos.x < 0 ? 72 : pos.y, width: w, height: h, right: pos.x < 0 ? 16 : undefined, opacity: pos.x < 0 ? 0 : 1 }}
       className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-xl border border-border/60 bg-black shadow-2xl shadow-black/40 active:cursor-grabbing">
       {stream

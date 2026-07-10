@@ -2,7 +2,7 @@
 // OpenLive desktop shell. Runs the web (Next) + agent (ws) servers locally and
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
-const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -164,9 +164,16 @@ function createMainWindow() {
   mainWin = new BrowserWindow({
     width: saved?.width || 1180, height: saved?.height || 800, minWidth: 940, minHeight: 640,
     ...(saved && saved.x != null ? { x: saved.x, y: saved.y } : {}),
-    backgroundColor: DARK_BG, show: false,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
-    trafficLightPosition: { x: 16, y: 16 },
+    show: false,
+    // Frameless + OPAQUE. We draw our own window controls (WindowControls.tsx) and
+    // drag strip in CSS. NOT transparent: transparent windows take a slower macOS
+    // compositing path that competes with the on-device WebGPU voice models (adds
+    // turn latency) and rendered as a black wall on some GPUs. Mini mode just shrinks
+    // THIS window to a pill (previews render inline — no separate windows). macOS
+    // rounds the frameless window natively (roundedCorners), so the pill reads round.
+    frame: false,
+    roundedCorners: true,
+    backgroundColor: DARK_BG,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -192,26 +199,30 @@ function createMainWindow() {
   mainWin.on("closed", () => { mainWin = null; });
 }
 
-// ── minimized (floating overlay) mode ───────────────────────────────────────
+// ── minimized (floating pill) mode ───────────────────────────────────────────
+// Mini mode shrinks the SINGLE main window to a small floating pill that still runs
+// the whole voice pipeline AND owns the camera/screen streams — so the renderer
+// shows the previews INLINE (stacked above the pill) with no separate windows. The
+// pill grows UPWARD as previews appear (its bottom edge stays put). Opaque,
+// always-on-top; macOS rounds the frameless window natively.
+const PILL_W = 480, PILL_H = 60;
 let savedBounds = null;
-function positionFloating(w, h) {
-  if (!mainWin) return;
-  const area = screen.getDisplayMatching(mainWin.getBounds()).workArea;
-  mainWin.setMinimumSize(Math.min(320, w), Math.min(80, h));
-  mainWin.setBounds({ width: w, height: h, x: area.x + area.width - w - 24, y: area.y + area.height - h - 24 });
+
+function miniDisplay() {
+  return screen.getDisplayMatching(savedBounds || (mainWin ? mainWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 }));
 }
+function pillBottom(area) { return area.y + area.height - 72; } // clear the dock
+
 function wireMiniIpc() {
-  ipcMain.on("openlive:mini", (_e, { width, height }) => {
+  ipcMain.on("openlive:mini", () => {
     if (!mainWin) return;
     if (!savedBounds) savedBounds = mainWin.getBounds();
+    const area = miniDisplay().workArea;
     mainWin.setResizable(false);
-    positionFloating(width || 520, height || 120);
+    mainWin.setMinimumSize(PILL_W, PILL_H);
+    mainWin.setBounds({ width: PILL_W, height: PILL_H, x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H });
     mainWin.setAlwaysOnTop(true, "floating");
     mainWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    if (process.platform === "darwin" && mainWin.setWindowButtonVisibility) mainWin.setWindowButtonVisibility(false);
-  });
-  ipcMain.on("openlive:size", (_e, { width, height }) => {
-    if (mainWin && mainWin.isAlwaysOnTop()) positionFloating(width || 520, height || 120);
   });
   ipcMain.on("openlive:unmini", () => {
     if (!mainWin) return;
@@ -220,7 +231,49 @@ function wireMiniIpc() {
     mainWin.setResizable(true);
     mainWin.setMinimumSize(940, 640);
     if (savedBounds) { mainWin.setBounds(savedBounds); savedBounds = null; }
-    if (process.platform === "darwin" && mainWin.setWindowButtonVisibility) mainWin.setWindowButtonVisibility(true);
+  });
+  // The pill fits its content: the renderer measures the stacked previews + pill and
+  // asks for a height. Grow UPWARD — keep the bottom edge fixed so the pill doesn't
+  // walk up/down the screen as previews toggle.
+  ipcMain.on("openlive:mini-size", (_e, h) => {
+    if (!mainWin || !mainWin.isAlwaysOnTop()) return;
+    const area = miniDisplay().workArea;
+    // Fit the content snugly (down to ~a bare pill); don't force the full PILL_H so
+    // there's no empty strip above the composer.
+    const height = Math.max(44, Math.min(area.height - 96, Math.round(h) || PILL_H));
+    const b = mainWin.getBounds();
+    if (height === b.height) return;
+    const bottom = b.y + b.height;
+    const y = Math.max(area.y + 8, bottom - height);
+    mainWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
+  });
+}
+
+// ── custom window controls (frameless window → no native traffic lights) ─────
+function wireWindowIpc() {
+  ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
+  ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
+  ipcMain.on("openlive:win-zoom", () => {
+    if (!mainWin) return;
+    if (mainWin.isMaximized()) mainWin.unmaximize(); else mainWin.maximize();
+  });
+}
+
+// ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
+function wireBridgeIpc() {
+  ipcMain.handle("openlive:bridge", async (_e, { op, arg }) => {
+    try {
+      if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
+      if (op === "clipboard_write") { clipboard.writeText(String(arg ?? "")); return "Copied it to the clipboard."; }
+      if (op === "open_url") {
+        let u = String(arg ?? "").trim();
+        if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+        try { new URL(u); } catch { return `"${arg}" isn't a valid URL.`; }
+        await shell.openExternal(u);
+        return `Opened ${u} in the browser.`;
+      }
+      return "Unknown action.";
+    } catch (e) { return `Couldn't do that: ${e?.message ?? e}`; }
   });
 }
 
@@ -274,6 +327,8 @@ async function boot() {
   buildMenu();
   wirePermissions();
   wireMiniIpc();
+  wireWindowIpc();
+  wireBridgeIpc();
   createSplash();
   startServers();
   const ok = await waitForServers();

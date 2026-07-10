@@ -2,16 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, ChevronDown, Settings2, Minimize2, Plus, MessageSquare, Trash2 } from "lucide-react";
+import { ChevronDown, Settings2, Minimize2, Plus, MessageSquare, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 
-// Running inside the desktop app on macOS? Then leave room for the window's
-// traffic-light buttons and make the bar draggable.
-const isMacDesktop = typeof navigator !== "undefined"
-  && /Electron/i.test(navigator.userAgent)
-  && /Mac/i.test(navigator.userAgent);
+// Running inside the desktop app? Then leave room for the custom window controls
+// (top-left) and make the bar draggable (the window is frameless).
 const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 const noDrag = isDesktop ? "[-webkit-app-region:no-drag]" : "";
 
@@ -89,11 +87,11 @@ export function TopBar() {
 
   return (
     <header className={cn("flex h-12 shrink-0 items-center justify-between border-b border-border pr-3",
-      isMacDesktop ? "pl-[80px]" : "pl-3",
+      isDesktop ? "pl-[80px]" : "pl-3",
       isDesktop && "[-webkit-app-region:drag]")}>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2 pr-3">
-          <div className="grid size-7 place-items-center rounded-lg bg-accent/12 text-accent"><AudioLines className="size-4" /></div>
+          <OpenLiveOrb size={26} />
           <span className="text-[14px] font-semibold tracking-tight">OpenLive</span>
         </div>
         <Conversations />

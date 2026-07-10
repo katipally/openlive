@@ -30,6 +30,7 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
 // the conversation.
 export class LiveSession {
   private runner: LiveTurnRunner;
+  private warmAc: AbortController | null = null; // aborts the cache-warm request on teardown
   private ac: AbortController | null = null;
   private turnActive = false;
   private queuedText: string | null = null; // an utterance that arrived mid-turn (barge-in)
@@ -43,6 +44,9 @@ export class LiveSession {
   // `look` tool ↔ client hi-res frame handshake.
   private lookPending: { reqId: string; resolve: (f: Frame | null) => void } | null = null;
   private awaitingLookFrame = false;
+  // OS bridge (clipboard / open_url) ↔ client handshake. The client runs the
+  // action via Electron and replies; on the web it replies "not available".
+  private bridgePending = new Map<string, (out: string) => void>();
 
   constructor(private ws: WebSocket, private chatId: string) {
     const lookTool: TaktTool = {
@@ -57,7 +61,25 @@ export class LiveSession {
         return { output: `This is what ${what} is showing right now — talk about it naturally, as what you're both looking at.`, images: [frame] };
       },
     };
-    this.runner = new LiveTurnRunner([lookTool]);
+    const clipboardRead: TaktTool = {
+      name: "clipboard_read",
+      description: "Read the text currently on the user's clipboard (what they just copied). Use when they say things like 'what did I just copy' or 'read my clipboard'. Desktop app only.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+      execute: async () => ({ output: await this.bridge("clipboard_read") }),
+    };
+    const clipboardWrite: TaktTool = {
+      name: "clipboard_write",
+      description: "Copy text to the user's clipboard so they can paste it somewhere. Use when they ask you to 'copy that' or 'put it on my clipboard'. Desktop app only.",
+      parameters: { type: "object", properties: { text: { type: "string", description: "The text to place on the clipboard" } }, required: ["text"], additionalProperties: false },
+      execute: async (args) => ({ output: await this.bridge("clipboard_write", String(args?.text ?? "")) }),
+    };
+    const openUrl: TaktTool = {
+      name: "open_url",
+      description: "Open a web page in the user's default browser. Use when they ask you to open, pull up, or go to a site. Desktop app only.",
+      parameters: { type: "object", properties: { url: { type: "string", description: "The http(s) URL to open" } }, required: ["url"], additionalProperties: false },
+      execute: async (args) => ({ output: await this.bridge("open_url", String(args?.url ?? "")) }),
+    };
+    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl]);
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
@@ -75,6 +97,10 @@ export class LiveSession {
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
+    // Warm the prompt cache in the background so the first spoken turn answers fast
+    // (no cold prefill). Fire-and-forget; aborted on teardown.
+    this.warmAc = new AbortController();
+    void this.runner.warm(this.warmAc.signal).catch(() => {});
   }
 
   /** Stored messages → harness messages (text only — enough for continuity). */
@@ -122,7 +148,25 @@ export class LiveSession {
       case "frame_response":
         if (this.lookPending?.reqId === msg.reqId) this.awaitingLookFrame = true;
         return;
+      case "tool_bridge_result": {
+        const r = this.bridgePending.get(msg.reqId);
+        if (r) { this.bridgePending.delete(msg.reqId); r(msg.output); }
+        return;
+      }
     }
+  }
+
+  /** Ask the client to run an OS action (clipboard / open_url) and await its
+   *  result. On non-desktop clients the reply is instant ("not available"). */
+  private bridge(op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string): Promise<string> {
+    return new Promise((resolve) => {
+      const reqId = randomUUID();
+      const timer = setTimeout(() => {
+        if (this.bridgePending.delete(reqId)) resolve("That action timed out.");
+      }, 5000);
+      this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
+      this.send({ t: "tool_bridge", reqId, op, arg });
+    });
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
@@ -193,8 +237,11 @@ export class LiveSession {
   private dispose() {
     if (this.closed) return;
     this.closed = true;
+    this.warmAc?.abort();
     this.ac?.abort();
     this.lookPending?.resolve(null);
+    for (const r of this.bridgePending.values()) r("The session ended.");
+    this.bridgePending.clear();
     try { this.ws.close(); } catch { /* already closing */ }
   }
 }

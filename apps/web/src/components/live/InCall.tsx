@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Hand, ScreenShare, ScreenShareOff, ChevronUp } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Hand, ScreenShare, ScreenShareOff, ChevronUp } from "lucide-react";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { Orb } from "./Orb";
 import { CameraPiP } from "./CameraPiP";
 import { ScreenTile } from "./ScreenTile";
+import { EndCallButton } from "./EndCallButton";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { cn } from "@/lib/cn";
@@ -83,15 +84,17 @@ export function InCall(props: InCallProps) {
 
           {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
 
-          {/* control bar */}
+          {/* Status pill (orb + caption) while sharing — floats ABOVE the control bar
+              so toggling a screen/camera share never resizes the bar itself. */}
+          {sharing && (
+            <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
+              <Orb phase={phase} getLevels={getLevels} size={26} />
+              <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">{caption}</span>
+            </div>
+          )}
+
+          {/* control bar — a stable width regardless of sharing */}
           <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
-            {sharing && (
-              <div className="flex items-center gap-2 pl-1">
-                <Orb phase={phase} getLevels={getLevels} size={30} />
-                <span className="w-[190px] truncate text-[12.5px]" aria-live="polite">{caption}</span>
-                <span className="mx-1 h-6 w-px bg-border" />
-              </div>
-            )}
             <IconBtn on={pttEnabled} title={pttEnabled ? "Switch to hands-free" : "Push-to-talk"} onClick={() => setPtt(!pttEnabled)} icon={Hand} />
             {pttEnabled ? (
               <button onPointerDown={() => holdTalk(true)} onPointerUp={() => holdTalk(false)} onPointerLeave={() => holdTalk(false)}
@@ -105,10 +108,7 @@ export function InCall(props: InCallProps) {
             <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} title={cameraOn ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}
               devices={cams} activeId={camId} onPick={setCam} label="Camera" />
             <IconBtn on={screenOn} title={screenOn ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
-            <button onClick={onEnd} title="End call" aria-label="End call"
-              className="grid size-9 place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-95">
-              <PhoneOff className="size-4" />
-            </button>
+            <EndCallButton onEnd={onEnd} />
           </div>
         </main>
 

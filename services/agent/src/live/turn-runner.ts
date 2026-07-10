@@ -28,6 +28,36 @@ export class LiveTurnRunner {
     this.messages.splice(1, this.messages.length - 1, ...history);
   }
 
+  /** Prime the provider's prompt cache (system + tools) with a tiny request the
+   *  moment the session opens, so the FIRST real user turn is a cache HIT instead of
+   *  a cold prefill (the biggest first-token latency lever — see anthropic.ts). Best
+   *  effort: if it fails the first turn just pays the normal cold price. */
+  async warm(signal: AbortSignal): Promise<void> {
+    let resolved;
+    try { resolved = resolveLive(); } catch { return; }
+    const { provider, model, apiKey } = resolved;
+    if (!model || (!apiKey && !provider.keyless)) return;
+    const tools = [...buildTaktTools({ emit: async () => {} }), ...this.extraTools].filter((t) => !LIVE_TOOL_DENY.has(t.name));
+    const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+    try {
+      // maxTokens:1 — we only want the prefill (cache write); the output is discarded.
+      const gen = streamProvider(provider, apiKey ?? undefined, { model, messages: this.messages, tools: toolDefs, maxTokens: 1 }, signal);
+      for await (const ev of gen) { void ev; if (signal.aborted) break; }
+    } catch { /* cold first turn is the fallback */ }
+  }
+
+  // Bound the per-call history so a long conversation doesn't grow `messages`
+  // unboundedly (Anthropic caching helps but doesn't cap it, and OpenAI has no cache
+  // on this path). Cut only at a USER boundary so an assistant tool_use is never
+  // separated from its tool_result (providers 400 on an orphaned pair).
+  private capHistory() {
+    const CAP = 40, KEEP = 30;
+    if (this.messages.length <= CAP) return;
+    let cut = this.messages.length - KEEP;
+    while (cut < this.messages.length && this.messages[cut]!.role !== "user") cut++;
+    if (cut > 1 && cut < this.messages.length) this.messages.splice(1, cut - 1);
+  }
+
   async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal): Promise<void> {
     const { provider, model, apiKey, effort } = resolveLive();
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
@@ -83,13 +113,19 @@ export class LiveTurnRunner {
         });
         await emit({ type: "usage", contextTokens: turn.usage.input, outputTokens: turn.usage.output, costUsd: 0 });
         if (!turn.toolCalls.length) break;
-        for (const tc of turn.toolCalls) {
-          if (signal.aborted) return;
+        // Run this step's tool calls CONCURRENTLY. Serializing them was extra dead
+        // air (two web_searches back-to-back); fanned out, they finish while the
+        // model's spoken bridge line is still being voiced. Results are pushed in
+        // the original call order (providers pair each result to its call by id).
+        const runOne = async (tc: (typeof turn.toolCalls)[number]) => {
           const tool = tools.find((t) => t.name === tc.name);
-          if (!tool) { this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: `Unknown tool "${tc.name}".`, isError: true }); continue; }
-          let res;
-          try { res = await tool.execute(safeParseArgs(tc.arguments)); }
-          catch (e: any) { res = { output: `Error: ${String(e?.message ?? e)}`, isError: true as const }; }
+          if (!tool) return { tc, res: { output: `Unknown tool "${tc.name}".`, isError: true as const } };
+          try { return { tc, res: await tool.execute(safeParseArgs(tc.arguments)) }; }
+          catch (e: any) { return { tc, res: { output: `Error: ${String(e?.message ?? e)}`, isError: true as const } }; }
+        };
+        const results = await Promise.all(turn.toolCalls.map(runOne));
+        if (signal.aborted) return;
+        for (const { tc, res } of results) {
           this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: res.output, images: res.images, isError: res.isError });
         }
       }
@@ -106,5 +142,6 @@ export class LiveTurnRunner {
           : `Live model error: ${raw}`;
       await emit({ type: "error", message: msg });
     }
+    this.capHistory();
   }
 }

@@ -169,6 +169,14 @@ export function useLiveSession(chatId: string, productSlug: string | null) {
           client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
           if (jpeg) client.current?.sendFrame(jpeg);
         },
+        // OS bridge (clipboard / open_url) — runs through the Electron main process.
+        // On the web build there's no bridge, so we answer instantly (no dead air).
+        onToolBridge: async (reqId, op, arg) => {
+          const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
+          if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
+          try { client.current?.toolBridgeResult(reqId, await api.bridge(op, arg)); }
+          catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
+        },
       });
       client.current = c;
       c.connect(productSlug, chatId);

@@ -66,7 +66,12 @@ export class VoiceEngine {
       positiveSpeechThreshold: 0.5,              // lower → picks up soft speech + faster barge-in
       negativeSpeechThreshold: 0.35,
       minSpeechMs: 250,
-      redemptionMs: 700,                         // wait through short natural pauses
+      // Wait through short natural pauses before ending a turn. Kept modest because
+      // Smart-Turn v3 (semantic end-of-turn) + the mid-thought hold below already
+      // catch premature ends — so we don't need a long silence buffer, and shaving it
+      // takes real latency off every turn. ponytail: raise toward 700 if it starts
+      // cutting slow talkers off mid-sentence.
+      redemptionMs: 550,
       onSpeechStart: () => this.onSpeechStart(),
       onSpeechEnd: (audio) => { void this.onSpeechEnd(audio); },
       onFrameProcessed: (_p, frame) => this.onFrame(frame),

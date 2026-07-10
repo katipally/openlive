@@ -12,6 +12,7 @@ export interface LiveHandlers {
   onReconnecting?: () => void;
   onSse?: (e: SseEvent) => void;
   onNeedFrame?: (reqId: string) => void;
+  onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -72,6 +73,7 @@ export class LiveClient {
       switch (m.t) {
         case "sse": return this.h.onSse?.(m.event);
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
+        case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
         case "error": return this.h.onError?.(m.message);
       }
     };
@@ -85,6 +87,7 @@ export class LiveClient {
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken ? { spoken } : {}) }); }
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
+  toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
 
   sendFrame(jpeg: ArrayBuffer) {
     if (!this.ready) return;

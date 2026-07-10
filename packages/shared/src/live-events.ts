@@ -23,6 +23,10 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Ask the client for ONE fresh hi-res frame (the `look` tool). The client
   // replies with a frame_response then sends the JPEG as the next binary frame.
   z.object({ t: z.literal("need_frame"), reqId: z.string() }),
+  // Run an OS action on the user's machine (clipboard / open a URL) — desktop
+  // only. The client executes it via the Electron bridge and replies with
+  // tool_bridge_result. Enables agent-side clipboard_read/write + open_url tools.
+  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url"]), arg: z.string().optional() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
@@ -47,6 +51,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("control"), action: z.enum(["camera_on", "camera_off", "screen_on", "screen_off", "end"]) }),
   // Answer to need_frame; the hi-res JPEG follows as the next FRAME_IN binary.
   z.object({ t: z.literal("frame_response"), reqId: z.string() }),
+  // Result of a tool_bridge OS action (clipboard text / ok / error message).
+  z.object({ t: z.literal("tool_bridge_result"), reqId: z.string(), output: z.string() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;
 
