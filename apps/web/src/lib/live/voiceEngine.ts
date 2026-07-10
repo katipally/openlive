@@ -2,12 +2,13 @@ import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
 import { stt, tts, hasWebGPU, turnComplete, turnModelReady } from "./models";
 import { isJunk, endsMidThought, stripMarkdown, SentenceChunker } from "./voiceText";
+import { perf } from "./perf";
 
 // The on-device conversation loop (replaces the old server pipeline). Silero VAD
 // segments the user's speech; Whisper transcribes it (streaming partials + a
 // final); a light "mid-thought" check holds through natural pauses; the final
 // text goes to the server; the LLM's reply text streams back and is spoken with
-// Kokoro. Barge-in is a LOCAL decision — no server round-trip for audio.
+// Kokoro. Barge-in is a LOCAL decision, no server round-trip for audio.
 export type EnginePhase = "idle" | "listening" | "thinking" | "speaking";
 
 export interface VoiceEngineHandlers {
@@ -146,7 +147,8 @@ export class VoiceEngine {
         stt(combined).then((t) => t.trim()),
         turnModelReady() ? turnComplete(combined) : Promise.resolve(true),
       ]);
-      console.debug(`[live:perf] transcribe+turn ${Math.round(performance.now() - perf0)}ms`);
+      const sttEndpointMs = performance.now() - perf0;
+      console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
       if (isJunk(text)) { this.pending = null; this.setPhase("idle"); return; }
@@ -163,8 +165,9 @@ export class VoiceEngine {
       this.pending = null;
       this.clearHold();
       this.setPhase("thinking");
-      this.spokenText = ""; // new turn → clear the previous reply's spoken text
+      this.spokenText = ""; // new turn: clear the previous reply's spoken text
       this.turnSentAt = performance.now();
+      perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
     } catch {
       this.pending = null; this.setPhase("idle");
@@ -182,6 +185,7 @@ export class VoiceEngine {
 
   // ── agent reply → speech ───────────────────────────────────────────────
   feedAgentDelta(text: string) {
+    perf.firstToken(); // no-op after the first delta of a turn
     for (const s of this.chunker.push(text)) this.enqueueSpeak(s, this.epoch);
   }
   endAgentTurn() {
@@ -210,7 +214,7 @@ export class VoiceEngine {
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {
         this.speakingStartAt = Date.now(); this.setPhase("speaking");
-        if (this.turnSentAt) { console.debug(`[live:perf] first audio ${Math.round(performance.now() - this.turnSentAt)}ms after user done`); this.turnSentAt = 0; }
+        if (this.turnSentAt) { console.debug(`[live:perf] first audio ${Math.round(performance.now() - this.turnSentAt)}ms after user done`); this.turnSentAt = 0; perf.firstAudio(); }
       }
       // Show the caption for THIS chunk when it actually starts playing (not now,
       // when it finished synthesizing — synth runs ahead of the voice), so the

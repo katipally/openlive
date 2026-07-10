@@ -56,7 +56,9 @@ mac:
 # unsigned .dmg. In CI they come from GitHub Secrets — see .github/workflows/release.yml.
 
 dmg:
-  title: OpenLive
+  # Shows as the mounted volume / installer window title, so it reads as an
+  # installer ("Install OpenLive") rather than another copy of the app.
+  title: Install OpenLive
   contents:
     - x: 130
       y: 220

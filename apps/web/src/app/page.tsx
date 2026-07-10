@@ -2,11 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AudioLines, Settings2, MessageSquare, Plus } from "lucide-react";
+import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { OpenLiveMark } from "@/components/OpenLiveMark";
+
+// Set by the desktop preload (from the release tag); empty in a browser.
+const appVersion =
+  typeof window !== "undefined"
+    ? (window as unknown as { openlive?: { version?: string } }).openlive?.version ?? ""
+    : "";
 
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -73,13 +80,11 @@ export default function Home() {
       </button>
 
       <div className="flex flex-col items-center gap-6">
-        <div className="grid size-16 place-items-center rounded-2xl bg-accent/10 text-accent">
-          <AudioLines className="size-8" />
-        </div>
+        <OpenLiveMark />
         <div className="space-y-2">
           <h1 className="text-[32px] font-semibold tracking-tight">OpenLive</h1>
           <p className="max-w-md text-[14px] leading-relaxed text-muted-foreground">
-            A live voice &amp; vision assistant. Talk to it, show it your camera or screen, and it talks back in real time — the voice runs privately on your device.
+            Talk to it, show it your camera or screen, and it answers out loud in real time. The voice runs on your device, so nothing you say leaves the machine.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -90,6 +95,13 @@ export default function Home() {
           <ResumeMenu onPick={resume} />
         </div>
       </div>
+
+      <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-2 text-[11px] text-faint">
+        <a href="https://github.com/katipally/openlive" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
+          Open source
+        </a>
+        {appVersion && <><span>·</span><span>v{appVersion}</span></>}
+      </footer>
 
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
       <SettingsModal />
