@@ -53,9 +53,19 @@ jobs:
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
 
+      # Apple's notary service is intermittently flaky (returns empty/unexpected
+      # results). Retry a few times so a transient notarization blip doesn't fail
+      # the whole release; electron-builder overwrites its own assets on republish.
       - name: Build & publish (macOS — signed + notarized)
         if: matrix.name == 'mac'
-        run: pnpm --filter @openlive/desktop exec electron-builder --mac --publish always
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @openlive/desktop exec electron-builder --mac --publish always && exit 0
+            echo "::warning::electron-builder attempt $i failed (likely flaky notarization); retrying in 30s…"
+            sleep 30
+          done
+          exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signing (skipped automatically if these are unset):
