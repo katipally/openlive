@@ -82,7 +82,12 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           break;
       }
     };
-    w.onerror = (e) => reject(new Error(e.message || "model worker failed to load"));
+    w.onerror = (e) => {
+      const err = new Error(e.message || "model worker crashed");
+      reject(err); // the load promise, if we never became ready
+      // Fail every in-flight inference so callers recover rather than await a dead worker.
+      for (const [id, p] of pending) { pending.delete(id); p.reject(err); }
+    };
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     w.postMessage({ type: "load", device: tier });
@@ -91,11 +96,24 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
   return loading;
 }
 
+// Safety net: a hung/dead worker (a stalled inference, a dropped message, a crashed
+// WebGPU context) must NEVER leave a call unsettled — otherwise the voice engine's
+// finalize step awaits forever and the whole turn loop deadlocks ("stuck listening").
+// Generous enough not to trip a legitimately slow WASM/CPU transcription of a long
+// utterance; short enough that a real stall self-heals in seconds.
+const CALL_TIMEOUT_MS = 12000;
+
 function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
   if (!worker) return Promise.reject(new Error("models not loaded"));
   const id = ++seq;
   return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${CALL_TIMEOUT_MS}ms`));
+    }, CALL_TIMEOUT_MS);
+    pending.set(id, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
     worker!.postMessage({ ...msg, id }, transfer ?? []);
   });
 }

@@ -174,7 +174,7 @@ export class VoiceEngine {
     if (this.finalizing) return;
     const combined = this.pending ? this.concat([this.pending, audio], this.pending.length + audio.length) : audio;
     // Reject blips and near-silence up front (ambient noise that tripped the VAD).
-    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { this.pending = null; if (this.phase === "listening") this.setPhase("idle"); return; }
+    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { this.pending = null; this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
     this.finalizing = true;
     const perf0 = performance.now();
     try {
@@ -188,7 +188,7 @@ export class VoiceEngine {
       console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
-      if (isJunk(text)) { this.pending = null; this.setPhase("idle"); return; }
+      if (isJunk(text)) { this.pending = null; this.h.onPartial(""); this.setPhase("idle"); return; }
       // Hold through a mid-thought pause (model says "not done", or the words
       // trail off) instead of cutting in — but never longer than HOLD_MS / 20 s.
       const done = modelComplete && !endsMidThought(text);
@@ -207,7 +207,9 @@ export class VoiceEngine {
       perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
     } catch {
-      this.pending = null; this.setPhase("idle");
+      // A stalled/failed inference (now time-limited in models.call) must not strand
+      // the turn loop — recover to idle and clear the frozen partial caption.
+      this.pending = null; this.h.onPartial(""); this.setPhase("idle");
     } finally { this.finalizing = false; }
   }
 
@@ -215,7 +217,12 @@ export class VoiceEngine {
     this.clearHold();
     this.holdTimer = setTimeout(() => {
       const p = this.pending; this.pending = null; this.holdTimer = null;
-      if (p && this.phase === "idle") { void stt(p).then((t) => { const text = t.trim(); if (text) { this.setPhase("thinking"); this.spokenText = ""; this.turnSentAt = performance.now(); this.h.onUserText(text); } }); }
+      if (!p || this.phase !== "idle") return;
+      void stt(p).then((t) => {
+        const text = t.trim();
+        if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.turnSentAt = performance.now(); this.h.onUserText(text); }
+        else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
+      }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
     }, HOLD_MS);
   }
   private clearHold() { if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; } }
