@@ -8,12 +8,7 @@ import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
-
-// Set by the desktop preload (from the release tag); empty in a browser.
-const appVersion =
-  typeof window !== "undefined"
-    ? (window as unknown as { openlive?: { version?: string } }).openlive?.version ?? ""
-    : "";
+import { useAppVersion } from "@/lib/useAppVersion";
 
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -62,6 +57,7 @@ function ResumeMenu({ onPick }: { onPick: (id: string) => void }) {
 }
 
 export default function Home() {
+  const appVersion = useAppVersion();
   const liveOpen = useUi((s) => s.liveOpen);
   const setLiveOpen = useUi((s) => s.setLiveOpen);
   const openSettings = useUi((s) => s.openSettings);

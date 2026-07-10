@@ -36,6 +36,10 @@ let splashWin = null;
 const children = [];
 
 // ── single instance ─────────────────────────────────────────────────────────
+// Dev runs under its own profile so it can coexist with an installed OpenLive.
+// Sharing the app id + user-data dir means they fight over this lock, and dev
+// would silently quit (exit 0) whenever the installed app is open.
+if (DEV) app.setPath("userData", `${app.getPath("userData")}-dev`);
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 app.on("second-instance", () => { if (mainWin) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); } });
 

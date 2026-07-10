@@ -4,17 +4,13 @@ import { useRef } from "react";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useUi } from "@/lib/uiStore";
+import { useAppVersion } from "@/lib/useAppVersion";
 import { ModelsSettings } from "./ModelsSettings";
 import { overlay, modal } from "@/lib/motion";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 
-// Set in the desktop app by preload (from the release tag); empty in a browser.
-const appVersion =
-  typeof window !== "undefined"
-    ? (window as unknown as { openlive?: { version?: string } }).openlive?.version ?? ""
-    : "";
-
 export function SettingsModal() {
+  const appVersion = useAppVersion();
   const open = useUi((s) => s.settingsOpen);
   const close = useUi((s) => s.closeSettings);
   const dialogRef = useRef<HTMLDivElement>(null);
