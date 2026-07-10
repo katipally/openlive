@@ -89,7 +89,26 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Give users a clean release: a short body with the two downloads, and strip
+      # electron-builder's auto-update metadata (*.blockmap, *.yml) from the asset
+      # list so the page shows only the Mac + Windows installers.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          BASE="https://github.com/$REPO/releases/download/$TAG"
+          NOTES="## Download OpenLive ${TAG}
+
+          | Platform | Download |
+          | --- | --- |
+          | 🍎 **macOS** (Apple Silicon + Intel) | [\`${TAG}\` — Mac (.dmg)](${BASE}/OpenLive-${TAG#v}-mac.dmg) |
+          | 🪟 **Windows** (64-bit) | [\`${TAG}\` — Windows (.exe)](${BASE}/OpenLive-${TAG#v}-windows.exe) |
+
+          On first launch macOS may take a few seconds to verify the app — that's normal.
+          "
+          gh release edit "$TAG" --repo "$REPO" --draft=false --latest --notes "$NOTES"
+          for a in $(gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name' | grep -E '\.(blockmap|yml)$'); do
+            gh release delete-asset "$TAG" "$a" --yes --repo "$REPO" || true
+          done

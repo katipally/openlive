@@ -97,7 +97,7 @@ async function waitForWeb(timeoutMs = 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     if (await ping(WEB_URL)) return true;
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 120)); // tight poll so the window shows the instant the server is up
   }
   return false;
 }

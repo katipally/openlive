@@ -39,6 +39,10 @@ const CSP = [
 const config: NextConfig = {
   // Self-contained server output for the Electron desktop build.
   output: "standalone",
+  // The UI uses no next/image, so skip Next's image optimizer — that drops the
+  // native `sharp` dep, which (a) is arch-specific and blocks the universal macOS
+  // build and (b) just bloats the bundle here.
+  images: { unoptimized: true },
   // Transpile our workspace TS packages; keep native deps out of the bundle.
   transpilePackages: ["@openlive/db", "@openlive/shared", "@openlive/harness"],
   // Pin the workspace root so file tracing is deterministic in the monorepo.

@@ -51,7 +51,12 @@ function copyDeref(src, dest, anc = new Set()) {
   }
 }
 
+// `sharp` (Next's image optimizer) is unused here and ships arch-specific native
+// binaries that break the universal macOS build. Drop it from the bundle.
+const isSharp = (p) => /[/\\](@img|sharp)([/\\]|$)/.test(p) || /[/\\]\.pnpm[/\\](@img\+|sharp@)/.test(p);
+
 function mirror(src, dest) {
+  if (isSharp(dest)) return;
   const lst = fs.lstatSync(src);
   if (lst.isSymbolicLink()) {
     let real; try { real = fs.realpathSync(src); } catch { return; } // broken → skip
