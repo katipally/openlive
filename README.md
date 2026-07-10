@@ -21,6 +21,9 @@ An open alternative to ElevenLabs conversational agents and Gemini Live.
 </div>
 
 <div align="center">
+
+  ##Demo
+  https://github.com/user-attachments/assets/6ebe0e47-44cb-4d4f-bc33-7f15651e6342
 <img src="assets/hero.png" alt="OpenLive in a live call — the voice orb listening, with a live transcript" width="820" />
 </div>
 
