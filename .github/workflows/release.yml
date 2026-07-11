@@ -89,9 +89,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # Give users a clean release: a short body pointing at the two installers,
-      # and strip the *.blockmap noise. The *.yml + mac *.zip stay — auto-update
-      # (electron-updater) needs them; users just follow the download table.
+      # Need the repo checked out to read CHANGELOG.md for the release highlights.
+      - uses: actions/checkout@v4
+
+      # Give users a clean release: this version's CHANGELOG highlights, a download
+      # table pointing at the two installers, and strip the *.blockmap noise. The
+      # *.yml + mac *.zip stay — auto-update (electron-updater) needs them.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,6 +102,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           BASE="https://github.com/$REPO/releases/download/$TAG"
+          # Best-effort: pull this tag's section out of CHANGELOG.md. Empty if the
+          # file or section is missing — the release still publishes with the table.
+          HIGHLIGHTS=""
+          if [ -f CHANGELOG.md ]; then
+            HIGHLIGHTS=$(awk -v v="${TAG#v}" 'index($0,"## ["v"]")==1{f=1;print;next} f&&/^## \[/{exit} f&&/^\[.*\]: /{exit} f{print}' CHANGELOG.md || true)
+          fi
           NOTES="## Download OpenLive ${TAG}
 
           | Platform | Download |
@@ -108,6 +117,12 @@ jobs:
 
           On first launch macOS may take a few seconds to verify the app — that's normal.
           "
+          if [ -n "$HIGHLIGHTS" ]; then
+            NOTES="${NOTES}
+          ---
+
+          ${HIGHLIGHTS}"
+          fi
           gh release edit "$TAG" --repo "$REPO" --draft=false --latest --notes "$NOTES"
           for a in $(gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name' | grep -E '\.blockmap$'); do
             gh release delete-asset "$TAG" "$a" --yes --repo "$REPO" || true

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Check, Trash2, Eye, Brain, Zap } from "lucide-react";
+import { KeyRound, Check, Trash2, Eye, EyeOff, Brain, Zap, AlertTriangle, ChevronDown } from "lucide-react";
 // Pure subpaths only — the barrel pulls in catalog/models (node:fs), which can't
 // bundle into this client component.
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
@@ -13,6 +13,10 @@ import { SearchSelect, type SearchOption } from "./SearchSelect";
 import { cn } from "@/lib/cn";
 
 const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`) : "—");
+
+// Real image-input capability when the API reports it (models.dev / provider
+// payload); fall back to the name heuristic when it doesn't.
+const hasVision = (providerId: string, m: ModelInfo) => m.vision ?? modelVision(providerId, m.id);
 
 // Every provider the harness supports. `protocol` drives which reasoning efforts
 // a model can take.
@@ -70,7 +74,7 @@ function ProviderKey({ kind }: { kind: string }) {
 
 function ModelBadges({ providerId, m }: { providerId: string; m?: ModelInfo }) {
   if (!m) return null;
-  const vision = modelVision(providerId, m.id);
+  const vision = hasVision(providerId, m);
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
       {vision && <span className="inline-flex items-center gap-1 text-foreground"><Eye className="size-3.5" /> vision</span>}
@@ -81,6 +85,44 @@ function ModelBadges({ providerId, m }: { providerId: string; m?: ModelInfo }) {
       {m.maxOutput ? <span>Max out <b className="text-foreground">{Math.round(m.maxOutput / 1000)}k</b></span> : null}
       {m.cost ? <span>${m.cost.input}/M in</span> : null}
       {m.cost ? <span>${m.cost.output}/M out</span> : null}
+    </div>
+  );
+}
+
+// Optional dedicated vision model, its own provider. Used only when the live
+// model can't see: frames are described by this model and handed to the live one.
+function VisionModelPicker() {
+  const qc = useQueryClient();
+  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const save = useMutation({
+    mutationFn: (b: Record<string, string>) => api.updateSettings(b),
+    onSuccess: (s) => qc.setQueryData(["settings"], s),
+  });
+
+  // Default the provider box to a keyed provider so the model list isn't empty.
+  const vProvider = settings?.visionProviderId
+    ?? providers.find((p) => p.isDefault)?.kind ?? providers[0]?.kind ?? PROVIDERS[0]!.id;
+  const { data: models = [] } = useQuery({ queryKey: ["models", vProvider], queryFn: () => api.models(vProvider), enabled: !!vProvider });
+
+  // Only vision-capable models make sense here.
+  const options: SearchOption[] = models
+    .filter((m) => hasVision(vProvider, m))
+    .map((m) => ({ value: m.id, label: m.display_name, hint: m.reasoning ? "reasoning" : "fast" }));
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <select value={vProvider} aria-label="Vision provider"
+        onChange={(e) => save.mutate({ visionProviderId: e.target.value, visionModel: "" })}
+        className="h-9 w-full rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy">
+        {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <SearchSelect value={settings?.visionModel ?? ""} onChange={(id) => save.mutate({ visionModel: id })}
+        options={options} placeholder={models.length ? "None — use the live model to see" : "Add a key to load models…"}
+        disabled={!models.length} emptyText="No vision models here" />
+      {settings?.visionModel
+        ? <button onClick={() => save.mutate({ visionModel: "" })} className="self-start text-[11.5px] text-muted-foreground hover:text-foreground">Clear — let the live model see</button>
+        : null}
     </div>
   );
 }
@@ -104,9 +146,13 @@ export function ModelsSettings() {
   const effort = settings?.liveEffort ?? "auto";
 
   const options: SearchOption[] = models.map((m) => {
-    const bits = [modelVision(providerId, m.id) && "vision", m.reasoning ? "reasoning" : "fast"].filter(Boolean);
+    const bits = [hasVision(providerId, m) && "vision", m.reasoning ? "reasoning" : "fast"].filter(Boolean);
     return { value: m.id, label: m.display_name, hint: bits.join(" · ") };
   });
+
+  // Warn only when we KNOW it can't see (false), not when capability is unknown.
+  const liveBlind = model ? hasVision(providerId, model) === false : false;
+  const hasVisionModel = !!settings?.visionModel;
 
   const changeModel = (id: string) => {
     const m = models.find((x) => x.id === id);
@@ -138,7 +184,33 @@ export function ModelsSettings() {
           placeholder={models.length ? "Select a model…" : "Add a key to load models…"}
           disabled={!models.length} emptyText="No models match" />
         <ModelBadges providerId={providerId} m={model} />
+        {liveBlind && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-arc/40 bg-arc-soft px-3 py-2.5 text-[12px] leading-relaxed text-foreground">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-arc" />
+            <span>
+              <b>{model?.display_name}</b> can’t see images — camera & screen won’t work with it.
+              {hasVisionModel ? " A vision model is set below, so frames route through that." : " Pick a vision-capable model, or set a dedicated vision model below."}
+            </span>
+          </div>
+        )}
       </Section>
+
+      <details className="group border-b border-border pb-7 last:border-0 last:pb-0">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+          <div>
+            <h2 className="flex items-center gap-1.5 text-[14px] font-semibold text-foreground">
+              <EyeOff className="size-3.5 text-muted-foreground" /> Vision model
+              <span className="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-normal text-muted-foreground">optional · advanced</span>
+            </h2>
+            <p className="mt-1 max-w-xl text-[12.5px] leading-relaxed text-muted-foreground">
+              Leave off and the live model sees for itself. Pick one to route camera/screen through a
+              different model — used <b className="text-foreground">only</b> for vision, even if the live model can already see.
+            </p>
+          </div>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-open:rotate-180" />
+        </summary>
+        <div className="mt-3.5"><VisionModelPicker /></div>
+      </details>
 
       <Section title="Reasoning effort"
         desc={<><b className="text-foreground">Auto</b> keeps the voice snappy (lowest the model supports). Raise it for deeper answers — but higher effort means a longer pause before it starts speaking.</>}>
@@ -147,7 +219,7 @@ export function ModelsSettings() {
             <button key={e} onClick={() => saveSetting.mutate({ liveEffort: e })}
               className={cn("rounded-md px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition",
                 effort === e ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
-              {e}
+              {e === "auto" ? "Auto ✦" : e}
             </button>
           ))}
         </div>

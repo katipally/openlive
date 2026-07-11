@@ -28,6 +28,9 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   });
 
   const effort = settings?.liveEffort ?? "auto";
+  // Warn only on KNOWN-blind models (real metadata) with no vision model set.
+  const model = models.find((m) => m.id === settings?.liveModel);
+  const blind = model?.vision === false && !settings?.visionModel;
 
   return (
     <div className="flex w-full max-w-xs flex-col gap-2 rounded-xl border border-border bg-surface/60 p-2.5">
@@ -46,7 +49,9 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
       </div>
       <div className="flex items-center justify-between px-0.5 text-[11px] text-faint">
         <span>Effort: <span className="capitalize text-muted-foreground">{effort}</span></span>
-        {!hasKey && <span className="inline-flex items-center gap-1 text-arc"><AlertCircle className="size-3" /> no API key yet</span>}
+        {!hasKey
+          ? <span className="inline-flex items-center gap-1 text-arc"><AlertCircle className="size-3" /> no API key yet</span>
+          : blind ? <span className="inline-flex items-center gap-1 text-arc"><AlertCircle className="size-3" /> can’t see — set a vision model</span> : null}
       </div>
     </div>
   );

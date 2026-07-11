@@ -11,8 +11,10 @@ export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "ma
  * `reasoning_effort` only accepts low/medium/high (xhigh/max collapse to high), while Anthropic and
  * Google take a thinking-token budget and honor all five. A non-reasoning model supports none.
  */
-export function allowedEfforts(protocol?: "openai" | "anthropic", reasoning = true): readonly Effort[] {
+export function allowedEfforts(protocol?: Protocol, reasoning = true): readonly Effort[] {
   if (!reasoning) return []
+  // Chat Completions providers are always-on-reasoning (no per-request effort knob).
+  if (protocol === "openai-chat") return []
   if (protocol === "openai") return ["low", "medium", "high"]
   return EFFORTS
 }
@@ -58,10 +60,12 @@ export interface ChatRequest {
   maxTokens?: number
 }
 
-/** Provider wire protocol — selects the adapter. Two adapters cover all three
- *  supported providers: Anthropic (Claude + MiniMax via its Anthropic-compat
- *  endpoint) and OpenAI (the Responses API). */
-export type Protocol = "openai" | "anthropic"
+/** Provider wire protocol — selects the adapter. Three adapters:
+ *  - `anthropic`   → /messages (Claude + MiniMax's Anthropic-compat endpoint)
+ *  - `openai`      → /responses (OpenAI Responses API + Ollama v0.13.3+)
+ *  - `openai-chat` → /chat/completions (the universal dialect: Groq, Together,
+ *                    Fireworks, OpenRouter, DeepSeek, Mistral, xAI, Cerebras, …) */
+export type Protocol = "openai" | "openai-chat" | "anthropic"
 
 /** Per-provider deviations from the canonical wire format of its protocol.
  *  MiniMax speaks the Anthropic protocol but doesn't accept `cache_control`
@@ -100,6 +104,8 @@ export interface ModelInfo {
   maxOutput?: number
   /** model exposes a reasoning/thinking channel */
   reasoning?: boolean
+  /** accepts image input (real capability from models.dev modalities / provider payload; undefined = unknown) */
+  vision?: boolean
   /** USD per 1M tokens, when known */
   cost?: { input: number; output: number }
   /** true when surfaced from the provider's own live endpoint (vs offline snapshot) */

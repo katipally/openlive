@@ -2,8 +2,26 @@ import { streamProvider, isReasoningModel, type Message, type Effort } from "@op
 import { buildTaktTools, type TaktTool, type Emit } from "../tools.js";
 import { collectTurn } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
-import { resolveLive } from "../providers.js";
+import { resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { runWorker } from "./worker.js";
+
+type Frame = { data: string; mime: string; source?: "camera" | "screen" };
+
+/** Have the dedicated vision model look at the frames and report what's there, so
+ *  a text-only live model can still "see". One extra round-trip — only taken when
+ *  the user has configured a vision model. Returns "" on failure (caller falls
+ *  back to attaching the frames to the live model directly). */
+async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[], sources: string, signal: AbortSignal): Promise<string> {
+  const messages: Message[] = [
+    { role: "system", text: `You are the eyes of a voice assistant. In 1-3 tight sentences, state exactly what is visible in the user's ${sources} right now — objects, on-screen text, layout, what the person is doing. No preamble, no "the image". If it's blank or unreadable, say so plainly.` },
+    { role: "user", text: userText ? `The user said: "${userText}". What's visible?` : "What's visible right now?", images: frames.map((f) => ({ data: f.data, mime: f.mime })) },
+  ];
+  const turn = await collectTurn(
+    streamProvider(v.provider, v.apiKey ?? undefined, { model: v.model, messages, tools: [], maxTokens: 512 }, signal),
+    () => {}, // its text is not spoken; we fold the description into the live turn
+  );
+  return turn.text.trim();
+}
 
 /** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
 function safeParseArgs(s: string): any {
@@ -74,11 +92,25 @@ export class LiveTurnRunner {
     // model is picked, and if the provider genuinely can't take images it surfaces
     // a real error (never a faked "I can see"). Tell the model which source it is.
     let text = userText;
+    let imgs: { data: string; mime: string }[] | undefined;
     if (frames.length) {
       const sources = [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ");
-      text = `${userText}\n\n[You're viewing the user's ${sources} live right now — talk about what's actually there, not "the image". If you truly can't make it out or got no picture, say so plainly and never invent details.]`;
+      // If the user configured a separate vision model, let IT see and fold its
+      // description into this turn (so a text-only live model still works). Falls
+      // back to attaching the frames to the live model if the describe call fails.
+      const vision = resolveVision();
+      let described = "";
+      if (vision && vision.model !== model) {
+        try { described = await describeFrames(vision, userText, frames, sources, signal); } catch { /* fall back to frames */ }
+        if (signal.aborted) return;
+      }
+      if (described) {
+        text = `${userText}\n\n[A vision model is looking at the user's ${sources} live right now and reports: ${described}\nTalk about what's actually there, naturally — as what you're both looking at. Don't mention "the image" or that another model described it.]`;
+      } else {
+        text = `${userText}\n\n[You're viewing the user's ${sources} live right now — talk about what's actually there, not "the image". If you truly can't make it out or got no picture, say so plainly and never invent details.]`;
+        imgs = frames.map((f) => ({ data: f.data, mime: f.mime }));
+      }
     }
-    const imgs = frames.length ? frames.map((f) => ({ data: f.data, mime: f.mime })) : undefined;
     this.messages.push({ role: "user", text, images: imgs });
     // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);

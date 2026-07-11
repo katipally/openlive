@@ -40,6 +40,110 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     catalogId: "minimax",
     quirks: { noCacheControl: true, noThinking: true, bearerAuth: true },
   },
+  {
+    // Local Ollama. Speaks the OpenAI Responses API (/v1/responses, Ollama
+    // v0.13.3+), so the existing "openai" adapter works unchanged. Keyless — the
+    // OpenAI SDK requires a token but Ollama ignores it locally. Models come live
+    // from /v1/models (whatever you've `ollama pull`ed).
+    id: "ollama",
+    name: "Ollama (local)",
+    protocol: "openai",
+    baseURL: "http://localhost:11434/v1",
+    keyless: true,
+  },
+  {
+    // Ollama Cloud — same wire, hosted. Needs a real key (ollama.com/settings/keys),
+    // sent as Bearer by the openai adapter.
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    protocol: "openai",
+    baseURL: "https://ollama.com/v1",
+    envKeys: ["OLLAMA_API_KEY"],
+  },
+  // --- Chat Completions providers (the universal /chat/completions dialect) ---
+  // All Bearer-auth, all list models live from /v1/models (except Perplexity,
+  // which has no /models — its snapshot below is the source of truth).
+  {
+    id: "groq",
+    name: "Groq",
+    protocol: "openai-chat",
+    baseURL: "https://api.groq.com/openai/v1",
+    envKeys: ["GROQ_API_KEY"],
+    catalogId: "groq",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    protocol: "openai-chat",
+    baseURL: "https://openrouter.ai/api/v1",
+    envKeys: ["OPENROUTER_API_KEY"],
+    catalogId: "openrouter",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    protocol: "openai-chat",
+    baseURL: "https://api.deepseek.com/v1",
+    envKeys: ["DEEPSEEK_API_KEY"],
+    catalogId: "deepseek",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    protocol: "openai-chat",
+    baseURL: "https://api.mistral.ai/v1",
+    envKeys: ["MISTRAL_API_KEY"],
+    catalogId: "mistral",
+  },
+  {
+    id: "xai",
+    name: "xAI (Grok)",
+    protocol: "openai-chat",
+    baseURL: "https://api.x.ai/v1",
+    envKeys: ["XAI_API_KEY"],
+    catalogId: "xai",
+  },
+  {
+    id: "google",
+    name: "Google Gemini",
+    protocol: "openai-chat",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+    envKeys: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    catalogId: "google",
+  },
+  {
+    id: "together",
+    name: "Together",
+    protocol: "openai-chat",
+    baseURL: "https://api.together.xyz/v1",
+    envKeys: ["TOGETHER_API_KEY"],
+    catalogId: "togetherai",
+  },
+  {
+    id: "fireworks",
+    name: "Fireworks",
+    protocol: "openai-chat",
+    baseURL: "https://api.fireworks.ai/inference/v1",
+    envKeys: ["FIREWORKS_API_KEY"],
+    catalogId: "fireworks-ai",
+  },
+  {
+    id: "cerebras",
+    name: "Cerebras",
+    protocol: "openai-chat",
+    baseURL: "https://api.cerebras.ai/v1",
+    envKeys: ["CEREBRAS_API_KEY"],
+    catalogId: "cerebras",
+  },
+  {
+    // No /models endpoint — snapshot is the picker's only source.
+    id: "perplexity",
+    name: "Perplexity",
+    protocol: "openai-chat",
+    baseURL: "https://api.perplexity.ai",
+    envKeys: ["PERPLEXITY_API_KEY"],
+    catalogId: "perplexity",
+  },
 ]
 
 /** A sane default model id for a provider when the user hasn't picked one — the
@@ -57,4 +161,23 @@ export const MODEL_SNAPSHOT: Record<string, string[]> = {
   // MiniMax-M3 (1M ctx, vision) and M2.5 (vision) support images over the
   // Anthropic-compat endpoint; M2 is text-only.
   minimax: ["MiniMax-M3", "MiniMax-M2.5", "MiniMax-M2.5-highspeed"],
+  // ponytail: guesses so the picker has a default before /v1/models loads. Local
+  // depends on what you've pulled; cloud ids carry the `-cloud` suffix. Live fetch
+  // corrects both the moment the server/key is reachable.
+  ollama: ["llama3.2", "qwen3", "gemma3"],
+  "ollama-cloud": ["gpt-oss:120b-cloud", "qwen3-coder:480b-cloud", "deepseek-v3.1:671b-cloud"],
+  // ponytail: one sane default each so chat works pre-live-fetch; the picker
+  // fills the real list from /v1/models. Ids drift — treat as seeds, not truth.
+  // Verified current against models.dev on 2026-07-11; first entry is the
+  // zero-click default (prefer fast + vision for voice+camera).
+  groq: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"],
+  openrouter: ["google/gemini-2.5-flash", "anthropic/claude-sonnet-4.5"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"], // -chat/-reasoner deprecated 2026-07-24
+  mistral: ["mistral-large-latest", "mistral-small-latest"],
+  xai: ["grok-4.5", "grok-4.3"], // grok-4 deprecated 2026-05-15
+  google: ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-pro"],
+  together: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "Qwen/Qwen2.5-72B-Instruct-Turbo"],
+  fireworks: ["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/deepseek-v3"],
+  cerebras: ["gemma-4-31b", "zai-glm-4.7", "gpt-oss-120b"],
+  perplexity: ["sonar", "sonar-pro", "sonar-reasoning"],
 }

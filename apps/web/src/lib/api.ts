@@ -2,13 +2,16 @@ import type { Provider, ChatSummary, ChatMessage } from "@openlive/shared";
 
 export interface ModelInfo {
   id: string; display_name: string; created_at?: string;
-  contextWindow?: number; maxOutput?: number; reasoning?: boolean;
+  contextWindow?: number; maxOutput?: number; reasoning?: boolean; vision?: boolean;
   cost?: { input: number; output: number };
 }
 export interface AppSettings {
   liveModel?: string;
   liveProviderId?: string;
   liveEffort?: string;
+  /** Optional dedicated vision model (own provider) for when the live model can't see. */
+  visionProviderId?: string;
+  visionModel?: string;
 }
 
 async function j<T>(res: Response): Promise<T> {

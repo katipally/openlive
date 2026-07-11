@@ -39,8 +39,8 @@ OpenLive is that plumbing, built and open. It connects any chat model to real-ti
 voice and vision, and the whole voice loop runs on-device. The desktop app is the
 reference build: download it, paste a key for the model you want, and talk.
 
-You bring the brain (Anthropic, OpenAI, or MiniMax today, more to come). OpenLive
-gives it ears, a mouth, and eyes.
+You bring the brain — Anthropic, OpenAI, Google, xAI, DeepSeek, Groq, Ollama, and a
+dozen more. OpenLive gives it ears, a mouth, and eyes.
 
 ## Features
 
@@ -49,12 +49,15 @@ gives it ears, a mouth, and eyes.
   run in the app on WebGPU. Nothing you say leaves the machine.
 - **It can see.** Turn on your camera or share your screen and the model watches it
   live, like a video call. The `look` tool grabs a crisp hi-res frame when it needs
-  to read a label or a line of code.
-- **Bring your own model.** Anthropic, OpenAI, and MiniMax today. Models are fetched
-  live from the provider with vision / reasoning / context / price surfaced in the
-  picker, and reasoning effort is a dial from Auto to Max. It's a layer, not a walled
-  app — fork it to wire up other providers, your own agent backend, a self-hosted
-  endpoint, or a local model.
+  to read a label or a line of code. Running a text-only model? Point OpenLive at a
+  separate vision model and it does the seeing while your main model does the talking.
+- **Bring your own model.** Over a dozen providers out of the box — Anthropic,
+  OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral, MiniMax, the fast-inference
+  hosts (Groq, Cerebras, Together, Fireworks), OpenRouter, Perplexity, and Ollama
+  (local or cloud). Models are fetched live from each provider with vision / reasoning
+  / context / price surfaced in the picker, and reasoning effort is a dial from Auto
+  to Max. It's a layer, not a walled app — fork it to wire up your own agent backend
+  or a self-hosted endpoint.
 - **Agent tools.** Web search, fetch a URL, remember a fact across calls, and a live
   checklist — plus, in the desktop app, read/write your clipboard and open a URL.
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.

@@ -62,6 +62,11 @@ function enrich(l: LiveModel, meta: any, providerId: string): ModelInfo {
     contextWindow: meta?.limit?.context ?? l.raw?.context_length ?? l.raw?.inputTokenLimit,
     maxOutput: meta?.limit?.output ?? l.raw?.outputTokenLimit,
     reasoning: meta?.reasoning ?? isReasoningModel(l.id),
+    // Real image-input capability: models.dev modalities, else the provider's own
+    // payload (OpenRouter ships `architecture.input_modalities`). undefined = unknown.
+    vision:
+      meta?.modalities?.input?.includes("image") ??
+      (l.raw?.architecture?.input_modalities?.includes?.("image") || undefined),
     cost: costFrom(meta, l.raw),
     live: true,
   }

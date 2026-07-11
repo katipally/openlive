@@ -33,7 +33,7 @@ pnpm desktop:build:win # build the Windows installer (run on Windows)
 apps/desktop     Electron shell: local servers, permissions, window, auto-update
 apps/web         Next.js UI + the on-device voice engine in src/lib/live
 services/agent   the /live WebSocket and the model tools
-packages/harness model adapters (Anthropic, OpenAI, MiniMax), model listing
+packages/harness model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing
 packages/shared  the wire protocol and shared types
 packages/db      JSON-file store for keys, settings, conversations
 ```

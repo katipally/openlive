@@ -70,6 +70,7 @@ export async function getModels(providerId: string, catalogId?: string): Promise
         providerId,
         contextWindow: m.limit?.context ?? m.context_length,
         reasoning: !!m.reasoning,
+        vision: m.modalities?.input?.includes("image") || undefined,
       })
     }
   }

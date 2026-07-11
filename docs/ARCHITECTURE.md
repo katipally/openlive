@@ -15,8 +15,8 @@ the wire.
 │  mic → VAD → STT → end-of-turn ─┐   /live WS   ┌─ LiveTurnRunner     │
 │  (Silero)(Whisper)(Smart-Turn)  ├── text ────▶ │   → model provider  │
 │                                 │   +frames    │   (BYO key)         │
-│  speaker ← TTS ← sentences ─────┘◀── reply ────┘   ↑ Anthropic /     │
-│           (Kokoro)                  (SSE text)      OpenAI / MiniMax  │
+│  speaker ← TTS ← sentences ─────┘◀── reply ────┘   ↑ any provider    │
+│           (Kokoro)                  (SSE text)      (BYO key)         │
 │    ▲ camera / screen frames ────────┘                               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -50,10 +50,15 @@ download *and* the shader recompile (`models.worker.ts` warms shaders on load).
 ## The model turn (`services/agent`)
 
 `LiveSession` owns one WebSocket. `LiveTurnRunner` holds the growing `Message[]`
-and drives each turn through `streamProvider` (the provider-neutral adapter in
-`packages/harness` — Anthropic, OpenAI, and MiniMax, which speaks the Anthropic
-protocol). Reasoning is off by default for the snappiest voice; frames ride only
-the two most recent user turns for cost and latency.
+and drives each turn through `streamProvider` in `packages/harness`, where three
+wire adapters cover every provider: **Anthropic** (`/messages` — Claude + MiniMax),
+**OpenAI Responses** (`/responses` — OpenAI + Ollama), and **OpenAI Chat**
+(`/chat/completions` — Google, xAI, DeepSeek, Groq, Mistral, and the rest). A
+provider is just a registry row (id, protocol, base URL, key), so adding one is a
+few lines. Reasoning is off by default for the snappiest voice; frames ride only
+the two most recent user turns for cost and latency. When a separate vision model
+is configured, a text-only live model still sees — the vision model describes the
+frames and its description rides the turn.
 
 **Warm-up.** On session open the runner fires a tiny prefill (`warm()`) to heat the
 prompt cache and the connection, then the agent sends `{status:"ready"}` so the UI
@@ -96,7 +101,7 @@ on-demand camera/screen frame), `remember` (a fact that persists across calls),
 ## Packages
 
 ```
-packages/harness   model adapters (Anthropic / OpenAI / MiniMax), model listing, effort
+packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), live model listing, effort
 packages/shared    the /live wire protocol + shared types
 packages/db        JSON-file store: AES-256-GCM-encrypted keys, settings, conversations
 ```

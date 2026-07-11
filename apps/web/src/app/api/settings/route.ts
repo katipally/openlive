@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // Provider + model are chosen live in Settings; nothing hardcoded. Live effort
 // defaults to "auto" (lowest the model supports → smoothest voice).
 const DEFAULTS = { liveEffort: "auto" };
-const KEYS = ["liveModel", "liveProviderId", "liveEffort"];
+const KEYS = ["liveModel", "liveProviderId", "liveEffort", "visionProviderId", "visionModel"];
 
 export function GET() {
   return NextResponse.json({ ...DEFAULTS, ...getAllSettings() });

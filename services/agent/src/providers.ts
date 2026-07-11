@@ -63,6 +63,19 @@ function liveProviderId(): string {
   return anyKeyed?.id ?? BUILTIN_PROVIDERS[0]!.id;
 }
 
+// Optional dedicated vision model (its own provider), used to SEE for a live
+// model that can't. Null unless the user configured one AND it's usable.
+export function resolveVision(): ResolvedLive | null {
+  const providerId = getSetting("visionProviderId");
+  const model = getSetting("visionModel");
+  if (!providerId || !model) return null;
+  const provider = providerInfo(providerId);
+  if (!provider) return null;
+  const apiKey = getProviderKey(providerId);
+  if (!apiKey && !provider.keyless) return null;
+  return { provider, model, apiKey };
+}
+
 export function resolveLive(): ResolvedLive {
   const providerId = liveProviderId();
   const provider = providerInfo(providerId) ?? BUILTIN_PROVIDERS[0]!;

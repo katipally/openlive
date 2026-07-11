@@ -32,6 +32,7 @@ export async function GET(req: Request) {
         contextWindow: m.contextWindow,
         maxOutput: m.maxOutput,
         reasoning: m.reasoning,
+        vision: m.vision,
         cost: m.cost,
       })),
     );
