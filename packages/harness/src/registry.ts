@@ -144,6 +144,18 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     envKeys: ["PERPLEXITY_API_KEY"],
     catalogId: "perplexity",
   },
+  {
+    // Telnyx Inference — OpenAI-compatible /chat/completions hosting open-source
+    // LLMs on Telnyx GPU infra. Lists models live at /v2/ai/models (OpenAI shape),
+    // so the openai-chat adapter works unchanged. Not in models.dev; the live
+    // fetch is the picker's primary source, snapshot below is the offline fallback.
+    id: "telnyx",
+    name: "Telnyx",
+    protocol: "openai-chat",
+    baseURL: "https://api.telnyx.com/v2/ai",
+    envKeys: ["TELNYX_API_KEY"],
+    catalogId: "telnyx",
+  },
 ]
 
 /** A sane default model id for a provider when the user hasn't picked one — the
@@ -180,4 +192,10 @@ export const MODEL_SNAPSHOT: Record<string, string[]> = {
   fireworks: ["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/deepseek-v3"],
   cerebras: ["gemma-4-31b", "zai-glm-4.7", "gpt-oss-120b"],
   perplexity: ["sonar", "sonar-pro", "sonar-reasoning"],
+  // ponytail: seeds so the picker has a default before /v2/ai/models loads; the
+  // live fetch overrides these the moment the key is set. Verified current
+  // 2026-07-11. First entry is the zero-click default (Kimi-K2.6: 1T/256K, fast
+  // + vision-capable, recommended for voice AI). GLM-5.2: 754B/1M context.
+  // MiniMax-M3-MXFP8: 428B/1M, cheapest at high intelligence.
+  telnyx: ["moonshotai/Kimi-K2.6", "zai-org/GLM-5.2", "MiniMaxAI/MiniMax-M3-MXFP8"],
 }
