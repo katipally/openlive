@@ -1,10 +1,14 @@
-import type { SseEvent } from "@openlive/shared";
+import type { SseEvent, AgentIdWire, AgentMetaWire } from "@openlive/shared";
 
 // Browser side of the /live WebSocket. Same-origin (the web server proxies it to
 // the agent). THIN protocol: we send final user text + camera frames + a cancel
 // signal, and receive the LLM's reply as chat SSE events. No audio on the wire —
 // the browser runs the voice models on-device.
 const TAG_FRAME_IN = 0x02;
+
+export type AgentId = AgentIdWire;
+export type AgentMeta = AgentMetaWire;
+export type PermissionOption = { id: string; label: string };
 
 export interface LiveHandlers {
   onOpen?: () => void;
@@ -13,6 +17,8 @@ export interface LiveHandlers {
   onSse?: (e: SseEvent) => void;
   onNeedFrame?: (reqId: string) => void;
   onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
+  onPermission?: (reqId: string, question: string, options: PermissionOption[]) => void;
+  onAgentMeta?: (meta: AgentMeta) => void;
   onError?: (message: string) => void;
 }
 
@@ -72,6 +78,8 @@ export class LiveClient {
         case "sse": return this.h.onSse?.(m.event);
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
         case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
+        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options);
+        case "agent_meta": return this.h.onAgentMeta?.(m);
         case "error": return this.h.onError?.(m.message);
       }
     };
@@ -86,6 +94,13 @@ export class LiveClient {
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
+  /** Bind this conversation to a coding agent (null = provider brain) + project folder. */
+  bind(agentId: AgentId | null, cwd?: string) { this.sendJson({ t: "bind", agentId, ...(cwd !== undefined ? { cwd } : {}) }); }
+  /** Answer an agent permission ask (chip tap or spoken yes/no). */
+  permissionResponse(reqId: string, optionId: string) { this.sendJson({ t: "permission_response", reqId, optionId }); }
+  /** Switch the bound agent's model / mode mid-session. */
+  setModel(modelId: string) { this.sendJson({ t: "set_model", modelId }); }
+  setMode(modeId: string) { this.sendJson({ t: "set_mode", modeId }); }
 
   sendFrame(jpeg: ArrayBuffer) {
     if (!this.ready) return;

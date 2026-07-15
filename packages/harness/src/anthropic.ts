@@ -110,7 +110,7 @@ export async function* streamAnthropic(opts: {
       body.max_tokens = Math.min(budget + (req.maxTokens ?? 8192), 32000) // must exceed the budget, capped for safety
     } else {
       // display:"summarized" — current models default to "omitted" (empty
-      // thinking text); takt streams reasoning to the UI, so opt back in.
+      // thinking text); OpenLive streams reasoning to the UI, so opt back in.
       body.thinking = { type: "adaptive", display: "summarized" }
       body.output_config = { effort: req.effort }
     }

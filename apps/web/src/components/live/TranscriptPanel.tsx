@@ -46,7 +46,7 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
           <PanelRightClose className="size-4" />
         </button>
       </div>
-      <div ref={scroller} className="takt-scroll flex-1 space-y-5 overflow-y-auto p-4">
+      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4">
         {empty && <p className="mt-8 text-center text-[12.5px] text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
           <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />

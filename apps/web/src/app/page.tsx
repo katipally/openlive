@@ -7,8 +7,11 @@ import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
+import { setConversationBind } from "@/lib/live/useLiveSession";
+import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 
 function relTime(iso: string): string {
@@ -41,7 +44,7 @@ function ResumeMenu({ onPick }: { onPick: (id: string) => void }) {
       </button>
       {open && (
         <div className="absolute left-1/2 z-50 mt-2 w-80 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover text-left shadow-xl">
-          <div className="takt-scroll max-h-80 overflow-y-auto py-1">
+          <div className="openlive-scroll max-h-80 overflow-y-auto py-1">
             {chats.length === 0 && <p className="px-3 py-5 text-center text-[12.5px] text-faint">No saved conversations yet.</p>}
             {chats.map((c) => (
               <button key={c.id} onClick={() => { setOpen(false); onPick(c.id); }}
@@ -75,7 +78,13 @@ export default function Home() {
     if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
   }, []);
 
-  const startNew = () => { newConversation(); setLiveOpen(true); };
+  const startNew = () => {
+    newConversation();
+    // Carry the hero's "Talk to" pick onto the freshly created conversation.
+    const pick = useLiveStore.getState().boundAgent;
+    if (pick) setConversationBind(useUi.getState().activeChatId, pick);
+    setLiveOpen(true);
+  };
   const resume = (id: string) => { resumeChat(id); setLiveOpen(true); };
 
   return (
@@ -104,6 +113,11 @@ export default function Home() {
                 <Plus className="size-5" /> New
               </button>
               <ResumeMenu onPick={resume} />
+            </div>
+            {/* Choose what a new conversation talks to — the built-in assistant or a
+                coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
+            <div className="flex items-center gap-1.5 text-[12.5px] text-faint">
+              Talk to <AgentSelect />
             </div>
           </div>
 

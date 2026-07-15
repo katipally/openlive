@@ -4,18 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, Video, VideoOff } from "lucide-react";
 import type { DeviceOpt } from "@/lib/live/liveStore";
 import type { ModelProgress } from "@/lib/live/models";
-import { hasWebGPU } from "@/lib/live/models";
-import { ModelQuickPick } from "./ModelQuickPick";
 import { cn } from "@/lib/cn";
 
-// The pre-call screen for Live voice: device pickers, a self-preview + mic meter,
-// and the on-device model download. The in-call UI lives in LiveDock/VoiceBar.
+// Reusable pre-call building blocks: device pickers, a self-preview + mic meter,
+// and the on-device model download. Composed by the full-page Lobby.
 
 const mb = (bytes: number) => (bytes / 1_048_576).toFixed(bytes >= 100 * 1_048_576 ? 0 : 1);
 const MODEL_ROLE: Record<string, string> = { stt: "hears you", tts: "speaks back", turn: "knows when you're done" };
 
 // Shared, transparent progress: overall bar + real MB, and a per-model checklist.
-function DownloadProgress({ pct, loaded, total, models }: { pct: number; loaded: number; total: number; models: ModelProgress[] }) {
+export function DownloadProgress({ pct, loaded, total, models }: { pct: number; loaded: number; total: number; models: ModelProgress[] }) {
   return (
     <div className="flex w-72 max-w-[82vw] flex-col gap-2.5">
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
@@ -43,7 +41,7 @@ function DownloadProgress({ pct, loaded, total, models }: { pct: number; loaded:
   );
 }
 
-function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: typeof Mic; opts: DeviceOpt[]; value?: string; onChange: (id: string) => void }) {
+export function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: typeof Mic; opts: DeviceOpt[]; value?: string; onChange: (id: string) => void }) {
   if (!opts.length) return <p className="text-[12px] text-faint">No device found</p>;
   return (
     <label className="flex items-center gap-2 text-muted-foreground">
@@ -56,62 +54,9 @@ function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: typeof Mic;
   );
 }
 
-export function PreCall({ mics, cams, micId, camId, onMic, onCam, error, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, refreshDevices, onDownload, onStart, onOpenSettings }: {
-  mics: DeviceOpt[]; cams: DeviceOpt[]; micId?: string; camId?: string;
-  onMic: (id: string) => void; onCam: (id: string) => void; error?: string;
-  modelsDownloaded: boolean; downloading: boolean; downloadPct: number;
-  downloadLoaded: number; downloadTotal: number; downloadModels: ModelProgress[];
-  refreshDevices: () => Promise<void>; onDownload: () => void; onStart: () => void; onOpenSettings: () => void;
-}) {
-  return (
-    <div className="relative z-10 flex flex-1 flex-col overflow-y-auto">
-      <div className="m-auto flex w-full max-w-sm flex-col items-center gap-4 px-6 py-6 text-center">
-        <div className="space-y-1">
-          <h2 className="text-[18px] font-semibold tracking-tight">Talk with OpenLive</h2>
-          <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
-          {typeof navigator !== "undefined" && !hasWebGPU() && (
-            <p className="mx-auto max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
-              Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
-            </p>
-          )}
-        </div>
-
-        <CameraPreview camId={camId} onGranted={refreshDevices} />
-        <MicMeter micId={micId} onGranted={refreshDevices} />
-
-        <div className="w-full max-w-xs space-y-2">
-          <DeviceSelect icon={Mic} opts={mics} value={micId} onChange={onMic} />
-          <DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} />
-        </div>
-
-        <ModelQuickPick onOpenSettings={onOpenSettings} />
-
-        {downloading ? (
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-[12px] font-medium text-muted-foreground">Downloading on-device AI…</p>
-            <DownloadProgress pct={downloadPct} loaded={downloadLoaded} total={downloadTotal} models={downloadModels} />
-          </div>
-        ) : !modelsDownloaded ? (
-          <div className="flex flex-col items-center gap-2">
-            <button onClick={onDownload} className="rounded-full bg-accent px-6 py-2.5 text-[14px] font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
-              Download AI models
-            </button>
-            <p className="max-w-[16rem] text-[11px] text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
-          </div>
-        ) : (
-          <button onClick={onStart} className="rounded-full bg-accent px-7 py-2.5 text-[14px] font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
-            Start
-          </button>
-        )}
-        {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
-      </div>
-    </div>
-  );
-}
-
 // Live camera preview on the pre-call screen. Opens its OWN stream (separate from
 // the call) and releases it on unmount.
-function CameraPreview({ camId, onGranted }: { camId?: string; onGranted: () => void }) {
+export function CameraPreview({ camId, onGranted }: { camId?: string; onGranted: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [state, setState] = useState<"loading" | "on" | "denied">("loading");
   useEffect(() => {
@@ -142,7 +87,7 @@ function CameraPreview({ camId, onGranted }: { camId?: string; onGranted: () => 
 }
 
 // Live mic level on the pre-call screen (own stream, released on unmount).
-function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () => void }) {
+export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () => void }) {
   const [level, setLevel] = useState(0);
   const [denied, setDenied] = useState(false);
   useEffect(() => {

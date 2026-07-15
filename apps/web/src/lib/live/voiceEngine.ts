@@ -4,6 +4,7 @@ import { stt, tts, hasWebGPU, turnComplete, turnModelReady } from "./models";
 import { isJunk, endsMidThought, stripMarkdown, SentenceChunker } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
+import { loadPipelineConfig } from "./pipelineConfig";
 
 // The on-device conversation loop (replaces the old server pipeline). Silero VAD
 // segments the user's speech; Whisper transcribes it (streaming partials + a
@@ -62,6 +63,9 @@ export class VoiceEngine {
 
   async start(stream: MediaStream) {
     this.player.resume();
+    // VAD sensitivity + trailing silence come from the user's pipeline config;
+    // baked into MicVAD at construction, so edits apply on the next start().
+    const vadCfg = loadPipelineConfig().vad;
     this.vad = await MicVAD.new({
       model: "v5",
       // Serve the Silero worklet + onnx + ort wasm from a CDN (the default
@@ -70,15 +74,15 @@ export class VoiceEngine {
       baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/",
       onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/",
       getStream: async () => stream,             // our stream: chosen device + AEC on
-      positiveSpeechThreshold: 0.5,              // lower → picks up soft speech + faster barge-in
-      negativeSpeechThreshold: 0.35,
+      positiveSpeechThreshold: vadCfg.speechThreshold, // lower → picks up soft speech + faster barge-in
+      negativeSpeechThreshold: Math.max(0.1, vadCfg.speechThreshold - 0.15),
       minSpeechMs: 250,
       // Wait through short natural pauses before ending a turn. Kept modest because
       // Smart-Turn v3 (semantic end-of-turn) + the mid-thought hold below already
       // catch premature ends — so we don't need a long silence buffer, and shaving it
       // takes real latency off every turn. ponytail: raise toward 700 if it starts
       // cutting slow talkers off mid-sentence.
-      redemptionMs: 550,
+      redemptionMs: vadCfg.redemptionMs,
       onSpeechStart: () => this.onSpeechStart(),
       onSpeechEnd: (audio) => { void this.onSpeechEnd(audio); },
       onFrameProcessed: (_p, frame) => this.onFrame(frame),
@@ -125,8 +129,14 @@ export class VoiceEngine {
 
   // ── user speech ─────────────────────────────────────────────────────────
   private onSpeechStart() {
-    // Barge-in: user talks over the agent (past the onset grace) → kill audio now.
-    if ((this.phase === "speaking" || this.player.level() > 0) && Date.now() - this.speakingStartAt > ONSET_GRACE_MS) {
+    // Barge-in: the user talks over the agent — whether it's SPEAKING, or still
+    // THINKING/working (e.g. a coding agent running tools or editing). Cancel the
+    // in-flight turn AND the agent's execution (the server aborts the turn, which
+    // fires ACP session/cancel). The onset grace applies only while speaking, so the
+    // agent's own first syllable (echoed through the mic) can't self-trigger.
+    const speaking = this.phase === "speaking" || this.player.level() > 0;
+    const thinking = this.phase === "thinking";
+    if ((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) {
       this.bargeIn();
     }
     this.clearHold();
@@ -180,9 +190,13 @@ export class VoiceEngine {
     try {
       // Transcribe AND ask Smart-Turn (semantic end-of-turn) in parallel. If the
       // turn model isn't loaded, fall back to the VAD's silence endpointing.
+      // "silence" turn engine skips Smart-Turn entirely and lets the VAD's trailing
+      // silence (redemptionMs) end the turn; "smart-turn" uses the semantic model.
+      const turnCfg = loadPipelineConfig().turn;
+      const useTurnModel = turnModelReady() && turnCfg.engine !== "silence";
       const [text, modelComplete] = await Promise.all([
         stt(combined).then((t) => t.trim()),
-        turnModelReady() ? turnComplete(combined) : Promise.resolve(true),
+        useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
       const sttEndpointMs = performance.now() - perf0;
       console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
@@ -253,7 +267,9 @@ export class VoiceEngine {
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
       const spoken = stripMarkdown(sentence);
       if (!spoken) return;
-      const { audio, sampleRate } = await tts(spoken);
+      // Read voice/speed per sentence so a settings change applies to the next reply.
+      const ttsCfg = loadPipelineConfig().tts;
+      const { audio, sampleRate } = await tts(spoken, { voice: ttsCfg.voice, speed: ttsCfg.speed });
       if (this.epoch !== epoch) return;
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {

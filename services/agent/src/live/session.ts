@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
-import { createChat, addMessage, listMessages, renameChat } from "@openlive/db";
+import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import type { Emit, TaktTool } from "../tools.js";
+import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
+import { createBoundAgent, setBoundAgent, boundAgent, type Agent, type AgentId } from "../agents/index.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
@@ -39,6 +40,14 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
 // the conversation.
 export class LiveSession {
   private runner: LiveTurnRunner;
+  // When bound, a coding agent (Claude Code / Codex / Cursor) is the brain instead
+  // of the provider loop. `agentReady` resolves once the ACP handshake completes.
+  private agent: Agent | null = null;
+  private boundId: AgentId | null = null;
+  private boundCwd = ""; // the agent's project folder for this conversation (rebuild on change)
+  private agentReady: Promise<void> | null = null;
+  private agentAc: AbortController | null = null;
+  private permPending = new Map<string, (optionId: string) => void>(); // agent permission asks awaiting the user
   private warmAc: AbortController | null = null; // aborts the cache-warm request on teardown
   private ac: AbortController | null = null;
   private turnActive = false;
@@ -58,7 +67,7 @@ export class LiveSession {
   private bridgePending = new Map<string, (out: string) => void>();
 
   constructor(private ws: WebSocket, private chatId: string) {
-    const lookTool: TaktTool = {
+    const lookTool: OpenLiveTool = {
       name: "look",
       description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -70,19 +79,19 @@ export class LiveSession {
         return { output: `This is what ${what} is showing right now — talk about it naturally, as what you're both looking at.`, images: [frame] };
       },
     };
-    const clipboardRead: TaktTool = {
+    const clipboardRead: OpenLiveTool = {
       name: "clipboard_read",
       description: "Read the text currently on the user's clipboard (what they just copied). Use when they say things like 'what did I just copy' or 'read my clipboard'. Desktop app only.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => ({ output: await this.bridge("clipboard_read") }),
     };
-    const clipboardWrite: TaktTool = {
+    const clipboardWrite: OpenLiveTool = {
       name: "clipboard_write",
       description: "Copy text to the user's clipboard so they can paste it somewhere. Use when they ask you to 'copy that' or 'put it on my clipboard'. Desktop app only.",
       parameters: { type: "object", properties: { text: { type: "string", description: "The text to place on the clipboard" } }, required: ["text"], additionalProperties: false },
       execute: async (args) => ({ output: await this.bridge("clipboard_write", String(args?.text ?? "")) }),
     };
-    const openUrl: TaktTool = {
+    const openUrl: OpenLiveTool = {
       name: "open_url",
       description: "Open a web page in the user's default browser. Use when they ask you to open, pull up, or go to a site. Desktop app only.",
       parameters: { type: "object", properties: { url: { type: "string", description: "The http(s) URL to open" } }, required: ["url"], additionalProperties: false },
@@ -106,6 +115,10 @@ export class LiveSession {
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
+    // Resume a persisted bind (the client also re-sends its remembered choice on
+    // connect). A bound agent warms itself; the provider path warms the cache.
+    this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
+    if (this.agent) return;
     // Warm the prompt cache + connection in the background so the first spoken turn
     // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
     // always signal ready, even on failure, so the indicator never sticks.
@@ -165,6 +178,14 @@ export class LiveSession {
         if (r) { this.bridgePending.delete(msg.reqId); r(msg.output); }
         return;
       }
+      case "bind": return this.applyBind(msg.agentId, msg.cwd);
+      case "permission_response": {
+        const r = this.permPending.get(msg.reqId);
+        if (r) { this.permPending.delete(msg.reqId); r(msg.optionId); }
+        return;
+      }
+      case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => console.error("[live] set_model:", e)); return; }
+      case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => console.error("[live] set_mode:", e)); return; }
     }
   }
 
@@ -200,7 +221,12 @@ export class LiveSession {
       if (!this.titled) { this.titled = true; try { renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation"); } catch { /* */ } }
     }
     try {
-      await this.runner.runTurn(text, frames, emit, ac.signal);
+      if (this.agent) {
+        await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
+        await this.agent.runTurn({ text, frames }, emit, ac.signal);
+      } else {
+        await this.runner.runTurn(text, frames, emit, ac.signal);
+      }
     } catch (e) {
       if (!ac.signal.aborted) console.error("[live] turn:", e);
     } finally {
@@ -228,6 +254,44 @@ export class LiveSession {
 
   private interrupt() { this.ac?.abort(); }
 
+  // ── agent binding ─────────────────────────────────────────────────────────
+  /** Bind (or unbind) this conversation to a coding agent, optionally with a project
+   *  folder. Rebuilds + reconnects the ACP agent when the agent OR folder changes;
+   *  a no-op when neither did (an agent's cwd is fixed at spawn, so a folder switch
+   *  means a restart). */
+  private applyBind(id: AgentId | null, cwd?: string) {
+    if (cwd !== undefined && this.chatId) setSetting(`agentCwd:${this.chatId}`, cwd);
+    const effectiveCwd = this.chatId ? (getSetting(`agentCwd:${this.chatId}`) ?? "") : "";
+    if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) return;
+    this.agentAc?.abort();
+    void this.agent?.dispose();
+    this.agent = null; this.agentReady = null; this.boundId = id; this.boundCwd = effectiveCwd;
+    if (this.chatId) setBoundAgent(this.chatId, id);
+    if (!id || this.closed || !this.chatId) return;
+    const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o),
+      (meta) => { if (!this.closed) this.send({ t: "agent_meta", ...meta }); });
+    if (!agent) return;
+    this.agent = agent;
+    const prior = this.rehydrate();
+    if (prior.length) agent.seed(prior);
+    const ac = new AbortController(); this.agentAc = ac;
+    this.agentReady = agent.start(ac.signal)
+      .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })
+      .catch((e) => { if (!this.closed) this.send({ t: "sse", event: { type: "error", message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}` } }); });
+  }
+
+  /** Relay an agent permission ask to the client (spoken + chips) and await the
+   *  chosen option id; times out to "deny" so a hung decision never wedges a turn. */
+  private askPermission(question: string, options: { id: string; label: string }[]): Promise<string> {
+    return new Promise((resolve) => {
+      if (this.closed) return resolve("deny");
+      const reqId = randomUUID();
+      const timer = setTimeout(() => { if (this.permPending.delete(reqId)) resolve("deny"); }, 120_000);
+      this.permPending.set(reqId, (optionId) => { clearTimeout(timer); resolve(optionId); });
+      this.send({ t: "permission", reqId, question, options });
+    });
+  }
+
   // ── `look` handshake ────────────────────────────────────────────────────
   private requestFrame(): Promise<Frame | null> {
     return new Promise((resolve) => {
@@ -252,6 +316,10 @@ export class LiveSession {
     this.closed = true;
     this.warmAc?.abort();
     this.ac?.abort();
+    this.agentAc?.abort();
+    void this.agent?.dispose();
+    for (const r of this.permPending.values()) r("deny");
+    this.permPending.clear();
     this.lookPending?.resolve(null);
     for (const r of this.bridgePending.values()) r("The session ended.");
     this.bridgePending.clear();

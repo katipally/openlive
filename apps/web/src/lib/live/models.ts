@@ -3,6 +3,8 @@
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
+import { loadPipelineConfig } from "./pipelineConfig";
+
 export type ModelKey = "stt" | "tts" | "turn";
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
 export type LoadProgress = { pct: number; loaded: number; total: number; models: ModelProgress[] };
@@ -28,11 +30,22 @@ export function modelsReady(): boolean { return ready; }
 // on every page refresh, so without this the pre-call screen re-asks to download
 // forever even though the bytes are cached. Set after a successful load; read on
 // mount so a refresh auto-loads silently instead of prompting.
-const READY_KEY = "takt-live-models-ready-v1";
+const READY_KEY = "openlive-models-ready-v1";
+const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
+// WASM always uses whisper-tiny.en (size choice only applies on WebGPU), so the
+// cache tag folds the STT size in — changing size re-prompts the download.
+const sttSize = () => (deviceTier() === "wasm" ? "tiny" : loadPipelineConfig().stt.whisperSize);
+const readyTag = () => `${deviceTier()}:${sttSize()}`;
 export function modelsCached(): boolean {
   if (ready) return true;
-  try { return localStorage.getItem(READY_KEY) === deviceTier(); } catch { return false; }
+  try {
+    if (localStorage.getItem(READY_KEY) === readyTag()) return true;
+    // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy
+    // weights are in the browser cache — count it as cached so we don't re-prompt.
+    const old = localStorage.getItem(OLD_READY_KEY);
+    return !!old && old.startsWith(deviceTier());
+  } catch { return false; }
 }
 
 let loading: Promise<void> | null = null;
@@ -72,7 +85,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
         }
         case "ready":
           ready = true; turnAvailable = !!m.turn;
-          try { localStorage.setItem(READY_KEY, deviceTier()); } catch { /* private mode */ }
+          try { localStorage.setItem(READY_KEY, readyTag()); } catch { /* private mode */ }
           resolve();
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
@@ -90,7 +103,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     };
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
-    w.postMessage({ type: "load", device: tier });
+    w.postMessage({ type: "load", device: tier, whisperSize: sttSize() });
   });
   loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
   return loading;
@@ -124,18 +137,20 @@ export async function stt(audio: Float32Array): Promise<string> {
   return m.text;
 }
 
-/** Synthesize a sentence → Float32 PCM + sample rate. */
-export async function tts(text: string): Promise<{ audio: Float32Array; sampleRate: number }> {
-  const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text });
+/** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
+ *  user's pipeline config (Kokoro); both are optional and fall back in the worker. */
+export async function tts(text: string, opts?: { voice?: string; speed?: number }): Promise<{ audio: Float32Array; sampleRate: number }> {
+  const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, voice: opts?.voice, speed: opts?.speed });
   return { audio: m.audio, sampleRate: m.sampleRate };
 }
 
 /** Whether Smart-Turn v3 loaded (else the engine uses the silence heuristic). */
 export function turnModelReady(): boolean { return turnAvailable; }
 
-/** Semantic end-of-turn: is the user actually done? (Smart-Turn v3.) */
-export async function turnComplete(audio: Float32Array): Promise<boolean> {
-  const m = await call<{ complete: boolean }>({ type: "turn", audio });
+/** Semantic end-of-turn: is the user actually done? (Smart-Turn v3.) `threshold`
+ *  is the sigmoid cutoff (higher = wait longer before responding). */
+export async function turnComplete(audio: Float32Array, threshold?: number): Promise<boolean> {
+  const m = await call<{ complete: boolean }>({ type: "turn", audio, threshold });
   return m.complete;
 }
 

@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type { ModelProgress } from "./models";
+import type { AgentId, AgentMeta, PermissionOption } from "./liveClient";
 
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
 
 export interface DeviceOpt { id: string; label: string }
+export interface PendingPermission { reqId: string; question: string; options: PermissionOption[] }
 
 interface LiveState {
   active: boolean;
@@ -25,6 +27,10 @@ interface LiveState {
   agentCaptionMs: number; // playback duration of the current agent chunk — paces the word-by-word caption reveal
   toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
   warming: boolean;   // true from socket-open until the agent signals warm-ready → shows "Warming up…"
+  boundAgent: AgentId | null;         // coding agent this conversation talks to (null = built-in brain)
+  boundCwd: string;                   // project folder for the bound agent ("" = default/home)
+  agentMeta: AgentMeta | null;        // the bound agent's selectable models + modes (once connected)
+  permission: PendingPermission | null; // a bound agent's pending permission ask (chips + spoken)
   error?: string;
   micId?: string;
   camId?: string;
@@ -55,6 +61,10 @@ export const useLiveStore = create<LiveState>((set) => ({
   agentCaptionMs: 0,
   toolStatus: "",
   warming: false,
+  boundAgent: null,
+  boundCwd: "",
+  agentMeta: null,
+  permission: null,
   mics: [],
   cams: [],
   set: (p) => set(p),

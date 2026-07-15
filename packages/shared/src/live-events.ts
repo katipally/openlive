@@ -27,9 +27,27 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // only. The client executes it via the Electron bridge and replies with
   // tool_bridge_result. Enables agent-side clipboard_read/write + open_url tools.
   z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url"]), arg: z.string().optional() }),
+  // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
+  // something (run a command, edit files). The client speaks the question and shows
+  // approve/deny chips; the answer comes back as permission_response.
+  z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })) }),
+  // The bound agent's selectable models + modes (learned when it connects), so the
+  // UI can offer model/mode pickers. Sent on connect and after a switch.
+  z.object({
+    t: z.literal("agent_meta"),
+    models: z.array(z.object({ id: z.string(), name: z.string() })),
+    currentModelId: z.string().nullable(),
+    modes: z.array(z.object({ id: z.string(), name: z.string() })),
+    currentModeId: z.string().nullable(),
+  }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
+
+/** The coding agents a conversation can be bound to (null = built-in provider). */
+export const AGENT_ID = z.enum(["claude-code", "codex", "cursor"]);
+export type AgentIdWire = z.infer<typeof AGENT_ID>;
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [
@@ -53,5 +71,14 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("frame_response"), reqId: z.string() }),
   // Result of a tool_bridge OS action (clipboard text / ok / error message).
   z.object({ t: z.literal("tool_bridge_result"), reqId: z.string(), output: z.string() }),
+  // Bind (or unbind) this conversation to a coding agent + set its project folder.
+  // Sent on connect (from the client's remembered choice) and whenever the user
+  // switches agents OR the project folder. null agentId = the built-in provider brain.
+  z.object({ t: z.literal("bind"), agentId: AGENT_ID.nullable(), cwd: z.string().optional() }),
+  // The user's answer to a permission request (chip tap or a spoken yes/no).
+  z.object({ t: z.literal("permission_response"), reqId: z.string(), optionId: z.string() }),
+  // Switch the bound agent's model / mode mid-session (ACP set_model / set_mode).
+  z.object({ t: z.literal("set_model"), modelId: z.string() }),
+  z.object({ t: z.literal("set_mode"), modeId: z.string() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

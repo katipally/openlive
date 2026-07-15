@@ -1,20 +1,32 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useUi } from "@/lib/uiStore";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { ModelsSettings } from "./ModelsSettings";
+import { PipelineSettings } from "./PipelineSettings";
+import { AgentsSettings } from "./AgentsSettings";
 import { overlay, modal } from "@/lib/motion";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import { cn } from "@/lib/cn";
+
+const TABS = [{ id: "models", label: "Models" }, { id: "pipeline", label: "Pipeline" }, { id: "agents", label: "Agents" }] as const;
+type TabId = (typeof TABS)[number]["id"];
 
 export function SettingsModal() {
   const appVersion = useAppVersion();
   const open = useUi((s) => s.settingsOpen);
   const close = useUi((s) => s.closeSettings);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<TabId>("models");
+  const wantTab = useUi((s) => s.settingsTab);
   useFocusTrap(dialogRef, open, close);
+  // Honor a deep-link (e.g. "Folder & sessions →" opens straight to Agents), then clear it.
+  useEffect(() => {
+    if (open && wantTab && TABS.some((t) => t.id === wantTab)) { setTab(wantTab as TabId); useUi.setState({ settingsTab: null }); }
+  }, [open, wantTab]);
 
   return (
     <AnimatePresence>
@@ -30,8 +42,17 @@ export function SettingsModal() {
               </span>
               <button onClick={close} aria-label="Close settings" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><X className="size-4" /></button>
             </div>
-            <div className="takt-scroll min-h-0 flex-1 overflow-y-auto p-6">
-              <ModelsSettings />
+            <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-3" role="tablist">
+              {TABS.map((t) => (
+                <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+                  className={cn("h-7 rounded-lg px-3 text-[12.5px] font-medium transition",
+                    tab === t.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="openlive-scroll min-h-0 flex-1 overflow-y-auto p-6">
+              {tab === "models" ? <ModelsSettings /> : tab === "pipeline" ? <PipelineSettings /> : <AgentsSettings />}
             </div>
           </motion.div>
         </motion.div>

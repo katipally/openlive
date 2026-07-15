@@ -1,5 +1,5 @@
 import { streamProvider, isReasoningModel, type Message, type Effort } from "@openlive/harness";
-import { buildTaktTools, type TaktTool, type Emit } from "../tools.js";
+import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
 import { collectTurn } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
 import { resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
@@ -43,7 +43,7 @@ const LIVE_TOOL_DENY = new Set<string>([]);
 export class LiveTurnRunner {
   private messages: Message[];
 
-  constructor(private extraTools: TaktTool[]) {
+  constructor(private extraTools: OpenLiveTool[]) {
     this.messages = [{ role: "system", text: buildLivePrompt() }];
   }
 
@@ -62,7 +62,7 @@ export class LiveTurnRunner {
     try { resolved = resolveLive(); } catch { return; }
     const { provider, model, apiKey } = resolved;
     if (!model || (!apiKey && !provider.keyless)) return;
-    const tools = [...buildTaktTools({ emit: async () => {} }), ...this.extraTools].filter((t) => !LIVE_TOOL_DENY.has(t.name));
+    const tools = [...buildOpenLiveTools({ emit: async () => {} }), ...this.extraTools].filter((t) => !LIVE_TOOL_DENY.has(t.name));
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
     try {
       // maxTokens:1 — we only want the prefill (cache write); the output is discarded.
@@ -118,7 +118,7 @@ export class LiveTurnRunner {
 
     // Build tools with THIS turn's emit + signal so their events are dropped by the
     // same epoch guard when a barge-in interrupts. `runWorker` powers `delegate`.
-    const tools = [...buildTaktTools({ emit, signal, runWorker }), ...this.extraTools]
+    const tools = [...buildOpenLiveTools({ emit, signal, runWorker }), ...this.extraTools]
       .filter((t) => !LIVE_TOOL_DENY.has(t.name));
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 

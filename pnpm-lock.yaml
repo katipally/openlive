@@ -162,6 +162,9 @@ importers:
       '@openlive/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@zed-industries/agent-client-protocol':
+        specifier: ^0.4.5
+        version: 0.4.5
       hono:
         specifier: ^4.12.27
         version: 4.12.28
@@ -860,6 +863,10 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+
+  '@zed-industries/agent-client-protocol@0.4.5':
+    resolution: {integrity: sha512-OwHKfu5AiKul/GSJilHg36+kOSV9eOl2eYnjR6tenAQDdraSnt22WFk0SDFTeuAANz1Gxkv+DTf7Hq32rvX7FQ==}
+    deprecated: This package has been renamed to @agentclientprotocol/sdk. Please migrate to continue receiving updates.
 
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
@@ -3240,6 +3247,10 @@ snapshots:
     optional: true
 
   '@xmldom/xmldom@0.9.10': {}
+
+  '@zed-industries/agent-client-protocol@0.4.5':
+    dependencies:
+      zod: 3.25.76
 
   abbrev@1.1.1: {}
 

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ─── Takt design tokens ───────────────────────────────────────────────────
+/* ─── OpenLive design tokens ───────────────────────────────────────────────
    Token *names* are mapped to CSS custom properties via @theme inline, so the
    Tailwind utilities (bg-card, text-accent, …) resolve to var() at runtime.
    The actual values live in :root (warm-paper light) and .dark (near-black),
@@ -129,18 +129,18 @@ body::before {
 .desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
 
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
-.takt-scroll {
+.openlive-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-.takt-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
-.takt-scroll::-webkit-scrollbar-thumb {
+.openlive-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.openlive-scroll::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-.takt-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
+.openlive-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
 
 /* ─── Interaction animations ───────────────────────────────────────────────── */
 @keyframes streaming-fade {

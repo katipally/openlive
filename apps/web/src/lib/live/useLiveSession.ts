@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
-import { LiveClient } from "./liveClient";
+import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
@@ -18,12 +18,96 @@ function abToBase64(ab: ArrayBuffer): string {
   return btoa(bin);
 }
 
+// Per-conversation agent bind, remembered browser-side (localStorage) so reopening
+// a conversation resumes the same agent. Sent to the server on connect + on change.
+const AGENT_IDS: readonly AgentId[] = ["claude-code", "codex", "cursor"];
+function readBind(chatId: string): AgentId | null {
+  try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return (AGENT_IDS as readonly string[]).includes(v ?? "") ? (v as AgentId) : null; } catch { return null; }
+}
+// Classify a spoken reply to a permission ask; ambiguous → null (keep waiting).
+function classifyYesNo(text: string): "allow" | "deny" | null {
+  const t = text.toLowerCase();
+  if (/\b(yes|yeah|yep|sure|ok|okay|approve|allow|go ahead|do it|confirm|permit|sounds good|please do)\b/.test(t)) return "allow";
+  if (/\b(no|nope|deny|don'?t|do not|stop|cancel|reject|decline|never mind)\b/.test(t)) return "deny";
+  return null;
+}
+
+/** Set a conversation's agent bind (store + localStorage). The live session pushes
+ *  the change to the server via its boundAgent effect. Usable outside the call
+ *  (e.g. the top-bar selector) — takes effect on the next connect if idle. */
+export function setConversationBind(chatId: string, agentId: AgentId | null) {
+  useLiveStore.getState().set({ boundAgent: agentId });
+  try { localStorage.setItem(`openlive-bind:${chatId}`, agentId ?? ""); } catch { /* private mode */ }
+}
+
+function readCwd(chatId: string): string {
+  try { return localStorage.getItem(`openlive-cwd:${chatId}`) ?? ""; } catch { return ""; }
+}
+const RECENT_KEY = "openlive-recent-folders";
+/** Recently-used project folders (most-recent first), for the top-bar quick-switch. */
+export function recentFolders(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 8) : []; }
+  catch { return []; }
+}
+function addRecentFolder(path: string) {
+  if (!path) return;
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([path, ...recentFolders().filter((p) => p !== path)].slice(0, 8))); } catch { /* private mode */ }
+}
+/** Set a conversation's project folder (store + localStorage + recents). The live
+ *  session pushes it to the server (restarting the agent there) via its effect. */
+export function setConversationFolder(chatId: string, cwd: string) {
+  useLiveStore.getState().set({ boundCwd: cwd });
+  try { localStorage.setItem(`openlive-cwd:${chatId}`, cwd); } catch { /* private mode */ }
+  addRecentFolder(cwd);
+}
+
+// The live client of the ACTIVE session, so top-bar controls (rendered outside the
+// hook) can switch the agent's model/mode mid-call. Single session at a time.
+let activeLiveClient: LiveClient | null = null;
+
+// An agent only reveals its models/modes over ACP once it connects, so we cache the
+// last-seen set per agent — the pre-call pickers populate from this, and the choice
+// is remembered as a per-agent preference applied when the call connects.
+export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
+  if (!agentId) return null;
+  try {
+    const v = localStorage.getItem(`openlive-meta:${agentId}`);
+    if (!v) return null;
+    const meta = JSON.parse(v) as AgentMeta;
+    // Reflect the user's remembered model/mode preference (validated against the
+    // cached set) so the pre-call pickers show their last choice.
+    const mp = localStorage.getItem(`openlive-model:${agentId}`);
+    if (mp && meta.models.some((m) => m.id === mp)) meta.currentModelId = mp;
+    const dp = localStorage.getItem(`openlive-mode:${agentId}`);
+    if (dp && meta.modes.some((m) => m.id === dp)) meta.currentModeId = dp;
+    return meta;
+  } catch { return null; }
+}
+const readPref = (key: string) => { try { return localStorage.getItem(key) || null; } catch { return null; } };
+
+export function setConversationModel(modelId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  if (agent) { try { localStorage.setItem(`openlive-model:${agent}`, modelId); } catch { /* */ } }
+  activeLiveClient?.setModel(modelId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModelId: modelId } });
+}
+export function setConversationMode(modeId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  if (agent) { try { localStorage.setItem(`openlive-mode:${agent}`, modeId); } catch { /* */ } }
+  activeLiveClient?.setMode(modeId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModeId: modeId } });
+}
+
 // Orchestrates one live call. THICK CLIENT: the VoiceEngine runs VAD+STT+TTS
 // on-device; this hook wires it to the /live socket (final text + camera frames
 // + cancel), the camera, and the chat store, and owns a single leak-proof
 // teardown that every close path routes through.
 export function useLiveSession(chatId: string) {
   const set = useLiveStore((s) => s.set);
+  const boundAgent = useLiveStore((s) => s.boundAgent);
+  const boundCwd = useLiveStore((s) => s.boundCwd);
   const client = useRef<LiveClient | null>(null);
   const engine = useRef<VoiceEngine | null>(null);
   const player = useRef<AudioPlayer | null>(null);
@@ -49,6 +133,7 @@ export function useLiveSession(chatId: string) {
     tornDown.current = true;
     stopReveal();
     window.removeEventListener("pagehide", onPageHide.current);
+    if (activeLiveClient === client.current) activeLiveClient = null;
     try { client.current?.close(); } catch { /* */ }
     try { engine.current?.stop(); } catch { /* */ }              // destroys VAD + closes audio
     try { player.current?.close(); } catch { /* */ }             // free the audio ctx (also if start() failed before the engine)
@@ -61,12 +146,12 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null });
   }, [chatId, set]);
 
   const start = useCallback(async () => {
     tornDown.current = false;
-    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "" });
+    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null, agentMeta: null, boundAgent: readBind(chatId), boundCwd: readCwd(chatId) });
     // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
     // AudioContext playback that starts after an await, so priming here (before the
     // model download) is what lets the agent's voice actually play on iPhone.
@@ -146,10 +231,25 @@ export function useLiveSession(chatId: string) {
       //    more optimistic "Listening" that lies when the connection never lands.
       set({ phase: "connecting" });
       const c = new LiveClient({
-        onOpen: () => set({ phase: "idle", error: undefined, warming: true }),
+        onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined); },
         onReconnecting: () => set({ phase: "reconnecting" }),
         onClose: () => teardown(),
         onError: (m) => set({ error: m }),
+        // A bound agent wants permission: speak the ask and show approve/deny chips.
+        onPermission: (reqId, question, options) => { set({ permission: { reqId, question, options } }); engine.current?.feedAgentDelta(`${question} `); },
+        // The bound agent reported its selectable models/modes (or a switch landed).
+        onAgentMeta: (meta) => {
+          const agent = useLiveStore.getState().boundAgent;
+          if (agent) { try { localStorage.setItem(`openlive-meta:${agent}`, JSON.stringify(meta)); } catch { /* */ } }
+          set({ agentMeta: meta });
+          // Apply the remembered model/mode preference now the agent's set is known.
+          if (agent) {
+            const pm = readPref(`openlive-model:${agent}`);
+            if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
+            const pd = readPref(`openlive-mode:${agent}`);
+            if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
+          }
+        },
         onSse: (e) => {
           if (e.type === "error") { set({ error: e.message }); return; }
           // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
@@ -201,6 +301,7 @@ export function useLiveSession(chatId: string) {
         },
       });
       client.current = c;
+      activeLiveClient = c;
       c.connect(chatId);
 
       onPageHide.current = () => teardown();
@@ -214,9 +315,35 @@ export function useLiveSession(chatId: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, set, teardown]);
 
+  // Answer a bound agent's pending permission ask (chip tap or classified voice).
+  const answerPermission = useCallback((optionId: string) => {
+    const p = useLiveStore.getState().permission;
+    if (!p) return;
+    client.current?.permissionResponse(p.reqId, optionId);
+    set({ permission: null });
+  }, [set]);
+
+
+  // Reflect this conversation's saved agent + project folder in the store when it
+  // opens, so the pre-call pickers show the right values before the call starts.
+  useEffect(() => { set({ boundAgent: readBind(chatId), boundCwd: readCwd(chatId), agentMeta: null }); }, [chatId, set]);
+
+  // Push an agent OR folder change to the server whenever it flips during an active
+  // call (the initial bind is also sent on socket open). Idle changes persist locally.
+  useEffect(() => { if (client.current?.ready) client.current.bind(boundAgent, boundCwd || undefined); }, [boundAgent, boundCwd]);
+
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
   const handleUserText = useCallback(async (text: string) => {
+    // While an agent permission is pending, the next utterance IS the answer — a
+    // spoken yes/no, not a new turn. Ambiguous replies are ignored (keep waiting).
+    const pend = useLiveStore.getState().permission;
+    if (pend) {
+      const yn = classifyYesNo(text);
+      set({ userCaption: "", userPartial: false });
+      if (yn) answerPermission(yn === "allow" ? (pend.options.find((o) => o.id === "allow")?.id ?? pend.options.find((o) => o.id === "always")?.id ?? "deny") : "deny");
+      return;
+    }
     // Attach the freshest frame from every active visual source (camera + screen
     // can both be on), inline with the turn so the model sees exactly this moment.
     const st0 = useLiveStore.getState();
@@ -228,7 +355,7 @@ export function useLiveSession(chatId: string) {
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
     assistantId.current = chatStore.liveUserTurn(chatId, text);
-  }, [chatId, set]);
+  }, [chatId, set, answerPermission]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
   // the user asks — and because the worker stays warm, this only happens once.
@@ -353,5 +480,5 @@ export function useLiveSession(chatId: string) {
   // reactive spectrum while you or the agent talk.
   const getBands = useCallback(() => ({ mic: engine.current?.micBands() ?? NO_BANDS, agent: engine.current?.agentBands() ?? NO_BANDS }), []);
 
-  return { start, stop, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam };
+  return { start, stop, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission };
 }

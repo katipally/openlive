@@ -12,7 +12,7 @@ export type RunWorker = (task: string, emit: Emit, signal: AbortSignal) => Promi
 
 export type Emit = (e: SseEvent) => Promise<void> | void;
 
-export interface TaktTool {
+export interface OpenLiveTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -71,7 +71,7 @@ async function hostIsPrivate(hostname: string): Promise<boolean> {
 // MAIN agent never touches them directly — it hands work off via `delegate` and
 // keeps talking. `look` (camera) is injected per-session by LiveSession.
 
-function makeWebSearch(emit: Emit): TaktTool {
+function makeWebSearch(emit: Emit): OpenLiveTool {
   return {
     name: "web_search",
     description: "Search the web for current or factual info — news, weather, prices, recent events, a specific fact. Returns titles, URLs, and highlights (fetch_url a result for its full text).",
@@ -93,7 +93,7 @@ function makeWebSearch(emit: Emit): TaktTool {
   };
 }
 
-function makeFetchUrl(emit: Emit): TaktTool {
+function makeFetchUrl(emit: Emit): OpenLiveTool {
   return {
     name: "fetch_url",
     description: "Fetch a public web page and return its readable text. Use for a specific URL. Returns plain text (scripts/markup stripped).",
@@ -118,7 +118,7 @@ function makeFetchUrl(emit: Emit): TaktTool {
   };
 }
 
-function makeUpdateTodos(emit: Emit): TaktTool {
+function makeUpdateTodos(emit: Emit): OpenLiveTool {
   return {
     name: "update_todos",
     description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
@@ -133,7 +133,7 @@ function makeUpdateTodos(emit: Emit): TaktTool {
 
 // Lightweight persistent memory: append a fact to notes.json. Remembered notes
 // are auto-injected into the system prompt on the next call (see buildLivePrompt).
-function makeRemember(emit: Emit): TaktTool {
+function makeRemember(emit: Emit): OpenLiveTool {
   return {
     name: "remember",
     description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",
@@ -157,7 +157,7 @@ function makeRemember(emit: Emit): TaktTool {
 // owns the web tools. The worker's own tool activity streams to the UI (so the user
 // watches it work) while the main agent keeps talking; it returns tight findings the
 // main agent then speaks. Present even without `runWorker` (for prompt-cache warming).
-function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: RunWorker): TaktTool {
+function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: RunWorker): OpenLiveTool {
   return {
     name: "delegate",
     description: "Hand off anything that needs the web — a search, a lookup, reading a page, checking a current fact — to your assistant, who has those tools. Give the task in one clear line. Say a short natural line to the user FIRST ('let me look that up'), then delegate: your assistant works while you talk, and reports back what it found for you to relay. Don't delegate things you already know — answer those instantly.",
@@ -173,11 +173,11 @@ function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: R
 }
 
 /** Tools for the WORKER subagent — the web tools it actually runs. */
-export function buildWorkerTools(ctx: { emit: Emit }): TaktTool[] {
+export function buildWorkerTools(ctx: { emit: Emit }): OpenLiveTool[] {
   return [makeWebSearch(ctx.emit), makeFetchUrl(ctx.emit)];
 }
 
 /** Tools for the MAIN voice agent: it delegates web work and otherwise talks. */
-export function buildTaktTools(ctx: { emit: Emit; signal?: AbortSignal; runWorker?: RunWorker }): TaktTool[] {
+export function buildOpenLiveTools(ctx: { emit: Emit; signal?: AbortSignal; runWorker?: RunWorker }): OpenLiveTool[] {
   return [makeDelegate(ctx.emit, ctx.signal, ctx.runWorker), makeUpdateTodos(ctx.emit), makeRemember(ctx.emit)];
 }

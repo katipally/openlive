@@ -44,3 +44,9 @@ function shutdown() {
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+// A stray rejection/exception in one live session (e.g. an ACP call the agent
+// rejects) must NEVER take down the whole service — that would drop every live
+// socket, surfacing as "Couldn't connect to live mode". Log and keep serving.
+process.on("unhandledRejection", (e) => console.error("[agent] unhandledRejection:", e));
+process.on("uncaughtException", (e) => console.error("[agent] uncaughtException:", e));

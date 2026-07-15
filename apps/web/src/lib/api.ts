@@ -12,7 +12,11 @@ export interface AppSettings {
   /** Optional dedicated vision model (own provider) for when the live model can't see. */
   visionProviderId?: string;
   visionModel?: string;
+  /** Working directory a bound coding agent runs in (its file-access scope). */
+  agentCwd?: string;
 }
+
+export interface AgentStatus { id: string; label: string; installed: boolean; sessions: string; home: string }
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? res.statusText);
@@ -30,10 +34,11 @@ export const api = {
     fetch("/api/providers", { method: "POST", body: JSON.stringify({ kind, apiKey }) }).then(j<Provider>),
   models: (provider?: string) =>
     fetch(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`).then(j<ModelInfo[]>),
-  settings: () => fetch("/api/settings").then(j<AppSettings>),
-  updateSettings: (b: Partial<AppSettings>) =>
-    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings>),
+  settings: () => fetch("/api/settings").then(j<AppSettings & Record<string, string>>),
+  updateSettings: (b: Record<string, string>) =>
+    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>),
   chats: () => fetch("/api/chats").then(j<ChatSummary[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE" }).then(j),
+  agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
 };

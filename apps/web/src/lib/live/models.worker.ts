@@ -17,7 +17,7 @@ ort.env.wasm.numThreads = 1;  // single-thread → no cross-origin-isolation nee
 // ONNX we fetch by hand. Falls back to a plain fetch where Cache API is blocked.
 async function cachedArrayBuffer(url: string): Promise<ArrayBuffer> {
   try {
-    const cache = await caches.open("takt-live-models-v1");
+    const cache = await caches.open("openlive-models-v1");
     let res = await cache.match(url);
     if (!res) { await cache.add(url); res = await cache.match(url); }
     if (res) return await res.arrayBuffer();
@@ -29,8 +29,17 @@ async function cachedArrayBuffer(url: string): Promise<ArrayBuffer> {
 // accurate on English (incl. product terms) — the assistant is English-only, and
 // the turn model already uses whisper-tiny.en. (.en models reject a `language`
 // arg, so the stt call passes none.)
-const STT_MODEL = "onnx-community/whisper-base.en";
+// English-only Whisper family; the user picks the size (Pipeline settings). WASM
+// is always tiny (small/base are too slow on CPU). ponytail: `.en` ids only —
+// the assistant is English-only and `.en` rejects a `language` arg.
+const STT_WEBGPU: Record<string, string> = {
+  tiny: "onnx-community/whisper-tiny.en",
+  base: "onnx-community/whisper-base.en",
+  small: "onnx-community/whisper-small.en",
+};
 const STT_MODEL_WASM = "onnx-community/whisper-tiny.en"; // lighter on the WASM tier
+const sttModel = (device: Device, size: string): string =>
+  device === "wasm" ? STT_MODEL_WASM : (STT_WEBGPU[size] ?? STT_WEBGPU.base!);
 const TTS_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "af_heart";
 // Smart-Turn v3 (pipecat): Whisper-tiny encoder + head; input is a Whisper
@@ -75,7 +84,7 @@ self.onmessage = async (e: MessageEvent) => {
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts" | "turn") => (p: any) => post({ type: "progress", data: { ...p, model } });
-      asr = await pipeline("automatic-speech-recognition", device === "wasm" ? STT_MODEL_WASM : STT_MODEL, { device, dtype, progress_callback: tagged("stt") });
+      asr = await pipeline("automatic-speech-recognition", sttModel(device, msg.whisperSize), { device, dtype, progress_callback: tagged("stt") });
       tts = await KokoroTTS.from_pretrained(TTS_MODEL, { device, dtype, progress_callback: tagged("tts") });
       // Smart-Turn is tiny → always CPU/WASM. Non-fatal if it fails to load.
       try {
@@ -93,12 +102,13 @@ self.onmessage = async (e: MessageEvent) => {
       post({ type: "result", id: msg.id, text });
     } else if (msg.type === "tts") {
       const { audio, sampleRate } = await serial(async () => {
-        const a = await tts.generate(msg.text, { voice: VOICE });
+        // voice/speed come from the user's pipeline config; fall back to the defaults.
+        const a = await tts.generate(msg.text, { voice: msg.voice || VOICE, speed: msg.speed || 1 });
         return { audio: a.audio as Float32Array, sampleRate: a.sampling_rate as number };
       });
       post({ type: "result", id: msg.id, audio, sampleRate }, [audio.buffer]);
     } else if (msg.type === "turn") {
-      const complete = await serial(() => turnComplete(msg.audio));
+      const complete = await serial(() => turnComplete(msg.audio, msg.threshold));
       post({ type: "result", id: msg.id, complete });
     } else if (msg.type === "dispose") {
       asr = null; tts = null;
@@ -112,11 +122,13 @@ self.onmessage = async (e: MessageEvent) => {
 };
 
 // Is the user's turn actually complete? true if no model (caller falls back).
-async function turnComplete(audio: Float32Array): Promise<boolean> {
+// `threshold` is the sigmoid cutoff (default 0.5); higher = the user must sound
+// more clearly finished before we respond.
+async function turnComplete(audio: Float32Array, threshold = 0.5): Promise<boolean> {
   if (!turnSession || !turnProc) return true;
   const feats = await turnFeatures(audio);
   const inName = turnSession.inputNames[0]!;
   const outName = turnSession.outputNames[0]!;
   const res: any = await turnSession.run({ [inName]: feats });
-  return (res[outName].data[0] as number) > 0.5;
+  return (res[outName].data[0] as number) > threshold;
 }

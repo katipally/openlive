@@ -279,6 +279,11 @@ function wireBridgeIpc() {
     try {
       if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
       if (op === "clipboard_write") { clipboard.writeText(String(arg ?? "")); return "Copied it to the clipboard."; }
+      if (op === "pick_folder") {
+        const opts = { title: "Choose a project folder", properties: ["openDirectory", "createDirectory"] };
+        const r = await (mainWin ? dialog.showOpenDialog(mainWin, opts) : dialog.showOpenDialog(opts));
+        return r.canceled ? "" : (r.filePaths[0] ?? "");
+      }
       if (op === "open_url") {
         let u = String(arg ?? "").trim();
         if (!/^https?:\/\//i.test(u)) u = `https://${u}`;

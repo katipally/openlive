@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Settings2, Minimize2, Plus, MessageSquare, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
+import { AgentSelect } from "./AgentControls";
+import { AgentBar } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 
@@ -57,7 +59,7 @@ function Conversations() {
             className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-[13px] font-medium text-foreground transition hover:bg-foreground/[0.06]">
             <Plus className="size-4 text-accent" /> New conversation
           </button>
-          <div className="takt-scroll max-h-72 overflow-y-auto py-1">
+          <div className="openlive-scroll max-h-72 overflow-y-auto py-1">
             {chats.length === 0 && <p className="px-3 py-4 text-center text-[12.5px] text-faint">No saved conversations yet.</p>}
             {chats.map((c) => (
               <div key={c.id} className={cn("group flex items-center gap-2 px-3 py-2 transition hover:bg-foreground/[0.04]", c.id === activeChatId && "bg-foreground/[0.06]")}>
@@ -95,6 +97,8 @@ export function TopBar() {
           <span className="text-[14px] font-semibold tracking-tight">OpenLive</span>
         </div>
         <Conversations />
+        <AgentSelect />
+        <AgentBar />
       </div>
       <div className={cn("flex items-center gap-1", noDrag)}>
         <button onClick={openSettings} title="Settings" aria-label="Settings"
