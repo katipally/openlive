@@ -1,78 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
-import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
+import { HistorySidebar } from "@/components/HistorySidebar";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { setConversationBind } from "@/lib/live/useLiveSession";
-import { usePopIn } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
-
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!t) return "";
-  const s = Math.floor((Date.now() - t) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
-// Resume dropdown: shows saved conversations; picking one resumes it (its context
-// rehydrates) and drops into the lobby (where camera/mic/model options live).
-function ResumeMenu({ onPick }: { onPick: (id: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const { data: chats = [] } = useQuery({ queryKey: ["chats"], queryFn: api.chats, enabled: open });
-  usePopIn(menuRef, open);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-  return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setOpen((o) => !o)} title="Resume a past conversation"
-        className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-[14px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-        <MessageSquare className="size-4" /> Resume
-      </button>
-      {open && (
-        <div className="absolute left-1/2 z-50 mt-2 w-80 -translate-x-1/2 text-left">
-          <div ref={menuRef} className="overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
-            <div className="openlive-scroll max-h-80 overflow-y-auto py-1">
-              {chats.length === 0 && <p className="px-3 py-5 text-center text-[12.5px] text-faint">No saved conversations yet.</p>}
-              {chats.map((c) => (
-                <button key={c.id} onClick={() => { setOpen(false); onPick(c.id); }}
-                  className="block w-full px-3 py-2 text-left transition hover:bg-foreground/[0.05]">
-                  <div className="truncate text-[13px] text-foreground">{c.title || "Conversation"}</div>
-                  <div className="text-[11px] text-faint">{relTime(c.createdAt)}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function Home() {
   const appVersion = useAppVersion();
   const liveOpen = useUi((s) => s.liveOpen);
   const setLiveOpen = useUi((s) => s.setLiveOpen);
   const openSettings = useUi((s) => s.openSettings);
+  const setHistoryOpen = useUi((s) => s.setHistoryOpen);
   const activeChatId = useUi((s) => s.activeChatId);
   const newConversation = useUi((s) => s.newConversation);
-  const resumeChat = useUi((s) => s.resumeChat);
   const minimized = useUi((s) => s.minimized);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
@@ -90,7 +38,6 @@ export default function Home() {
     if (pick) setConversationBind(useUi.getState().activeChatId, pick);
     setLiveOpen(true);
   };
-  const resume = (id: string) => { resumeChat(id); setLiveOpen(true); };
 
   return (
     <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
@@ -117,7 +64,10 @@ export default function Home() {
                 className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
                 <Plus className="size-5" /> New
               </button>
-              <ResumeMenu onPick={resume} />
+              <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations"
+                className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-[14px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+                <MessageSquare className="size-4" /> Resume
+              </button>
             </div>
             {/* Choose what a new conversation talks to — the built-in assistant or a
                 coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
@@ -136,6 +86,7 @@ export default function Home() {
 
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
       {!minimized && <SettingsPage />}
+      {!minimized && <HistorySidebar />}
     </main>
   );
 }

@@ -1,0 +1,55 @@
+import { NextResponse } from "next/server";
+import { listChats, chatMessageCounts } from "@openlive/db";
+import type { HistoryAgent, HistoryWorkspace, HistorySession } from "@openlive/shared";
+import { readExternalAgentSessions } from "./agentSessions";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// Fixed agent order + labels for the History sidebar. null = the built-in assistant.
+const AGENT_ORDER: (string | null)[] = [null, "claude-code", "codex", "cursor"];
+const LABEL: Record<string, string> = { "": "OpenLive", "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor" };
+
+// History grouped agent → workspace → session. Merges OpenLive's own sessions
+// (from our DB, filed by the agent + workspace stamped on each) with each coding
+// agent's OWN external sessions read from disk (source:"external", resumable via
+// ACP loadSession). Empty and legacy un-workspaced OpenLive chats are hidden.
+export function GET() {
+  // agentKey → cwd → workspace
+  const byAgent = new Map<string, Map<string, HistoryWorkspace>>();
+  const add = (agentKey: string, cwd: string, s: HistorySession) => {
+    const wsMap = byAgent.get(agentKey) ?? new Map<string, HistoryWorkspace>();
+    const ws = wsMap.get(cwd) ?? { cwd, sessions: [] };
+    ws.sessions.push(s);
+    wsMap.set(cwd, ws);
+    byAgent.set(agentKey, wsMap);
+  };
+
+  // OpenLive's own sessions.
+  const counts = chatMessageCounts();
+  for (const c of listChats()) {
+    if ((c.cwd ?? "") === "" || (counts[c.id] ?? 0) === 0) continue; // hide empty / legacy
+    add(c.agentId ?? "", c.cwd!, { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, source: "openlive" });
+  }
+
+  // Each agent's own external sessions (from disk).
+  const seen = new Set([...byAgent.values()].flatMap((wsMap) => [...wsMap.values()].flatMap((w) => w.sessions.map((s) => s.resumeSessionId ?? s.id))));
+  for (const a of readExternalAgentSessions()) {
+    for (const s of a.sessions) {
+      if (seen.has(s.id)) continue; // already surfaced as an OpenLive resume of this session
+      add(a.agentId, s.cwd, { id: s.id, title: s.title, updatedAt: s.updatedAt, source: "external", resumeSessionId: s.id });
+    }
+  }
+
+  const recent = (ws: HistoryWorkspace) => ws.sessions.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "");
+  const agents: HistoryAgent[] = AGENT_ORDER
+    .filter((a) => byAgent.has(a ?? ""))
+    .map((a) => {
+      const workspaces = [...byAgent.get(a ?? "")!.values()]
+        .map((ws) => ({ ...ws, sessions: ws.sessions.sort((x, y) => (x.updatedAt < y.updatedAt ? 1 : -1)) }))
+        .sort((x, y) => (recent(x) < recent(y) ? 1 : -1));
+      return { agentId: a, label: LABEL[a ?? ""] ?? (a ?? "OpenLive"), workspaces };
+    });
+
+  return NextResponse.json(agents);
+}

@@ -39,6 +39,12 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
     currentModelId: z.string().nullable(),
     modes: z.array(z.object({ id: z.string(), name: z.string() })),
     currentModeId: z.string().nullable(),
+    // Other ACP session config options the agent exposes (thought/reasoning level,
+    // model config, …) — rendered generically as dropdowns.
+    options: z.array(z.object({
+      id: z.string(), label: z.string(), category: z.string(),
+      values: z.array(z.object({ id: z.string(), name: z.string() })), currentId: z.string().nullable(),
+    })).default([]),
   }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
@@ -47,7 +53,8 @@ export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 /** The coding agents a conversation can be bound to (null = built-in provider). */
 export const AGENT_ID = z.enum(["claude-code", "codex", "cursor"]);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
-export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null };
+export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[] };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [
@@ -74,11 +81,13 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // Bind (or unbind) this conversation to a coding agent + set its project folder.
   // Sent on connect (from the client's remembered choice) and whenever the user
   // switches agents OR the project folder. null agentId = the built-in provider brain.
-  z.object({ t: z.literal("bind"), agentId: AGENT_ID.nullable(), cwd: z.string().optional() }),
+  z.object({ t: z.literal("bind"), agentId: AGENT_ID.nullable(), cwd: z.string().optional(), resumeSessionId: z.string().optional() }),
   // The user's answer to a permission request (chip tap or a spoken yes/no).
   z.object({ t: z.literal("permission_response"), reqId: z.string(), optionId: z.string() }),
   // Switch the bound agent's model / mode mid-session (ACP set_model / set_mode).
   z.object({ t: z.literal("set_model"), modelId: z.string() }),
   z.object({ t: z.literal("set_mode"), modeId: z.string() }),
+  // Set any other ACP session config option (thought/reasoning level, …).
+  z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

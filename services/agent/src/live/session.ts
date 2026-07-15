@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
-import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting } from "@openlive/db";
+import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
@@ -183,7 +183,7 @@ export class LiveSession {
         if (r) { this.bridgePending.delete(msg.reqId); r(msg.output); }
         return;
       }
-      case "bind": return this.applyBind(msg.agentId, msg.cwd);
+      case "bind": return this.applyBind(msg.agentId, msg.cwd, msg.resumeSessionId);
       case "permission_response": {
         const r = this.permPending.get(msg.reqId);
         if (r) { this.permPending.delete(msg.reqId); r(msg.optionId); }
@@ -191,6 +191,7 @@ export class LiveSession {
       }
       case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => console.error("[live] set_model:", e)); return; }
       case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => console.error("[live] set_mode:", e)); return; }
+      case "set_option": { this.agent?.setOption?.(msg.optionId, msg.valueId)?.catch((e) => console.error("[live] set_option:", e)); return; }
     }
   }
 
@@ -264,9 +265,15 @@ export class LiveSession {
    *  folder. Rebuilds + reconnects the ACP agent when the agent OR folder changes;
    *  a no-op when neither did (an agent's cwd is fixed at spawn, so a folder switch
    *  means a restart). */
-  private applyBind(id: AgentId | null, cwd?: string) {
+  private applyBind(id: AgentId | null, cwd?: string, resumeSessionId?: string) {
     if (cwd !== undefined && this.chatId) setSetting(`agentCwd:${this.chatId}`, cwd);
+    // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
+    // session id so createBoundAgent loadSession-s it instead of starting fresh.
+    if (resumeSessionId && this.chatId) setSetting(`acpSession:${this.chatId}`, resumeSessionId);
     const effectiveCwd = this.chatId ? (getSetting(`agentCwd:${this.chatId}`) ?? "") : "";
+    // Stamp the session's agent + workspace so the History sidebar can file it
+    // under agent → workspace → session.
+    if (this.chatId) setChatContext(this.chatId, id, effectiveCwd);
     if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) return;
     this.agentAc?.abort();
     void this.agent?.dispose();

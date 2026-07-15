@@ -8,7 +8,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 
 // Stored shapes (on disk).
 interface ProviderRow { id: string; name: string; kind: string; apiKeyCiphertext: string | null; keyLast4: string | null; isDefault: boolean }
-interface ChatRow { id: string; title: string; createdAt: string }
+interface ChatRow { id: string; title: string; createdAt: string; updatedAt?: string; agentId?: string | null; cwd?: string }
 interface MessageRow { id: string; chatId: string; role: MessageRole; content: MessageBlock[]; live: boolean; createdAt: string }
 interface Conversations { chats: ChatRow[]; messages: MessageRow[] }
 
@@ -84,13 +84,33 @@ export function createChat(id?: string, title = "Live conversation"): ChatSummar
   const c = readConvos();
   let chat = c.chats.find((x) => x.id === chatId);
   if (!chat) { chat = { id: chatId, title, createdAt: new Date().toISOString() }; c.chats.push(chat); writeJson(CONVOS, c); }
-  return { id: chat.id, title: chat.title, createdAt: chat.createdAt };
+  return toSummary(chat);
 }
+
+const toSummary = (c: ChatRow): ChatSummary => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt ?? c.createdAt, agentId: c.agentId ?? null, cwd: c.cwd ?? "" });
 
 export function listChats(): ChatSummary[] {
   return readConvos().chats
-    .map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt }))
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    .map(toSummary)
+    .sort((a, b) => ((a.updatedAt ?? a.createdAt) < (b.updatedAt ?? b.createdAt) ? 1 : -1));
+}
+
+/** Stamp a session's agent + workspace so history groups it agent→workspace→session.
+ *  Called when a conversation binds (built-in or a coding agent) in the lobby/call. */
+export function setChatContext(chatId: string, agentId: string | null, cwd: string): void {
+  const c = readConvos();
+  const chat = c.chats.find((x) => x.id === chatId);
+  if (!chat) return;
+  chat.agentId = agentId; chat.cwd = cwd;
+  writeJson(CONVOS, c);
+}
+
+/** Per-chat message counts (for hiding empty sessions — e.g. a lobby connect the
+ *  user never actually talked in). */
+export function chatMessageCounts(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of readConvos().messages) out[m.chatId] = (out[m.chatId] ?? 0) + 1;
+  return out;
 }
 
 export function renameChat(id: string, title: string): void {
@@ -126,8 +146,11 @@ export function getAllSettings(): Record<string, string> {
 // preserves user→assistant ordering without a separate tiebreaker.
 export function addMessage(chatId: string, role: MessageRole, content: MessageBlock[], live = false): ChatMessage {
   const c = readConvos();
-  const row: MessageRow = { id: randomUUID(), chatId, role, content, live, createdAt: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const row: MessageRow = { id: randomUUID(), chatId, role, content, live, createdAt: now };
   c.messages.push(row);
+  const chat = c.chats.find((x) => x.id === chatId);
+  if (chat) chat.updatedAt = now; // last-activity, for history ordering
   writeJson(CONVOS, c);
   return { ...row };
 }

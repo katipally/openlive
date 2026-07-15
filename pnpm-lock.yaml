@@ -153,6 +153,9 @@ importers:
 
   services/agent:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.2.1
+        version: 1.2.1(zod@3.25.76)
       '@hono/node-server':
         specifier: ^1.13.8
         version: 1.19.14(hono@4.12.28)
@@ -168,9 +171,6 @@ importers:
       '@openlive/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@zed-industries/agent-client-protocol':
-        specifier: ^0.4.5
-        version: 0.4.5(patch_hash=fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec)
       hono:
         specifier: ^4.12.27
         version: 4.12.28
@@ -201,6 +201,11 @@ packages:
 
   7zip-bin@5.2.0:
     resolution: {integrity: sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A==}
+
+  '@agentclientprotocol/sdk@1.2.1':
+    resolution: {integrity: sha512-jwYUdOQR7tc+Zfch53VL4JJyUNK/46q03uUTYb+PjECsmnNl94XFXOfYLJ8RBpMNidXd1rpOAVgb0vqD98xImA==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@alloc/quick-lru@5.2.0':
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
@@ -875,10 +880,6 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
-
-  '@zed-industries/agent-client-protocol@0.4.5':
-    resolution: {integrity: sha512-OwHKfu5AiKul/GSJilHg36+kOSV9eOl2eYnjR6tenAQDdraSnt22WFk0SDFTeuAANz1Gxkv+DTf7Hq32rvX7FQ==}
-    deprecated: This package has been renamed to @agentclientprotocol/sdk. Please migrate to continue receiving updates.
 
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
@@ -2677,6 +2678,10 @@ snapshots:
 
   7zip-bin@5.2.0: {}
 
+  '@agentclientprotocol/sdk@1.2.1(zod@3.25.76)':
+    dependencies:
+      zod: 3.25.76
+
   '@alloc/quick-lru@5.2.0': {}
 
   '@develar/schema-utils@2.6.5':
@@ -3233,10 +3238,6 @@ snapshots:
     optional: true
 
   '@xmldom/xmldom@0.9.10': {}
-
-  '@zed-industries/agent-client-protocol@0.4.5(patch_hash=fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec)':
-    dependencies:
-      zod: 3.25.76
 
   abbrev@1.1.1: {}
 

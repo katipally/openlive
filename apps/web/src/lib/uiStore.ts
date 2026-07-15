@@ -13,6 +13,9 @@ interface UiState {
   closeSettings: () => void;
   liveOpen: boolean;
   setLiveOpen: (v: boolean) => void;
+  historyOpen: boolean;               // the left History sidebar (agent → workspace → session)
+  toggleHistory: () => void;
+  setHistoryOpen: (v: boolean) => void;
   activeChatId: string;
   resumeChat: (id: string) => void;   // switch to a saved conversation
   newConversation: () => void;        // fresh id
@@ -28,6 +31,9 @@ export const useUi = create<UiState>((set) => ({
   closeSettings: () => set({ settingsOpen: false }),
   liveOpen: false,
   setLiveOpen: (v) => set({ liveOpen: v }),
+  historyOpen: false,
+  toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
+  setHistoryOpen: (v) => set({ historyOpen: v }),
   activeChatId: newId(),
   resumeChat: (id) => set({ activeChatId: id }),
   newConversation: () => set({ activeChatId: newId() }),

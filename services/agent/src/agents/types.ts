@@ -21,9 +21,10 @@ export interface Agent {
   dispose(): Promise<void>;
   /** Liveness — the child process is alive. */
   health?(): { ok: boolean; detail?: string };
-  /** Switch the agent's model / mode mid-session (ACP set_model / set_mode). */
+  /** Switch the agent's model / mode / config option mid-session. */
   setModel?(modelId: string): Promise<void>;
   setMode?(modeId: string): Promise<void>;
+  setOption?(optionId: string, valueId: string): Promise<void>;
 }
 
 /** Ask the user to approve something the agent wants to do (spoken + chips in the
@@ -33,10 +34,21 @@ export type AskPermission = (question: string, options: { id: string; label: str
 /** How to handle an agent's permission requests. */
 export type Posture = "ask" | "auto-safe" | "auto-all";
 
-/** The agent's selectable models + modes, surfaced to the UI once it connects. */
+/** A generic selectable agent config option (thought/reasoning level, model config,
+ *  …) beyond the dedicated model + mode pickers. */
+export interface AgentOption {
+  id: string;                 // ACP configId to set
+  label: string;
+  category: string;           // "thought_level" | "model_config" | …
+  values: { id: string; name: string }[];
+  currentId: string | null;
+}
+
+/** The agent's selectable models + modes + config options, surfaced once connected. */
 export interface AgentMeta {
   models: { id: string; name: string }[];
   currentModelId: string | null;
   modes: { id: string; name: string }[];
   currentModeId: string | null;
+  options: AgentOption[];
 }

@@ -9,12 +9,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@hono/node-server": "^1.13.8",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openlive/db": "workspace:*",
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
-    "@zed-industries/agent-client-protocol": "^0.4.5",
     "hono": "^4.12.27",
     "ws": "^8.18.0",
     "zod": "^3.24.1",

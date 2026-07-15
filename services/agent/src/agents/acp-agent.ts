@@ -1,8 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { Readable, Writable } from "node:stream";
-import { ClientSideConnection, ndJsonStream } from "@zed-industries/agent-client-protocol";
-import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionModelState, SessionModeState } from "@zed-industries/agent-client-protocol";
+import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit } from "../tools.js";
@@ -64,7 +64,8 @@ export class AcpAgent implements Agent {
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
   private sentPreamble = false;   // the voice+vision context is sent once per session
-  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null };
+  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [] };
+  private modelConfigId: string | null = null; // the ACP config option id for model selection
 
   constructor(id: AgentId, private askPermission: AskPermission, private opts: AcpOpts = {}) {
     this.id = id;
@@ -122,7 +123,7 @@ export class AcpAgent implements Agent {
    *  image capability + the agent's models/modes. */
   private async handshake(cwd: string): Promise<void> {
     const init = await this.conn!.initialize({
-      protocolVersion: 1,
+      protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
@@ -142,22 +143,38 @@ export class AcpAgent implements Agent {
     }
   }
 
-  /** Surface the agent's selectable models + modes (from session/new|load) to the UI. */
-  private reportMeta(r: { models?: SessionModelState | null; modes?: SessionModeState | null }) {
-    this.meta = {
-      models: r.models?.availableModels.map((m) => ({ id: m.modelId, name: m.name })) ?? [],
-      currentModelId: r.models?.currentModelId ?? null,
-      modes: r.modes?.availableModes.map((m) => ({ id: m.id, name: m.name })) ?? [],
-      currentModeId: r.modes?.currentModeId ?? null,
-    };
+  /** Surface the agent's modes + config options (from session/new|load) to the UI. */
+  private reportMeta(r: { modes?: SessionModeState | null; configOptions?: SessionConfigOption[] | null }) {
+    if (r.modes) {
+      this.meta = { ...this.meta, modes: r.modes.availableModes.map((m) => ({ id: m.id, name: m.name })), currentModeId: r.modes.currentModeId ?? null };
+    }
+    this.applyConfig(r.configOptions);
     this.opts.onMeta?.(this.meta);
   }
 
+  /** Fold ACP session config options into meta: the `model` category drives the
+   *  model picker; every other select (thought/reasoning level, model config, …)
+   *  becomes a generic option the UI renders as its own dropdown. */
+  private applyConfig(configOptions?: SessionConfigOption[] | null): void {
+    const selects = (configOptions ?? []).filter((o): o is Extract<SessionConfigOption, { type: "select" }> => o.type === "select");
+    const modelOpt = selects.find((o) => o.category === "model");
+    this.modelConfigId = modelOpt?.id ?? null;
+    this.meta = {
+      ...this.meta,
+      models: modelOpt ? flattenSelect(modelOpt.options) : this.meta.models,
+      currentModelId: modelOpt ? (modelOpt.currentValue ?? null) : this.meta.currentModelId,
+      options: selects.filter((o) => o.category !== "model").map((o) => ({
+        id: o.id, label: o.name, category: o.category ?? "", values: flattenSelect(o.options), currentId: o.currentValue ?? null,
+      })),
+    };
+  }
+
   async setModel(modelId: string): Promise<void> {
-    if (!this.conn || !this.sessionId) return;
-    // Never throw: an agent that rejects a model id must not crash the session.
+    if (!this.conn || !this.sessionId || !this.modelConfigId) return;
+    // Model selection is now an ACP session config option. Never throw: an agent
+    // that rejects a value must not crash the session.
     try {
-      await this.conn.setSessionModel({ sessionId: this.sessionId, modelId });
+      await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
       this.meta = { ...this.meta, currentModelId: modelId };
       this.opts.onMeta?.(this.meta);
     } catch (e) { console.error(`[agent:${this.id}] setModel(${modelId}) failed:`, e); }
@@ -170,6 +187,16 @@ export class AcpAgent implements Agent {
       this.meta = { ...this.meta, currentModeId: modeId };
       this.opts.onMeta?.(this.meta);
     } catch (e) { console.error(`[agent:${this.id}] setMode(${modeId}) failed:`, e); }
+  }
+
+  /** Set any other ACP session config option (thought/reasoning level, model config…). */
+  async setOption(optionId: string, valueId: string): Promise<void> {
+    if (!this.conn || !this.sessionId) return;
+    try {
+      await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: optionId, value: valueId });
+      this.meta = { ...this.meta, options: this.meta.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) };
+      this.opts.onMeta?.(this.meta);
+    } catch (e) { console.error(`[agent:${this.id}] setOption(${optionId}=${valueId}) failed:`, e); }
   }
 
   /** ACP client surface: session updates → SseEvents; permission asks → the user. */
@@ -202,6 +229,11 @@ export class AcpAgent implements Agent {
             return;
           case "current_mode_update":
             this.meta = { ...this.meta, currentModeId: u.currentModeId };
+            this.opts.onMeta?.(this.meta);
+            return;
+          case "config_option_update":
+            // A model/thought-level/… selection landed (ours or the agent's own).
+            this.applyConfig(u.configOptions);
             this.opts.onMeta?.(this.meta);
             return;
           default:
@@ -296,6 +328,16 @@ export class AcpAgent implements Agent {
 }
 
 function labelFor(id: AgentId): string { return id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : "Cursor"; }
+
+/** Flatten ACP select options (which may be flat or grouped) into {id,name}. */
+function flattenSelect(opts: unknown): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const o of (Array.isArray(opts) ? opts : []) as Array<Record<string, unknown>>) {
+    if (o && typeof o.value === "string") out.push({ id: o.value, name: typeof o.name === "string" ? o.name : o.value });
+    else if (o && Array.isArray(o.options)) out.push(...flattenSelect(o.options));
+  }
+  return out;
+}
 
 /** Pull a human-readable message out of an ACP/JSON-RPC error — agents often nest
  *  the provider's real error JSON inside `data.message` (e.g. Codex's model/version

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Check, RefreshCw } from "lucide-react";
+import { FolderOpen, Check, RefreshCw, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -28,6 +28,13 @@ const INSTALL: Record<string, string> = {
   "cursor": "curl https://cursor.com/install -fsS | bash",
 };
 
+// The default ACP adapter command per agent (shown as the override placeholder).
+const DEFAULT_CMD: Record<string, string> = {
+  "claude-code": "npx -y @zed-industries/claude-code-acp",
+  "codex": "npx -y @zed-industries/codex-acp",
+  "cursor": "cursor-agent acp",
+};
+
 export function AgentsSettings() {
   const qc = useQueryClient();
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -47,6 +54,11 @@ export function AgentsSettings() {
   const posture = (id: string) => (settings?.[`posture:${id}`] as string) ?? "ask";
   const savePosture = useMutation({
     mutationFn: ({ id, v }: { id: string; v: string }) => api.updateSettings({ [`posture:${id}`]: v }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  });
+  const cmd = (id: string) => (settings?.[`acpCommand:${id}`] as string) ?? "";
+  const saveCmd = useMutation({
+    mutationFn: ({ id, v }: { id: string; v: string }) => api.updateSettings({ [`acpCommand:${id}`]: v }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 
@@ -72,8 +84,8 @@ export function AgentsSettings() {
         {save.isSuccess && <p className="mt-1.5 text-[11.5px] text-success">Saved · applies to the next agent you start.</p>}
       </Section>
 
-      <Section title="Status & sessions"
-        desc={<>Whether each agent&apos;s CLI is installed here, and where it keeps its sessions. To <span className="text-foreground">resume</span>, just reopen the conversation — OpenLive replays it into the agent via ACP.</>}>
+      <Section title="CLI status"
+        desc={<>Whether each agent&apos;s CLI is installed here, and where it keeps its session files on disk. To <span className="text-foreground">resume</span> a conversation, open it from History — OpenLive replays it into the agent via ACP.</>}>
         <div className="flex flex-col gap-2.5">
           {isLoading && <p className="text-[12px] text-muted-foreground">Checking…</p>}
           {agents.map((a) => (
@@ -87,7 +99,7 @@ export function AgentsSettings() {
                       ? <span className="flex items-center gap-1 text-[11.5px] font-normal text-success"><Check className="size-3.5" /> installed</span>
                       : <span className="text-[11.5px] font-normal text-muted-foreground">— not found</span>}
                   </div>
-                  <p className="mt-0.5 truncate font-mono text-[11.5px] text-faint">sessions · {a.sessions}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11.5px] text-faint">session store · {a.sessions}</p>
                   {!a.installed && INSTALL[a.id] && (
                     <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
                       Set up: <code className="rounded bg-foreground/[0.06] px-1 py-0.5 font-mono text-[11px] text-foreground">{INSTALL[a.id]}</code>, then sign in with your account.
@@ -104,6 +116,17 @@ export function AgentsSettings() {
                   </select>
                 </label>
               </div>
+              <details className="group mt-2.5 border-t border-border pt-2.5">
+                <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground transition hover:text-foreground [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-3 transition group-open:rotate-90" /> Advanced · ACP command
+                </summary>
+                <div className="mt-2 space-y-1">
+                  <input defaultValue={cmd(a.id)} onBlur={(e) => { const v = e.target.value.trim(); if (v !== cmd(a.id)) saveCmd.mutate({ id: a.id, v }); }}
+                    placeholder={DEFAULT_CMD[a.id] ?? "custom acp command"} spellCheck={false}
+                    className="h-8 w-full rounded-lg border border-border bg-surface px-2.5 font-mono text-[11.5px] text-foreground outline-none focus:border-border-heavy" />
+                  <p className="text-[10.5px] leading-relaxed text-faint">The command OpenLive runs to speak ACP with {a.label} over the Agent Client Protocol. Leave blank for the default; change it if the ecosystem package moves.</p>
+                </div>
+              </details>
             </div>
           ))}
           <button onClick={() => refetch()} disabled={isFetching}

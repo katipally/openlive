@@ -95,12 +95,13 @@ export class LiveClient {
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
   /** Bind this conversation to a coding agent (null = provider brain) + project folder. */
-  bind(agentId: AgentId | null, cwd?: string) { this.sendJson({ t: "bind", agentId, ...(cwd !== undefined ? { cwd } : {}) }); }
+  bind(agentId: AgentId | null, cwd?: string, resumeSessionId?: string) { this.sendJson({ t: "bind", agentId, ...(cwd !== undefined ? { cwd } : {}), ...(resumeSessionId ? { resumeSessionId } : {}) }); }
   /** Answer an agent permission ask (chip tap or spoken yes/no). */
   permissionResponse(reqId: string, optionId: string) { this.sendJson({ t: "permission_response", reqId, optionId }); }
   /** Switch the bound agent's model / mode mid-session. */
   setModel(modelId: string) { this.sendJson({ t: "set_model", modelId }); }
   setMode(modeId: string) { this.sendJson({ t: "set_mode", modeId }); }
+  setOption(optionId: string, valueId: string) { this.sendJson({ t: "set_option", optionId, valueId }); }
 
   sendFrame(jpeg: ArrayBuffer) {
     if (!this.ready) return;

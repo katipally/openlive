@@ -41,6 +41,7 @@ export class AgentSupervisor implements Agent {
 
   async setModel(modelId: string): Promise<void> { await this.agent.setModel?.(modelId); }
   async setMode(modeId: string): Promise<void> { await this.agent.setMode?.(modeId); }
+  async setOption(optionId: string, valueId: string): Promise<void> { await this.agent.setOption?.(optionId, valueId); }
 
   async runTurn(input: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
     // Child controller so a watchdog timeout can cut the agent without the

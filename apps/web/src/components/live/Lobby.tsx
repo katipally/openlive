@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Mic, Video, X, Folder, FolderOpen, Settings2 } from "lucide-react";
+import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft } from "lucide-react";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -9,7 +9,7 @@ import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveS
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
 import { AgentIcon } from "./AgentIcon";
-import { setConversationFolder, setConversationModel, setConversationMode, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
+import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
@@ -18,6 +18,8 @@ const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator
 const bridge = (): ((op: string, arg?: string) => Promise<string>) | undefined =>
   (typeof window !== "undefined" ? (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive?.bridge : undefined);
 const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p;
+const NICE_CATEGORY: Record<string, string> = { thought_level: "Reasoning", model_config: "Model config" };
+const optLabel = (category: string, label: string) => label || NICE_CATEGORY[category] || category || "Option";
 
 // Full-page pre-call lobby. Left = a big self-preview with the mic meter, the mic
 // & camera pickers, and the Start CTA directly under it. Right = the AI side of
@@ -39,16 +41,22 @@ export function Lobby(props: LobbyProps) {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
   const cpu = typeof navigator !== "undefined" && !hasWebGPU();
-  const needFolder = !!boundAgent && !boundCwd; // a coding agent needs a folder before it can start
+  const needFolder = !boundCwd; // every call is filed under a workspace — required for all, OpenLive included
   const root = useRef<HTMLDivElement>(null);
 
-  useGSAP(() => {
+  const { contextSafe } = useGSAP(() => {
     if (prefersReduced()) { gsap.fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.12 }); return; }
     gsap.timeline()
       .fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft })
       .fromTo(".ol-lobby-stage > *", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, stagger: 0.06, duration: DUR.slow, ease: EASE.snappy }, "-=0.06")
       .fromTo(".ol-lobby-aside", { autoAlpha: 0, x: 26 }, { autoAlpha: 1, x: 0, duration: DUR.slow, ease: EASE.out }, "<");
   }, { scope: root });
+
+  // Back to home — animate out first (reverse of the entrance), then unmount.
+  const handleBack = contextSafe(() => {
+    if (!root.current || prefersReduced()) { onExit(); return; }
+    gsap.to(root.current, { autoAlpha: 0, y: 8, duration: DUR.fast, ease: EASE.soft, onComplete: onExit });
+  });
 
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
@@ -78,6 +86,10 @@ export function Lobby(props: LobbyProps) {
       <main className="relative min-w-0 flex-1 overflow-y-auto">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
         <div className="app-drag absolute left-[84px] right-0 top-0 z-0 h-12" />
+        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="History" aria-label="History"
+          className="absolute left-[84px] top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+          <PanelLeft className="size-4" />
+        </button>
         <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
           <div className="space-y-1">
             <h2 className="text-[22px] font-semibold tracking-tight">Talk with OpenLive</h2>
@@ -110,7 +122,7 @@ export function Lobby(props: LobbyProps) {
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
             <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
-            <button onClick={onExit} title="Back to home" aria-label="Back to home"
+            <button onClick={handleBack} title="Back to home" aria-label="Back to home"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><X className="size-4" /></button>
           </div>
         </header>
@@ -123,7 +135,7 @@ export function Lobby(props: LobbyProps) {
           {boundAgent ? <AgentSetup agent={boundAgent} boundCwd={boundCwd} /> : (
             <div className="space-y-6">
               <ModelQuickPick onOpenSettings={onOpenSettings} />
-              <WorkspaceField cwd={boundCwd} name="OpenLive" />
+              <WorkspaceField cwd={boundCwd} name="OpenLive" required />
             </div>
           )}
         </div>
@@ -206,7 +218,7 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
     <div className="space-y-5">
       <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
         <AgentIcon id={agent} className="size-4" /> {agentLabel(agent)}
-        <button onClick={() => openSettingsTab("agents")} className="ml-auto text-[11px] font-normal text-accent transition hover:underline">Sessions →</button>
+        <button onClick={() => openSettingsTab("agents")} className="ml-auto text-[11px] font-normal text-accent transition hover:underline">Manage →</button>
       </div>
 
       <WorkspaceField cwd={boundCwd} name={agentLabel(agent)} required />
@@ -233,7 +245,18 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
         )}
       </label>
 
-      {!hasModels && !hasModes && (
+      {/* Other ACP config options the agent exposes — reasoning/thought level, model
+          config, … — rendered generically as their own dropdowns. */}
+      {(meta?.options ?? []).filter((o) => o.values.length > 0).map((o) => (
+        <label key={o.id} className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-faint">{optLabel(o.category, o.label)}</span>
+          <select value={o.currentId ?? ""} onChange={(e) => setConversationOption(o.id, e.target.value)} className={selectClass}>
+            {o.values.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </label>
+      ))}
+
+      {!hasModels && !hasModes && (meta?.options ?? []).length === 0 && (
         <p className={cn("text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
           {agentConnecting
             ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`

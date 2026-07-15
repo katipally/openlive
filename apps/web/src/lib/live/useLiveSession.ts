@@ -61,6 +61,13 @@ export function setConversationFolder(chatId: string, cwd: string) {
   addRecentFolder(cwd);
 }
 
+// Resuming one of an agent's OWN external sessions (from History): remember the ACP
+// session id so the initial bind loadSession-s it. Sent on connect only.
+function readResume(chatId: string): string { try { return localStorage.getItem(`openlive-resume:${chatId}`) ?? ""; } catch { return ""; } }
+export function setConversationResume(chatId: string, sessionId: string) {
+  try { localStorage.setItem(`openlive-resume:${chatId}`, sessionId); } catch { /* private mode */ }
+}
+
 // The live client of the ACTIVE session, so top-bar controls (rendered outside the
 // hook) can switch the agent's model/mode mid-call. Single session at a time.
 let activeLiveClient: LiveClient | null = null;
@@ -74,12 +81,17 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
     const v = localStorage.getItem(`openlive-meta:${agentId}`);
     if (!v) return null;
     const meta = JSON.parse(v) as AgentMeta;
-    // Reflect the user's remembered model/mode preference (validated against the
-    // cached set) so the pre-call pickers show their last choice.
+    if (!Array.isArray(meta.options)) meta.options = []; // tolerate pre-config-options caches
+    // Reflect the user's remembered model/mode/option preference (validated against
+    // the cached set) so the pre-call pickers show their last choice.
     const mp = localStorage.getItem(`openlive-model:${agentId}`);
     if (mp && meta.models.some((m) => m.id === mp)) meta.currentModelId = mp;
     const dp = localStorage.getItem(`openlive-mode:${agentId}`);
     if (dp && meta.modes.some((m) => m.id === dp)) meta.currentModeId = dp;
+    for (const o of meta.options) {
+      const p = localStorage.getItem(`openlive-opt:${agentId}:${o.id}`);
+      if (p && o.values.some((v) => v.id === p)) o.currentId = p;
+    }
     return meta;
   } catch { return null; }
 }
@@ -98,6 +110,13 @@ export function setConversationMode(modeId: string) {
   activeLiveClient?.setMode(modeId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
   if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModeId: modeId } });
+}
+export function setConversationOption(optionId: string, valueId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  if (agent) { try { localStorage.setItem(`openlive-opt:${agent}:${optionId}`, valueId); } catch { /* */ } }
+  activeLiveClient?.setOption(optionId, valueId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, options: m.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) } });
 }
 
 // Orchestrates one live call. THICK CLIENT: the VoiceEngine runs VAD+STT+TTS
@@ -156,7 +175,7 @@ export function useLiveSession(chatId: string) {
   const ensureClient = useCallback((): LiveClient => {
     if (client.current) return client.current;
     const c = new LiveClient({
-      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined); },
+      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined, readResume(chatId) || undefined); },
       onReconnecting: () => set({ phase: "reconnecting" }),
       onClose: () => teardown(),
       onError: (m) => set({ error: m, agentConnecting: false }),
@@ -173,6 +192,10 @@ export function useLiveSession(chatId: string) {
           if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
           const pd = readPref(`openlive-mode:${agent}`);
           if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
+          for (const o of meta.options ?? []) {
+            const p = readPref(`openlive-opt:${agent}:${o.id}`);
+            if (p && p !== o.currentId && o.values.some((v) => v.id === p)) client.current?.setOption(o.id, p);
+          }
         }
       },
       onSse: (e) => {
