@@ -31,3 +31,6 @@ minimumReleaseAgeExclude:
   - '@tailwindcss/oxide@4.3.2'
   - '@tailwindcss/postcss@4.3.2'
   - tailwindcss@4.3.2
+
+patchedDependencies:
+  '@zed-industries/agent-client-protocol@0.4.5': patches/@zed-industries__agent-client-protocol@0.4.5.patch

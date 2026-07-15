@@ -7,6 +7,9 @@ settings:
 overrides:
   '@huggingface/transformers': 4.2.0
 
+patchedDependencies:
+  '@zed-industries/agent-client-protocol@0.4.5': fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec
+
 importers:
 
   .:
@@ -164,7 +167,7 @@ importers:
         version: link:../../packages/shared
       '@zed-industries/agent-client-protocol':
         specifier: ^0.4.5
-        version: 0.4.5
+        version: 0.4.5(patch_hash=fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec)
       hono:
         specifier: ^4.12.27
         version: 4.12.28
@@ -3248,7 +3251,7 @@ snapshots:
 
   '@xmldom/xmldom@0.9.10': {}
 
-  '@zed-industries/agent-client-protocol@0.4.5':
+  '@zed-industries/agent-client-protocol@0.4.5(patch_hash=fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec)':
     dependencies:
       zod: 3.25.76
 

@@ -85,41 +85,56 @@ export class AcpAgent implements Agent {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
-    child.stderr.on("data", (d: Buffer) => console.error(`[agent:${this.id}]`, d.toString().trim()));
-    child.on("exit", (code) => { this.alive = false; if (code) console.error(`[agent:${this.id}] ${cfg.command} exited ${code}`); });
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
 
-    // Surface "command not found" as a clean start failure instead of a hang.
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", () => resolve());
-      child.once("error", (e) => reject(new Error(`Couldn't run "${cfg.command}": ${e.message}. Is ${this.id} installed?`)));
+    // Reject the whole handshake if the child dies before it's ready. An OUTDATED or
+    // SIGNED-OUT agent (e.g. an old cursor-agent) prints a TUI / exits instead of
+    // speaking ACP — a clean, actionable error beats a 60s hang + JSON-parse spam.
+    let ready = false;
+    const died = new Promise<never>((_, reject) => {
+      child.once("error", (e) => reject(new Error(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`)));
+      child.once("exit", (code) => {
+        this.alive = false;
+        if (!ready) reject(new Error(startError(this.id, code, stderr)));
+        else if (code) console.error(`[agent:${this.id}] ${cfg.command} exited ${code}`);
+      });
     });
+    died.catch(() => {}); // no unhandled rejection if the handshake wins the race
+
+    await Promise.race([new Promise<void>((r) => child.once("spawn", () => r())), died]);
     this.alive = true;
 
     const stream = ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>);
     this.conn = new ClientSideConnection((_agent) => this.clientHandler(), stream);
 
-    const init = await this.conn.initialize({
+    await Promise.race([this.handshake(cfg.cwd), died]);
+    ready = true;
+    this.opts.onSession?.(this.sessionId);
+  }
+
+  /** ACP handshake: initialize → resume (session/load) or new session, capturing
+   *  image capability + the agent's models/modes. */
+  private async handshake(cwd: string): Promise<void> {
+    const init = await this.conn!.initialize({
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
-    // Resume a prior chat if we have its session id (Claude Code + Codex support
-    // session/load); fall back to a fresh session if load isn't supported.
     let resumed = false;
     if (this.opts.resumeSessionId) {
       try {
-        const r = await this.conn.loadSession({ sessionId: this.opts.resumeSessionId, cwd: cfg.cwd, mcpServers: [] });
+        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers: [] });
         this.sessionId = this.opts.resumeSessionId;
         this.reportMeta(r);
         resumed = true;
       } catch { /* fall through to a fresh session */ }
     }
     if (!resumed) {
-      const r = await this.conn.newSession({ cwd: cfg.cwd, mcpServers: [] });
+      const r = await this.conn!.newSession({ cwd, mcpServers: [] });
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }
-    this.opts.onSession?.(this.sessionId);
   }
 
   /** Surface the agent's selectable models + modes (from session/new|load) to the UI. */
@@ -239,6 +254,16 @@ export class AcpAgent implements Agent {
     try {
       const res = await this.conn.prompt({ sessionId: this.sessionId, prompt });
       if (res.stopReason === "refusal") await emit({ type: "error", message: `${labelFor(this.id)} refused this request.` });
+    } catch (e) {
+      if (signal.aborted) return; // barge-in / cancel — not an error
+      // A JSON-RPC error RESPONSE means the agent is alive but rejected the turn
+      // (e.g. an outdated Codex hitting a model its backend won't allow). Surface
+      // the REAL, actionable message instead of a generic "crashed"; don't recycle.
+      if (typeof (e as { code?: unknown } | null)?.code === "number") {
+        await emit({ type: "error", message: `${labelFor(this.id)}: ${extractAcpError(e)}` });
+      } else {
+        throw e; // transport failure / agent died → let the supervisor recycle it
+      }
     } finally {
       signal.removeEventListener("abort", onAbort);
       if (this.turnEmit === emit) this.turnEmit = null;
@@ -257,3 +282,29 @@ export class AcpAgent implements Agent {
 }
 
 function labelFor(id: AgentId): string { return id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : "Cursor"; }
+
+/** Pull a human-readable message out of an ACP/JSON-RPC error — agents often nest
+ *  the provider's real error JSON inside `data.message` (e.g. Codex's model/version
+ *  rejection hidden under a generic "Internal error"). */
+function extractAcpError(e: unknown): string {
+  const err = e as { message?: string; data?: { message?: string } } | null;
+  const raw = typeof err?.data?.message === "string" ? err.data.message
+    : typeof err?.message === "string" ? err.message : String(e);
+  try {
+    const j = JSON.parse(raw) as { error?: { message?: string }; message?: string };
+    const inner = j?.error?.message ?? j?.message;
+    if (typeof inner === "string" && inner.trim()) return inner.trim();
+  } catch { /* not JSON — use raw */ }
+  return raw;
+}
+
+/** A clean, actionable error when an agent process dies before the ACP handshake. */
+function startError(id: AgentId, code: number | null, stderr: string): string {
+  const tail = stderr.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(-240);
+  const hint = id === "cursor"
+    ? "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `cursor-agent login`."
+    : id === "codex"
+      ? "Make sure `codex` is installed and signed in (run `codex`)."
+      : "Make sure Claude Code is installed and signed in (run `claude`).";
+  return `${labelFor(id)} exited before connecting${code != null ? ` (code ${code})` : ""}. ${hint}${tail ? ` — ${tail}` : ""}`;
+}
