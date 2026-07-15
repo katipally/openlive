@@ -30,6 +30,7 @@ interface LiveState {
   boundAgent: AgentId | null;         // coding agent this conversation talks to (null = built-in brain)
   boundCwd: string;                   // project folder for the bound agent ("" = default/home)
   agentMeta: AgentMeta | null;        // the bound agent's selectable models + modes (once connected)
+  agentConnecting: boolean;           // pre-call: connecting to the bound agent to fetch its models/modes
   permission: PendingPermission | null; // a bound agent's pending permission ask (chips + spoken)
   error?: string;
   micId?: string;
@@ -64,6 +65,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   boundAgent: null,
   boundCwd: "",
   agentMeta: null,
+  agentConnecting: false,
   permission: null,
   mics: [],
   cams: [],

@@ -83,6 +83,11 @@ export class AcpAgent implements Agent {
       cwd: cfg.cwd,
       env: { ...process.env, PATH: widenedPath() },
       stdio: ["pipe", "pipe", "pipe"],
+      // Own process group so dispose() can kill the WHOLE tree. The adapter is
+      // `npx …`/`npm exec …`, which spawns node → the real acp binary two levels
+      // down; killing just our direct child orphans those grandchildren (they
+      // reparent to init and leak). Group-kill (process.kill(-pid)) takes them all.
+      detached: true,
     });
     this.child = child;
     let stderr = "";
@@ -275,9 +280,18 @@ export class AcpAgent implements Agent {
   async dispose(): Promise<void> {
     this.alive = false;
     this.turnEmit = null;
-    try { this.child?.kill("SIGTERM"); } catch { /* already dead */ }
+    const child = this.child;
     this.child = null;
     this.conn = null;
+    const pid = child?.pid;
+    if (pid) {
+      // Kill the whole process group (negative pid) so the npx/npm-exec wrapper AND
+      // its node → acp-binary grandchildren all die — not just our direct child.
+      try { process.kill(-pid, "SIGTERM"); }
+      catch { try { child!.kill("SIGTERM"); } catch { /* already dead */ } }
+      // Escalate if it ignores SIGTERM, so a stuck adapter can't linger.
+      setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref();
+    }
   }
 }
 

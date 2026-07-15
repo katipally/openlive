@@ -6,11 +6,12 @@ import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
-import { SettingsModal } from "@/components/settings/SettingsModal";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { setConversationBind } from "@/lib/live/useLiveSession";
+import { usePopIn } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 
@@ -29,7 +30,9 @@ function relTime(iso: string): string {
 function ResumeMenu({ onPick }: { onPick: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { data: chats = [] } = useQuery({ queryKey: ["chats"], queryFn: api.chats, enabled: open });
+  usePopIn(menuRef, open);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -43,16 +46,18 @@ function ResumeMenu({ onPick }: { onPick: (id: string) => void }) {
         <MessageSquare className="size-4" /> Resume
       </button>
       {open && (
-        <div className="absolute left-1/2 z-50 mt-2 w-80 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover text-left shadow-xl">
-          <div className="openlive-scroll max-h-80 overflow-y-auto py-1">
-            {chats.length === 0 && <p className="px-3 py-5 text-center text-[12.5px] text-faint">No saved conversations yet.</p>}
-            {chats.map((c) => (
-              <button key={c.id} onClick={() => { setOpen(false); onPick(c.id); }}
-                className="block w-full px-3 py-2 text-left transition hover:bg-foreground/[0.05]">
-                <div className="truncate text-[13px] text-foreground">{c.title || "Conversation"}</div>
-                <div className="text-[11px] text-faint">{relTime(c.createdAt)}</div>
-              </button>
-            ))}
+        <div className="absolute left-1/2 z-50 mt-2 w-80 -translate-x-1/2 text-left">
+          <div ref={menuRef} className="overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+            <div className="openlive-scroll max-h-80 overflow-y-auto py-1">
+              {chats.length === 0 && <p className="px-3 py-5 text-center text-[12.5px] text-faint">No saved conversations yet.</p>}
+              {chats.map((c) => (
+                <button key={c.id} onClick={() => { setOpen(false); onPick(c.id); }}
+                  className="block w-full px-3 py-2 text-left transition hover:bg-foreground/[0.05]">
+                  <div className="truncate text-[13px] text-foreground">{c.title || "Conversation"}</div>
+                  <div className="text-[11px] text-faint">{relTime(c.createdAt)}</div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -130,7 +135,7 @@ export default function Home() {
       )}
 
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
-      {!minimized && <SettingsModal />}
+      {!minimized && <SettingsPage />}
     </main>
   );
 }

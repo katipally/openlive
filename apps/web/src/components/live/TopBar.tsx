@@ -8,6 +8,7 @@ import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { AgentSelect } from "./AgentControls";
 import { AgentBar } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
+import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
 // Running inside the desktop app? Then leave room for the custom window controls
@@ -32,7 +33,9 @@ function Conversations() {
   const newConversation = useUi((s) => s.newConversation);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { data: chats = [] } = useQuery({ queryKey: ["chats"], queryFn: api.chats, enabled: open });
+  usePopIn(menuRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -54,7 +57,7 @@ function Conversations() {
         <MessageSquare className="size-4" /> Conversations <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 z-50 mt-1.5 w-72 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-72 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           <button onClick={() => { newConversation(); setOpen(false); }}
             className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-[13px] font-medium text-foreground transition hover:bg-foreground/[0.06]">
             <Plus className="size-4 text-accent" /> New conversation

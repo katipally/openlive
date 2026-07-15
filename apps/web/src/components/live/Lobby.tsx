@@ -1,25 +1,29 @@
 "use client";
 
-import { Mic, Video, X, Folder, FolderOpen } from "lucide-react";
+import { useRef } from "react";
+import { Mic, Video, X, Folder, FolderOpen, Settings2 } from "lucide-react";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
 import type { AgentId } from "@/lib/live/liveClient";
-import { TopBar } from "./TopBar";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
 import { AgentIcon } from "./AgentIcon";
 import { setConversationFolder, setConversationModel, setConversationMode, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
+import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { cn } from "@/lib/cn";
 
+const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 const bridge = (): ((op: string, arg?: string) => Promise<string>) | undefined =>
   (typeof window !== "undefined" ? (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive?.bridge : undefined);
 const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p;
 
-// Full-page pre-call lobby — shares the in-call skeleton (TopBar + main stage +
-// right sidebar) so starting a call feels like a continuation, not a modal. Main =
-// self-preview + the Start CTA; sidebar = who you're talking to + (for a coding
-// agent) the required project folder, model and mode.
+// Full-page pre-call lobby. Left = a big self-preview with the mic meter, the mic
+// & camera pickers, and the Start CTA directly under it. Right = the AI side of
+// the call (who you're talking to + its model / mode / project folder). No top
+// bar — the frameless window drags from a thin strip that clears the traffic
+// lights, and Settings + Back live in the sidebar header.
 export interface LobbyProps {
   mics: DeviceOpt[]; cams: DeviceOpt[]; micId?: string; camId?: string;
   onMic: (id: string) => void; onCam: (id: string) => void; error?: string;
@@ -35,8 +39,16 @@ export function Lobby(props: LobbyProps) {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
   const cpu = typeof navigator !== "undefined" && !hasWebGPU();
-  // A coding agent needs a project folder before it can start.
-  const needFolder = !!boundAgent && !boundCwd;
+  const needFolder = !!boundAgent && !boundCwd; // a coding agent needs a folder before it can start
+  const root = useRef<HTMLDivElement>(null);
+
+  useGSAP(() => {
+    if (prefersReduced()) { gsap.fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.12 }); return; }
+    gsap.timeline()
+      .fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft })
+      .fromTo(".ol-lobby-stage > *", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, stagger: 0.06, duration: DUR.slow, ease: EASE.snappy }, "-=0.06")
+      .fromTo(".ol-lobby-aside", { autoAlpha: 0, x: 26 }, { autoAlpha: 1, x: 0, duration: DUR.slow, ease: EASE.out }, "<");
+  }, { scope: root });
 
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
@@ -53,7 +65,7 @@ export function Lobby(props: LobbyProps) {
   ) : (
     <div className="flex flex-col items-center gap-2">
       <button onClick={onStart} disabled={needFolder}
-        className="rounded-full bg-accent px-9 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
+        className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
       {needFolder && <p className="text-[11.5px] text-faint">Pick a project folder on the right to start.</p>}
@@ -61,68 +73,134 @@ export function Lobby(props: LobbyProps) {
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-background animate-live-in">
-      <TopBar />
-      <div className="flex min-h-0 flex-1">
-        {/* main stage — self-preview + the Start CTA */}
-        <main className="relative min-w-0 flex-1 overflow-y-auto">
-          <div className="m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-8 text-center">
-            <div className="space-y-1">
-              <h2 className="text-[22px] font-semibold tracking-tight">Talk with OpenLive</h2>
-              <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
-              {cpu && (
-                <p className="mx-auto max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
-                  Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
-                </p>
-              )}
-            </div>
-            <CameraPreview camId={camId} onGranted={refreshDevices} />
-            <MicMeter micId={micId} onGranted={refreshDevices} />
-            {cta}
-            {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
+    <div ref={root} className="fixed inset-0 z-40 flex bg-background">
+      {/* main stage — self-preview, mic level, device pickers, Start */}
+      <main className="relative min-w-0 flex-1 overflow-y-auto">
+        {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
+        <div className="app-drag absolute left-[84px] right-0 top-0 z-0 h-12" />
+        <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
+          <div className="space-y-1">
+            <h2 className="text-[22px] font-semibold tracking-tight">Talk with OpenLive</h2>
+            <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
+            {cpu && (
+              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
+                Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
+              </p>
+            )}
           </div>
-        </main>
 
-        {/* setup sidebar — same position as the in-call transcript panel */}
-        <aside className="flex w-[340px] shrink-0 flex-col border-l border-border bg-surface/40">
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-            <span className="text-[13px] font-semibold">Set up your call</span>
+          <CameraPreview camId={camId} onGranted={refreshDevices} />
+          <MicMeter micId={micId} onGranted={refreshDevices} />
+
+          {/* device pickers — moved under the preview so the right panel is all-AI */}
+          <div className="flex w-full max-w-[22rem] items-stretch gap-2">
+            <div className="min-w-0 flex-1"><DeviceSelect icon={Mic} opts={mics} value={micId} onChange={onMic} /></div>
+            <div className="min-w-0 flex-1"><DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} /></div>
+          </div>
+
+          {cta}
+          {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
+        </div>
+      </main>
+
+      {/* AI sidebar — same slot the in-call transcript uses, so start→call is continuous */}
+      <aside className="ol-lobby-aside flex w-[360px] shrink-0 flex-col border-l border-border bg-surface/40 text-left">
+        <header className={cn("flex h-14 shrink-0 items-center justify-between border-b border-border px-4", isDesktop && "[-webkit-app-region:drag]")}>
+          <span className="text-[13px] font-semibold">Set up your call</span>
+          <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
+            <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
+              className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
             <button onClick={onExit} title="Back to home" aria-label="Back to home"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><X className="size-4" /></button>
           </div>
-          <div className="openlive-scroll flex-1 space-y-6 overflow-y-auto p-4">
-            <div className="space-y-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Talk to</p>
-              <AgentQuickPick />
-            </div>
-
-            {boundAgent ? <AgentSetup agent={boundAgent} boundCwd={boundCwd} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
-
-            <div className="space-y-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Devices</p>
-              <DeviceSelect icon={Mic} opts={mics} value={micId} onChange={onMic} />
-              <DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} />
-            </div>
+        </header>
+        <div className="openlive-scroll flex-1 space-y-6 overflow-y-auto p-4">
+          <div className="space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Talk to</p>
+            <AgentQuickPick />
           </div>
-        </aside>
-      </div>
+
+          {boundAgent ? <AgentSetup agent={boundAgent} boundCwd={boundCwd} /> : (
+            <div className="space-y-6">
+              <ModelQuickPick onOpenSettings={onOpenSettings} />
+              <WorkspaceField cwd={boundCwd} name="OpenLive" />
+            </div>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
 
-// Per-agent setup in the lobby sidebar: the REQUIRED project folder (with recents +
-// Browse), and the agent's model + mode (from the last time it connected — the pick
-// is applied when the call starts).
-function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
+// Reusable project-folder / workspace picker (recents + native Browse, or a path
+// input on web). REQUIRED for a coding agent (its file-access scope); OPTIONAL for
+// the built-in OpenLive assistant, so every "Talk to" target picks a workspace the
+// same way.
+function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; required?: boolean }) {
   const chatId = useUi((s) => s.activeChatId);
-  const openSettingsTab = useUi((s) => s.openSettingsTab);
-  const liveMeta = useLiveStore((s) => s.agentMeta);
-  const meta = liveMeta ?? cachedAgentMeta(agent);
   const recents = recentFolders().slice(0, 3);
   const b = bridge();
   const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { console.error("pick_folder:", e); } };
   const inputClass = "h-9 w-full rounded-lg border border-border bg-card px-3 font-mono text-[12px] text-foreground outline-none focus:border-border-heavy";
+  return (
+    <div className="space-y-2">
+      <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
+        {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-[9.5px] font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
+      </p>
+      {cwd ? (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+          <Folder className="size-4 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground" title={cwd}>{cwd}</span>
+          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-[11px] text-faint transition hover:text-foreground">change</button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[12px] leading-relaxed text-muted-foreground">
+            {required ? `Choose the folder ${name} works in — the only place it can read and write.` : `Optionally ground ${name} in a project folder for this call.`}
+          </p>
+          {recents.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10.5px] uppercase tracking-wide text-faint">Recent</span>
+              {recents.map((f) => (
+                <button key={f} onClick={() => setConversationFolder(chatId, f)}
+                  className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-left transition hover:border-border-heavy">
+                  <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] text-foreground">{basename(f)}</span>
+                    <span className="block truncate font-mono text-[10.5px] text-faint">{f}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {b ? (
+            <button onClick={browse}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[12.5px] text-foreground transition hover:border-border-heavy">
+              <FolderOpen className="size-4 text-accent" /> Choose a folder…
+            </button>
+          ) : (
+            <input placeholder="/path/to/your/project" spellCheck={false} className={inputClass}
+              onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Per-agent setup in the lobby sidebar: the REQUIRED project folder, and the agent's
+// model + mode. Models/modes come from the agent itself over ACP the moment it
+// connects (cached per-agent between calls) — so the selectors are always shown, and
+// sit disabled with a hint until that first connect populates them.
+function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
+  const openSettingsTab = useUi((s) => s.openSettingsTab);
+  const liveMeta = useLiveStore((s) => s.agentMeta);
+  const agentConnecting = useLiveStore((s) => s.agentConnecting);
+  const meta = liveMeta ?? cachedAgentMeta(agent);
   const selectClass = "h-9 w-full rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy";
+  const hasModels = !!meta && meta.models.length > 0;
+  const hasModes = !!meta && meta.modes.length > 0;
+  const loadingLabel = agentConnecting ? `Connecting to ${agentLabel(agent)}…` : "Loads when the call starts";
 
   return (
     <div className="space-y-5">
@@ -131,65 +209,36 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
         <button onClick={() => openSettingsTab("agents")} className="ml-auto text-[11px] font-normal text-accent transition hover:underline">Sessions →</button>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Project folder <span className="text-danger">*</span></p>
-        {boundCwd ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
-            <Folder className="size-4 shrink-0 text-accent" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground" title={boundCwd}>{boundCwd}</span>
-            <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-[11px] text-faint transition hover:text-foreground">change</button>
-          </div>
+      <WorkspaceField cwd={boundCwd} name={agentLabel(agent)} required />
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Model</span>
+        {hasModels ? (
+          <select value={meta!.currentModelId ?? ""} onChange={(e) => setConversationModel(e.target.value)} className={selectClass}>
+            {meta!.models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
         ) : (
-          <>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">Choose the folder {agentLabel(agent)} works in — this is the only place it can read and write.</p>
-            {recents.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10.5px] uppercase tracking-wide text-faint">Recent</span>
-                {recents.map((f) => (
-                  <button key={f} onClick={() => setConversationFolder(chatId, f)}
-                    className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-left transition hover:border-border-heavy">
-                    <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] text-foreground">{basename(f)}</span>
-                      <span className="block truncate font-mono text-[10.5px] text-faint">{f}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {b ? (
-              <button onClick={browse}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[12.5px] text-foreground transition hover:border-border-heavy">
-                <FolderOpen className="size-4 text-accent" /> Choose a folder…
-              </button>
-            ) : (
-              <input placeholder="/path/to/your/project" spellCheck={false} className={inputClass}
-                onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
-            )}
-          </>
+          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
         )}
-      </div>
+      </label>
 
-      {meta && meta.models.length > 0 && (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Model</span>
-          <select value={meta.currentModelId ?? ""} onChange={(e) => setConversationModel(e.target.value)} className={selectClass}>
-            {meta.models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Mode</span>
+        {hasModes ? (
+          <select value={meta!.currentModeId ?? ""} onChange={(e) => setConversationMode(e.target.value)} className={selectClass}>
+            {meta!.modes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
-        </label>
-      )}
+        ) : (
+          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
+        )}
+      </label>
 
-      {meta && meta.modes.length > 0 && (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Mode</span>
-          <select value={meta.currentModeId ?? ""} onChange={(e) => setConversationMode(e.target.value)} className={selectClass}>
-            {meta.modes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </label>
-      )}
-
-      {(!meta || (!meta.models.length && !meta.modes.length)) && (
-        <p className="text-[11.5px] leading-relaxed text-faint">{agentLabel(agent)}&apos;s real model &amp; mode will show here once it connects.</p>
+      {!hasModels && !hasModes && (
+        <p className={cn("text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
+          {agentConnecting
+            ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
+            : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
+        </p>
       )}
     </div>
   );

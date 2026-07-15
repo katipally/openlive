@@ -7,6 +7,7 @@ import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
+import { buildFileTools } from "./file-tools.js";
 import { createBoundAgent, setBoundAgent, boundAgent, type Agent, type AgentId } from "../agents/index.js";
 
 type Frame = { data: string; mime: string };
@@ -97,7 +98,11 @@ export class LiveSession {
       parameters: { type: "object", properties: { url: { type: "string", description: "The http(s) URL to open" } }, required: ["url"], additionalProperties: false },
       execute: async (args) => ({ output: await this.bridge("open_url", String(args?.url ?? "")) }),
     };
-    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl]);
+    // File tools for the built-in assistant, scoped to this conversation's workspace
+    // folder (`boundCwd`, read live so it tracks folder changes). Writes/edits go
+    // through the same permission ask the coding agents use; reads are free.
+    const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
+    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl, ...fileTools]);
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);

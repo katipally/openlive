@@ -15,8 +15,8 @@ import { PermissionPrompt } from "./AgentControls";
 // model pick, devices, model download) then the full-screen in-call view — both
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission } = useLiveSession(chatId);
-  const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId } = useLiveStore();
+  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission } = useLiveSession(chatId);
+  const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore();
   const openSettings = useUi((s) => s.openSettings);
   const minimized = useUi((s) => s.minimized);
   const setMinimized = useUi((s) => s.setMinimized);
@@ -25,6 +25,10 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // Preload a resumed conversation's transcript from the saved store.
   useEffect(() => { api.messages(chatId).then((m) => chatStore.preload(chatId, m as never)).catch(() => {}); }, [chatId]);
   useEffect(() => () => stop(), [stop]);
+  // Pre-call: connect a bound coding agent as soon as it has a project folder, so it
+  // reports its models/modes into the lobby before the call starts (and Start is
+  // instant). No-op for the built-in assistant or once already connected.
+  useEffect(() => { if (!active && boundAgent && boundCwd) prewarm(); }, [active, boundAgent, boundCwd, prewarm]);
 
   const end = () => { setMinimized(false); stop(); onExit(); };
 

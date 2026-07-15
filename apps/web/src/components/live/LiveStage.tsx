@@ -74,7 +74,7 @@ export function CameraPreview({ camId, onGranted }: { camId?: string; onGranted:
     return () => { stopped = true; stream?.getTracks().forEach((t) => t.stop()); };
   }, [camId, onGranted]);
   return (
-    <div className="relative aspect-[4/3] max-h-[36vh] w-full max-w-[16rem] overflow-hidden rounded-2xl border border-border/60 bg-black shadow-lg">
+    <div className="relative aspect-[4/3] max-h-[42vh] w-full max-w-[22rem] overflow-hidden rounded-2xl border border-border/60 bg-black shadow-lg">
       <video ref={ref} autoPlay muted playsInline className={cn("h-full w-full object-cover transition-opacity", state === "on" ? "opacity-100" : "opacity-0")} />
       {state !== "on" && (
         <div className="absolute inset-0 grid place-items-center gap-1 text-center">

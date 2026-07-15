@@ -146,8 +146,103 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false });
   }, [chatId, set]);
+
+  // Open the live socket + register every handler, binding this conversation's agent
+  // the moment it connects. Shared by `prewarm` (pre-call: connect a bound agent to
+  // fetch its models/modes) and `start` (layers the voice engine onto the SAME
+  // connection — no second agent process). Returns the new or existing client.
+  const ensureClient = useCallback((): LiveClient => {
+    if (client.current) return client.current;
+    const c = new LiveClient({
+      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined); },
+      onReconnecting: () => set({ phase: "reconnecting" }),
+      onClose: () => teardown(),
+      onError: (m) => set({ error: m, agentConnecting: false }),
+      // A bound agent wants permission: speak the ask and show approve/deny chips.
+      onPermission: (reqId, question, options) => { set({ permission: { reqId, question, options } }); engine.current?.feedAgentDelta(`${question} `); },
+      // The bound agent reported its selectable models/modes (or a switch landed).
+      onAgentMeta: (meta) => {
+        const agent = useLiveStore.getState().boundAgent;
+        if (agent) { try { localStorage.setItem(`openlive-meta:${agent}`, JSON.stringify(meta)); } catch { /* */ } }
+        set({ agentMeta: meta, agentConnecting: false });
+        // Apply the remembered model/mode preference now the agent's set is known.
+        if (agent) {
+          const pm = readPref(`openlive-model:${agent}`);
+          if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
+          const pd = readPref(`openlive-mode:${agent}`);
+          if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
+        }
+      },
+      onSse: (e) => {
+        if (e.type === "error") { set({ error: e.message }); return; }
+        // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
+        if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
+        // Prose text drives the VOICE only; the chat transcript is filled word-by-word
+        // as each chunk is spoken (onAgentText), NOT from the generated stream (which
+        // races ahead) — so an interrupt leaves the panel showing only what was said.
+        if (e.type === "text_delta") { engine.current?.feedAgentDelta(e.text); return; }
+        // Reasoning streams into the transcript's work block (interleaved with tools).
+        if (e.type === "reasoning_delta") { if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
+        if (e.type === "done") {
+          set({ toolStatus: "" });
+          engine.current?.endAgentTurn();
+          // Finish the spoken turn but KEEP assistantId pointing at it, so any
+          // trailing event still attaches. It rolls forward on the next user turn
+          // (handleUserText) and is finalized on teardown.
+          if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
+          return;
+        }
+        // Show tool activity LIVE — the moment it starts — so the user gets a real
+        // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
+        // not bundled in after the answer. toolStatus drives the in-call status line.
+        if (e.type === "tool_start") {
+          set({ toolStatus: e.tool });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        if (e.type === "tool_done") {
+          set({ toolStatus: "" });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+      },
+      onNeedFrame: async (reqId) => {
+        const st = useLiveStore.getState();
+        const src = st.cameraOn ? camRef.current : st.screenOn ? screenRef.current : null;
+        if (!src) { client.current?.frameResponse(reqId); return; }
+        const jpeg = await src.captureHiRes();
+        client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
+        if (jpeg) client.current?.sendFrame(jpeg);
+      },
+      // OS bridge (clipboard / open_url) — runs through the Electron main process.
+      // On the web build there's no bridge, so we answer instantly (no dead air).
+      onToolBridge: async (reqId, op, arg) => {
+        const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
+        if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
+        try { client.current?.toolBridgeResult(reqId, await api.bridge(op, arg)); }
+        catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
+      },
+    });
+    client.current = c;
+    activeLiveClient = c;
+    c.connect(chatId);
+    onPageHide.current = () => teardown();
+    window.addEventListener("pagehide", onPageHide.current);
+    return c;
+  }, [chatId, set, teardown]);
+
+  // Pre-call: connect a bound agent (with a project folder) so it reports its
+  // models/modes into the lobby BEFORE the call starts. No-op for the built-in
+  // assistant (its models come from the provider API) or if already connected.
+  const prewarm = useCallback(() => {
+    const st = useLiveStore.getState();
+    if (!st.boundAgent || !st.boundCwd || client.current) return;
+    tornDown.current = false;
+    set({ agentConnecting: true, agentMeta: null, error: undefined });
+    try { ensureClient(); } catch (e: any) { set({ agentConnecting: false, error: `Couldn't connect to ${st.boundAgent}: ${String(e?.message ?? e)}` }); }
+  }, [set, ensureClient]);
 
   const start = useCallback(async () => {
     tornDown.current = false;
@@ -227,85 +322,12 @@ export function useLiveSession(chatId: string) {
       await eng.start(stream);
       if (tornDown.current) return;
 
-      // 4. Socket. Phase stays "connecting" until the socket actually opens — no
-      //    more optimistic "Listening" that lies when the connection never lands.
-      set({ phase: "connecting" });
-      const c = new LiveClient({
-        onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined); },
-        onReconnecting: () => set({ phase: "reconnecting" }),
-        onClose: () => teardown(),
-        onError: (m) => set({ error: m }),
-        // A bound agent wants permission: speak the ask and show approve/deny chips.
-        onPermission: (reqId, question, options) => { set({ permission: { reqId, question, options } }); engine.current?.feedAgentDelta(`${question} `); },
-        // The bound agent reported its selectable models/modes (or a switch landed).
-        onAgentMeta: (meta) => {
-          const agent = useLiveStore.getState().boundAgent;
-          if (agent) { try { localStorage.setItem(`openlive-meta:${agent}`, JSON.stringify(meta)); } catch { /* */ } }
-          set({ agentMeta: meta });
-          // Apply the remembered model/mode preference now the agent's set is known.
-          if (agent) {
-            const pm = readPref(`openlive-model:${agent}`);
-            if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
-            const pd = readPref(`openlive-mode:${agent}`);
-            if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
-          }
-        },
-        onSse: (e) => {
-          if (e.type === "error") { set({ error: e.message }); return; }
-          // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
-          if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
-          // Prose text drives the VOICE only; the chat transcript is filled word-by-word
-          // as each chunk is spoken (onAgentText), NOT from the generated stream (which
-          // races ahead) — so an interrupt leaves the panel showing only what was said.
-          if (e.type === "text_delta") { engine.current?.feedAgentDelta(e.text); return; }
-          // Reasoning streams into the transcript's work block (interleaved with tools).
-          if (e.type === "reasoning_delta") { if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
-          if (e.type === "done") {
-            set({ toolStatus: "" });
-            engine.current?.endAgentTurn();
-            // Finish the spoken turn but KEEP assistantId pointing at it, so any
-            // trailing event still attaches. It rolls forward on the next user turn
-            // (handleUserText) and is finalized on teardown.
-            if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
-            return;
-          }
-          // Show tool activity LIVE — the moment it starts — so the user gets a real
-          // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
-          // not bundled in after the answer. toolStatus drives the in-call status line.
-          if (e.type === "tool_start") {
-            set({ toolStatus: e.tool });
-            if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
-            return;
-          }
-          if (e.type === "tool_done") {
-            set({ toolStatus: "" });
-            if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
-            return;
-          }
-        },
-        onNeedFrame: async (reqId) => {
-          const st = useLiveStore.getState();
-          const src = st.cameraOn ? camRef.current : st.screenOn ? screenRef.current : null;
-          if (!src) { client.current?.frameResponse(reqId); return; }
-          const jpeg = await src.captureHiRes();
-          client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
-          if (jpeg) client.current?.sendFrame(jpeg);
-        },
-        // OS bridge (clipboard / open_url) — runs through the Electron main process.
-        // On the web build there's no bridge, so we answer instantly (no dead air).
-        onToolBridge: async (reqId, op, arg) => {
-          const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
-          if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
-          try { client.current?.toolBridgeResult(reqId, await api.bridge(op, arg)); }
-          catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
-        },
-      });
-      client.current = c;
-      activeLiveClient = c;
-      c.connect(chatId);
-
-      onPageHide.current = () => teardown();
-      window.addEventListener("pagehide", onPageHide.current);
+      // 4. Socket — reuse the pre-call agent connection if the lobby already opened
+      //    it (prewarm), otherwise open it now. The voice engine above drives turns
+      //    over whichever connection; a pre-connected agent means Start is instant.
+      if (!client.current) set({ phase: "connecting" });
+      const c = ensureClient();
+      if (c.ready) set({ phase: "idle", warming: false, error: undefined }); // already connected in the lobby
       await refreshDevices();
     } catch (e: any) {
       const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";
@@ -313,7 +335,7 @@ export function useLiveSession(chatId: string) {
       teardown();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId, set, teardown]);
+  }, [chatId, set, teardown, ensureClient]);
 
   // Answer a bound agent's pending permission ask (chip tap or classified voice).
   const answerPermission = useCallback((optionId: string) => {
@@ -330,7 +352,13 @@ export function useLiveSession(chatId: string) {
 
   // Push an agent OR folder change to the server whenever it flips during an active
   // call (the initial bind is also sent on socket open). Idle changes persist locally.
-  useEffect(() => { if (client.current?.ready) client.current.bind(boundAgent, boundCwd || undefined); }, [boundAgent, boundCwd]);
+  useEffect(() => {
+    if (!client.current?.ready) return;
+    // A bound agent's models/modes are agent-specific — clear + re-fetch on a switch.
+    set({ agentMeta: null, agentConnecting: !!boundAgent && !!boundCwd });
+    client.current.bind(boundAgent, boundCwd || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundAgent, boundCwd]);
 
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
@@ -480,5 +508,5 @@ export function useLiveSession(chatId: string) {
   // reactive spectrum while you or the agent talk.
   const getBands = useCallback(() => ({ mic: engine.current?.micBands() ?? NO_BANDS, agent: engine.current?.agentBands() ?? NO_BANDS }), []);
 
-  return { start, stop, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission };
+  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission };
 }

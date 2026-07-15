@@ -7,6 +7,7 @@ import { setConversationBind } from "@/lib/live/useLiveSession";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
 import { useUi } from "@/lib/uiStore";
+import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
 // Hydration-safe: false on the server + first client render (SSR markup matches),
@@ -19,14 +20,14 @@ function useNoDrag(): string {
 }
 
 const OPTIONS: { id: AgentId | null; label: string }[] = [
-  { id: null, label: "Just chat" },
+  { id: null, label: "OpenLive" },
   { id: "claude-code", label: "Claude Code" },
   { id: "codex", label: "Codex" },
   { id: "cursor", label: "Cursor" },
 ];
 
 export function agentLabel(id: AgentId | null): string {
-  return OPTIONS.find((o) => o.id === id)?.label ?? "Just chat";
+  return OPTIONS.find((o) => o.id === id)?.label ?? "OpenLive";
 }
 
 /** Compact "Talk to" picker for the pre-call screen — choose the agent BEFORE
@@ -53,7 +54,9 @@ export function AgentSelect() {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const noDrag = useNoDrag();
+  usePopIn(menuRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -71,7 +74,7 @@ export function AgentSelect() {
         {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <MessageCircle className="size-4" />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           {OPTIONS.map((o) => (
             <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); setOpen(false); }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-foreground/[0.06]">

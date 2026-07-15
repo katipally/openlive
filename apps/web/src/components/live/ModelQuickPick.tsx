@@ -3,10 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings2, AlertCircle } from "lucide-react";
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
+import { allowedEfforts } from "@openlive/harness/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
-const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless }));
+const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless, protocol: p.protocol }));
 const sel = "min-w-0 rounded-lg border border-border bg-surface px-2 py-1.5 text-[12px] text-foreground outline-none focus:border-border-heavy";
 
 // Compact provider + model picker for the lobby, so you can switch fast without
@@ -31,6 +32,10 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   // Warn only on KNOWN-blind models (real metadata) with no vision model set.
   const model = models.find((m) => m.id === settings?.liveModel);
   const blind = model?.vision === false && !settings?.visionModel;
+  // Reasoning effort the current provider/model supports (empty for non-reasoning
+  // chat protocols → the selector collapses to just "Auto").
+  const provider = PROVIDERS.find((p) => p.id === providerId);
+  const efforts = ["auto", ...allowedEfforts(provider?.protocol, model?.reasoning ?? true)];
 
   return (
     <div className="flex w-full max-w-xs flex-col gap-2 rounded-xl border border-border bg-surface/60 p-2.5">
@@ -47,8 +52,14 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
           <Settings2 className="size-4" />
         </button>
       </div>
-      <div className="flex items-center justify-between px-0.5 text-[11px] text-faint">
-        <span>Effort: <span className="capitalize text-muted-foreground">{effort}</span></span>
+      <div className="flex items-center justify-between gap-2 px-0.5 text-[11px] text-faint">
+        <label className="flex items-center gap-1.5">
+          Effort
+          <select value={effort} onChange={(e) => save.mutate({ liveEffort: e.target.value })}
+            className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px] capitalize text-foreground outline-none focus:border-border-heavy">
+            {efforts.map((e) => <option key={e} value={e}>{e === "auto" ? "Auto ✦" : e}</option>)}
+          </select>
+        </label>
         {!hasKey
           ? <span className="inline-flex items-center gap-1 text-arc"><AlertCircle className="size-3" /> no API key yet</span>
           : blind ? <span className="inline-flex items-center gap-1 text-arc"><AlertCircle className="size-3" /> can’t see — set a vision model</span> : null}

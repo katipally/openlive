@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useReducedMotion } from "motion/react";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen } from "lucide-react";
+import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { useUi } from "@/lib/uiStore";
@@ -12,6 +12,7 @@ import { ScreenTile } from "./ScreenTile";
 import { EndCallButton } from "./EndCallButton";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
+import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
 const PHASE_LABEL: Record<LivePhase, string> = {
@@ -35,8 +36,15 @@ export function InCall(props: InCallProps) {
     toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd } = props;
   const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, mics, cams, micId, camId } = useLiveStore();
   const setMinimized = useUi((s) => s.setMinimized);
-  const reduce = useReducedMotion();
+  const root = useRef<HTMLDivElement>(null);
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
+
+  // Entrance — a gentle rise + settle when the call becomes active (skipped for
+  // reduced-motion, which leaves the element at its final state).
+  useGSAP(() => {
+    if (prefersReduced()) return;
+    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.snappy });
+  }, { scope: root });
 
   // Transcript sidebar: resizable width + open/closed, both remembered.
   const [panelOpen, setPanelOpen] = useState(() => (typeof window === "undefined" ? true : localStorage.getItem("ol-transcript-open") !== "0"));
@@ -79,7 +87,7 @@ export function InCall(props: InCallProps) {
   const statusBusy = !!toolStatus || warming;
 
   return (
-    <div className={cn("fixed inset-0 z-40 flex flex-col bg-background", !reduce && "animate-live-in")}>
+    <div ref={root} className="fixed inset-0 z-40 flex flex-col bg-background">
       <TopBar />
 
       <div className="flex min-h-0 flex-1">
@@ -152,6 +160,8 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  usePopIn(menuRef, open);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -168,7 +178,7 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
         </button>
       )}
       {open && (
-        <div className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
+        <div ref={menuRef} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
           <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">{label}</div>
           {devices.map((d) => (
             <button key={d.id} onClick={() => { onPick(d.id); setOpen(false); }}
