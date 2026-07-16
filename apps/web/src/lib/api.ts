@@ -1,4 +1,4 @@
-import type { Provider, ChatSummary, ChatMessage, HistoryAgent } from "@openlive/shared";
+import type { Provider, ChatSummary, ChatMessage, HistoryWorkspace } from "@openlive/shared";
 
 export interface ModelInfo {
   id: string; display_name: string; created_at?: string;
@@ -38,7 +38,7 @@ export const api = {
   updateSettings: (b: Record<string, string>) =>
     fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>),
   chats: () => fetch("/api/chats").then(j<ChatSummary[]>),
-  history: () => fetch("/api/history").then(j<HistoryAgent[]>),
+  history: () => fetch("/api/history").then(j<HistoryWorkspace[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE" }).then(j),
   renameChat: (id: string, title: string) =>

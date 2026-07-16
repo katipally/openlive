@@ -31,24 +31,22 @@ export interface ChatSummary {
   agentSessionId?: string;
 }
 
-/** History grouped agent → workspace → session, for the left History sidebar.
- *  `source` distinguishes sessions started in OpenLive from an agent's own
- *  external sessions discovered on disk (which resume via ACP loadSession). */
-export interface HistorySession {
+/** History grouped workspace → chat for the left History sidebar. All agents'
+ *  chats for the same (realpath'd) workspace live together; each chat carries its
+ *  agent so the row can show the right mark. `source` distinguishes chats started
+ *  in OpenLive from an agent's own external sessions discovered on disk (which
+ *  resume via ACP loadSession). */
+export interface HistoryChat {
   id: string;               // OpenLive chatId, or the agent's ACP sessionId (external)
   title: string;
   updatedAt: string;
+  agentId: string | null;   // null = built-in OpenLive assistant
   source: "openlive" | "external";
   resumeSessionId?: string; // agent ACP sessionId to loadSession (external), if any
 }
 export interface HistoryWorkspace {
-  cwd: string;              // "" = no folder (legacy/none)
-  sessions: HistorySession[];
-}
-export interface HistoryAgent {
-  agentId: string | null;  // null = built-in OpenLive assistant
-  label: string;
-  workspaces: HistoryWorkspace[];
+  cwd: string;              // "" = no folder (legacy/none) — always sorted last
+  chats: HistoryChat[];
 }
 
 /** A persisted/transported message. `content` is an array of blocks (below). */
