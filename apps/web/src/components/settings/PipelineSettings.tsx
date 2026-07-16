@@ -13,7 +13,7 @@ import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/liv
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
-import { VoiceStudio } from "./VoiceStudio";
+import { useUi } from "@/lib/uiStore";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
@@ -197,12 +197,14 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
             <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
               {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)."
                 : e.id === "supertonic" ? "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."
-                : "Cloned from a short recording in Voice Studio below (ZipVoice, ~208 MB, runs locally)."}
+                : "Cloned from a short recording — record and manage in the Voices tab (runs locally)."}
             </p>
           </button>
         ))}
       </div>
-      {cfg.tts.engine !== "clone" && (
+      {cfg.tts.engine === "clone" ? (
+        <CloneVoicePicker cfg={cfg} update={update} />
+      ) : (
         <label className="flex flex-col gap-1.5">
           <span className="text-[12.5px] text-foreground">Voice</span>
           <div className="flex items-center gap-2">
@@ -222,10 +224,39 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       )}
       <Slider label="Speaking speed" value={cfg.tts.speed} min={0.5} max={2} step={0.05}
         fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => update({ ...cfg, tts: { ...cfg.tts, speed: v } })} />
-      <VoiceStudio />
       <NarrateToggle />
       <ModelStatus />
     </div>
+  );
+}
+
+/** Voice picker for the clone engine — just your saved profiles. Recording,
+ *  previewing, and managing them lives in the standalone Voices tab. */
+function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+  const { data: profiles = [], isLoading } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["voice-profiles"], queryFn: () => fetch("/api/voice/profiles").then((r) => r.json()),
+  });
+  const openVoices = () => useUi.getState().openSettingsTab("voices");
+  if (!isLoading && profiles.length === 0) return (
+    <div className="flex items-center gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-[12px] text-arc">
+      No cloned voices yet.
+      <button onClick={openVoices} className="font-medium underline underline-offset-2">Open Voices to record one</button>
+    </div>
+  );
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[12.5px] text-foreground">Voice</span>
+      <div className="flex items-center gap-2">
+        <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
+          {!profiles.some((p) => p.id === cfg.tts.voice) && <option value={cfg.tts.voice}>Pick a voice…</option>}
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button onClick={openVoices}
+          className="h-9 shrink-0 rounded-lg border border-border px-3 text-[12.5px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+          Manage in Voices
+        </button>
+      </div>
+    </label>
   );
 }
 

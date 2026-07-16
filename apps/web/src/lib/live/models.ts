@@ -162,7 +162,7 @@ async function cloneTts(text: string, voice: string, speed?: number): Promise<{ 
     if (!cloneFallbackToasted) {
       cloneFallbackToasted = true;
       const { toast } = await import("@/lib/toast");
-      toast("Cloned voice unavailable — using Kokoro. Check Settings → Pipeline → Voice Studio.");
+      toast("Cloned voice unavailable — using Kokoro. Check Settings → Voices.");
     }
     const { log } = await import("@/lib/log");
     log.error("tts", "clone synth failed, falling back:", e);

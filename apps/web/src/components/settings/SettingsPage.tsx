@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Settings2, SlidersHorizontal, AudioWaveform, Bot, Info } from "lucide-react";
+import { ArrowLeft, Settings2, SlidersHorizontal, AudioWaveform, Mic, Bot, Info } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { GeneralSettings } from "./GeneralSettings";
 import { ModelsSettings } from "./ModelsSettings";
 import { PipelineSettings } from "./PipelineSettings";
+import { VoicesSettings } from "./VoicesSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { AboutSettings } from "./AboutSettings";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -19,6 +20,7 @@ const SECTIONS = [
   { id: "general", label: "General", sub: "Appearance, input & startup", icon: Settings2, Comp: GeneralSettings },
   { id: "models", label: "Models", sub: "Provider, model & vision", icon: SlidersHorizontal, Comp: ModelsSettings },
   { id: "pipeline", label: "Pipeline", sub: "On-device speech pipeline", icon: AudioWaveform, Comp: PipelineSettings },
+  { id: "voices", label: "Voices", sub: "Clone & manage your voices", icon: Mic, Comp: VoicesSettings },
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings },
   { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
 ] as const;
@@ -145,7 +147,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Five focused tabs", body: "General (appearance & shortcuts), Models for the built-in assistant, the on-device voice Pipeline, agent install & sign-in under Agents, and About." },
+        { target: "settings-nav", title: "Six focused tabs", body: "General (appearance & style), Models for the built-in assistant, the on-device voice Pipeline, Voices to clone your own voice, agent install & sign-in under Agents, and About." },
       ]} />
     </div>
   );

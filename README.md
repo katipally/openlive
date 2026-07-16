@@ -73,11 +73,12 @@ possible.
 - **On-device voice loop.** Silero VAD, Whisper STT, Smart-Turn end-of-turn, and
   your pick of two TTS engines — Kokoro (28 voices, light) or Supertonic (10 voices,
   44.1 kHz) — all run in the app on WebGPU. Nothing you say leaves the machine.
-- **Clone your own voice.** Voice Studio records 5–30 seconds of you and your
-  assistant speaks as you from then on — zero-shot cloning (ZipVoice, Apache-2.0)
-  running locally in the agent service. An optional ~208 MB install, deletable
-  anytime; profiles export to a file. Clone only your own voice or one you have
-  clear permission to use — impersonation is on you, not the tool.
+- **Clone your own voice.** Settings → Voices records 5–30 seconds of you (with
+  a listen-back before anything is saved) and your assistant speaks as you from
+  then on — zero-shot cloning (ZipVoice, Apache-2.0) running locally in the agent
+  service. An optional ~208 MB install, deletable anytime; profiles preview with
+  any text, rename, and export/import between machines. Clone only your own voice
+  or one you have clear permission to use — impersonation is on you, not the tool.
 - **It can see.** Camera or screen frames ride each turn for agents that accept
   images; the `look` tool grabs a crisp hi-res frame on demand. A text-only model
   can borrow a separate vision model's eyes.

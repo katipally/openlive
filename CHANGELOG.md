@@ -26,11 +26,15 @@ Releases before 0.1.9 predate this file — see the
 - Crash screen follows the OS theme and uses the brand accent.
 
 ### Added
-- **Voice Studio — clone your own voice.** Record 5–30 seconds and your assistant
-  speaks as you: zero-shot cloning (ZipVoice, Apache-2.0, via sherpa-onnx) running
-  locally in the agent service at ~4x realtime on CPU. Optional ~208 MB download,
-  removable anytime; profiles preview/export/delete; automatic Kokoro fallback;
-  consent required — clone only your own voice or one you have permission for.
+- **Voices — clone your own voice.** A dedicated Settings tab: pick a script (or
+  just talk), record 5–30 seconds with a live level meter, listen back before
+  saving, fix the auto-transcript, and your assistant speaks as you — zero-shot
+  cloning (ZipVoice, Apache-2.0, via sherpa-onnx) running locally in the agent
+  service at ~4x realtime on CPU. Optional ~208 MB download, removable anytime.
+  Profiles preview with any text you type, rename, export/import between
+  machines, play back their original recording, and delete; automatic Kokoro
+  fallback; consent required — clone only your own voice or one you have
+  permission for. The Pipeline TTS stage just picks among your cloned voices.
 - **Persona.** Settings → General gains "Your assistant's style": your own words
   on how it should behave and speak, applied to the built-in assistant AND every
   coding agent via its session preamble.

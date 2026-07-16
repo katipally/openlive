@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
-import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile } from "@openlive/db";
+import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
 import { log } from "../log.js";
 
@@ -86,6 +86,21 @@ voiceRoutes.delete("/model", (c) => {
 });
 
 // ── profiles ─────────────────────────────────────────────────────────────────
+/** Rough duration from a 16-bit mono WAV header (all our profile wavs). */
+function wavSeconds(wav: Buffer): number | undefined {
+  try {
+    const rate = wav.readUInt32LE(24);
+    return rate > 0 ? Math.round(((wav.length - 44) / 2 / rate) * 10) / 10 : undefined;
+  } catch { return undefined; }
+}
+
+async function saveProfile(name: string, transcript: string, wav: Buffer) {
+  mkdirSync(VOICE_PROFILE_DIR, { recursive: true });
+  const wavFile = `${randomUUID()}.wav`;
+  writeFileSync(join(VOICE_PROFILE_DIR, wavFile), wav, { mode: 0o600 });
+  return createVoiceProfile({ name, transcript, wavFile, seconds: wavSeconds(wav) });
+}
+
 voiceRoutes.get("/profiles", (c) => c.json(listVoiceProfiles()));
 
 voiceRoutes.post("/profiles", async (c) => {
@@ -96,17 +111,41 @@ voiceRoutes.post("/profiles", async (c) => {
   if (!name || !transcript || !body.wavBase64) return c.json({ error: "name, transcript, and recording are required" }, 400);
   const wav = Buffer.from(body.wavBase64, "base64");
   if (wav.length < 32_000 || wav.length > 30_000_000) return c.json({ error: "recording must be roughly 5–30 seconds of audio" }, 400);
-  mkdirSync(VOICE_PROFILE_DIR, { recursive: true });
-  const wavFile = `${randomUUID()}.wav`;
-  writeFileSync(join(VOICE_PROFILE_DIR, wavFile), wav, { mode: 0o600 });
-  const row = await createVoiceProfile({ name, transcript, wavFile });
-  return c.json(row);
+  return c.json(await saveProfile(name, transcript, wav));
+});
+
+// Import a previously exported profile (same JSON the export produces). Consent
+// is re-affirmed by the importer — it's the same person moving machines.
+voiceRoutes.post("/profiles/import", async (c) => {
+  const body = await c.req.json().catch(() => null) as { openliveVoiceProfile?: number; name?: string; transcript?: string; wavBase64?: string } | null;
+  if (body?.openliveVoiceProfile !== 1 || !body.name || !body.transcript || !body.wavBase64) {
+    return c.json({ error: "not an OpenLive voice profile file" }, 400);
+  }
+  const wav = Buffer.from(body.wavBase64, "base64");
+  if (wav.length < 32_000 || wav.length > 30_000_000) return c.json({ error: "the profile's recording looks invalid" }, 400);
+  return c.json(await saveProfile(body.name.trim().slice(0, 60), body.transcript.trim().slice(0, 500), wav));
+});
+
+voiceRoutes.patch("/profiles/:id", async (c) => {
+  const body = await c.req.json().catch(() => null) as { name?: string } | null;
+  const name = body?.name?.trim().slice(0, 60);
+  if (!name) return c.json({ error: "name required" }, 400);
+  const row = await renameVoiceProfile(c.req.param("id"), name);
+  return row ? c.json(row) : c.json({ error: "not found" }, 404);
 });
 
 voiceRoutes.delete("/profiles/:id", async (c) => {
   const removed = await deleteVoiceProfile(c.req.param("id"));
   if (removed?.wavFile) rmSync(join(VOICE_PROFILE_DIR, removed.wavFile), { force: true });
   return c.json({ ok: true });
+});
+
+// The reference recording itself — so the user can listen back to what a
+// profile was cloned from.
+voiceRoutes.get("/profiles/:id/audio", (c) => {
+  const p = listVoiceProfiles().find((r) => r.id === c.req.param("id"));
+  if (!p || !existsSync(join(VOICE_PROFILE_DIR, p.wavFile))) return c.json({ error: "not found" }, 404);
+  return new Response(readFileSync(join(VOICE_PROFILE_DIR, p.wavFile)), { headers: { "Content-Type": "audio/wav" } });
 });
 
 // Export/import: one self-contained JSON (metadata + the wav, base64).
