@@ -124,7 +124,8 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
   "opencode": {
     id: "opencode",
     label: "OpenCode",
-    brand: { letter: "O" },
+    brand: {},
+    logoSrc: "/agents/opencode.svg",
     adapter: { command: "opencode", args: ["acp"] },
     bins: ["opencode"],
     install: { npm: "opencode-ai" },
@@ -142,7 +143,8 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
   "hermes": {
     id: "hermes",
     label: "Hermes",
-    brand: { letter: "H" },
+    brand: {},
+    logoSrc: "/agents/hermes.svg",
     // Hermes runs via uvx (no persistent install) — "installed" means uv is present.
     adapter: { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
     bins: ["uvx"],

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Check, ShieldQuestion } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { AGENT_LIST, agentLabel } from "@openlive/shared";
+import { api } from "@/lib/api";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -27,6 +29,13 @@ const OPTIONS: { id: AgentId | null; label: string }[] = [
   ...AGENT_LIST.map((a) => ({ id: a.id as AgentId, label: a.label })),
 ];
 
+/** OPTIONS minus agents hidden in Settings — the currently-bound agent stays
+ *  visible even when hidden, so an old conversation still shows what it talks to. */
+function useVisibleOptions(boundAgent: AgentId | null) {
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  return OPTIONS.filter((o) => !o.id || o.id === boundAgent || settings?.[`agentHidden:${o.id}`] !== "1");
+}
+
 export { agentLabel };
 
 /** Compact "Talk to" picker for the pre-call screen — choose the agent BEFORE
@@ -34,13 +43,14 @@ export { agentLabel };
 export function AgentQuickPick() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
+  const options = useVisibleOptions(boundAgent);
   return (
     <label className="flex items-center gap-2 text-muted-foreground">
       <span className="grid size-3.5 shrink-0 place-items-center">{boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={14} />}</span>
       <select value={boundAgent ?? ""} aria-label="Talk to"
         onChange={(e) => { if (activeChatId) setConversationBind(activeChatId, (e.target.value || null) as AgentId | null); }}
         className="min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-[12px] text-foreground">
-        {OPTIONS.map((o) => <option key={o.id ?? "chat"} value={o.id ?? ""}>{o.label}</option>)}
+        {options.map((o) => <option key={o.id ?? "chat"} value={o.id ?? ""}>{o.label}</option>)}
       </select>
     </label>
   );
@@ -51,6 +61,7 @@ export function AgentQuickPick() {
 export function AgentSelect() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
+  const options = useVisibleOptions(boundAgent);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -64,7 +75,7 @@ export function AgentSelect() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const current = OPTIONS.find((o) => o.id === boundAgent) ?? OPTIONS[0]!;
+  const current = options.find((o) => o.id === boundAgent) ?? options[0]!;
 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
@@ -74,7 +85,7 @@ export function AgentSelect() {
       </button>
       {open && (
         <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
-          {OPTIONS.map((o) => (
+          {options.map((o) => (
             <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); setOpen(false); }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-foreground/[0.06]">
               {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}

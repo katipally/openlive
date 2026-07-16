@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic";
 // defaults to "auto" (lowest the model supports → smoothest voice).
 const DEFAULTS = { liveEffort: "auto" };
 const KEYS = ["liveModel", "liveProviderId", "liveEffort", "visionProviderId", "visionModel", "agentCwd"];
-// Per-agent config keys (acpCommand:<id>) are also writable.
-const PREFIXES = ["acpCommand:"];
+// Per-agent config keys (acpCommand:<id> ACP override, agentHidden:<id>
+// visibility toggle) are also writable.
+const PREFIXES = ["acpCommand:", "agentHidden:"];
 
 export function GET() {
   return NextResponse.json({ ...DEFAULTS, ...getAllSettings() });

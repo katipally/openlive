@@ -5,7 +5,7 @@ import { create } from "zustand";
 // Install / uninstall / login run as a BACKGROUND process tracked here, not in a
 // component: the streamed output keeps accumulating even if you close the Settings
 // panel, and any open AgentRow re-subscribes to the live log. One run per agent.
-export type ActionKind = "install" | "uninstall" | "login";
+export type ActionKind = "install" | "uninstall" | "login" | "logout";
 interface Run { action: ActionKind; log: string; running: boolean }
 
 interface State {

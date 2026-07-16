@@ -16,7 +16,7 @@ import { isDesktop } from "@/lib/platform";
 const SECTIONS = [
   { id: "models", label: "Models", sub: "Provider, model & vision", icon: SlidersHorizontal, Comp: ModelsSettings },
   { id: "pipeline", label: "Pipeline", sub: "On-device speech pipeline", icon: AudioWaveform, Comp: PipelineSettings },
-  { id: "agents", label: "Agents", sub: "Claude Code · Codex · Cursor", icon: Bot, Comp: AgentsSettings },
+  { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings },
   { id: "about", label: "About", sub: "Appearance & version", icon: Info, Comp: AboutSettings },
 ] as const;
 type TabId = (typeof SECTIONS)[number]["id"];
