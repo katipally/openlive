@@ -188,7 +188,7 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null });
   }, [chatId, set]);
 
   // Open the live socket + register every handler, binding this conversation's agent
@@ -266,6 +266,13 @@ export function useLiveSession(chatId: string) {
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
           return;
         }
+        // The agent's working plan (ACP plan updates / update_todos tool). Kept
+        // across turns — plans span them; the server sends [] on plan_removed,
+        // and teardown clears the store.
+        if (e.type === "todos") { set({ todos: e.items }); return; }
+        // Context/cost from the latest turn (ACP usage_update or the built-in
+        // brain's own accounting).
+        if (e.type === "usage") { set({ usage: { contextTokens: e.contextTokens, outputTokens: e.outputTokens, costUsd: e.costUsd } }); return; }
       },
       onNeedFrame: async (reqId) => {
         const st = useLiveStore.getState();

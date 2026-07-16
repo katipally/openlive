@@ -5,8 +5,23 @@ import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { AgentSelect } from "./AgentControls";
 import { AgentBar } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
+import { useLiveStore } from "@/lib/live/liveStore";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, isWinDesktop } from "@/lib/platform";
+
+// Compact context/cost readout from the latest turn (ACP usage_update or the
+// built-in brain's accounting). Hidden until the first turn reports.
+function UsageChip() {
+  const usage = useLiveStore((s) => s.usage);
+  if (!usage || (!usage.contextTokens && !usage.outputTokens)) return null;
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
+  return (
+    <span title="Context used this session · cost so far"
+      className="rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] tabular-nums text-muted-foreground">
+      {k(usage.contextTokens)} ctx{usage.costUsd > 0 && ` · $${usage.costUsd.toFixed(2)}`}
+    </span>
+  );
+}
 
 // Running inside the desktop app? Then leave room for the custom window controls
 // (top-left) and make the bar draggable (the window is frameless).
@@ -38,6 +53,7 @@ export function TopBar() {
         <AgentBar />
       </div>
       <div className={cn("flex items-center gap-1", noDrag)}>
+        <UsageChip />
         <button onClick={openSettings} title="Settings" aria-label="Settings"
           className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
         <button onClick={() => setMinimized(true)} title="Minimize to floating bar" aria-label="Minimize"

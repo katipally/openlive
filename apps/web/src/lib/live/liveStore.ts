@@ -35,6 +35,8 @@ interface LiveState {
   agentMeta: AgentMeta | null;        // the bound agent's selectable models + modes (once connected)
   agentConnecting: boolean;           // pre-call: connecting to the bound agent to fetch its models/modes
   permission: PendingPermission | null; // a bound agent's pending permission ask (chips + spoken)
+  todos: { text: string; done: boolean }[]; // the agent's working plan/checklist (ACP plan / update_todos)
+  usage: { contextTokens: number; outputTokens: number; costUsd: number } | null; // latest turn usage
   error?: string;
   micId?: string;
   camId?: string;
@@ -73,6 +75,8 @@ export const useLiveStore = create<LiveState>((set) => ({
   agentMeta: null,
   agentConnecting: false,
   permission: null,
+  todos: [],
+  usage: null,
   mics: [],
   cams: [],
   set: (p) => set(p),

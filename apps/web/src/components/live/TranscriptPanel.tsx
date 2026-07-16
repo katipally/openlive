@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Brain, ChevronRight, Loader2, PanelRightClose } from "lucide-react";
+import { Brain, Check, ChevronRight, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -16,7 +16,7 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
   chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
 }) {
   const msgs = useChat(chatId);
-  const { userCaption, userPartial } = useLiveStore();
+  const { userCaption, userPartial, todos } = useLiveStore();
   const scroller = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
@@ -55,6 +55,7 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
           <PanelRightClose className="size-4" />
         </button>
       </div>
+      {todos.length > 0 && <PlanCard todos={todos} />}
       <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4">
         {empty && <p className="mt-8 text-center text-[12.5px] text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
@@ -67,6 +68,35 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
         )}
       </div>
     </aside>
+  );
+}
+
+// The agent's working plan (ACP plan updates / the built-in update_todos tool),
+// pinned above the transcript while a plan is active. Session-scoped — cleared
+// on teardown, replaced whole on every update.
+function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
+  const done = todos.filter((t) => t.done).length;
+  return (
+    <div className="mx-4 mb-1 shrink-0 rounded-lg bg-card/40 px-2.5 py-2 shadow-[var(--shadow-xs)]">
+      <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+        <ListTodo className="size-3.5 shrink-0 text-accent" />
+        Plan
+        <span className="ml-auto text-faint">{done}/{todos.length}</span>
+      </div>
+      <ul className="openlive-scroll mt-1.5 flex max-h-36 flex-col gap-1 overflow-y-auto">
+        {todos.map((t, i) => (
+          <li key={i} className="flex items-start gap-2 text-[12px] leading-relaxed">
+            <span className={cn(
+              "mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border",
+              t.done ? "border-accent bg-accent text-accent-foreground" : "border-border-heavy",
+            )}>
+              {t.done && <Check className="size-2.5" strokeWidth={3} />}
+            </span>
+            <span className={cn(t.done ? "text-faint line-through" : "text-foreground")}>{t.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -49,17 +49,14 @@ export interface AgentOption {
   currentId: string | null;
 }
 
-/** The agent's selectable models + modes + config options + slash commands,
- *  surfaced once connected. */
+/** The agent's selectable models + modes + config options, surfaced once
+ *  connected. */
 export interface AgentMeta {
   models: { id: string; name: string }[];
   currentModelId: string | null;
   modes: { id: string; name: string }[];
   currentModeId: string | null;
   options: AgentOption[];
-  /** Slash commands the agent advertises (ACP available_commands_update) —
-   *  spoken or typed as part of a turn; the UI surfaces them as hints. */
-  commands: { name: string; description: string }[];
   /** Whether resuming this session in the agent's own CLI works across process
    *  restarts. Claude: yes. Cursor: no (upstream limitation). Codex: best-effort. */
   resumeAcrossRestart: boolean;
