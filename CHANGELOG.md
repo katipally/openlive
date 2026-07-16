@@ -4,7 +4,7 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-07-16
 
 ### Fixed
 - **Cross-process data race.** Settings and conversations are written by both the
@@ -26,7 +26,7 @@ Releases before 0.1.9 predate this file — see the
 - Crash screen follows the OS theme and uses the brand accent.
 
 ### Added
-- **Voices — clone your own voice.** A dedicated Settings tab: pick a script (or
+- **Clone Voice — clone your own voice.** A dedicated Settings tab: pick a script (or
   just talk), record 5–30 seconds with a live level meter, listen back before
   saving, fix the auto-transcript, and your assistant speaks as you — zero-shot
   cloning (ZipVoice, Apache-2.0, via sherpa-onnx) running locally in the agent
@@ -50,6 +50,16 @@ Releases before 0.1.9 predate this file — see the
   panel, H history, Cmd/Ctrl-E end call — press `?` for the cheat sheet.
 - **Lobby readiness check.** Picking an agent that isn't installed or signed in
   shows a one-tap jump to Settings → Agents instead of failing the call.
+- **A real player for voice previews.** Everything Clone Voice plays back — the
+  recorded take, a synthesized preview, the original recording — now goes through
+  a compact seekable player (play/pause, drag to seek, elapsed/total time) instead
+  of fire-and-forget playback. Only one plays at a time.
+- **Agent sign-in that can't strand you.** Sign-in and setup flows open in your
+  terminal; the row now polls while you finish there and flips to Ready by itself.
+  If the terminal can't open (macOS Automation permission), the panel explains the
+  fix and a Copy command button gives you the manual path. Hermes gets an honest
+  "Setup incomplete" state (its wizard was started but no provider picked), a
+  "Finish setup" button, and an Uninstall that removes `~/.hermes` after a warning.
 
 ### Changed
 - **Light mode rebuilt.** A stepped warm-paper ladder (no pure white): cards,
@@ -65,6 +75,10 @@ Releases before 0.1.9 predate this file — see the
   a failed npm install from a root-owned prefix now gets actionable guidance
   instead of a raw error dump.
 - Slash-command metadata (never surfaced in the UI) removed from the wire protocol.
+- **Settings reorganized.** The Voices tab is now **Clone Voice**. Speaking speed
+  and "Narrate agent progress" moved from Pipeline → Text-to-speech to General
+  under a new **Voice & speech** group, next to voice input — everyday preferences
+  in General, engine choices in Pipeline. Same settings underneath; nothing resets.
 
 ## [0.1.9] - 2026-07-11
 

@@ -30,16 +30,22 @@ pnpm desktop:build:win # build the Windows installer (run on Windows)
 ## Where things live
 
 ```
-apps/desktop     Electron shell: local servers, permissions, window, auto-update
-apps/web         Next.js UI + the on-device voice engine in src/lib/live
-services/agent   the /live WebSocket and the model tools
+apps/desktop     Electron shell: local servers, permissions, window, mini mode,
+                 tray + notifications, auto-update
+apps/web         Next.js UI + the on-device voice engine in src/lib/live + /api
+                 routes (agent install/auth, history discovery, settings)
+services/agent   the /live WebSocket, the ACP coding-agent driver (agents/*),
+                 local voice cloning (voice/*), and the built-in model tools
 packages/harness model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing
-packages/shared  the wire protocol and shared types
+packages/shared  the agent registry (single source of agent identity), wire
+                 protocol, shared types
 packages/db      JSON-file store for keys, settings, conversations
 ```
 
-The voice loop (VAD, STT, end-of-turn, TTS, barge-in) is in
-`apps/web/src/lib/live`. The model turn goes out from `services/agent`.
+The voice loop (VAD, STT, end-of-turn, TTS — Kokoro, Supertonic, or a cloned
+voice — and barge-in) is in `apps/web/src/lib/live`. The model turn goes out from
+`services/agent`, which either streams a provider reply or drives a coding agent
+(Claude Code, Codex, Cursor, OpenCode, Hermes) over ACP as a child process.
 
 ## Sending a change
 

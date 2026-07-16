@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle } from "lucide-react";
+import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { useAgentActions } from "@/lib/agentActions";
 import type { AgentId } from "@/lib/live/liveClient";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
 
@@ -38,7 +39,9 @@ export function AgentsSettings() {
 function statusChip(a: AgentStatus) {
   if (!a.installed) return { text: "Not installed", cls: "text-muted-foreground" };
   if (a.credState === "ready") return { text: "Ready", cls: "text-success" };
-  if (a.credState === "login_required") return { text: "Sign in needed", cls: "text-arc" };
+  // Wizard agents (hermes) aren't "signed out" in this state — their setup was
+  // started but never finished (no provider picked). Say that.
+  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", cls: "text-arc" };
   return { text: "Installed", cls: "text-success" }; // creds unknowable — don't cry wolf
 }
 
@@ -50,13 +53,35 @@ function AgentRow({ a }: { a: AgentStatus }) {
   const run = useAgentActions((s) => s.runs[a.id]);
   const start = useAgentActions((s) => s.run);
   const [confirmUn, setConfirmUn] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   // When a background action finishes, re-check installed/signed-in status.
+  // Terminal actions (sign-in, hermes' wizard) merely OPEN a terminal and return
+  // — the user finishes there. Keep polling so the row flips by itself.
   const wasRunning = useRef(false);
   useEffect(() => {
-    if (wasRunning.current && !run?.running) qc.invalidateQueries({ queryKey: ["agents"] });
+    if (wasRunning.current && !run?.running) {
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      const terminalAction = run?.action === "login" || (run?.action === "install" && a.wizard);
+      if (terminalAction && !run?.log.includes("⚠")) setWaiting(true);
+    }
     wasRunning.current = !!run?.running;
-  }, [run?.running, qc]);
+  }, [run?.running, run?.action, run?.log, a.wizard, qc]);
+
+  // Poll every 3s while waiting; stop when the agent is ready or after 5 min.
+  useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchInterval: 3000, enabled: waiting });
+  useEffect(() => {
+    if (!waiting) return;
+    if (a.credState === "ready") { setWaiting(false); return; }
+    const t = setTimeout(() => setWaiting(false), 5 * 60_000);
+    return () => clearTimeout(t);
+  }, [waiting, a.credState]);
+
+  const copyLogin = () => {
+    void navigator.clipboard.writeText(a.loginCommand)
+      .then(() => toast("Command copied — paste it into any terminal."))
+      .catch(() => toast(a.loginCommand)); // clipboard blocked: at least show it
+  };
 
   const setHidden = (hidden: boolean) =>
     api.updateSettings({ [`agentHidden:${a.id}`]: hidden ? "1" : "" }).then(() => {
@@ -94,12 +119,18 @@ function AgentRow({ a }: { a: AgentStatus }) {
               </button>
             )}
             {a.installed && a.credState !== "ready" && (
-              <button onClick={() => start(a.id, "login")} disabled={busy}
-                className={cn(btn, a.credState === "login_required"
-                  ? "border-transparent bg-accent text-accent-foreground hover:opacity-90"
-                  : "border-border text-foreground hover:border-border-heavy")}>
-                {running === "login" ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />} Sign in
-              </button>
+              <>
+                <button onClick={() => start(a.id, "login")} disabled={busy}
+                  className={cn(btn, a.credState === "login_required"
+                    ? "border-transparent bg-accent text-accent-foreground hover:opacity-90"
+                    : "border-border text-foreground hover:border-border-heavy")}>
+                  {running === "login" ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />} {a.wizard ? "Finish setup" : "Sign in"}
+                </button>
+                <button onClick={copyLogin} title={`Copy the command to run yourself: ${a.loginCommand}`}
+                  className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
+                  <Copy className="size-3.5" /> Copy command
+                </button>
+              </>
             )}
             {a.installed && a.credState === "ready" && a.canLogout && (
               <button onClick={() => start(a.id, "logout")} disabled={busy}
@@ -118,6 +149,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
               <button
                 onClick={() => (confirmUn ? (setConfirmUn(false), start(a.id, "uninstall")) : setConfirmUn(true))}
                 disabled={busy} onBlur={() => setConfirmUn(false)}
+                title={a.wizard ? `Removes ${a.sessions} — including its chat history and credentials` : undefined}
                 className={cn(btn, confirmUn ? "border-danger/50 bg-danger/10 text-danger" : "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
                 {running === "uninstall" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} {confirmUn ? "Confirm?" : "Uninstall"}
               </button>
@@ -132,6 +164,16 @@ function AgentRow({ a }: { a: AgentStatus }) {
           </div>
         </div>
       </div>
+
+      {confirmUn && a.wizard && (
+        <p className="mt-2 text-[11.5px] text-danger">This deletes {a.sessions} — Hermes chat history and credentials included. There is no undo.</p>
+      )}
+
+      {waiting && a.credState !== "ready" && (
+        <p className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" /> Waiting for you to finish in the terminal — this updates by itself.
+        </p>
+      )}
 
       {run && (run.running || run.log) && (
         <pre className="openlive-scroll mt-2.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>

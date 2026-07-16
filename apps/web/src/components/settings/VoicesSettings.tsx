@@ -9,8 +9,9 @@ import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
+import { AudioBar } from "./AudioBar";
 
-// Voices — the standalone Voice Studio. Clone a voice from a short recording
+// Clone Voice — the standalone Voice Studio. Clone a voice from a short recording
 // and manage the results: record → listen back → transcript → save, then
 // preview with any text, rename, export/import, set as the speaking voice.
 // Synthesis runs in the local agent service (ZipVoice, Apache-2.0, sherpa-onnx);
@@ -47,16 +48,9 @@ const b64 = (bytes: Uint8Array) => {
   return btoa(s);
 };
 
-/** Play Float32 PCM once through a throwaway context. Returns a stop handle. */
-function playPcm(samples: Float32Array, sampleRate: number, onEnd?: () => void): () => void {
-  const ctx = new AudioContext();
-  const buf = ctx.createBuffer(1, samples.length, sampleRate);
-  buf.getChannelData(0).set(samples);
-  const src = ctx.createBufferSource();
-  src.buffer = buf; src.connect(ctx.destination); src.start();
-  src.onended = () => { void ctx.close(); onEnd?.(); };
-  return () => { try { src.stop(); } catch { /* already done */ } };
-}
+/** Float32 PCM → object URL playable by AudioBar. Caller revokes when done. */
+const pcmUrl = (samples: Float32Array, sampleRate: number) =>
+  URL.createObjectURL(new Blob([encodeWav(samples, sampleRate) as BlobPart], { type: "audio/wav" }));
 
 export function VoicesSettings() {
   const qc = useQueryClient();
@@ -156,15 +150,22 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
   const [take, setTake] = useState<Take | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const [takeUrl, setTakeUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState<"transcribe" | "save" | null>(null);
   const rec = useRef<{ ctx: AudioContext; stream: MediaStream; node: ScriptProcessorNode; chunks: Float32Array[]; raf: number } | null>(null);
-  const stopPlayback = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => { stopPlayback.current?.(); if (rec.current) stop(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (rec.current) stop(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen-back URL for the current take; revoked when the take changes or on unmount.
+  useEffect(() => {
+    if (!take) { setTakeUrl(null); return; }
+    const url = pcmUrl(take.samples, take.sampleRate);
+    setTakeUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [take]);
 
   const stop = () => {
     const r = rec.current;
@@ -216,17 +217,9 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
         rec.current.raf = requestAnimationFrame(tick);
       };
       rec.current = { ctx, stream, node, chunks, raf: 0 };
-      stopPlayback.current?.();
       setTake(null); setTranscript(""); setSeconds(0); setRecording(true);
       rec.current.raf = requestAnimationFrame(tick);
     } catch { toast("Microphone access is needed to record a voice sample."); }
-  };
-
-  const togglePlayback = () => {
-    if (playing) { stopPlayback.current?.(); setPlaying(false); return; }
-    if (!take) return;
-    setPlaying(true);
-    stopPlayback.current = playPcm(take.samples, take.sampleRate, () => setPlaying(false));
   };
 
   const save = async () => {
@@ -240,8 +233,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
         body: JSON.stringify({ name: name.trim() || "My voice", transcript: transcript.trim(), wavBase64: b64(wav), consent }),
       });
       if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
-      stopPlayback.current?.();
-      setTake(null); setTranscript(""); setName(""); setConsent(false); setPlaying(false);
+      setTake(null); setTranscript(""); setName(""); setConsent(false);
       toast("Voice saved. Set it as the speaking voice below, or preview it first.");
       onSaved();
     } catch (e) { toast(`Couldn't save the voice: ${String((e as Error)?.message ?? e)}`); }
@@ -296,17 +288,13 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-2.5">
-        <button onClick={togglePlayback}
-          className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition hover:opacity-90">
-          {playing ? <Square className="size-3.5" /> : <Play className="size-3.5" />}
-          {playing ? "Stop" : "Listen back"}
-        </button>
-        <span className="text-[12px] text-muted-foreground">{(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
-        <button onClick={() => { stopPlayback.current?.(); setPlaying(false); setTake(null); setTranscript(""); }}
+        <span className="text-[12px] text-muted-foreground">Listen back — {(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
+        <button onClick={() => { setTake(null); setTranscript(""); }}
           className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
           <RotateCcw className="size-3.5" /> Re-record
         </button>
       </div>
+      {takeUrl && <AudioBar src={takeUrl} />}
       <label className="flex flex-col gap-1">
         <span className="text-[11.5px] text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript — fix anything Whisper misheard; cloning quality depends on it."}</span>
         <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} placeholder="What you said, word for word"
@@ -336,12 +324,14 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
   const [previewText, setPreviewText] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState("");
+  // The clip currently loaded in a card's player: a synthesized preview or the
+  // original recording. One at a time; swapping revokes the old URL.
+  const [clip, setClip] = useState<{ id: string; kind: "preview" | "original"; url: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const stopRef = useRef<(() => void) | null>(null);
   const cfg = loadPipelineConfig();
   const activeId = cfg.tts.engine === "clone" ? cfg.tts.voice : null;
 
-  useEffect(() => () => stopRef.current?.(), []);
+  useEffect(() => () => { if (clip) URL.revokeObjectURL(clip.url); }, [clip]);
 
   const useVoice = (id: string) => {
     savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "clone", voice: id } });
@@ -358,8 +348,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
       });
       if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
       const samples = new Float32Array(await res.arrayBuffer());
-      stopRef.current?.();
-      stopRef.current = playPcm(samples, Number(res.headers.get("x-sample-rate")) || 24000);
+      setClip({ id: p.id, kind: "preview", url: pcmUrl(samples, Number(res.headers.get("x-sample-rate")) || 24000) });
     } catch (e) { toast(`Preview failed: ${String((e as Error)?.message ?? e)}`); }
     finally { setBusy(null); }
   };
@@ -369,13 +358,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
     try {
       const res = await fetch(`/api/voice/profiles/${p.id}/audio`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = new Audio(url);
-      stopRef.current?.();
-      stopRef.current = () => { a.pause(); URL.revokeObjectURL(url); };
-      a.onended = () => URL.revokeObjectURL(url);
-      void a.play();
+      setClip({ id: p.id, kind: "original", url: URL.createObjectURL(await res.blob()) });
     } catch { toast("Couldn't play the recording."); }
     finally { setBusy(null); }
   };
@@ -409,6 +392,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
   };
 
   const remove = async (p: VoiceProfile) => {
+    if (clip?.id === p.id) setClip(null);
     if (p.id === activeId) savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "kokoro", voice: "af_heart" } });
     await fetch(`/api/voice/profiles/${p.id}`, { method: "DELETE" }).catch(() => {});
     onChange();
@@ -456,6 +440,12 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
             <IconAction title="Export to a file" onClick={() => exportProfile(p)} icon={Download} />
             <IconAction title="Delete" onClick={() => remove(p)} icon={Trash2} danger />
           </div>
+          {clip?.id === p.id && (
+            <div className="flex items-center gap-2">
+              <AudioBar src={clip.url} autoPlay className="flex-1" />
+              <span className="shrink-0 text-[10.5px] text-faint">{clip.kind === "preview" ? "Preview" : "Original recording"}</span>
+            </div>
+          )}
         </div>
       ))}
 

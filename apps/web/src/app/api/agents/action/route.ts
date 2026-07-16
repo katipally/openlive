@@ -19,6 +19,16 @@ Fix it once, then retry:
 Or install Node via Homebrew or nvm, which use a user-writable prefix.
 `;
 
+// A terminal launch that failed never reached the user's shell — on macOS the
+// usual culprit is the Automation permission (osascript error -1743), which
+// fails with nothing visible on screen. Always give the manual path.
+const terminalHelp = (display?: string) => `
+⚠ Couldn't open your terminal automatically.
+${process.platform === "darwin"
+  ? "macOS may be blocking automation: System Settings → Privacy & Security → Automation → allow OpenLive to control Terminal."
+  : "Your system blocked launching a terminal window from OpenLive."}
+${display ? `Run this yourself in any terminal, then hit Re-check:\n  ${display}\n` : ""}`;
+
 export async function POST(req: Request) {
   const { id, action } = (await req.json().catch(() => ({}))) as { id?: string; action?: Action };
   const agent = id ? agentById(id) : undefined;
@@ -39,12 +49,17 @@ export async function POST(req: Request) {
       push(`$ ${spec.cmd} ${spec.args.join(" ")}\n`);
       child.stdout.on("data", (d: Buffer) => push(watch(d.toString())));
       child.stderr.on("data", (d: Buffer) => push(watch(d.toString())));
-      child.on("error", (e) => { push(`\n[error] ${e.message}\n`); controller.close(); });
+      child.on("error", (e) => {
+        push(`\n[error] ${e.message}\n`);
+        if (spec.terminal) push(terminalHelp(spec.display));
+        controller.close();
+      });
       child.on("close", (code) => {
         if (spec.cmd === "npm" && code !== 0 && sawEacces) push(NPM_EACCES_HELP);
+        if (spec.terminal && code !== 0) push(terminalHelp(spec.display));
         push(
           spec.terminal && code === 0
-            ? "\n✓ Continues in the terminal window that opened — finish there, then Re-check.\n"
+            ? "\n✓ Continues in the terminal window that opened — finish there; the status updates by itself.\n"
             : `\n[exit ${code ?? 0}]\n`,
         );
         controller.close();

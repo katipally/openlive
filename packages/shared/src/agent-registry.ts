@@ -54,6 +54,10 @@ export interface AgentDef {
    *  agents whose runner binary alone proves nothing (hermes runs via uvx, so
    *  uv's presence ≠ hermes configured; its setup wizard creates ~/.hermes). */
   installedProbe?: CredProbe;
+  /** Sign-in IS the setup wizard (not a plain login): an aborted run can leave
+   *  the agent half-configured, so the UI says "Setup incomplete"/"Finish
+   *  setup" instead of "Sign in needed"/"Sign in". */
+  wizard?: boolean;
   /** Actionable one-liner when the agent dies before the ACP handshake. */
   startHint: string;
 }
@@ -167,9 +171,17 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
       // Windows/PowerShell: install uv via its .ps1 script, then run the setup wizard.
       winTerminal: "if (-not (Get-Command uvx -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     },
+    // Uninstall = remove its footprint. Everything hermes owns (credentials,
+    // sessions, memories) lives under ~/.hermes; uvx caches the package itself,
+    // so there is nothing else to remove. Destructive — the UI double-confirms.
+    uninstall: {
+      posixShell: "rm -rf ~/.hermes",
+      winShell: 'if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
+    },
     login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     winLogin: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     // No logout — its setup wizard manages credentials in ~/.hermes.
+    wizard: true,
     sessionsDir: "~/.hermes",
     sessionParser: "hermes-sqlite",
     externalDeletable: false,
@@ -178,7 +190,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // against a machine with a pooled copilot credential but providers:{} —
     // hermes-acp prints "No LLM provider configured" and exits 0.
     credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
-    startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Sign in button in Settings → Agents) and pick a provider.",
+    startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
   },
 };
 

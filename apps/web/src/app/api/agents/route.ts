@@ -56,6 +56,12 @@ export async function GET() {
       credState,
       version,
       authDetail: credState === "ready" ? authDetail(a.id) : undefined,
+      // Wizard-style agents (hermes): sign-in IS the setup flow, so the UI says
+      // "Setup incomplete"/"Finish setup" instead of "Sign in needed"/"Sign in".
+      wizard: !!a.wizard,
+      // The raw sign-in command, for the Copy button — the manual path when
+      // opening a terminal automatically is blocked (macOS Automation).
+      loginCommand: (process.platform === "win32" && a.winLogin) || a.login,
       canInstall: !!a.install,
       canUninstall: !!a.uninstall,
       canLogout: !!a.logout,

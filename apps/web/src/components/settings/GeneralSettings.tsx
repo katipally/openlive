@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { Monitor, Sun, Moon, Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
 import { voiceInputMode, setVoiceInputMode, type VoiceInputMode } from "@/lib/live/usePtt";
+import { loadPipelineConfig, savePipelineConfig } from "@/lib/live/pipelineConfig";
 import { isDesktop, savedMiniHotkey, saveMiniHotkey } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
@@ -104,6 +105,41 @@ function VoiceInputPicker() {
   );
 }
 
+/** Speaking speed for all TTS engines — stored in the pipeline config (same
+ *  store Pipeline → Text-to-speech reads); applies from the next reply. */
+function SpeakingSpeed() {
+  const [cfg, setCfg] = useState(() => loadPipelineConfig());
+  const set = (v: number) => setCfg(savePipelineConfig({ ...cfg, tts: { ...cfg.tts, speed: v } }));
+  return (
+    <label className="flex max-w-md flex-col gap-1.5">
+      <span className="flex items-center justify-between text-[12.5px] text-foreground">Speaking speed<span className="tabular-nums text-muted-foreground">{cfg.tts.speed.toFixed(2)}×</span></span>
+      <input type="range" min={0.5} max={2} step={0.05} value={cfg.tts.speed} onChange={(e) => set(Number(e.target.value))}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-foreground" />
+    </label>
+  );
+}
+
+/** Spoken progress for coding-agent turns — a short voiced one-liner ("Step 2 of
+ *  4 — refactor the store.") when a tool has run a while and the agent is quiet. */
+function NarrateToggle() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const on = (data as Record<string, string> | undefined)?.narrateProgress === "1";
+  const flip = () => void api.updateSettings({ narrateProgress: on ? "" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
+  return (
+    <label className="flex cursor-pointer select-none items-start gap-2.5">
+      <button role="switch" aria-checked={on} onClick={flip}
+        className={cn("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition", on ? "bg-accent" : "bg-foreground/15")}>
+        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", on ? "left-[18px]" : "left-0.5")} />
+      </button>
+      <span className="text-[12.5px] leading-snug text-foreground">
+        Narrate agent progress
+        <span className="block text-[11px] text-faint">While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4 — …&rdquo;). At most a few short lines a turn.</span>
+      </span>
+    </label>
+  );
+}
+
 /** Free-text custom instructions, injected into the built-in assistant's system
  *  prompt AND every coding agent's session preamble. Debounced save. */
 function CustomInstructions() {
@@ -146,8 +182,12 @@ export function GeneralSettings() {
         <CustomInstructions />
       </Section>
 
-      <Section title="Voice input" desc="How Space behaves once you turn push-to-talk on during a call (the keyboard button next to the mic): hold it down like a walkie-talkie, or tap once to start and again to stop. Off by default — normally OpenLive just listens hands-free.">
-        <VoiceInputPicker />
+      <Section title="Voice & speech" desc="How you talk to OpenLive and how it talks back. Push-to-talk (once enabled during a call): hold Space like a walkie-talkie, or tap to toggle — off by default, normally it just listens hands-free.">
+        <div className="flex flex-col gap-4">
+          <VoiceInputPicker />
+          <SpeakingSpeed />
+          <NarrateToggle />
+        </div>
       </Section>
 
       {isDesktop && (

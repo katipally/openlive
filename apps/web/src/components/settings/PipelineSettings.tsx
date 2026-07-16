@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check } from "lucide-react";
-import { api } from "@/lib/api";
 import {
   loadPipelineConfig, savePipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
@@ -184,7 +183,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const accents = [...new Set(engine.voices.map((v) => v.accent))];
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine, voice, and speed apply to the next reply — switching engines downloads that engine's weights once." />
+      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine and voice apply to the next reply — switching engines downloads that engine's weights once. Speaking speed lives in General → Voice & speech." />
       <div className="grid grid-cols-3 gap-2">
         {TTS_ENGINES.map((e) => (
           <button key={e.id} onClick={() => setEngine(e.id)}
@@ -197,7 +196,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
             <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
               {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)."
                 : e.id === "supertonic" ? "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."
-                : "Cloned from a short recording — record and manage in the Voices tab (runs locally)."}
+                : "Cloned from a short recording — record and manage in the Clone Voice tab (runs locally)."}
             </p>
           </button>
         ))}
@@ -222,16 +221,13 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
           </div>
         </label>
       )}
-      <Slider label="Speaking speed" value={cfg.tts.speed} min={0.5} max={2} step={0.05}
-        fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => update({ ...cfg, tts: { ...cfg.tts, speed: v } })} />
-      <NarrateToggle />
       <ModelStatus />
     </div>
   );
 }
 
 /** Voice picker for the clone engine — just your saved profiles. Recording,
- *  previewing, and managing them lives in the standalone Voices tab. */
+ *  previewing, and managing them lives in the standalone Clone Voice tab. */
 function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const { data: profiles = [], isLoading } = useQuery<{ id: string; name: string }[]>({
     queryKey: ["voice-profiles"], queryFn: () => fetch("/api/voice/profiles").then((r) => r.json()),
@@ -240,7 +236,7 @@ function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update
   if (!isLoading && profiles.length === 0) return (
     <div className="flex items-center gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-[12px] text-arc">
       No cloned voices yet.
-      <button onClick={openVoices} className="font-medium underline underline-offset-2">Open Voices to record one</button>
+      <button onClick={openVoices} className="font-medium underline underline-offset-2">Open Clone Voice to record one</button>
     </div>
   );
   return (
@@ -253,30 +249,9 @@ function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update
         </select>
         <button onClick={openVoices}
           className="h-9 shrink-0 rounded-lg border border-border px-3 text-[12.5px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-          Manage in Voices
+          Manage in Clone Voice
         </button>
       </div>
-    </label>
-  );
-}
-
-/** Spoken progress for coding-agent turns — a short voiced one-liner ("Step 2 of
- *  4 — refactor the store.") when a tool has run a while and the agent is quiet. */
-function NarrateToggle() {
-  const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const on = (data as Record<string, string> | undefined)?.narrateProgress === "1";
-  const flip = () => void api.updateSettings({ narrateProgress: on ? "" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
-  return (
-    <label className="flex cursor-pointer select-none items-start gap-2.5">
-      <button role="switch" aria-checked={on} onClick={flip}
-        className={cn("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition", on ? "bg-accent" : "bg-foreground/15")}>
-        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", on ? "left-[18px]" : "left-0.5")} />
-      </button>
-      <span className="text-[12.5px] leading-snug text-foreground">
-        Narrate agent progress
-        <span className="block text-[11px] text-faint">While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4 — …&rdquo;). At most a few short lines a turn.</span>
-      </span>
     </label>
   );
 }
