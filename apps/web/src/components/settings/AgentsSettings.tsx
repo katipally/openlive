@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2 } from "lucide-react";
+import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { useAgentActions } from "@/lib/agentActions";
@@ -83,6 +83,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
             </span>
           </div>
           <p className="mt-0.5 truncate font-mono text-[11.5px] text-faint">
+            {a.version ? <>{a.version} · </> : null}
             {a.credState === "ready" && a.authDetail ? <>{a.authDetail} · </> : null}session store · {a.sessions}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -104,6 +105,13 @@ function AgentRow({ a }: { a: AgentStatus }) {
               <button onClick={() => start(a.id, "logout")} disabled={busy}
                 className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
                 {running === "logout" ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />} Sign out
+              </button>
+            )}
+            {a.installed && a.canUpdate && (
+              <button onClick={() => start(a.id, "update")} disabled={busy}
+                title="Reinstall the latest CLI release"
+                className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
+                {running === "update" ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUpCircle className="size-3.5" />} Update
               </button>
             )}
             {a.installed && a.canUninstall && (

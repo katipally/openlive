@@ -138,8 +138,9 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     uninstall: { npm: "opencode-ai" },
     login: "opencode auth login",
     logout: "opencode auth logout",
-    // ponytail: xdg path assumed on Windows too; if opencode files elsewhere there,
-    // make sessionsDir/credProbe per-platform maps (discovery degrades to "none").
+    // Verified 2026-07-16 against opencode's docs: %USERPROFILE%\.local\share\opencode
+    // on Windows too — the same "~"-relative path everywhere. Discovery also
+    // honors $XDG_DATA_HOME (see agentSessions.ts).
     sessionsDir: "~/.local/share/opencode",
     sessionParser: "opencode-sqlite",
     externalDeletable: false,

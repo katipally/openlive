@@ -16,7 +16,7 @@ export interface AppSettings {
   agentCwd?: string;
 }
 
-export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; authDetail?: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; hidden: boolean; sessions: string; home: string }
+export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? res.statusText);

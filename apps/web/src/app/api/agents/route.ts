@@ -18,6 +18,16 @@ async function present(bin: string): Promise<boolean> {
   catch { return false; }
 }
 
+/** `<bin> --version` → a short version string, or undefined. Best-effort: some
+ *  CLIs print banners — keep just the first line, capped. */
+async function binVersion(bin: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await promisify(execFile)(bin, ["--version"], { env: { ...process.env, PATH: widenedPath() }, timeout: 4000 });
+    const line = stdout.trim().split("\n")[0]?.trim();
+    return line ? line.slice(0, 48) : undefined;
+  } catch { return undefined; }
+}
+
 /** A human detail for the signed-in state where the store exposes one (cursor
  *  keeps the account email in its CLI config). */
 function authDetail(id: string): string | undefined {
@@ -31,19 +41,27 @@ export async function GET() {
   const rows = await Promise.all(AGENT_LIST.map(async (a) => {
     // Installed = runner binary on PATH, AND (where the binary alone proves
     // nothing — hermes via uvx) the agent's own footprint exists.
-    const binPresent = (await Promise.all(a.bins.map(present))).some(Boolean);
-    const installed = binPresent && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
+    const presentBins = await Promise.all(a.bins.map(async (b) => ((await present(b)) ? b : null)));
+    const firstBin = presentBins.find(Boolean) ?? null;
+    const installed = !!firstBin && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
     // Only probe credentials when actually installed — a leftover config file
     // from an old install shouldn't render as signed in.
     const credState: CredState = installed ? await evalCredProbe(a.credProbe) : "unknown";
+    // CLI version, shown in the row. Skipped for hermes — its runner bin is uvx,
+    // whose --version reports uv, not hermes.
+    const version = installed && firstBin && a.id !== "hermes" ? await binVersion(firstBin) : undefined;
     return {
       id: a.id, label: a.label,
       installed,
       credState,
+      version,
       authDetail: credState === "ready" ? authDetail(a.id) : undefined,
       canInstall: !!a.install,
       canUninstall: !!a.uninstall,
       canLogout: !!a.logout,
+      // Update = rerun the headless install recipe with @latest; terminal-wizard
+      // installs (hermes, pinned) manage their own version.
+      canUpdate: installed && !!a.install && !a.install.terminal,
       hidden: getSetting(`agentHidden:${a.id}`) === "1",
       sessions: a.sessionsDir, home,
     };

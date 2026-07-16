@@ -120,11 +120,14 @@ function cursorSessions(): ExternalSession[] {
   return recentFiles(out.map((s) => ({ ...s, path: "", mtimeMs: new Date(s.updatedAt).getTime() })) as any).map((x: any) => ({ id: x.id, cwd: x.cwd, title: x.title, updatedAt: x.updatedAt }));
 }
 
-// ── OpenCode: sqlite at ~/.local/share/opencode/opencode.db (session table) ───
-// Read-only via node:sqlite (Node ≥22.13 — already this repo's floor). Sub-sessions
-// (parent_id set) are agent-internal; only top-level sessions are the user's.
+// ── OpenCode: sqlite at <data>/opencode/opencode.db (session table) ───────────
+// <data> = $XDG_DATA_HOME or ~/.local/share — the same path on Windows too
+// (verified against opencode's docs). Read-only via node:sqlite (Node ≥22.13 —
+// already this repo's floor). Sub-sessions (parent_id set) are agent-internal;
+// only top-level sessions are the user's.
 function opencodeSessions(): ExternalSession[] {
-  const db = join(homedir(), ".local", "share", "opencode", "opencode.db");
+  const dataDir = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
+  const db = join(dataDir, "opencode", "opencode.db");
   if (!existsSync(db)) return [];
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
