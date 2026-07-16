@@ -5,7 +5,7 @@ import type { AgentId, AgentMeta, PermissionOption } from "./liveClient";
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
 
 export interface DeviceOpt { id: string; label: string }
-export interface PendingPermission { reqId: string; question: string; options: PermissionOption[] }
+export interface PendingPermission { reqId: string; question: string; options: PermissionOption[]; expiresAt?: number }
 
 interface LiveState {
   active: boolean;

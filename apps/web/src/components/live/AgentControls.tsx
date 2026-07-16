@@ -99,11 +99,28 @@ export function AgentSelect() {
   );
 }
 
+/** Seconds until the server's auto-deny, ticking once a second. Null without a
+ *  deadline (older server) or once it has passed. */
+function useCountdown(expiresAt?: number): number | null {
+  const [left, setLeft] = useState(() => (expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : null));
+  useEffect(() => {
+    if (!expiresAt) { setLeft(null); return; }
+    const tick = () => setLeft(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return left;
+}
+
 /** Overlay shown when a bound agent asks permission (run a command, edit files).
- *  The question is also spoken; answer by tapping a chip OR saying yes/no. */
+ *  The question is also spoken; answer by tapping a chip OR saying yes/no. An
+ *  unanswered ask auto-denies server-side — the countdown makes that visible. */
 export function PermissionPrompt({ answerPermission }: { answerPermission: (optionId: string) => void }) {
   const permission = useLiveStore((s) => s.permission);
+  const left = useCountdown(permission?.expiresAt);
   if (!permission) return null;
+  const mmss = left != null ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 grid place-items-center px-4">
       <div className="pointer-events-auto flex max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
@@ -121,7 +138,10 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
             </button>
           ))}
         </div>
-        <p className="text-center text-[11px] text-faint">…or just say “yes” or “no”.</p>
+        <p className="text-center text-[11px] text-faint">
+          …or just say “yes” or “no”.
+          {mmss && <span className={cn("tabular-nums", (left ?? 0) <= 30 && "text-danger")}> Auto-deny in {mmss}.</span>}
+        </p>
       </div>
     </div>
   );

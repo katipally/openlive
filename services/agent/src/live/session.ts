@@ -355,9 +355,11 @@ export class LiveSession {
     return new Promise((resolve) => {
       if (this.closed) return resolve("deny");
       const reqId = randomUUID();
-      const timer = setTimeout(() => { if (this.permPending.delete(reqId)) resolve("deny"); }, 120_000);
+      const PERM_TIMEOUT_MS = 120_000;
+      const expiresAt = Date.now() + PERM_TIMEOUT_MS; // client renders the countdown + speaks a reminder
+      const timer = setTimeout(() => { if (this.permPending.delete(reqId)) resolve("deny"); }, PERM_TIMEOUT_MS);
       this.permPending.set(reqId, (optionId) => { clearTimeout(timer); resolve(optionId); });
-      this.send({ t: "permission", reqId, question, options });
+      this.send({ t: "permission", reqId, question, options, expiresAt });
     });
   }
 

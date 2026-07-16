@@ -31,7 +31,9 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
   // something (run a command, edit files). The client speaks the question and shows
   // approve/deny chips; the answer comes back as permission_response.
-  z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })) }),
+  // expiresAt (epoch ms): when the server auto-denies an unanswered ask — drives
+  // the client's visible countdown + spoken reminder.
+  z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })), expiresAt: z.number().optional() }),
   // The bound agent's selectable models + modes (learned when it connects), so the
   // UI can offer model/mode pickers. Sent on connect and after a switch.
   z.object({

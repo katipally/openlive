@@ -140,6 +140,7 @@ export function useLiveSession(chatId: string) {
   const screenRef = useRef<CameraCapture | null>(null);
   const micStream = useRef<MediaStream | null>(null);
   const assistantId = useRef<string | null>(null);
+  const permReminder = useRef<ReturnType<typeof setTimeout> | null>(null); // spoken "30s left" nudge
   const tornDown = useRef(false);
   const onPageHide = useRef<() => void>(() => {});
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
@@ -174,6 +175,7 @@ export function useLiveSession(chatId: string) {
     if (tornDown.current) return;
     tornDown.current = true;
     stopReveal();
+    if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
     window.removeEventListener("pagehide", onPageHide.current);
     if (activeLiveClient === client.current) activeLiveClient = null;
     try { client.current?.close(); } catch { /* */ }
@@ -207,7 +209,17 @@ export function useLiveSession(chatId: string) {
       // during the refetch isn't wiped by the replace.
       onReloadHistory: () => { api.messages(chatId).then((m) => chatStore.preloadIfEmpty(chatId, m as never)).catch(() => {}); },
       // A bound agent wants permission: speak the ask and show approve/deny chips.
-      onPermission: (reqId, question, options) => { set({ permission: { reqId, question, options } }); engine.current?.feedAgentDelta(`${question} `); },
+      // A spoken reminder fires ~30s before the server's auto-deny — a voice-first
+      // user may not be looking at the countdown.
+      onPermission: (reqId, question, options, expiresAt) => {
+        set({ permission: { reqId, question, options, expiresAt } });
+        engine.current?.feedAgentDelta(`${question} `);
+        if (permReminder.current) clearTimeout(permReminder.current);
+        const remindIn = (expiresAt ?? 0) - Date.now() - 30_000;
+        if (remindIn > 0) permReminder.current = setTimeout(() => {
+          if (useLiveStore.getState().permission?.reqId === reqId) engine.current?.say("Still waiting on that permission — I'll take it as a no in thirty seconds.");
+        }, remindIn);
+      },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
         const agent = useLiveStore.getState().boundAgent;
@@ -414,6 +426,7 @@ export function useLiveSession(chatId: string) {
   const answerPermission = useCallback((optionId: string) => {
     const p = useLiveStore.getState().permission;
     if (!p) return;
+    if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
     client.current?.permissionResponse(p.reqId, optionId);
     set({ permission: null });
   }, [set]);

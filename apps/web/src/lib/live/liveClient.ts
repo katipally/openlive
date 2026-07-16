@@ -17,7 +17,7 @@ export interface LiveHandlers {
   onSse?: (e: SseEvent) => void;
   onNeedFrame?: (reqId: string) => void;
   onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
-  onPermission?: (reqId: string, question: string, options: PermissionOption[]) => void;
+  onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number) => void;
   onAgentMeta?: (meta: AgentMeta) => void;
   onReloadHistory?: () => void;
   onError?: (message: string) => void;
@@ -79,7 +79,7 @@ export class LiveClient {
         case "sse": return this.h.onSse?.(m.event);
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
         case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
-        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options);
+        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt);
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "reload_history": return this.h.onReloadHistory?.();
         case "error": return this.h.onError?.(m.message);
