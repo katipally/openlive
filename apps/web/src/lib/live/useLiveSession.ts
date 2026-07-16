@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
@@ -482,12 +483,13 @@ export function useLiveSession(chatId: string) {
   }, [set]);
 
   // Change the mic — live if a call is active (rebuild the stream + VAD), else it
-  // just applies on the next start.
+  // just applies on the next start. `id` "" = system default.
   const setMic = useCallback(async (id: string) => {
-    set({ micId: id });
+    set({ micId: id || undefined });
     if (!useLiveStore.getState().active || !engine.current) return;
     try {
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, deviceId: { exact: id } };
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      if (id) audio.deviceId = { exact: id };
       const stream = await navigator.mediaDevices.getUserMedia({ audio });
       const old = micStream.current;
       micStream.current = stream;
@@ -495,6 +497,27 @@ export function useLiveSession(chatId: string) {
       old?.getTracks().forEach((t) => t.stop()); // stop the previous mic only after the swap
     } catch { set({ error: "Couldn't switch microphone." }); }
   }, [set]);
+
+  // Devices coming and going mid-call: refresh the pickers, and if the ACTIVE mic
+  // was unplugged, fall back to the system default so the call keeps listening.
+  useEffect(() => {
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    if (!md?.addEventListener) return;
+    const onChange = async () => {
+      await refreshDevices();
+      const st = useLiveStore.getState();
+      if (!st.active || !st.micId) return;
+      try {
+        const devs = await md.enumerateDevices();
+        if (!devs.some((d) => d.kind === "audioinput" && d.deviceId === st.micId)) {
+          toast("Microphone disconnected — switched to the default mic.", "info");
+          await setMic("");
+        }
+      } catch { /* enumerate unavailable */ }
+    };
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, [refreshDevices, setMic]);
 
   const setCam = useCallback(async (id: string) => {
     set({ camId: id });

@@ -141,7 +141,15 @@ export class VoiceEngine {
     // agent's own first syllable (echoed through the mic) can't self-trigger.
     const speaking = this.phase === "speaking" || this.player.level() > 0;
     const thinking = this.phase === "thinking";
-    if ((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) {
+    // Playback-aware gate: on SPEAKERS the browser's AEC leaks some of the agent's
+    // own voice back into the mic. While agent audio is playing, require the mic's
+    // smoothed RMS to clear the noise gate scaled UP with the playback level —
+    // real speech over the top clears it, residual echo doesn't. Headphones
+    // (agentLevel high but zero acoustic leak) still barge instantly because the
+    // user's voice is the only mic energy. ponytail: linear 2× scale; tune the
+    // factor if speaker echo still self-triggers on some hardware.
+    const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
+    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe) {
       this.bargeIn();
     }
     this.clearHold();
@@ -321,7 +329,7 @@ export class VoiceEngine {
       if (!spoken) return;
       // Read voice/speed per sentence so a settings change applies to the next reply.
       const ttsCfg = loadPipelineConfig().tts;
-      const { audio, sampleRate } = await tts(spoken, { voice: ttsCfg.voice, speed: ttsCfg.speed });
+      const { audio, sampleRate } = await tts(spoken, { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed });
       if (this.epoch !== epoch) return;
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {

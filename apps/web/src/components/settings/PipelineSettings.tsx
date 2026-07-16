@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check } from "lucide-react";
 import {
-  loadPipelineConfig, savePipelineConfig, KOKORO_VOICES, WHISPER_SIZES, TURN_ENGINES,
-  DEFAULT_PIPELINE_CONFIG, type PipelineConfig,
+  loadPipelineConfig, savePipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
+  TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
+  DEFAULT_PIPELINE_CONFIG, mergePipelineConfig, type PipelineConfig, type TtsEngine,
 } from "@/lib/live/pipelineConfig";
 import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
@@ -16,7 +17,7 @@ const STAGES = [
   { id: "mic", label: "VAD", sub: "Silero", icon: Mic },
   { id: "stt", label: "Speech-to-text", sub: "Whisper", icon: Languages },
   { id: "turn", label: "Turn-taking", sub: "Smart-Turn", icon: Gauge },
-  { id: "tts", label: "Text-to-speech", sub: "Kokoro", icon: AudioWaveform },
+  { id: "tts", label: "Text-to-speech", sub: "Kokoro · Supertonic", icon: AudioWaveform },
 ] as const;
 type StageId = (typeof STAGES)[number]["id"];
 
@@ -113,9 +114,25 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
 }
 
 function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+  const preset = activeTurnPreset(cfg);
+  const applyPreset = (v: TurnPresetValues) => update({
+    ...cfg,
+    vad: { ...cfg.vad, redemptionMs: v.redemptionMs },
+    turn: { ...cfg.turn, threshold: v.threshold, holdMs: v.holdMs },
+  });
   return (
     <div className="space-y-4">
       <StageHead title="Turn-taking" desc="Decides when you've actually finished speaking. Smart-Turn reads the semantics of your last words; silence timeout just waits out the trailing pause." />
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-card p-1">
+        {TURN_PRESETS.map((p) => (
+          <button key={p.id} onClick={() => applyPreset(p.values)} title={p.desc}
+            className={cn("rounded-lg px-2 py-2 text-center transition", preset === p.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground")}>
+            <span className="block text-[12px] font-medium leading-tight">{p.name}</span>
+            <span className="block text-[9.5px] leading-tight text-faint">{p.desc}</span>
+          </button>
+        ))}
+      </div>
+      {preset === "custom" && <p className="-mt-2 text-[11px] text-faint">Custom — the sliders below (and trailing silence in the VAD stage) are hand-tuned.</p>}
       <EngineCard name="Smart-Turn v3" desc="Pipecat's semantic end-of-turn model — a Whisper-tiny encoder, ~12 ms on CPU." />
       <label className="flex flex-col gap-1.5">
         <span className="text-[12.5px] text-foreground">Detector</span>
@@ -141,12 +158,14 @@ const SAMPLE = "Hi! This is how I sound in a live conversation.";
 
 function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const [busy, setBusy] = useState(false);
-  const canPreview = typeof window !== "undefined" && (modelsReady() || modelsCached());
+  // Preview always enabled: it downloads the models itself if needed (spinner
+  // shows). A disabled-until-cached gate went stale — modelsCached() isn't
+  // reactive, so the button stayed dead right after a download finished.
   const preview = async () => {
     setBusy(true);
     try {
       if (!modelsReady()) await loadModels(() => {});
-      const { audio, sampleRate } = await tts(SAMPLE, { voice: cfg.tts.voice, speed: cfg.tts.speed });
+      const { audio, sampleRate } = await tts(SAMPLE, { engine: cfg.tts.engine, voice: cfg.tts.voice, speed: cfg.tts.speed });
       const ctx = new AudioContext();
       const buf = ctx.createBuffer(1, audio.length, sampleRate);
       buf.getChannelData(0).set(audio);
@@ -155,21 +174,40 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       src.onended = () => { void ctx.close(); };
     } catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed — try downloading the models first."); } finally { setBusy(false); }
   };
+  const engine = TTS_ENGINES.find((e) => e.id === cfg.tts.engine) ?? TTS_ENGINES[0]!;
+  // Switching engines swaps the voice list too — mergePipelineConfig snaps the
+  // voice to the new engine's default.
+  const setEngine = (id: TtsEngine) => update(mergePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: id } }));
+  const accents = [...new Set(engine.voices.map((v) => v.accent))];
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device — 28 English voices. Voice and speed apply to the next reply." />
-      <EngineCard name="Kokoro TTS" desc="82M-param StyleTTS2 voice via kokoro-js — WebGPU with a WASM fallback." />
+      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine, voice, and speed apply to the next reply — switching engines downloads that engine's weights once." />
+      <div className="grid grid-cols-2 gap-2">
+        {TTS_ENGINES.map((e) => (
+          <button key={e.id} onClick={() => setEngine(e.id)}
+            className={cn("rounded-xl border p-3 text-left transition",
+              cfg.tts.engine === e.id ? "border-accent/50 bg-accent/[0.07]" : "border-border bg-card hover:border-border-heavy")}>
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+              {e.id === "kokoro" ? "Kokoro" : "Supertonic"}
+              {cfg.tts.engine === e.id && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent"><Star className="size-2.5" /> Active</span>}
+            </div>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+              {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)." : "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."}
+            </p>
+          </button>
+        ))}
+      </div>
       <label className="flex flex-col gap-1.5">
         <span className="text-[12.5px] text-foreground">Voice</span>
         <div className="flex items-center gap-2">
           <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
-            {(["American", "British"] as const).map((accent) => (
+            {accents.map((accent) => (
               <optgroup key={accent} label={accent}>
-                {KOKORO_VOICES.filter((v) => v.accent === accent).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
+                {engine.voices.filter((v) => v.accent === accent).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
               </optgroup>
             ))}
           </select>
-          <button onClick={preview} disabled={busy || !canPreview} title={canPreview ? "Play a sample" : "Download the voice models first"}
+          <button onClick={preview} disabled={busy} title="Play a sample (downloads the voice models first if needed)"
             className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-40">
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Preview
           </button>
@@ -177,7 +215,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </label>
       <Slider label="Speaking speed" value={cfg.tts.speed} min={0.5} max={2} step={0.05}
         fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => update({ ...cfg, tts: { ...cfg.tts, speed: v } })} />
-      {!canPreview && <ModelStatus />}
+      <ModelStatus />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // Guards the untrusted-config merge/clamp — the only non-trivial logic here.
 import assert from "node:assert";
 import { test } from "vitest";
-import { mergePipelineConfig, clampPipelineConfig, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES } from "./pipelineConfig.ts";
+import { mergePipelineConfig, clampPipelineConfig, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES } from "./pipelineConfig.ts";
 
 test("empty / garbage input → defaults", () => {
   assert.deepEqual(mergePipelineConfig({}), DEFAULT_PIPELINE_CONFIG);
@@ -43,4 +43,17 @@ test("mid-thought hold clamps to 1–8 s; missing/garbage falls back to the defa
 test("catalog integrity: 28 English voices, all with a valid accent/gender", () => {
   assert.equal(KOKORO_VOICES.length, 28);
   assert.ok(KOKORO_VOICES.every((v) => (v.accent === "American" || v.accent === "British") && (v.gender === "Female" || v.gender === "Male")));
+});
+
+test("tts engine: unknown engine falls back; voice snaps to the engine's catalog", () => {
+  assert.equal(mergePipelineConfig({ tts: { engine: "bark" } }).tts.engine, "kokoro");
+  // Switching to supertonic with a kokoro voice → that engine's default voice.
+  const st = mergePipelineConfig({ tts: { engine: "supertonic", voice: "af_heart" } });
+  assert.equal(st.tts.engine, "supertonic");
+  assert.equal(st.tts.voice, "M1");
+  // A valid supertonic voice sticks.
+  assert.equal(mergePipelineConfig({ tts: { engine: "supertonic", voice: "F3" } }).tts.voice, "F3");
+  // And the reverse: kokoro engine rejects a supertonic voice id.
+  assert.equal(mergePipelineConfig({ tts: { engine: "kokoro", voice: "F3" } }).tts.voice, "af_heart");
+  assert.equal(SUPERTONIC_VOICES.length, 10);
 });

@@ -34,9 +34,10 @@ const READY_KEY = "openlive-models-ready-v1";
 const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
 // WASM always uses whisper-tiny.en (size choice only applies on WebGPU), so the
-// cache tag folds the STT size in — changing size re-prompts the download.
+// cache tag folds the STT size in — changing size re-prompts the download. The
+// TTS engine is folded in too (kokoro vs supertonic download different weights).
 const sttSize = () => (deviceTier() === "wasm" ? "tiny" : loadPipelineConfig().stt.whisperSize);
-const readyTag = () => `${deviceTier()}:${sttSize()}`;
+const readyTag = () => `${deviceTier()}:${sttSize()}:${loadPipelineConfig().tts.engine}`;
 export function modelsCached(): boolean {
   if (ready) return true;
   try {
@@ -103,7 +104,8 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     };
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
-    w.postMessage({ type: "load", device: tier, whisperSize: sttSize() });
+    const cfg = loadPipelineConfig();
+    w.postMessage({ type: "load", device: tier, whisperSize: sttSize(), ttsEngine: cfg.tts.engine, ttsVoice: cfg.tts.voice });
   });
   loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
   return loading;
@@ -115,14 +117,18 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
 // Generous enough not to trip a legitimately slow WASM/CPU transcription of a long
 // utterance; short enough that a real stall self-heals in seconds.
 const CALL_TIMEOUT_MS = 12000;
+// TTS gets a longer leash: a mid-call ENGINE SWITCH lazy-downloads the new
+// engine's weights inside the first tts call (Cache API after that).
+const TTS_TIMEOUT_MS = 120000;
 
 function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
   if (!worker) return Promise.reject(new Error("models not loaded"));
   const id = ++seq;
+  const timeoutMs = msg.type === "tts" ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${CALL_TIMEOUT_MS}ms`));
-    }, CALL_TIMEOUT_MS);
+      if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     pending.set(id, {
       resolve: (v) => { clearTimeout(timer); resolve(v); },
       reject: (e) => { clearTimeout(timer); reject(e); },
@@ -139,8 +145,8 @@ export async function stt(audio: Float32Array): Promise<string> {
 
 /** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
  *  user's pipeline config (Kokoro); both are optional and fall back in the worker. */
-export async function tts(text: string, opts?: { voice?: string; speed?: number }): Promise<{ audio: Float32Array; sampleRate: number }> {
-  const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, voice: opts?.voice, speed: opts?.speed });
+export async function tts(text: string, opts?: { engine?: string; voice?: string; speed?: number }): Promise<{ audio: Float32Array; sampleRate: number }> {
+  const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, engine: opts?.engine, voice: opts?.voice, speed: opts?.speed });
   return { audio: m.audio, sampleRate: m.sampleRate };
 }
 
