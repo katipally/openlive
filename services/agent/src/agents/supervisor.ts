@@ -1,6 +1,8 @@
 import type { Message } from "@openlive/harness";
+import { agentLabel } from "@openlive/shared";
 import type { Emit } from "../tools.js";
 import type { Agent, AgentId, TurnInput } from "./types.js";
+import { log } from "../log.js";
 
 // Reliability wrapper every agent runs inside. External agents are child processes
 // that can hang, crash, or flood — the live session must NEVER be left stuck
@@ -10,8 +12,6 @@ import type { Agent, AgentId, TurnInput } from "./types.js";
 // (that masks breakage; the message names the fix).
 export type SupervisorTimeouts = { startMs: number; firstOutputMs: number; stallMs: number };
 const DEFAULTS: SupervisorTimeouts = { startMs: 15_000, firstOutputMs: 30_000, stallMs: 60_000 };
-
-const LABEL: Record<AgentId, string> = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode", hermes: "Hermes" };
 
 export class AgentSupervisor implements Agent {
   readonly id: AgentId;
@@ -90,9 +90,9 @@ export class AgentSupervisor implements Agent {
       const detail = timedOut
         ? (sawOutput ? "stopped mid-answer" : "didn't start answering")
         : `crashed (${String(e?.message ?? e)})`;
-      console.error(`[agent:${this.id}]`, e);
+      log.error(`agent:${this.id}`, e);
       await this.recycle();
-      await emit({ type: "text_delta", text: `Sorry — ${LABEL[this.id]} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — try again." : "Check that it's installed and signed in."}` });
+      await emit({ type: "text_delta", text: `Sorry — ${agentLabel(this.id)} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — try again." : "Check that it's installed and signed in."}` });
       await emit({ type: "error", message: `Agent "${this.id}" ${detail}` });
     } finally {
       clearInterval(watchdog);
@@ -112,7 +112,7 @@ export class AgentSupervisor implements Agent {
       const ac = new AbortController();
       await this.withStartTimeout(this.agent.start(ac.signal)).catch((e) => { ac.abort(); throw e; });
     } catch (e) {
-      console.error(`[agent:${this.id}] restart failed:`, e);
+      log.error(`agent:${this.id}`, "restart failed:", e);
     }
   }
 

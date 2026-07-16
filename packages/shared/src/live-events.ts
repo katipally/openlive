@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sseEventSchema } from "./sse-events";
+import { AGENT_IDS } from "./agent-registry";
 
 // The live-mode wire protocol between the browser and the agent's /live
 // WebSocket. THICK CLIENT: the browser runs the whole voice stack (VAD, STT,
@@ -56,8 +57,9 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 
-/** The coding agents a conversation can be bound to (null = built-in provider). */
-export const AGENT_ID = z.enum(["claude-code", "codex", "cursor", "opencode", "hermes"]);
+/** The coding agents a conversation can be bound to (null = built-in provider).
+ *  Derived from the shared agent registry — the single source of agent identity. */
+export const AGENT_ID = z.enum(AGENT_IDS);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
 export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
 export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };

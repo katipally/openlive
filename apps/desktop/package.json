@@ -2,12 +2,12 @@
   "name": "@openlive/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "OpenLive — live voice + vision AI assistant (desktop)",
+  "description": "OpenLive \u2014 live voice + vision AI assistant (desktop)",
   "author": "OpenLive",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "start:dev": "ELECTRON_DEV=1 electron .",
+    "start:dev": "cross-env ELECTRON_DEV=1 electron .",
     "pack:web": "node scripts/pack-web.cjs",
     "pack:agent": "node scripts/pack-agent.cjs",
     "prebuild": "node scripts/pack-web.cjs && node scripts/pack-agent.cjs",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "cross-env": "^10.0.0"
   }
 }

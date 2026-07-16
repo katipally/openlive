@@ -5,6 +5,7 @@ import { isJunk, endsMidThought, stripMarkdown, SentenceChunker } from "./voiceT
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig } from "./pipelineConfig";
+import { log } from "@/lib/log";
 
 // The on-device conversation loop (replaces the old server pipeline). Silero VAD
 // segments the user's speech; Whisper transcribes it (streaming partials + a
@@ -338,7 +339,7 @@ export class VoiceEngine {
         this.spokenText += (this.spokenText ? " " : "") + spoken;
         this.h.onAgentText(spoken, durationMs);
       });
-    }).catch((e) => { console.warn("[live] TTS failed:", e?.message ?? e); });
+    }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
   }
 
   private bargeIn() {

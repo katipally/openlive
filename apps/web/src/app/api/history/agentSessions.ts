@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync, existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { AGENT_LIST, type AgentDef } from "@openlive/shared";
 
 // Discover each coding agent's OWN prior sessions from its on-disk storage (the
 // same ones its `/resume` would show), so History can surface them alongside
@@ -59,7 +60,7 @@ function claudeSessions(): ExternalSession[] {
     }
   }
   return recentFiles(files).map(({ path, mtimeMs }) => {
-    const id = path.split("/").pop()!.replace(/\.jsonl$/, "");
+    const id = basename(path, ".jsonl");
     let cwd = "", title = "";
     for (const line of headLines(path, TITLE_SCAN_LINES)) {
       let o: any; try { o = JSON.parse(line); } catch { continue; }
@@ -101,7 +102,7 @@ function codexSessions(): ExternalSession[] {
       }
       if (id && cwd && title) break;
     }
-    return { id: id || path.split("/").pop()!, cwd, title: title || "Codex session", updatedAt: iso(mtimeMs) };
+    return { id: id || basename(path), cwd, title: title || "Codex session", updatedAt: iso(mtimeMs) };
   }).filter((s) => s.cwd);
 }
 
@@ -170,15 +171,21 @@ function safeReaddir(dir: string): string[] {
   try { return readdirSync(dir); } catch { return []; }
 }
 
+// Discovery dispatch, keyed on each agent's registry `sessionParser` — a future
+// agent added to the shared registry with one of these formats needs zero code here.
+const PARSERS: Record<AgentDef["sessionParser"], () => ExternalSession[]> = {
+  "claude-jsonl": claudeSessions,
+  "codex-rollout": codexSessions,
+  "cursor-meta": cursorSessions,
+  "opencode-sqlite": opencodeSessions,
+  "hermes-sqlite": hermesSessions,
+};
+
 /** External sessions per agent, discovered from disk. */
 export function readExternalAgentSessions(): ExternalAgentSessions[] {
-  return [
-    { agentId: "claude-code", sessions: claudeSessions() },
-    { agentId: "codex", sessions: codexSessions() },
-    { agentId: "cursor", sessions: cursorSessions() },
-    { agentId: "opencode", sessions: opencodeSessions() },
-    { agentId: "hermes", sessions: hermesSessions() },
-  ].filter((a) => a.sessions.length > 0);
+  return AGENT_LIST
+    .map((a) => ({ agentId: a.id, sessions: PARSERS[a.sessionParser]() }))
+    .filter((a) => a.sessions.length > 0);
 }
 
 // Permanently delete a coding agent's OWN on-disk session file/dir (History →

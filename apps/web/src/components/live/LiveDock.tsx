@@ -12,8 +12,7 @@ import { InCall } from "./InCall";
 import { MiniBar } from "./MiniBar";
 import { PanelBridge } from "./PanelBridge";
 import { PermissionPrompt } from "./AgentControls";
-
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
+import { isDesktop } from "@/lib/platform";
 
 // Hosts one live call: a full-page lobby before the call (self-preview, agent /
 // model pick, devices, model download) then the full-screen in-call view — both

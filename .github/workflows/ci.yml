@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2-pipeline-agents]
   pull_request:
 
 jobs:
@@ -23,3 +23,36 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  # Windows parity is code-level (no hardware QA): prove the repo installs,
+  # typechecks, tests, and produces an unsigned Windows build on windows-latest.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Pack web + agent
+        run: |
+          pnpm --filter @openlive/desktop pack:web
+          pnpm --filter @openlive/desktop pack:agent
+
+      - name: Build Windows installer (unsigned)
+        run: pnpm --filter @openlive/desktop build:win

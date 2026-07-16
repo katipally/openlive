@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { getSetting, setSetting, setChatAgentSession } from "@openlive/db";
+import { isAgentId } from "@openlive/shared";
 import { AcpAgent } from "./acp-agent.js";
 import { AgentSupervisor } from "./supervisor.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
@@ -13,16 +14,6 @@ export interface BoundHooks {
   onMeta?: (meta: AgentMeta) => void;
   onReplay?: (messages: ReplayMessage[]) => void;
 }
-
-export const AGENTS: { id: AgentId; label: string }[] = [
-  { id: "claude-code", label: "Claude Code" },
-  { id: "codex", label: "Codex" },
-  { id: "cursor", label: "Cursor" },
-  { id: "opencode", label: "OpenCode" },
-  { id: "hermes", label: "Hermes" },
-];
-
-const isAgentId = (x: string | undefined): x is AgentId => AGENTS.some((a) => a.id === x);
 
 /** Which agent a conversation is bound to (null = the built-in provider brain). */
 export function boundAgent(chatId: string): AgentId | null {

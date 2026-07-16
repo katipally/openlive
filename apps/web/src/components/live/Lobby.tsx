@@ -12,11 +12,10 @@ import { setConversationFolder, setConversationModel, setConversationMode, setCo
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
+import { isDesktop, basename, bridge } from "@/lib/platform";
+import { log } from "@/lib/log";
+import { toast } from "@/lib/toast";
 
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
-const bridge = (): ((op: string, arg?: string) => Promise<string>) | undefined =>
-  (typeof window !== "undefined" ? (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive?.bridge : undefined);
-const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p;
 const NICE_CATEGORY: Record<string, string> = { thought_level: "Reasoning", model_config: "Model config" };
 const optLabel = (category: string, label: string) => label || NICE_CATEGORY[category] || category || "Option";
 
@@ -168,8 +167,8 @@ export function Lobby(props: LobbyProps) {
 function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; required?: boolean }) {
   const chatId = useUi((s) => s.activeChatId);
   const recents = recentFolders().slice(0, 3);
-  const b = bridge();
-  const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { console.error("pick_folder:", e); } };
+  const b = bridge;
+  const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { log.error("lobby", "pick_folder:", e); toast("Couldn\u2019t open the folder picker."); } };
   const inputClass = "h-9 w-full rounded-lg border border-border bg-card px-3 font-mono text-[12px] text-foreground outline-none focus:border-border-heavy";
   return (
     <div className="space-y-2">

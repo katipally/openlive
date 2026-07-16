@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
 import { WindowControls } from "@/components/WindowControls";
+import { Toasts } from "@/components/Toasts";
 import "./globals.css";
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="h-full antialiased">
         <WindowControls />
         <Providers>{children}</Providers>
+        <Toasts />
       </body>
     </html>
   );

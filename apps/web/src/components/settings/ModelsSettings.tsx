@@ -12,6 +12,7 @@ import { api, type ModelInfo } from "@/lib/api";
 import { SearchSelect, type SearchOption } from "./SearchSelect";
 import { usePersistedOpen } from "@/lib/disclosure";
 import { cn } from "@/lib/cn";
+import { Section } from "./Section";
 
 const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`) : "—");
 
@@ -22,17 +23,6 @@ const hasVision = (providerId: string, m: ModelInfo) => m.vision ?? modelVision(
 // Every provider the harness supports. `protocol` drives which reasoning efforts
 // a model can take.
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, protocol: p.protocol, keyless: !!p.keyless }));
-
-// A titled section: left-aligned heading + description, then its controls.
-function Section({ title, desc, children }: { title: string; desc: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="border-b border-border pb-7 last:border-0 last:pb-0">
-      <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 max-w-xl text-[12.5px] leading-relaxed text-muted-foreground">{desc}</p>
-      <div className="mt-3.5">{children}</div>
-    </section>
-  );
-}
 
 // API-key entry bound to one provider (by registry id).
 function ProviderKey({ kind }: { kind: string }) {

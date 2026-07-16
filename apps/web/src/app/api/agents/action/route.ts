@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "node:child_process";
-import { actionCommand, agentById, widenedPath, type Action } from "../agents";
+import { widenedPath } from "@openlive/shared/node";
+import { actionCommand, agentById, type Action } from "../agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,11 @@ export async function POST(req: Request) {
       child.stderr.on("data", (d: Buffer) => push(d.toString()));
       child.on("error", (e) => { push(`\n[error] ${e.message}\n`); controller.close(); });
       child.on("close", (code) => {
-        push(action === "login" && code === 0 ? "\n✓ Sign-in started — finish it in the window that opened, then Re-check.\n" : `\n[exit ${code ?? 0}]\n`);
+        push(
+          action === "login" && code === 0 ? "\n✓ Sign-in started — finish it in the window that opened, then Re-check.\n"
+            : action === "logout" && code === 0 ? "\n✓ Sign-out started — it completes in the window that opened, then Re-check.\n"
+              : `\n[exit ${code ?? 0}]\n`,
+        );
         controller.close();
       });
     },

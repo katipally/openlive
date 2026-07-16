@@ -12,8 +12,12 @@ import { usePersistedOpen } from "@/lib/disclosure";
 import { useHistoryOverrides } from "@/lib/historyOverrides";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
+import { isDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
+import { AGENT_REGISTRY, agentLabel, isAgentId } from "@openlive/shared";
 import type { HistoryAgent, HistorySession, HistoryWorkspace } from "@openlive/shared";
+import { log } from "@/lib/log";
+import { toast } from "@/lib/toast";
 
 type ResumeFn = (s: HistorySession, agentId: string | null, cwd: string) => void;
 // A pending destructive action → the confirm modal. `run` performs it; `danger`
@@ -21,13 +25,9 @@ type ResumeFn = (s: HistorySession, agentId: string | null, cwd: string) => void
 interface PendingDelete { title: string; body: string; run: () => Promise<void> }
 type RequestDelete = (r: PendingDelete) => void;
 
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
-const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p || "—";
-const AGENT_LABELS: Record<string, string> = { "claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "opencode": "OpenCode", "hermes": "Hermes" };
-const agentLabel = (id: string | null) => AGENT_LABELS[id ?? ""] ?? "OpenLive";
 // External sessions we can delete are plain files/dirs; opencode/hermes keep theirs
 // inside live sqlite databases we won't write into — no delete affordance for those.
-const canDeleteExternal = (id: string | null) => ["claude-code", "codex", "cursor"].includes(id ?? "");
+const canDeleteExternal = (id: string | null) => !!id && isAgentId(id) && AGENT_REGISTRY[id].externalDeletable;
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
   if (!t) return "";
@@ -89,7 +89,7 @@ export function HistorySidebar() {
   const requestDelete: RequestDelete = (r) => setPending(r);
   const runDelete = async () => {
     if (!pending) return;
-    try { await pending.run(); } catch (e) { console.error("history delete:", e); }
+    try { await pending.run(); } catch (e) { log.error("history", "delete:", e); toast("Couldn\u2019t delete that conversation — try again."); }
     setPending(null);
     qc.invalidateQueries({ queryKey: ["history"] });
   };

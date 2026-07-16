@@ -1,14 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { homedir } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionUpdate, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import type { MessageBlock } from "@openlive/shared";
+import { AGENT_REGISTRY, agentLabel as labelFor, type MessageBlock } from "@openlive/shared";
+import { widenedPath } from "@openlive/shared/node";
 import type { Emit } from "../tools.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
+import { log } from "../log.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
@@ -16,23 +17,10 @@ import { PERMISSION_CANCELLED } from "./types.js";
 // agent itself sends to its OWN provider, under the user's OWN login. We advertise
 // NO fs/terminal capabilities: a voice app isn't an editor, so the agent uses its
 // own file access and asks us (via request_permission) before doing anything risky.
-
-// Adapter command per agent (the ACP server we spawn to bridge each agent).
-// Overridable via a setting so an ecosystem package rename doesn't strand a user.
-// Verified 2026-07-15: ACP moved from the deprecated @zed-industries/* packages to
-// the vendor-neutral @agentclientprotocol/* org; Cursor's binary is now `agent`.
-// claude-agent-acp is PINNED: we rely on its `_meta.claudeCode.options` passthrough
-// (native session persistence + system-prompt append, verified against 0.59.0), and
-// an unpinned `npx -y` silently floats to whatever ships next.
-const ADAPTERS: Record<AgentId, { command: string; args: string[] }> = {
-  "claude-code": { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.59.0"] },
-  "codex": { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] },
-  "cursor": { command: "agent", args: ["acp"] },
-  "opencode": { command: "opencode", args: ["acp"] },
-  // Hermes ships an ACP entry (its registry manifest's uvx distribution) — pinned
-  // for the same float-protection reason as claude above.
-  "hermes": { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
-};
+//
+// Which adapter each agent uses (and the claude/hermes version PINS OpenLive relies
+// on) lives in the shared AGENT_REGISTRY; overridable per-agent via the
+// `acpCommand:<id>` setting so an ecosystem package rename doesn't strand a user.
 
 // Sent once per session so the agent knows it's a spoken voice+vision call (not a
 // terminal) and goes ALONG with it as itself — without ever faking capabilities.
@@ -63,16 +51,8 @@ export interface AcpOpts {
   onReplay?: (messages: ReplayMessage[]) => void; // prior turns recovered from session/load
 }
 
-/** GUI-spawned processes get a skeletal PATH on macOS — the user's agent binaries
- *  (homebrew/npm) live outside it. Append the usual bins so `npx`/`cursor-agent` resolve. */
-function widenedPath(): string {
-  const extra = ["/usr/local/bin", "/opt/homebrew/bin", `${homedir()}/.local/bin`, `${homedir()}/bin`, `${homedir()}/.npm-global/bin`, `${homedir()}/.opencode/bin`];
-  const cur = (process.env.PATH ?? "").split(":");
-  return [...cur, ...extra.filter((p) => !cur.includes(p))].join(":");
-}
-
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
-  const base = ADAPTERS[id];
+  const base = AGENT_REGISTRY[id].adapter;
   const override = getSetting(`acpCommand:${id}`)?.trim(); // e.g. "npx @agentclientprotocol/claude-agent-acp"
   const [cmd, ...args] = override ? override.split(/\s+/) : [base.command, ...base.args];
   // No $HOME fallback: agents file sessions per-project, so an unset folder would
@@ -150,7 +130,7 @@ export class AcpAgent implements Agent {
         this.alive = false;
         exitCode = code;
         if (!ready) reject(new Error(startError(this.id, code, stderr)));
-        else if (code) console.error(`[agent:${this.id}] ${cfg.command} exited ${code}`);
+        else if (code) log.error(`agent:${this.id}`, `${cfg.command} exited ${code}`);
       });
     });
     died.catch(() => {}); // no unhandled rejection if the handshake wins the race
@@ -215,7 +195,7 @@ export class AcpAgent implements Agent {
         this.seedText = "";
         if (this.replay.length) this.opts.onReplay?.(this.replay);
       } catch (e) {
-        console.error(`[agent:${this.id}] resume failed (${extractAcpError(e)}) — starting fresh`);
+        log.debug(`agent:${this.id}`, `resume failed (${extractAcpError(e)}) — starting fresh`);
       } finally {
         this.replaying = false;
         this.replay = [];
@@ -269,7 +249,7 @@ export class AcpAgent implements Agent {
       if (res?.configOptions) this.applyConfig(res.configOptions);
       else this.meta = { ...this.meta, currentModelId: modelId };
       this.opts.onMeta?.(this.meta);
-    } catch (e) { console.error(`[agent:${this.id}] setModel(${modelId}) failed:`, e); }
+    } catch (e) { log.error(`agent:${this.id}`, `setModel(${modelId}) failed:`, e); }
   }
 
   async setMode(modeId: string): Promise<void> {
@@ -278,7 +258,7 @@ export class AcpAgent implements Agent {
       await this.conn.setSessionMode({ sessionId: this.sessionId, modeId });
       this.meta = { ...this.meta, currentModeId: modeId };
       this.opts.onMeta?.(this.meta);
-    } catch (e) { console.error(`[agent:${this.id}] setMode(${modeId}) failed:`, e); }
+    } catch (e) { log.error(`agent:${this.id}`, `setMode(${modeId}) failed:`, e); }
   }
 
   /** Set any other ACP session config option (thought/reasoning level, model config…). */
@@ -289,7 +269,7 @@ export class AcpAgent implements Agent {
       if (res?.configOptions) this.applyConfig(res.configOptions);
       else this.meta = { ...this.meta, options: this.meta.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) };
       this.opts.onMeta?.(this.meta);
-    } catch (e) { console.error(`[agent:${this.id}] setOption(${optionId}=${valueId}) failed:`, e); }
+    } catch (e) { log.error(`agent:${this.id}`, `setOption(${optionId}=${valueId}) failed:`, e); }
   }
 
   /** ACP client surface: session updates → SseEvents; permission asks → the user. */
@@ -473,9 +453,6 @@ export class AcpAgent implements Agent {
   }
 }
 
-const AGENT_LABELS: Record<AgentId, string> = { "claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "opencode": "OpenCode", "hermes": "Hermes" };
-function labelFor(id: AgentId): string { return AGENT_LABELS[id]; }
-
 /** Append a replayed block, merging into the trailing text/reasoning block of the
  *  same kind so streamed chunks read as one message (not one bubble per token). */
 export function appendBlock(content: MessageBlock[], block: MessageBlock): void {
@@ -510,16 +487,9 @@ function extractAcpError(e: unknown): string {
   return raw;
 }
 
-/** A clean, actionable error when an agent process dies before the ACP handshake. */
+/** A clean, actionable error when an agent process dies before the ACP handshake.
+ *  The per-agent hint lives in the shared registry (`startHint`). */
 function startError(id: AgentId, code: number | null, stderr: string): string {
   const tail = stderr.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(-240);
-  const hints: Record<AgentId, string> = {
-    "cursor": "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`.",
-    "codex": "Make sure `codex` is installed and signed in (run `codex`).",
-    "claude-code": "Make sure Claude Code is installed and signed in (run `claude`).",
-    "opencode": "Make sure OpenCode is installed (opencode.ai) and signed in — run `opencode` in a terminal once.",
-    "hermes": "OpenLive runs Hermes via uvx. Install uv (astral.sh/uv), then run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` once to pick a model provider.",
-  };
-  const hint = hints[id];
-  return `${labelFor(id)} exited before connecting${code != null ? ` (code ${code})` : ""}. ${hint}${tail ? ` — ${tail}` : ""}`;
+  return `${labelFor(id)} exited before connecting${code != null ? ` (code ${code})` : ""}. ${AGENT_REGISTRY[id].startHint}${tail ? ` — ${tail}` : ""}`;
 }

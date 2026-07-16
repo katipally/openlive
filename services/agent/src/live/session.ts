@@ -9,6 +9,7 @@ import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ReplayMessage } from "../agents/index.js";
+import { log } from "../log.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
@@ -121,7 +122,7 @@ export class LiveSession {
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
-      else this.onText(data.toString()).catch((e) => console.error("[live] text:", e));
+      else this.onText(data.toString()).catch((e) => log.error("live", "text:", e));
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
@@ -204,9 +205,9 @@ export class LiveSession {
         if (r) { this.permPending.delete(msg.reqId); r(msg.optionId); }
         return;
       }
-      case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => console.error("[live] set_model:", e)); return; }
-      case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => console.error("[live] set_mode:", e)); return; }
-      case "set_option": { this.agent?.setOption?.(msg.optionId, msg.valueId)?.catch((e) => console.error("[live] set_option:", e)); return; }
+      case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => log.error("live", "set_model:", e)); return; }
+      case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => log.error("live", "set_mode:", e)); return; }
+      case "set_option": { this.agent?.setOption?.(msg.optionId, msg.valueId)?.catch((e) => log.error("live", "set_option:", e)); return; }
     }
   }
 
@@ -249,7 +250,7 @@ export class LiveSession {
         await this.runner.runTurn(text, frames, emit, ac.signal);
       }
     } catch (e) {
-      if (!ac.signal.aborted) console.error("[live] turn:", e);
+      if (!ac.signal.aborted) log.error("live", "turn:", e);
     } finally {
       // Turn is over (normally, barge-in, watchdog cut, or error) — never leave an
       // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
@@ -303,7 +304,7 @@ export class LiveSession {
         if (content.length) addMessage(this.chatId, m.role, content);
       }
       this.send({ t: "reload_history" });
-    } catch (e) { console.error("[live] replay ingest:", e); }
+    } catch (e) { log.error("live", "replay ingest:", e); }
   }
 
   // ── agent binding ─────────────────────────────────────────────────────────

@@ -2,12 +2,14 @@ import type { Message } from "@openlive/harness";
 import type { MessageBlock } from "@openlive/shared";
 import type { Emit } from "../tools.js";
 
-// An "agent" is an external coding agent (Claude Code / Codex / Cursor) driven as
-// the brain of a live conversation, in place of the built-in provider LLM loop.
+// An "agent" is an external coding agent (Claude Code / Codex / Cursor / …) driven
+// as the brain of a live conversation, in place of the built-in provider LLM loop.
 // Everything it says flows through the existing Emit stream (text/tool chips render
 // for free) and cancel is the same AbortSignal barge-in already uses, so LiveSession
 // treats an agent turn exactly like a provider turn.
-export type AgentId = "claude-code" | "codex" | "cursor" | "opencode" | "hermes";
+// Agent identity (ids, labels, adapters, install/auth) lives in the shared registry.
+import type { AgentId } from "@openlive/shared";
+export type { AgentId };
 
 export type TurnFrame = { data: string; mime: string; source?: "camera" | "screen" };
 export type TurnInput = { text: string; frames: TurnFrame[] };

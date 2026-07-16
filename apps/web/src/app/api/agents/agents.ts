@@ -1,52 +1,31 @@
-import { homedir } from "node:os";
+// Actions for the Agents panel, driven by the shared registry (the single source
+// of agent identity/install/auth facts). Each agent runs on THIS machine with the
+// user's own login; OpenLive just reports status and can install/remove the CLI
+// or open its sign-in/sign-out flow.
 
-// One registry for the Agents panel + its actions. Each agent runs on THIS machine
-// with the user's own login; OpenLive just reports status and can install/remove the
-// CLI or open its sign-in flow. Facts verified 2026-07-15 against each tool's docs.
-export const AGENTS = [
-  { id: "claude-code", label: "Claude Code", bins: ["claude"], sessions: "~/.claude", npm: "@anthropic-ai/claude-code", login: "claude auth login" },
-  { id: "codex", label: "Codex", bins: ["codex"], sessions: "~/.codex/sessions", npm: "@openai/codex", login: "codex login" },
-  // Cursor renamed its binary `cursor-agent` → `agent`; both land on PATH. No npm — a curl installer.
-  { id: "cursor", label: "Cursor", bins: ["agent", "cursor-agent"], sessions: "~/.cursor", login: "agent login" },
-  { id: "opencode", label: "OpenCode", bins: ["opencode"], sessions: "~/.local/share/opencode", npm: "opencode-ai", login: "opencode auth login" },
-  // Hermes runs via uvx (no persistent install) — "installed" means uv is present.
-  // Its setup wizard (`hermes setup`) writes auth/config into ~/.hermes.
-  { id: "hermes", label: "Hermes", bins: ["uvx"], sessions: "~/.hermes", login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup" },
-] as const;
+import { AGENT_REGISTRY, isAgentId, type AgentDef } from "@openlive/shared";
+import { terminalCommand } from "@openlive/shared/node";
 
-export type AgentDef = (typeof AGENTS)[number];
-export type Action = "install" | "uninstall" | "login";
+export type Action = "install" | "uninstall" | "login" | "logout";
 
-export const agentById = (id: string): AgentDef | undefined => AGENTS.find((a) => a.id === id);
+export const agentById = (id: string): AgentDef | undefined => (isAgentId(id) ? AGENT_REGISTRY[id] : undefined);
 
-// GUI-launched apps get a skeletal PATH on macOS; widen it like the agent driver does
-// so an installed CLI in homebrew/npm/local still resolves.
-export function widenedPath(): string {
-  const extra = ["/usr/local/bin", "/opt/homebrew/bin", `${homedir()}/.local/bin`, `${homedir()}/bin`, `${homedir()}/.npm-global/bin`];
-  const cur = (process.env.PATH ?? "").split(":");
-  return [...cur, ...extra.filter((p) => !cur.includes(p))].join(":");
-}
-
-// The command to run for an action. install/uninstall are non-interactive (streamed
-// inline). login is a browser OAuth flow that needs a real TTY, so on macOS we open
-// Terminal.app running it; elsewhere we run it directly (best-effort).
-// ponytail: cursor install/uninstall = curl script / rm symlinks — Cursor ships no
-// npm package or uninstaller. Upgrade if they publish official ones.
+// The command to run for an action. install/uninstall are non-interactive
+// (streamed inline). login/logout are the agent's own CLI flows that may need a
+// real TTY + browser, so they run in the user's terminal (Terminal.app on macOS,
+// a new cmd window on Windows).
+// ponytail: EACCES on global npm installs (non-writable prefix) surfaces via the
+// streamed error; the user falls back to a manual install.
 export function actionCommand(a: AgentDef, action: Action): { cmd: string; args: string[] } | null {
-  if (action === "login") {
-    if (process.platform === "darwin")
-      return { cmd: "osascript", args: ["-e", 'tell application "Terminal" to activate', "-e", `tell application "Terminal" to do script "${a.login}"`] };
-    return { cmd: "bash", args: ["-lc", a.login] };
-  }
-  if (a.id === "cursor") {
-    return action === "install"
-      ? { cmd: "bash", args: ["-lc", "curl https://cursor.com/install -fsS | bash"] }
-      : { cmd: "bash", args: ["-lc", "rm -f ~/.local/bin/agent ~/.local/bin/cursor-agent && echo 'Removed cursor-agent from ~/.local/bin.'"] };
-  }
-  // Hermes has nothing to install/uninstall beyond uv itself (uvx fetches it per run).
-  if (a.id === "hermes") {
-    return action === "install" ? { cmd: "bash", args: ["-lc", "curl -LsSf https://astral.sh/uv/install.sh | sh"] } : null;
-  }
-  if (!("npm" in a) || !a.npm) return null;
-  return { cmd: "npm", args: [action === "install" ? "install" : "uninstall", "-g", a.npm] };
+  if (action === "login") return terminalCommand(a.login);
+  if (action === "logout") return a.logout ? terminalCommand(a.logout) : null;
+
+  const recipe = action === "install" ? a.install : a.uninstall;
+  if (!recipe) return null;
+  if (recipe.npm) return { cmd: "npm", args: [action === "install" ? "install" : "uninstall", "-g", recipe.npm] };
+  const shell = process.platform === "win32" ? recipe.winShell : recipe.posixShell;
+  if (!shell) return null;
+  return process.platform === "win32"
+    ? { cmd: "powershell", args: ["-NoProfile", "-Command", shell] }
+    : { cmd: "bash", args: ["-lc", shell] };
 }

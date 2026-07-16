@@ -11,8 +11,7 @@ import { AboutSettings } from "./AboutSettings";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
-
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
+import { isDesktop } from "@/lib/platform";
 
 const SECTIONS = [
   { id: "models", label: "Models", sub: "Provider, model & vision", icon: SlidersHorizontal, Comp: ModelsSettings },

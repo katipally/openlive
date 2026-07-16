@@ -6,12 +6,9 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { setConversationFolder, setConversationModel, setConversationMode, recentFolders } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
+import { isDesktop, basename, bridge } from "@/lib/platform";
 
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 const noDrag = isDesktop ? "[-webkit-app-region:no-drag]" : "";
-const bridge = (): ((op: string, arg?: string) => Promise<string>) | undefined =>
-  (typeof window !== "undefined" ? (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive?.bridge : undefined);
-const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p;
 
 type Item = { id: string; label: string; sub?: string };
 
@@ -66,7 +63,7 @@ export function AgentBar() {
   if (!boundAgent || !activeChatId) return null;
 
   const folderItems: Item[] = recentFolders().map((f) => ({ id: f, label: basename(f), sub: f }));
-  const b = bridge();
+  const b = bridge;
   const browse = async () => { if (!b) return; const p = await b("pick_folder"); if (p) setConversationFolder(activeChatId, p); };
 
   const model = agentMeta?.models.find((m) => m.id === agentMeta.currentModelId);

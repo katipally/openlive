@@ -3,33 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, RefreshCw, ChevronRight, Download, Trash2, LogIn, Loader2 } from "lucide-react";
+import { adapterCommand, isAgentId } from "@openlive/shared";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { usePersistedOpen } from "@/lib/disclosure";
 import { useAgentActions } from "@/lib/agentActions";
 import type { AgentId } from "@/lib/live/liveClient";
 import { cn } from "@/lib/cn";
-
-function Section({ title, desc, children }: { title: string; desc: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="border-b border-border pb-7 last:border-0 last:pb-0">
-      <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 max-w-xl text-[12.5px] leading-relaxed text-muted-foreground">{desc}</p>
-      <div className="mt-3.5">{children}</div>
-    </section>
-  );
-}
-
-// The default ACP adapter command per agent (shown as the override placeholder).
-// Verified 2026-07-15: ACP moved off the deprecated @zed-industries/* packages to
-// the vendor-neutral @agentclientprotocol/* org; Cursor's binary is now `agent`.
-const DEFAULT_CMD: Record<string, string> = {
-  "claude-code": "npx -y @agentclientprotocol/claude-agent-acp@0.59.0",
-  "codex": "npx -y @agentclientprotocol/codex-acp",
-  "cursor": "agent acp",
-  "opencode": "opencode acp",
-  "hermes": "uvx hermes-agent[acp]==0.18.2 hermes-acp",
-};
+import { Section } from "./Section";
 
 export function AgentsSettings() {
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -129,7 +110,7 @@ function AgentRow({ a, cmd }: { a: AgentStatus; cmd: string }) {
         </summary>
         <div className="mt-2 space-y-1">
           <input defaultValue={cmd} onBlur={(e) => saveCmd(e.target.value.trim())}
-            placeholder={DEFAULT_CMD[a.id] ?? "custom acp command"} spellCheck={false}
+            placeholder={isAgentId(a.id) ? adapterCommand(a.id) : "custom acp command"} spellCheck={false}
             className="h-8 w-full rounded-lg border border-border bg-surface px-2.5 font-mono text-[11.5px] text-foreground outline-none focus:border-border-heavy" />
           <p className="text-[10.5px] leading-relaxed text-faint">The command OpenLive runs to speak ACP with {a.label} over the Agent Client Protocol. Leave blank for the default; change it if the ecosystem package moves.</p>
         </div>

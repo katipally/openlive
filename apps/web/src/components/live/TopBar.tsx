@@ -6,10 +6,10 @@ import { AgentSelect } from "./AgentControls";
 import { AgentBar } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
+import { isDesktop } from "@/lib/platform";
 
 // Running inside the desktop app? Then leave room for the custom window controls
 // (top-left) and make the bar draggable (the window is frameless).
-const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 const noDrag = isDesktop ? "[-webkit-app-region:no-drag]" : "";
 
 // The persistent in-call top bar: History toggle (left, opens the agent→workspace→

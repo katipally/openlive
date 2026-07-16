@@ -5,6 +5,7 @@ import { loadEnv } from "@openlive/db";
 import { ensureSeedProviders } from "./providers.js";
 import { attachLiveWs } from "./live/ws.js";
 import type { Server } from "node:http";
+import { log } from "./log.js";
 
 loadEnv();
 ensureSeedProviders();
@@ -30,8 +31,8 @@ const wss = attachLiveWs(server); // live voice+vision on ws://…/live
 console.log(`▸ OpenLive agent service listening on http://localhost:${port}`);
 
 server.on("error", (e: NodeJS.ErrnoException) => {
-  if (e.code === "EADDRINUSE") console.error(`[agent] port ${port} is already in use — kill the old process or set AGENT_PORT.`);
-  else console.error("[agent] server error:", e);
+  if (e.code === "EADDRINUSE") log.error("agent", `port ${port} is already in use — kill the old process or set AGENT_PORT.`);
+  else log.error("agent", "server error:", e);
   process.exit(1);
 });
 let closing = false;
@@ -48,5 +49,5 @@ process.on("SIGTERM", shutdown);
 // A stray rejection/exception in one live session (e.g. an ACP call the agent
 // rejects) must NEVER take down the whole service — that would drop every live
 // socket, surfacing as "Couldn't connect to live mode". Log and keep serving.
-process.on("unhandledRejection", (e) => console.error("[agent] unhandledRejection:", e));
-process.on("uncaughtException", (e) => console.error("[agent] uncaughtException:", e));
+process.on("unhandledRejection", (e) => log.error("agent", "unhandledRejection:", e));
+process.on("uncaughtException", (e) => log.error("agent", "uncaughtException:", e));

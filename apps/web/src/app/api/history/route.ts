@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { listChats, chatMessageCounts } from "@openlive/db";
+import { AGENT_LIST, agentLabel } from "@openlive/shared";
 import type { HistoryAgent, HistoryWorkspace, HistorySession } from "@openlive/shared";
 import { readExternalAgentSessions } from "./agentSessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Fixed agent order + labels for the History sidebar. null = the built-in assistant.
-const AGENT_ORDER: (string | null)[] = [null, "claude-code", "codex", "cursor"];
-const LABEL: Record<string, string> = { "": "OpenLive", "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor" };
+// Agent order for the History sidebar comes from the shared registry (so every
+// agent — current and future — shows up automatically). null = built-in assistant.
+const AGENT_ORDER: (string | null)[] = [null, ...AGENT_LIST.map((a) => a.id)];
 
 // History grouped agent → workspace → session. Merges OpenLive's own sessions
 // (from our DB, filed by the agent + workspace stamped on each) with each coding
@@ -52,7 +53,7 @@ export function GET() {
       const workspaces = [...byAgent.get(a ?? "")!.values()]
         .map((ws) => ({ ...ws, sessions: ws.sessions.sort((x, y) => (x.updatedAt < y.updatedAt ? 1 : -1)) }))
         .sort((x, y) => (recent(x) < recent(y) ? 1 : -1));
-      return { agentId: a, label: LABEL[a ?? ""] ?? (a ?? "OpenLive"), workspaces };
+      return { agentId: a, label: agentLabel(a), workspaces };
     });
 
   return NextResponse.json(agents);

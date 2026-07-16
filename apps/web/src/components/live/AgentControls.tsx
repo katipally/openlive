@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Check, ShieldQuestion } from "lucide-react";
+import { AGENT_LIST, agentLabel } from "@openlive/shared";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -20,18 +21,13 @@ function useNoDrag(): string {
   return desktop ? "[-webkit-app-region:no-drag]" : "";
 }
 
+// The built-in assistant + every registry agent, in canonical order.
 const OPTIONS: { id: AgentId | null; label: string }[] = [
   { id: null, label: "OpenLive" },
-  { id: "claude-code", label: "Claude Code" },
-  { id: "codex", label: "Codex" },
-  { id: "cursor", label: "Cursor" },
-  { id: "opencode", label: "OpenCode" },
-  { id: "hermes", label: "Hermes" },
+  ...AGENT_LIST.map((a) => ({ id: a.id as AgentId, label: a.label })),
 ];
 
-export function agentLabel(id: AgentId | null): string {
-  return OPTIONS.find((o) => o.id === id)?.label ?? "OpenLive";
-}
+export { agentLabel };
 
 /** Compact "Talk to" picker for the pre-call screen — choose the agent BEFORE
  *  starting (styled like the device selects). Same per-conversation bind. */

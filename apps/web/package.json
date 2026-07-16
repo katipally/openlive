@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_PUBLIC_LIVE_WS_URL=ws://localhost:${AGENT_PORT:-8787} next dev -p ${WEB_PORT:-3000}",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
     "start": "node server.mjs",
     "typecheck": "tsc --noEmit"

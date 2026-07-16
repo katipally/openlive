@@ -8,6 +8,8 @@ import {
 } from "@/lib/live/pipelineConfig";
 import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
+import { log } from "@/lib/log";
+import { toast } from "@/lib/toast";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
@@ -64,7 +66,7 @@ function ModelStatus() {
   const cached = typeof window !== "undefined" && (modelsReady() || modelsCached());
   const download = async () => {
     setBusy(true);
-    try { await loadModels((p) => setPct(p.pct)); } catch (e) { console.error(e); } finally { setBusy(false); }
+    try { await loadModels((p) => setPct(p.pct)); } catch (e) { log.error("models", e); toast("Model download failed — check your connection and try again."); } finally { setBusy(false); }
   };
   return cached ? (
     <p className="flex items-center gap-1.5 text-[11.5px] text-success"><Check className="size-3.5" /> Downloaded on this device.</p>
@@ -151,7 +153,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       const src = ctx.createBufferSource();
       src.buffer = buf; src.connect(ctx.destination); src.start();
       src.onended = () => { void ctx.close(); };
-    } catch (e) { console.error("voice preview:", e); } finally { setBusy(false); }
+    } catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed — try downloading the models first."); } finally { setBusy(false); }
   };
   return (
     <div className="space-y-4">
