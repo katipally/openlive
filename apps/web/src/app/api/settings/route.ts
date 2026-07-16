@@ -19,7 +19,7 @@ export function GET() {
 export async function PUT(req: Request) {
   const body = (await req.json()) as Record<string, string>;
   for (const [k, v] of Object.entries(body)) {
-    if (typeof v === "string" && (KEYS.includes(k) || PREFIXES.some((p) => k.startsWith(p)))) setSetting(k, v);
+    if (typeof v === "string" && (KEYS.includes(k) || PREFIXES.some((p) => k.startsWith(p)))) await setSetting(k, v);
   }
   return NextResponse.json({ ...DEFAULTS, ...getAllSettings() });
 }

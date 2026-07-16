@@ -145,7 +145,7 @@ function makeRemember(emit: Emit): OpenLiveTool {
       await emit({ type: "tool_start", id, tool: "remember", summary: note });
       try {
         const cur = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
-        if (!cur.includes(note)) { cur.push(note); setSetting("agent_notes", JSON.stringify(cur.slice(-50))); }
+        if (!cur.includes(note)) { cur.push(note); await setSetting("agent_notes", JSON.stringify(cur.slice(-50))); }
       } catch { /* best-effort */ }
       await emit({ type: "tool_done", id, detail: "saved" });
       return text("Got it — I'll remember that.");

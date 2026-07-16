@@ -13,10 +13,10 @@ import { stripInjectedContext } from "./session.js";
 const shouldPersistReplay = (existingCount: number) => existingCount === 0;
 
 const chatId = "selfcheck-chat";
-createChat(chatId, "t");
+await createChat(chatId, "t");
 
 // (1) agentSessionId round-trips onto the summary.
-setChatAgentSession(chatId, "sess-abc-123");
+await setChatAgentSession(chatId, "sess-abc-123");
 assert.equal(listChats().find((c) => c.id === chatId)?.agentSessionId, "sess-abc-123",
   "agentSessionId must persist onto ChatSummary (else History can't dedup / continue in CLI)");
 
@@ -25,7 +25,7 @@ assert.equal(listMessages(chatId).length, 0, "fresh chat starts empty");
 assert.equal(shouldPersistReplay(listMessages(chatId).length), true, "empty chat → replay persists");
 
 // (2b) once any turn exists → replay is dropped (keep OpenLive's own transcript).
-addMessage(chatId, "user", [{ type: "text", text: "hi" }]);
+await addMessage(chatId, "user", [{ type: "text", text: "hi" }]);
 assert.equal(shouldPersistReplay(listMessages(chatId).length), false, "non-empty chat → replay dropped");
 
 // (3) block merge: consecutive text merges; a different kind starts a new block.

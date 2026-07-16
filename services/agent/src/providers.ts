@@ -15,7 +15,7 @@ export function providerInfo(id: string): ProviderInfo | undefined {
 // Seed a DB provider row for every builtin whose env key is present, so a host
 // that DID set an env key is usable without opening Settings. Keys are normally
 // entered in the UI; this is just a convenience fallback. First one becomes default.
-export function ensureSeedProviders() {
+export async function ensureSeedProviders(): Promise<void> {
   const existing = listProviders();
   let seededDefault = existing.some((p) => p.isDefault);
   for (const p of BUILTIN_PROVIDERS) {
@@ -23,10 +23,10 @@ export function ensureSeedProviders() {
     if (!envKey) continue;
     const row = existing.find((e) => e.kind === p.id);
     if (!row) {
-      createProvider({ name: p.name, kind: p.id, apiKey: envKey, isDefault: !seededDefault });
+      await createProvider({ name: p.name, kind: p.id, apiKey: envKey, isDefault: !seededDefault });
       seededDefault = true;
     } else if (!row.hasKey) {
-      updateProvider(row.id, { apiKey: envKey });
+      await updateProvider(row.id, { apiKey: envKey });
     }
   }
 }

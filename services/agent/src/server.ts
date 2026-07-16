@@ -8,7 +8,7 @@ import type { Server } from "node:http";
 import { log } from "./log.js";
 
 loadEnv();
-ensureSeedProviders();
+await ensureSeedProviders(); // top-level await: seed before serving so first requests see keys
 
 // Shared-secret gate + locked CORS. The agent sits behind the Next proxy on
 // localhost; the secret is opt-in (skipped for pure local dev).

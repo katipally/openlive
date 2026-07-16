@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (!kind || !info) return NextResponse.json({ error: "Unknown provider." }, { status: 400 });
   const existing = listProviders().find((p) => p.kind === kind);
   const row = existing
-    ? updateProvider(existing.id, { apiKey })
-    : createProvider({ name: info.name, kind, apiKey, isDefault: listProviders().length === 0 });
+    ? await updateProvider(existing.id, { apiKey })
+    : await createProvider({ name: info.name, kind, apiKey, isDefault: listProviders().length === 0 });
   return NextResponse.json(row);
 }

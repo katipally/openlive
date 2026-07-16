@@ -132,13 +132,13 @@ export class LiveSession {
     // Persist the chat row + rehydrate recent history (so a reconnect mid-call
     // doesn't make the agent forget what was already said).
     if (this.chatId) {
-      createChat(this.chatId);
+      await createChat(this.chatId);
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
     // Resume a persisted bind (the client also re-sends its remembered choice on
     // connect). A bound agent warms itself; the provider path warms the cache.
-    this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
+    await this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
     if (this.agent) return;
     // Warm the prompt cache + connection in the background so the first spoken turn
     // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
@@ -238,9 +238,9 @@ export class LiveSession {
     const emit = this.blockEmit(blocks, ac.signal);
 
     if (this.chatId) {
-      addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
+      await addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */).catch(() => {});
       // Auto-title the conversation from the first thing the user says.
-      if (!this.titled) { this.titled = true; try { renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation"); } catch { /* */ } }
+      if (!this.titled) { this.titled = true; await renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation").catch(() => {}); }
     }
     try {
       if (this.agent) {
@@ -260,7 +260,7 @@ export class LiveSession {
       if (ac.signal.aborted && this.bargeSpoken != null) truncateSpokenText(blocks, this.bargeSpoken);
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
-      if (this.chatId && blocks.length) { try { addMessage(this.chatId, "assistant", blocks, true /* live */); } catch { /* */ } }
+      if (this.chatId && blocks.length) { await addMessage(this.chatId, "assistant", blocks, true /* live */).catch(() => {}); }
       this.send({ t: "sse", event: { type: "done" } });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queuedText; this.queuedText = null;
@@ -295,13 +295,13 @@ export class LiveSession {
    *  when the chat is empty (external-origin resume) — an OpenLive-origin chat
    *  already renders its own transcript, so the replayed copy is dropped (the load
    *  just re-primes the agent's context). */
-  private ingestReplay(messages: ReplayMessage[]): void {
+  private async ingestReplay(messages: ReplayMessage[]): Promise<void> {
     if (!this.chatId || this.closed || !messages.length) return;
     try {
       if (listMessages(this.chatId).length > 0) return; // OpenLive-origin: keep our copy
       for (const m of messages) {
         const content = m.role === "user" ? stripInjectedContext(m.content) : m.content;
-        if (content.length) addMessage(this.chatId, m.role, content);
+        if (content.length) await addMessage(this.chatId, m.role, content); // sequential: keep order
       }
       this.send({ t: "reload_history" });
     } catch (e) { log.error("live", "replay ingest:", e); }
@@ -312,22 +312,23 @@ export class LiveSession {
    *  folder. Rebuilds + reconnects the ACP agent when the agent OR folder changes;
    *  a no-op when neither did (an agent's cwd is fixed at spawn, so a folder switch
    *  means a restart). */
-  private applyBind(id: AgentId | null, cwd?: string, resumeSessionId?: string) {
-    if (cwd !== undefined && this.chatId) setSetting(`agentCwd:${this.chatId}`, cwd);
+  private async applyBind(id: AgentId | null, cwd?: string, resumeSessionId?: string) {
+    // These two MUST land before agentCwd()/createBoundAgent read them back.
+    if (cwd !== undefined && this.chatId) await setSetting(`agentCwd:${this.chatId}`, cwd);
     // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
     // session id so createBoundAgent loadSession-s it instead of starting fresh.
-    if (resumeSessionId && this.chatId) setSetting(`acpSession:${this.chatId}`, resumeSessionId);
+    if (resumeSessionId && this.chatId) await setSetting(`acpSession:${this.chatId}`, resumeSessionId);
     // Canonical, per-chat→global — the SAME resolution the agent spawns in, so the
     // rebuild guard below and History grouping stay consistent.
     const effectiveCwd = this.chatId ? agentCwd(this.chatId) : "";
     // Stamp the session's agent + workspace so the History sidebar can file it
     // under agent → workspace → session.
-    if (this.chatId) setChatContext(this.chatId, id, effectiveCwd);
+    if (this.chatId) await setChatContext(this.chatId, id, effectiveCwd);
     if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) return;
     this.agentAc?.abort();
     void this.agent?.dispose();
     this.agent = null; this.agentReady = null; this.boundId = id; this.boundCwd = effectiveCwd;
-    if (this.chatId) setBoundAgent(this.chatId, id);
+    if (this.chatId) await setBoundAgent(this.chatId, id);
     if (!id || this.closed || !this.chatId) return;
     // A coding agent needs a real folder. Don't spawn (then instantly kill) one with
     // no cwd — that surfaced a spurious "pick a folder" error and churned processes on

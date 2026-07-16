@@ -20,8 +20,8 @@ export function boundAgent(chatId: string): AgentId | null {
   const v = getSetting(`bind:${chatId}`);
   return isAgentId(v) ? v : null;
 }
-export function setBoundAgent(chatId: string, id: AgentId | null): void {
-  setSetting(`bind:${chatId}`, id ?? "");
+export async function setBoundAgent(chatId: string, id: AgentId | null): Promise<void> {
+  await setSetting(`bind:${chatId}`, id ?? "");
 }
 
 /** The project folder a conversation's agent runs in: per-chat → global default.
@@ -47,7 +47,13 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     // Persist the agent's OWN session id BOTH as the resume key and ON the chat row,
     // so History can dedup this chat against its on-disk agent session (and the id is
     // exactly what `claude --resume` reopens).
-    onSession: (sid) => { setSetting(`acpSession:${chatId}`, sid); setChatAgentSession(chatId, sid); },
+    // Fire-and-forget: onSession is a sync callback; the two writes go to
+    // different files so ordering doesn't matter, and a failed persist only
+    // costs resume-across-restart.
+    onSession: (sid) => {
+      setSetting(`acpSession:${chatId}`, sid).catch(() => {});
+      setChatAgentSession(chatId, sid).catch(() => {});
+    },
     resumeSessionId: getSetting(`acpSession:${chatId}`)?.trim() || undefined,
     cwd: agentCwd(chatId),
     onMeta: hooks.onMeta,

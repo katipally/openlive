@@ -16,12 +16,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { title } = (await req.json().catch(() => ({}))) as { title?: string };
   const t = title?.trim();
   if (!t) return NextResponse.json({ error: "Title required." }, { status: 400 });
-  renameChat(id, t);
+  await renameChat(id, t);
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  deleteChat(id);
+  await deleteChat(id);
   return NextResponse.json({ ok: true });
 }
