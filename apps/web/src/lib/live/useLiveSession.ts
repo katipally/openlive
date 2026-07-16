@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
+import { api } from "@/lib/api";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
@@ -82,6 +83,10 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
     if (!v) return null;
     const meta = JSON.parse(v) as AgentMeta;
     if (!Array.isArray(meta.options)) meta.options = []; // tolerate pre-config-options caches
+    // Mode + model have their OWN dedicated pickers; drop any config option in those
+    // categories so "Mode"/"Model" isn't rendered twice (agents report mode via both
+    // SessionModeState and a category:"mode" option — and older caches kept it).
+    meta.options = meta.options.filter((o) => o.category !== "mode" && o.category !== "model");
     // Reflect the user's remembered model/mode/option preference (validated against
     // the cached set) so the pre-call pickers show their last choice.
     const mp = localStorage.getItem(`openlive-model:${agentId}`);
@@ -179,6 +184,10 @@ export function useLiveSession(chatId: string) {
       onReconnecting: () => set({ phase: "reconnecting" }),
       onClose: () => teardown(),
       onError: (m) => set({ error: m, agentConnecting: false }),
+      // A session/load recovered prior turns (persisted server-side) — refetch so the
+      // resumed transcript renders. preloadIfEmpty so a live turn the user started
+      // during the refetch isn't wiped by the replace.
+      onReloadHistory: () => { api.messages(chatId).then((m) => chatStore.preloadIfEmpty(chatId, m as never)).catch(() => {}); },
       // A bound agent wants permission: speak the ask and show approve/deny chips.
       onPermission: (reqId, question, options) => { set({ permission: { reqId, question, options } }); engine.current?.feedAgentDelta(`${question} `); },
       // The bound agent reported its selectable models/modes (or a switch landed).
@@ -199,7 +208,9 @@ export function useLiveSession(chatId: string) {
         }
       },
       onSse: (e) => {
-        if (e.type === "error") { set({ error: e.message }); return; }
+        // Also clear agentConnecting — a server-sent agent-start failure would
+        // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
+        if (e.type === "error") { set({ error: e.message, agentConnecting: false }); return; }
         // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
         if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
         // Prose text drives the VOICE only; the chat transcript is filled word-by-word
@@ -338,7 +349,9 @@ export function useLiveSession(chatId: string) {
           // advancing. Commit the current chunk so the next turn starts clean.
           if (curChunk.current) segText.current = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
           curChunk.current = null;
-          set({ agentCaption: "", userCaption: "", userPartial: false });
+          // Clear any pending permission chip — the server cancels the ask on
+          // barge-in, so a lingering approve/deny would just no-op if tapped.
+          set({ agentCaption: "", userCaption: "", userPartial: false, permission: null });
         },
       }, player.current ?? undefined);
       engine.current = eng;

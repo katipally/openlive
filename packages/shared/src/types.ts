@@ -25,6 +25,10 @@ export interface ChatSummary {
   cwd?: string;
   /** Last activity (for ordering); falls back to createdAt. */
   updatedAt?: string;
+  /** The agent's OWN ACP session id (e.g. `claude --resume <uuid>`), captured on
+   *  connect. Links an OpenLive chat to its on-disk agent session so History can
+   *  dedup the two and "continue in the CLI" is possible. */
+  agentSessionId?: string;
 }
 
 /** History grouped agent → workspace → session, for the left History sidebar.

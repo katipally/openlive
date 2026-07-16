@@ -8,7 +8,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 
 // Stored shapes (on disk).
 interface ProviderRow { id: string; name: string; kind: string; apiKeyCiphertext: string | null; keyLast4: string | null; isDefault: boolean }
-interface ChatRow { id: string; title: string; createdAt: string; updatedAt?: string; agentId?: string | null; cwd?: string }
+interface ChatRow { id: string; title: string; createdAt: string; updatedAt?: string; agentId?: string | null; cwd?: string; agentSessionId?: string }
 interface MessageRow { id: string; chatId: string; role: MessageRole; content: MessageBlock[]; live: boolean; createdAt: string }
 interface Conversations { chats: ChatRow[]; messages: MessageRow[] }
 
@@ -87,7 +87,7 @@ export function createChat(id?: string, title = "Live conversation"): ChatSummar
   return toSummary(chat);
 }
 
-const toSummary = (c: ChatRow): ChatSummary => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt ?? c.createdAt, agentId: c.agentId ?? null, cwd: c.cwd ?? "" });
+const toSummary = (c: ChatRow): ChatSummary => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt ?? c.createdAt, agentId: c.agentId ?? null, cwd: c.cwd ?? "", agentSessionId: c.agentSessionId });
 
 export function listChats(): ChatSummary[] {
   return readConvos().chats
@@ -102,6 +102,17 @@ export function setChatContext(chatId: string, agentId: string | null, cwd: stri
   const chat = c.chats.find((x) => x.id === chatId);
   if (!chat) return;
   chat.agentId = agentId; chat.cwd = cwd;
+  writeJson(CONVOS, c);
+}
+
+/** Link this chat to the agent's OWN ACP session id (captured on connect). This is
+ *  what makes the round-trip work: History dedups the OpenLive chat against the
+ *  agent's on-disk session by this id, and it's the id `claude --resume` reopens. */
+export function setChatAgentSession(chatId: string, agentSessionId: string): void {
+  const c = readConvos();
+  const chat = c.chats.find((x) => x.id === chatId);
+  if (!chat || chat.agentSessionId === agentSessionId) return;
+  chat.agentSessionId = agentSessionId;
   writeJson(CONVOS, c);
 }
 

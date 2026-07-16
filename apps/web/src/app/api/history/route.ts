@@ -31,7 +31,9 @@ export function GET() {
   const counts = chatMessageCounts();
   for (const c of listChats()) {
     if ((counts[c.id] ?? 0) === 0) continue; // hide empty (a lobby connect never spoken in)
-    add(c.agentId ?? "", c.cwd ?? "", { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, source: "openlive" });
+    // Carry the agent's own session id so this OpenLive chat dedups against its
+    // on-disk agent session (below) — and so the UI can "continue in the CLI".
+    add(c.agentId ?? "", c.cwd ?? "", { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, source: "openlive", resumeSessionId: c.agentSessionId });
   }
 
   // Each agent's own external sessions (from disk).

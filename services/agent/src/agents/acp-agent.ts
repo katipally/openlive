@@ -2,11 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionUpdate, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
+import type { MessageBlock } from "@openlive/shared";
 import type { Emit } from "../tools.js";
-import type { Agent, AgentId, AgentMeta, AskPermission, TurnInput } from "./types.js";
+import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput } from "./types.js";
+import { PERMISSION_CANCELLED } from "./types.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
@@ -35,6 +37,7 @@ export interface AcpOpts {
   resumeSessionId?: string;                    // replay a prior session via session/load
   cwd?: string;                                // the project folder the agent runs in
   onMeta?: (meta: AgentMeta) => void;          // the agent's available models/modes → UI
+  onReplay?: (messages: ReplayMessage[]) => void; // prior turns recovered from session/load
 }
 
 /** GUI-spawned processes get a skeletal PATH on macOS — the user's agent binaries
@@ -49,7 +52,10 @@ function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[
   const base = ADAPTERS[id];
   const override = getSetting(`acpCommand:${id}`)?.trim(); // e.g. "npx @agentclientprotocol/claude-agent-acp"
   const [cmd, ...args] = override ? override.split(/\s+/) : [base.command, ...base.args];
-  return { command: cmd || base.command, args: override ? args : base.args, cwd: cwd?.trim() || getSetting("agentCwd")?.trim() || homedir() };
+  // No $HOME fallback: agents file sessions per-project, so an unset folder would
+  // strand the session under the home bucket, invisible to `claude --resume` run
+  // in the real project. Empty here → start() throws a clear "pick a folder".
+  return { command: cmd || base.command, args: override ? args : base.args, cwd: cwd?.trim() || getSetting("agentCwd")?.trim() || "" };
 }
 
 export class AcpAgent implements Agent {
@@ -62,8 +68,10 @@ export class AcpAgent implements Agent {
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
   private sentPreamble = false;   // the voice+vision context is sent once per session
-  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [] };
+  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], resumeAcrossRestart: true };
   private modelConfigId: string | null = null; // the ACP config option id for model selection
+  private replaying = false;      // inside a session/load: fold updates into the replay buffer
+  private replay: ReplayMessage[] = []; // prior turns recovered from session/load replay
 
   constructor(id: AgentId, private askPermission: AskPermission, private opts: AcpOpts = {}) {
     this.id = id;
@@ -78,6 +86,9 @@ export class AcpAgent implements Agent {
 
   async start(_signal: AbortSignal): Promise<void> {
     const cfg = adapterFor(this.id, this.opts.cwd);
+    // A real project folder is required: it's where the agent files its session
+    // (so `claude --resume` etc. can reopen it) and the only place it reads/writes.
+    if (!cfg.cwd) throw new Error(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`);
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
       env: { ...process.env, PATH: widenedPath() },
@@ -118,21 +129,47 @@ export class AcpAgent implements Agent {
   }
 
   /** ACP handshake: initialize → resume (session/load) or new session, capturing
-   *  image capability + the agent's models/modes. */
+   *  image capability + the agent's models/modes. Resume is capability-gated; a
+   *  failure falls back to a fresh session SILENTLY (see below — resume-fail is a
+   *  common, benign case, and the original session stays on disk / in History). */
   private async handshake(cwd: string): Promise<void> {
     const init = await this.conn!.initialize({
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
+    const canLoad = !!init.agentCapabilities?.loadSession;
+    // Cursor advertises loadSession but its sessions die with the process (upstream
+    // "Session not found" after restart), so it can't round-trip to its own CLI.
+    this.meta = { ...this.meta, resumeAcrossRestart: canLoad && this.id !== "cursor" };
+
     let resumed = false;
-    if (this.opts.resumeSessionId) {
+    // Resume the chat's own prior session when the agent can. A failure here is
+    // EXPECTED and benign — an empty/never-persisted session (e.g. a lobby prewarm
+    // that made a session but never took a turn), a stale id, or a mid-call
+    // reconnect — so we fall back to a fresh session SILENTLY. The original session
+    // stays on disk and is still resumable from History. (Surfacing this as a spoken
+    // notice made every normal reopen blurt out "couldn't reopen…".)
+    if (this.opts.resumeSessionId && canLoad) {
+      // Match replay updates (which stream DURING the load, before this.sessionId
+      // would otherwise be set) by stamping the id up front.
+      this.sessionId = this.opts.resumeSessionId;
+      this.replaying = true;
       try {
         const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers: [] });
-        this.sessionId = this.opts.resumeSessionId;
+        this.replaying = false;
         this.reportMeta(r);
         resumed = true;
-      } catch { /* fall through to a fresh session */ }
+        // The agent restored the FULL conversation itself — drop our text recap
+        // so the first turn isn't prefixed with a redundant "[Context — earlier…]".
+        this.seedText = "";
+        if (this.replay.length) this.opts.onReplay?.(this.replay);
+      } catch (e) {
+        console.error(`[agent:${this.id}] resume failed (${extractAcpError(e)}) — starting fresh`);
+      } finally {
+        this.replaying = false;
+        this.replay = [];
+      }
     }
     if (!resumed) {
       const r = await this.conn!.newSession({ cwd, mcpServers: [] });
@@ -152,7 +189,11 @@ export class AcpAgent implements Agent {
 
   /** Fold ACP session config options into meta: the `model` category drives the
    *  model picker; every other select (thought/reasoning level, model config, …)
-   *  becomes a generic option the UI renders as its own dropdown. */
+   *  becomes a generic option the UI renders as its own dropdown.
+   *  NOTE: `mode` is EXCLUDED here — every agent (Claude/Codex/Cursor) reports mode
+   *  through BOTH `SessionModeState` (the dedicated mode picker + setSessionMode) AND
+   *  a `category:"mode"` config option. Surfacing both renders "Mode" twice, so we
+   *  keep only the dedicated picker and drop the duplicate config option. */
   private applyConfig(configOptions?: SessionConfigOption[] | null): void {
     const selects = (configOptions ?? []).filter((o): o is Extract<SessionConfigOption, { type: "select" }> => o.type === "select");
     const modelOpt = selects.find((o) => o.category === "model");
@@ -161,7 +202,7 @@ export class AcpAgent implements Agent {
       ...this.meta,
       models: modelOpt ? flattenSelect(modelOpt.options) : this.meta.models,
       currentModelId: modelOpt ? (modelOpt.currentValue ?? null) : this.meta.currentModelId,
-      options: selects.filter((o) => o.category !== "model").map((o) => ({
+      options: selects.filter((o) => o.category !== "model" && o.category !== "mode").map((o) => ({
         id: o.id, label: o.name, category: o.category ?? "", values: flattenSelect(o.options), currentId: o.currentValue ?? null,
       })),
     };
@@ -172,8 +213,11 @@ export class AcpAgent implements Agent {
     // Model selection is now an ACP session config option. Never throw: an agent
     // that rejects a value must not crash the session.
     try {
-      await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
-      this.meta = { ...this.meta, currentModelId: modelId };
+      // The response carries the FULL new config state (changing one option can
+      // affect others) — fold it in rather than optimistically patching one field.
+      const res = await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
+      if (res?.configOptions) this.applyConfig(res.configOptions);
+      else this.meta = { ...this.meta, currentModelId: modelId };
       this.opts.onMeta?.(this.meta);
     } catch (e) { console.error(`[agent:${this.id}] setModel(${modelId}) failed:`, e); }
   }
@@ -191,8 +235,9 @@ export class AcpAgent implements Agent {
   async setOption(optionId: string, valueId: string): Promise<void> {
     if (!this.conn || !this.sessionId) return;
     try {
-      await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: optionId, value: valueId });
-      this.meta = { ...this.meta, options: this.meta.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) };
+      const res = await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: optionId, value: valueId });
+      if (res?.configOptions) this.applyConfig(res.configOptions);
+      else this.meta = { ...this.meta, options: this.meta.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) };
       this.opts.onMeta?.(this.meta);
     } catch (e) { console.error(`[agent:${this.id}] setOption(${optionId}=${valueId}) failed:`, e); }
   }
@@ -201,9 +246,30 @@ export class AcpAgent implements Agent {
   private clientHandler(): Client {
     return {
       sessionUpdate: async (n: SessionNotification): Promise<void> => {
-        const emit = this.turnEmit;
-        if (!emit || n.sessionId !== this.sessionId) return;
+        if (n.sessionId !== this.sessionId) return;
         const u = n.update;
+        // During a session/load the agent replays the WHOLE prior conversation as
+        // updates before responding — with no turn active. Fold them into the replay
+        // buffer (→ transcript) instead of dropping them.
+        if (this.replaying) { this.bufferReplay(u); return; }
+
+        // Turn-independent updates (mode / config) arrive any time, including
+        // outside a turn — handle them without an emit.
+        switch (u.sessionUpdate) {
+          case "current_mode_update":
+            this.meta = { ...this.meta, currentModeId: u.currentModeId };
+            this.opts.onMeta?.(this.meta);
+            return;
+          case "config_option_update":
+            // A model/thought-level/… selection landed (ours or the agent's own).
+            this.applyConfig(u.configOptions);
+            this.opts.onMeta?.(this.meta);
+            return;
+        }
+
+        // The rest belong to an in-flight turn; without one there's nothing to render.
+        const emit = this.turnEmit;
+        if (!emit) return;
         switch (u.sessionUpdate) {
           case "agent_message_chunk":
             if (u.content.type === "text") await emit({ type: "text_delta", text: u.content.text });
@@ -225,17 +291,16 @@ export class AcpAgent implements Agent {
             // The agent's evolving plan → the transcript's todo list.
             await emit({ type: "todos", items: u.entries.map((e) => ({ text: e.content, done: e.status === "completed" })) });
             return;
-          case "current_mode_update":
-            this.meta = { ...this.meta, currentModeId: u.currentModeId };
-            this.opts.onMeta?.(this.meta);
+          case "plan_removed":
+            await emit({ type: "todos", items: [] });
             return;
-          case "config_option_update":
-            // A model/thought-level/… selection landed (ours or the agent's own).
-            this.applyConfig(u.configOptions);
-            this.opts.onMeta?.(this.meta);
+          case "usage_update":
+            // Context/cost meter (reuses the existing usage UI). outputTokens isn't
+            // reported by ACP usage_update, so 0.
+            await emit({ type: "usage", contextTokens: u.used, outputTokens: 0, costUsd: u.cost?.amount ?? 0 });
             return;
           default:
-            return; // user echoes, available_commands — nothing to render
+            return; // user echoes, plan_update (unstable) — nothing to render
         }
       },
       requestPermission: async (req: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
@@ -252,10 +317,39 @@ export class AcpAgent implements Agent {
         if (!options.length) return { outcome: { outcome: "cancelled" } };
         const title = req.toolCall?.title ? ` ${req.toolCall.title}.` : "";
         const choice = await this.askPermission(`${labelFor(this.id)} wants permission:${title} Allow it?`, options);
+        // Barge-in / interrupt resolves any pending ask with this sentinel — ACP
+        // requires the client to answer in-flight permission requests as cancelled.
+        if (choice === PERMISSION_CANCELLED) return { outcome: { outcome: "cancelled" } };
         const picked = choice === "allow" ? allow : choice === "always" ? always : deny;
         return picked ? { outcome: { outcome: "selected", optionId: picked.optionId } } : { outcome: { outcome: "cancelled" } };
       },
     };
+  }
+
+  /** Fold one replayed session/load update into the recovered-message buffer,
+   *  merging consecutive same-role chunks into a single message. */
+  private bufferReplay(u: SessionUpdate): void {
+    const add = (role: "user" | "assistant", block: MessageBlock) => {
+      const last = this.replay[this.replay.length - 1];
+      if (last && last.role === role) appendBlock(last.content, block);
+      else this.replay.push({ role, content: [block] });
+    };
+    switch (u.sessionUpdate) {
+      case "user_message_chunk":
+        if (u.content.type === "text") add("user", { type: "text", text: u.content.text });
+        return;
+      case "agent_message_chunk":
+        if (u.content.type === "text") add("assistant", { type: "text", text: u.content.text });
+        return;
+      case "agent_thought_chunk":
+        if (u.content.type === "text") add("assistant", { type: "reasoning", text: u.content.text });
+        return;
+      case "tool_call":
+        add("assistant", { type: "tool", id: u.toolCallId, tool: u.title || u.kind || "tool", status: "done" });
+        return;
+      default:
+        return; // plans/usage/etc. aren't part of the recovered transcript
+    }
   }
 
   async runTurn({ text, frames }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
@@ -283,8 +377,16 @@ export class AcpAgent implements Agent {
     const onAbort = () => { void this.conn?.cancel({ sessionId: this.sessionId }).catch(() => {}); };
     signal.addEventListener("abort", onAbort, { once: true });
     try {
+      // Awaiting the prompt also waits out a barge-in: after we send session/cancel
+      // the agent still resolves this with stopReason "cancelled" (per spec), so the
+      // turn is fully settled before the finally drains the next utterance.
       const res = await this.conn.prompt({ sessionId: this.sessionId, prompt });
-      if (res.stopReason === "refusal") await emit({ type: "error", message: `${labelFor(this.id)} refused this request.` });
+      switch (res.stopReason) {
+        case "refusal": await emit({ type: "error", message: `${labelFor(this.id)} refused this request.` }); break;
+        case "max_tokens": await emit({ type: "text_delta", text: " …(I hit the response length limit — say “continue” to keep going.)" }); break;
+        case "max_turn_requests": await emit({ type: "text_delta", text: " …(I hit my step limit for this turn — say “continue” to keep going.)" }); break;
+        default: break; // end_turn, cancelled — nothing extra to say
+      }
     } catch (e) {
       if (signal.aborted) return; // barge-in / cancel — not an error
       // A JSON-RPC error RESPONSE means the agent is alive but rejected the turn
@@ -322,6 +424,15 @@ export class AcpAgent implements Agent {
 }
 
 function labelFor(id: AgentId): string { return id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : "Cursor"; }
+
+/** Append a replayed block, merging into the trailing text/reasoning block of the
+ *  same kind so streamed chunks read as one message (not one bubble per token). */
+export function appendBlock(content: MessageBlock[], block: MessageBlock): void {
+  const last = content[content.length - 1];
+  if (block.type === "text" && last?.type === "text") { last.text += block.text; return; }
+  if (block.type === "reasoning" && last?.type === "reasoning") { last.text += block.text; return; }
+  content.push(block);
+}
 
 /** Flatten ACP select options (which may be flat or grouped) into {id,name}. */
 function flattenSelect(opts: unknown): { id: string; name: string }[] {

@@ -8,7 +8,7 @@ import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
-import { createBoundAgent, setBoundAgent, boundAgent, type Agent, type AgentId } from "../agents/index.js";
+import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ReplayMessage } from "../agents/index.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
@@ -21,6 +21,21 @@ function scrubControlTokens(blocks: MessageBlock[]): void {
   for (const b of blocks) {
     if (b.type === "text") b.text = b.text.replace(/[[\]][a-z0-9~!]{0,3}[[\]]/gi, " ").replace(/[[\]]/g, "").replace(/[ \t]{2,}/g, " ");
   }
+}
+
+// Strip OpenLive's OWN injected context out of a replayed user message so a resumed
+// transcript reads as what the user actually said — not the voice/vision preamble,
+// the "[Context — earlier…]" recap, or the "[The user is sharing…]" frame note. Each
+// is a single `[…]` block with no internal `]`, so we match its opening marker and
+// cut to the block's close — wherever it sits, and robust even if an agent's replay
+// collapses the blank lines between blocks (a paragraph split would then over-strip).
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|Context — earlier in this voice conversation|The user is sharing their)[^\]]*\]/g;
+export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
+  return blocks
+    .map((b) => (b.type === "text"
+      ? { ...b, text: b.text.replace(OPENLIVE_INJECTED, "").replace(/\n{3,}/g, "\n\n").trim() }
+      : b))
+    .filter((b) => b.type !== "text" || b.text.length > 0);
 }
 
 // Replace the assistant's spoken text in `blocks` with exactly what the client
@@ -236,6 +251,10 @@ export class LiveSession {
     } catch (e) {
       if (!ac.signal.aborted) console.error("[live] turn:", e);
     } finally {
+      // Turn is over (normally, barge-in, watchdog cut, or error) — never leave an
+      // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
+      // one was actually pending.
+      this.cancelPendingPermissions();
       // On barge-in, persist only what was actually SPOKEN.
       if (ac.signal.aborted && this.bargeSpoken != null) truncateSpokenText(blocks, this.bargeSpoken);
       this.bargeSpoken = null;
@@ -258,7 +277,34 @@ export class LiveSession {
     };
   }
 
-  private interrupt() { this.ac?.abort(); }
+  private interrupt() {
+    this.ac?.abort();
+    this.cancelPendingPermissions();
+  }
+
+  /** Answer any in-flight agent permission ask as cancelled (ACP MUST when a turn is
+   *  cancelled — barge-in OR a watchdog cut). Idempotent: resolving a settled promise
+   *  and clearing an empty map both no-op. */
+  private cancelPendingPermissions() {
+    for (const r of this.permPending.values()) r(PERMISSION_CANCELLED);
+    this.permPending.clear();
+  }
+
+  /** Persist + surface prior turns recovered from an agent's session/load. Only
+   *  when the chat is empty (external-origin resume) — an OpenLive-origin chat
+   *  already renders its own transcript, so the replayed copy is dropped (the load
+   *  just re-primes the agent's context). */
+  private ingestReplay(messages: ReplayMessage[]): void {
+    if (!this.chatId || this.closed || !messages.length) return;
+    try {
+      if (listMessages(this.chatId).length > 0) return; // OpenLive-origin: keep our copy
+      for (const m of messages) {
+        const content = m.role === "user" ? stripInjectedContext(m.content) : m.content;
+        if (content.length) addMessage(this.chatId, m.role, content);
+      }
+      this.send({ t: "reload_history" });
+    } catch (e) { console.error("[live] replay ingest:", e); }
+  }
 
   // ── agent binding ─────────────────────────────────────────────────────────
   /** Bind (or unbind) this conversation to a coding agent, optionally with a project
@@ -270,7 +316,9 @@ export class LiveSession {
     // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
     // session id so createBoundAgent loadSession-s it instead of starting fresh.
     if (resumeSessionId && this.chatId) setSetting(`acpSession:${this.chatId}`, resumeSessionId);
-    const effectiveCwd = this.chatId ? (getSetting(`agentCwd:${this.chatId}`) ?? "") : "";
+    // Canonical, per-chat→global — the SAME resolution the agent spawns in, so the
+    // rebuild guard below and History grouping stay consistent.
+    const effectiveCwd = this.chatId ? agentCwd(this.chatId) : "";
     // Stamp the session's agent + workspace so the History sidebar can file it
     // under agent → workspace → session.
     if (this.chatId) setChatContext(this.chatId, id, effectiveCwd);
@@ -280,8 +328,15 @@ export class LiveSession {
     this.agent = null; this.agentReady = null; this.boundId = id; this.boundCwd = effectiveCwd;
     if (this.chatId) setBoundAgent(this.chatId, id);
     if (!id || this.closed || !this.chatId) return;
-    const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o),
-      (meta) => { if (!this.closed) this.send({ t: "agent_meta", ...meta }); });
+    // A coding agent needs a real folder. Don't spawn (then instantly kill) one with
+    // no cwd — that surfaced a spurious "pick a folder" error and churned processes on
+    // the first bind. Wait for a bind that supplies a folder (the lobby gates Start on it).
+    if (!effectiveCwd) return;
+    const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o), {
+      onMeta: (meta) => { if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
+      // Recovered transcript from a session/load — persist + tell the client to reload.
+      onReplay: (msgs) => this.ingestReplay(msgs),
+    });
     if (!agent) return;
     this.agent = agent;
     const prior = this.rehydrate();

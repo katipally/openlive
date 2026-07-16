@@ -45,7 +45,13 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
       id: z.string(), label: z.string(), category: z.string(),
       values: z.array(z.object({ id: z.string(), name: z.string() })), currentId: z.string().nullable(),
     })).default([]),
+    // Whether the session can be reopened in the agent's own CLI after a restart
+    // (Claude yes, Cursor no, Codex best-effort) — drives an honest UI badge.
+    resumeAcrossRestart: z.boolean().default(true),
   }),
+  // A session/load replay just finished and its turns were persisted — the client
+  // should refetch this chat's messages so the recovered transcript shows.
+  z.object({ t: z.literal("reload_history") }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
@@ -54,7 +60,7 @@ export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 export const AGENT_ID = z.enum(["claude-code", "codex", "cursor"]);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
 export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
-export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[] };
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [

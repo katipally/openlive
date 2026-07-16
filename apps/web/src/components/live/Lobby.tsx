@@ -40,7 +40,10 @@ export function Lobby(props: LobbyProps) {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
   const cpu = typeof navigator !== "undefined" && !hasWebGPU();
-  const needFolder = !boundCwd; // every call is filed under a workspace — required for all, OpenLive included
+  // A project folder is REQUIRED only for a coding agent (its file-access scope + where
+  // its session is filed). The built-in OpenLive assistant needs no folder — a folderless
+  // voice chat is valid (History files it under "No folder").
+  const needFolder = !!boundAgent && !boundCwd;
   const root = useRef<HTMLDivElement>(null);
 
   const { contextSafe } = useGSAP(() => {
@@ -138,7 +141,7 @@ export function Lobby(props: LobbyProps) {
           {boundAgent ? <AgentSetup agent={boundAgent} boundCwd={boundCwd} /> : (
             <div className="space-y-6">
               <ModelQuickPick onOpenSettings={onOpenSettings} />
-              <WorkspaceField cwd={boundCwd} name="OpenLive" required />
+              <WorkspaceField cwd={boundCwd} name="OpenLive" />
             </div>
           )}
         </div>
@@ -219,6 +222,12 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
   return (
     <div className="space-y-5">
       <WorkspaceField cwd={boundCwd} name={agentLabel(agent)} required />
+
+      {meta?.resumeAcrossRestart === false && (
+        <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
+        </p>
+      )}
 
       <label className="flex flex-col gap-1.5">
         <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Model</span>

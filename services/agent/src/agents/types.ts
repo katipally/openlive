@@ -1,4 +1,5 @@
 import type { Message } from "@openlive/harness";
+import type { MessageBlock } from "@openlive/shared";
 import type { Emit } from "../tools.js";
 
 // An "agent" is an external coding agent (Claude Code / Codex / Cursor) driven as
@@ -31,6 +32,11 @@ export interface Agent {
  *  call UI). Resolves the chosen option id; times out / cancels to "deny". */
 export type AskPermission = (question: string, options: { id: string; label: string }[]) => Promise<string>;
 
+/** Sentinel a pending permission ask resolves to when the turn is cancelled
+ *  (barge-in / interrupt). ACP requires the client to answer any in-flight
+ *  request_permission with the `cancelled` outcome — this maps to that. */
+export const PERMISSION_CANCELLED = "__acp_cancelled__";
+
 /** A generic selectable agent config option (thought/reasoning level, model config,
  *  …) beyond the dedicated model + mode pickers. */
 export interface AgentOption {
@@ -48,4 +54,10 @@ export interface AgentMeta {
   modes: { id: string; name: string }[];
   currentModeId: string | null;
   options: AgentOption[];
+  /** Whether resuming this session in the agent's own CLI works across process
+   *  restarts. Claude: yes. Cursor: no (upstream limitation). Codex: best-effort. */
+  resumeAcrossRestart: boolean;
 }
+
+/** A prior turn recovered from `session/load` replay, ready to persist + render. */
+export interface ReplayMessage { role: "user" | "assistant"; content: MessageBlock[] }

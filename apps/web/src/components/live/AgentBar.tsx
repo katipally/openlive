@@ -90,6 +90,12 @@ export function AgentBar() {
         <PillMenu icon={SlidersHorizontal} title="Mode" label={mode?.name ?? "Mode"} items={agentMeta.modes.map((m) => ({ id: m.id, label: m.name }))}
           current={agentMeta.currentModeId} onPick={setConversationMode} />
       )}
+      {agentMeta?.resumeAcrossRestart === false && (
+        <span title="This session works live, but this agent can't reopen it in its own CLI after it closes (an agent limitation, not OpenLive)."
+          className="ml-0.5 shrink-0 rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+          live only
+        </span>
+      )}
     </div>
   );
 }
