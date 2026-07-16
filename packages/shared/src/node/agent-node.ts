@@ -84,8 +84,11 @@ export function terminalCommand(cmd: string): { cmd: string; args: string[] } {
     return { cmd: "osascript", args: ["-e", 'tell application "Terminal" to activate', "-e", `tell application "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"`] };
   }
   if (process.platform === "win32") {
-    // `start` opens a NEW window; `cmd /k` keeps it open so the user sees the result.
-    return { cmd: "cmd", args: ["/c", "start", "", "cmd", "/k", cmd] };
+    // `start` opens a NEW window; PowerShell `-NoExit` keeps it open so the user sees
+    // the result. PowerShell (not cmd) because the commands use modern quoting and
+    // POSIX-ish syntax (single-quoted specs, pipelines) that cmd.exe can't parse —
+    // the simple `<cli> login` commands run fine in it too.
+    return { cmd: "cmd", args: ["/c", "start", "", "powershell", "-NoExit", "-Command", cmd] };
   }
   return { cmd: "bash", args: ["-lc", cmd] };
 }

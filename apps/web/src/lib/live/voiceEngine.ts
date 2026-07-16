@@ -61,6 +61,14 @@ export class VoiceEngine {
   private speakingStartAt = 0;
   private turnSentAt = 0;                         // perf: when the final user text went out
   private spokenText = "";                         // what the agent has actually VOICED this reply (for barge-in cutoff)
+  // After a barge-in, IGNORE the interrupted reply's late deltas/done (they cross the
+  // wire after the local cancel) until the next user turn re-arms — otherwise a
+  // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
+  // new user turn is sent.
+  private acceptingReply = true;
+  // Audio segments that arrived while the previous one was still finalizing (slow STT
+  // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
+  private deferred: Float32Array[] = [];
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
@@ -194,7 +202,10 @@ export class VoiceEngine {
   }
 
   private async onSpeechEnd(audio: Float32Array) {
-    if (this.finalizing) return;
+    // A segment ended while the previous one is still finalizing (STT + turn detection
+    // take real time on CPU/WASM). DON'T drop it — defer and re-process below, or the
+    // user's words vanish.
+    if (this.finalizing) { this.deferred.push(audio); return; }
     const combined = this.pending ? this.concat([this.pending, audio], this.pending.length + audio.length) : audio;
     // Reject blips and near-silence up front (ambient noise that tripped the VAD) —
     // but during push-to-talk a blip must not throw away what's already held.
@@ -235,6 +246,7 @@ export class VoiceEngine {
       this.clearHold();
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
+      this.acceptingReply = true; // re-arm: this turn's reply should be voiced
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
@@ -242,7 +254,16 @@ export class VoiceEngine {
       // A stalled/failed inference (now time-limited in models.call) must not strand
       // the turn loop — recover to idle and clear the frozen partial caption.
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
-    } finally { this.finalizing = false; }
+    } finally {
+      this.finalizing = false;
+      // Speech that arrived mid-finalize: merge it and process as a continuation
+      // (onSpeechEnd folds in `pending`, so a mid-thought hold still coalesces).
+      if (this.deferred.length) {
+        const parts = this.deferred; this.deferred = [];
+        const merged = this.concat(parts, parts.reduce((n, p) => n + p.length, 0));
+        void this.onSpeechEnd(merged);
+      }
+    }
   }
 
   private scheduleHold() {
@@ -259,7 +280,7 @@ export class VoiceEngine {
     if (!p || this.phase !== "idle") return;
     void stt(p).then((t) => {
       const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.turnSentAt = performance.now(); this.h.onUserText(text); }
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
   }
@@ -295,6 +316,7 @@ export class VoiceEngine {
       if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
       this.setPhase("thinking");
       this.spokenText = "";
+      this.acceptingReply = true;
       this.turnSentAt = performance.now();
       this.h.onUserText(text);
     } catch { this.h.onPartial(""); this.setPhase("idle"); }
@@ -303,10 +325,12 @@ export class VoiceEngine {
 
   // ── agent reply → speech ───────────────────────────────────────────────
   feedAgentDelta(text: string) {
+    if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     perf.firstToken(); // no-op after the first delta of a turn
     for (const s of this.chunker.push(text)) this.enqueueSpeak(s, this.epoch);
   }
   endAgentTurn() {
+    if (!this.acceptingReply) return; // the barged reply's `done` — no tail to flush/voice
     const tail = this.chunker.flush();
     if (tail) this.enqueueSpeak(tail, this.epoch);
     // When the TTS chain drains and audio finishes, drop back to idle.
@@ -322,7 +346,7 @@ export class VoiceEngine {
     check();
   }
 
-  private enqueueSpeak(sentence: string, epoch: number) {
+  private enqueueSpeak(sentence: string, epoch: number, outOfBand = false) {
     this.ttsChain = this.ttsChain.then(async () => {
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
       const spoken = stripMarkdown(sentence);
@@ -341,6 +365,11 @@ export class VoiceEngine {
       // subtitle reads out only the words being spoken right now.
       this.player.play(audio, epoch, sampleRate, () => {
         if (this.epoch !== epoch) return;
+        // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
+        // model's reply — keep them out of `spokenText` (barge-in cutoff) and out of
+        // onAgentText (which the client persists into the transcript), or they get
+        // saved as if the assistant said them and contaminate the cutoff.
+        if (outOfBand) return;
         // Accumulate ONLY as each chunk actually begins playing — so on barge-in
         // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
         // tail is excluded from the saved history.
@@ -354,11 +383,12 @@ export class VoiceEngine {
    *  TTS chain — voice-first users hear problems, not just see banners. */
   say(text: string) {
     const t = text.trim();
-    if (t) this.enqueueSpeak(t, this.epoch);
+    if (t) this.enqueueSpeak(t, this.epoch, true /* out-of-band: voice it, don't persist it */);
   }
 
   private bargeIn() {
     this.epoch++;
+    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.player.flush(this.epoch);
     this.chunker.flush();
     this.h.onBargeIn(this.spokenText.trim());

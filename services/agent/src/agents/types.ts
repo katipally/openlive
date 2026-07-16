@@ -22,8 +22,6 @@ export interface Agent {
   seed(history: Message[]): void;
   runTurn(input: TurnInput, emit: Emit, signal: AbortSignal): Promise<void>;
   dispose(): Promise<void>;
-  /** Liveness — the child process is alive. */
-  health?(): { ok: boolean; detail?: string };
   /** Switch the agent's model / mode / config option mid-session. */
   setModel?(modelId: string): Promise<void>;
   setMode?(modeId: string): Promise<void>;

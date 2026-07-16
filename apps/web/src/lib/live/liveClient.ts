@@ -18,6 +18,7 @@ export interface LiveHandlers {
   onNeedFrame?: (reqId: string) => void;
   onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
   onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number) => void;
+  onPermissionResolved?: (reqId: string) => void;
   onAgentMeta?: (meta: AgentMeta) => void;
   onReloadHistory?: () => void;
   onError?: (message: string) => void;
@@ -32,6 +33,8 @@ export class LiveClient {
   private healthyTimer: ReturnType<typeof setTimeout> | null = null;
   private static MAX_RECONNECT = 4;
   private static HEALTHY_MS = 3000; // a connection must survive this long to "count"
+  private static MAX_QUEUE = 8;     // cap queued turns during an outage (drop oldest)
+  private queue: string[] = [];     // user turns spoken while the socket was down, flushed on reopen
   constructor(private h: LiveHandlers) {}
 
   connect(chatId: string) {
@@ -46,7 +49,13 @@ export class LiveClient {
     const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
-      this.h.onOpen?.();
+      this.h.onOpen?.(); // sends the bind FIRST so a flushed turn lands on a bound agent
+      // Flush any user turns that were spoken during the reconnect window — otherwise
+      // the turn is silently lost (the UI shows a bubble + "Thinking…" that never
+      // resolves). Order preserved; frames rode along inline in each queued message.
+      if (this.queue.length && ws.readyState === WebSocket.OPEN) {
+        for (const s of this.queue.splice(0)) ws.send(s);
+      }
       // Do NOT zero `attempts` here: on the container path the socket can open and
       // then instantly flap closed, and resetting on every open made "Reconnecting…"
       // loop forever. Only a connection that SURVIVES counts as recovered.
@@ -80,6 +89,7 @@ export class LiveClient {
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
         case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
         case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt);
+        case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "reload_history": return this.h.onReloadHistory?.();
         case "error": return this.h.onError?.(m.message);
@@ -89,8 +99,17 @@ export class LiveClient {
   }
 
   private sendJson(m: unknown) { if (this.ready) this.ws!.send(JSON.stringify(m)); }
+  /** A user turn is too important to drop: if the socket is mid-reconnect, queue it
+   *  and flush on reopen. Other messages (frames, control, cancel) are ephemeral. */
+  private sendUserTurn(m: unknown) {
+    const s = JSON.stringify(m);
+    if (this.ready) { this.ws!.send(s); return; }
+    if (this.closedByUser) return; // session over — don't hold onto it
+    this.queue.push(s);
+    if (this.queue.length > LiveClient.MAX_QUEUE) this.queue.shift();
+  }
   userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[]) {
-    this.sendJson({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
+    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
   }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken ? { spoken } : {}) }); }
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
@@ -116,6 +135,7 @@ export class LiveClient {
   get ready() { return this.ws?.readyState === WebSocket.OPEN; }
   close() {
     this.closedByUser = true;
+    this.queue.length = 0;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.healthyTimer) { clearTimeout(this.healthyTimer); this.healthyTimer = null; }
     this.control("end");

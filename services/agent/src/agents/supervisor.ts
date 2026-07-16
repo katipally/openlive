@@ -1,7 +1,7 @@
 import type { Message } from "@openlive/harness";
 import { agentLabel } from "@openlive/shared";
 import type { Emit } from "../tools.js";
-import type { Agent, AgentId, TurnInput } from "./types.js";
+import type { Agent, AgentId, AskPermission, TurnInput } from "./types.js";
 import { log } from "../log.js";
 
 // Reliability wrapper every agent runs inside. External agents are child processes
@@ -17,11 +17,24 @@ export class AgentSupervisor implements Agent {
   readonly id: AgentId;
   private agent: Agent;
   private history: Message[] = [];
-  private restarted = false; // restart-once-then-fail
+  private restartAttempted = false; // one restart per incident (the guard)
+  private restarted = false;        // the last restart actually SUCCEEDED (drives the spoken line)
+  private disposed = false;         // once torn down, never recycle a new child (orphan-proof)
+  private awaitingUser = false;     // a permission ask is pending — the watchdog must not count this as a stall
+  private lastActivity = 0;         // updated on output AND when a permission ask settles
+  private ask: AskPermission;
   private t: SupervisorTimeouts;
 
-  constructor(private factory: () => Agent, timeouts?: Partial<SupervisorTimeouts>) {
-    this.agent = factory();
+  constructor(private factory: (ask: AskPermission) => Agent, askPermission: AskPermission, timeouts?: Partial<SupervisorTimeouts>) {
+    // The agent asks the user for permission through us, so we can PAUSE the stall
+    // watchdog while the user is deciding (they get 120s; the watchdog fires at 30–60s
+    // of silence — without this it would abort + restart mid-decision).
+    this.ask = async (q, o) => {
+      this.awaitingUser = true;
+      try { return await askPermission(q, o); }
+      finally { this.awaitingUser = false; this.lastActivity = Date.now(); }
+    };
+    this.agent = factory(this.ask);
     this.id = this.agent.id;
     this.t = { ...DEFAULTS, ...timeouts };
   }
@@ -35,9 +48,7 @@ export class AgentSupervisor implements Agent {
     this.agent.seed(history);
   }
 
-  async dispose(): Promise<void> { await this.agent.dispose(); }
-
-  health() { return this.agent.health?.() ?? { ok: true }; }
+  async dispose(): Promise<void> { this.disposed = true; await this.agent.dispose(); }
 
   async setModel(modelId: string): Promise<void> { await this.agent.setModel?.(modelId); }
   async setMode(modeId: string): Promise<void> { await this.agent.setMode?.(modeId); }
@@ -50,7 +61,7 @@ export class AgentSupervisor implements Agent {
     const onAbort = () => ac.abort((signal as AbortSignal & { reason?: unknown }).reason);
     signal.addEventListener("abort", onAbort, { once: true });
 
-    let last = Date.now();
+    this.lastActivity = Date.now();
     let sawOutput = false;
     let timedOut = false;
     let spoken = ""; // assistant text this turn, for history-on-restart
@@ -59,14 +70,15 @@ export class AgentSupervisor implements Agent {
       // signal and emits late must be silenced here, or its ghost text is spoken
       // over dead air / the next turn (the session's own signal isn't aborted).
       if (ac.signal.aborted) return;
-      last = Date.now();
+      this.lastActivity = Date.now();
       if (e.type === "text_delta") { sawOutput = true; spoken += e.text; }
       else if (e.type === "tool_start" || e.type === "reasoning_delta") sawOutput = true;
       return emit(e);
     };
     const watchdog = setInterval(() => {
+      if (this.awaitingUser) { this.lastActivity = Date.now(); return; } // waiting on the user, not stalled
       const limit = sawOutput ? this.t.stallMs : this.t.firstOutputMs;
-      if (Date.now() - last > limit) { timedOut = true; ac.abort(); }
+      if (Date.now() - this.lastActivity > limit) { timedOut = true; ac.abort(); }
     }, 250);
 
     try {
@@ -82,7 +94,7 @@ export class AgentSupervisor implements Agent {
       if (timedOut) throw new Error(sawOutput ? "stopped mid-answer" : "didn't start answering");
       // A clean turn means the (possibly restarted) agent is healthy again — refresh
       // the restart budget so a LATER, unrelated failure still gets its one restart.
-      this.restarted = false;
+      this.restartAttempted = false;
       this.history.push({ role: "user", text: input.text });
       if (spoken.trim()) this.history.push({ role: "assistant", text: spoken.trim() });
     } catch (e: any) {
@@ -100,17 +112,23 @@ export class AgentSupervisor implements Agent {
     }
   }
 
-  /** Rebuild the agent once per incident, carrying the text history forward. Awaited
-   *  so the "I've restarted it — try again" line is truthful. */
+  /** Rebuild the agent once per incident, carrying the text history forward. Sets
+   *  `restarted` only when the new child actually becomes ready, so the spoken
+   *  "I've restarted it" line is truthful (a crash-loop says "check it's installed"). */
   private async recycle(): Promise<void> {
-    if (this.restarted) return;
-    this.restarted = true;
+    if (this.restartAttempted || this.disposed) return;
+    this.restartAttempted = true;
+    this.restarted = false;
     try { await this.agent.dispose(); } catch { /* already dead */ }
+    if (this.disposed) return; // session torn down mid-recycle — don't spawn an orphan
     try {
-      this.agent = this.factory();
-      this.agent.seed(this.history);
+      const next = this.factory(this.ask);
+      next.seed(this.history);
       const ac = new AbortController();
-      await this.withStartTimeout(this.agent.start(ac.signal)).catch((e) => { ac.abort(); throw e; });
+      await this.withStartTimeout(next.start(ac.signal)).catch((e) => { ac.abort(); throw e; });
+      if (this.disposed) { await next.dispose().catch(() => {}); return; } // disposed while starting
+      this.agent = next;
+      this.restarted = true;
     } catch (e) {
       log.error(`agent:${this.id}`, "restart failed:", e);
     }

@@ -43,7 +43,7 @@ export function agentCwd(chatId: string): string {
 export function createBoundAgent(chatId: string, askPermission: AskPermission, hooks: BoundHooks = {}): Agent | null {
   const id = boundAgent(chatId);
   if (!id) return null;
-  return new AgentSupervisor(() => new AcpAgent(id, askPermission, {
+  return new AgentSupervisor((ask) => new AcpAgent(id, ask, {
     // Persist the agent's OWN session id BOTH as the resume key and ON the chat row,
     // so History can dedup this chat against its on-disk agent session (and the id is
     // exactly what `claude --resume` reopens).
@@ -58,5 +58,5 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     cwd: agentCwd(chatId),
     onMeta: hooks.onMeta,
     onReplay: hooks.onReplay,
-  }), { startMs: 60_000 });
+  }), askPermission, { startMs: 60_000 });
 }

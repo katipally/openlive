@@ -93,7 +93,8 @@ export async function* streamOpenAIChat(opts: {
   for await (const line of sseLines(res.body)) {
     if (!line.startsWith("data:")) continue
     const payload = line.slice(5).trim()
-    if (!payload || payload === "[DONE]") break
+    if (!payload) continue           // empty data line = keepalive/heartbeat, NOT the end
+    if (payload === "[DONE]") break
     let ev: any
     try {
       ev = JSON.parse(payload)

@@ -15,15 +15,30 @@ let worker: Worker | null = null;
 let ready = false;
 let turnAvailable = false;
 let seq = 0;
+let loadedTag: string | null = null; // the config (tier:sttSize:ttsEngine) the warm worker actually loaded
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 // keyed by "<model>:<file>" so the same filename under two models never collides.
 const files = new Map<string, { model: ModelKey; loaded: number; total: number }>();
+
+// Tear down the worker + all in-flight state. Used on load failure (so a retry
+// starts clean, not against a dead worker with stale progress totals) and when a
+// config change requires reloading different weights.
+function resetWorker() {
+  try { worker?.terminate(); } catch { /* already gone */ }
+  worker = null; ready = false; loadedTag = null;
+  files.clear();
+  for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
+}
 
 export function hasWebGPU(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
 export function modelsReady(): boolean { return ready; }
+// Whether the warm worker matches the CURRENT pipeline config. A Whisper-size or
+// TTS-engine change makes this false while `ready` stays true — callers use this to
+// reload the right weights instead of silently keeping the old ones.
+export function modelsMatchConfig(): boolean { return ready && loadedTag === readyTag(); }
 
 // Persistent "weights are already in the Cache API" flag, keyed to the device
 // tier (webgpu/wasm download DIFFERENT files). The in-memory `ready` flag resets
@@ -52,10 +67,17 @@ export function modelsCached(): boolean {
 let loading: Promise<void> | null = null;
 
 export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {
-  if (ready) return Promise.resolve();
+  if (modelsMatchConfig()) return Promise.resolve();
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise.
   if (loading) return loading;
+  // A warm worker loaded with a DIFFERENT config (the user changed Whisper size /
+  // TTS engine) — tear it down so we reload the right weights. This is what makes
+  // "Applies on the next call" true instead of needing a full app restart.
+  if (ready) resetWorker();
+  // Fresh totals — a prior failed/partial load's leftover entries would corrupt the
+  // new download's progress bar.
+  files.clear();
   // Best-effort: ask the browser not to evict the model cache under storage pressure.
   try { navigator.storage?.persist?.(); } catch { /* not supported */ }
   loading = new Promise<void>((resolve, reject) => {
@@ -85,22 +107,23 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           break;
         }
         case "ready":
-          ready = true; turnAvailable = !!m.turn;
+          ready = true; turnAvailable = !!m.turn; loadedTag = readyTag();
           try { localStorage.setItem(READY_KEY, readyTag()); } catch { /* private mode */ }
           resolve();
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
         case "error":
           if (m.id != null) { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.reject(new Error(m.message)); } }
-          else reject(new Error(m.message));
+          else { resetWorker(); reject(new Error(m.message)); } // load failed → clean slate for a retry
           break;
       }
     };
     w.onerror = (e) => {
       const err = new Error(e.message || "model worker crashed");
+      // Terminate the dead worker + reject every in-flight inference (resetWorker),
+      // so a retry starts clean instead of awaiting a corpse with stale progress.
+      resetWorker();
       reject(err); // the load promise, if we never became ready
-      // Fail every in-flight inference so callers recover rather than await a dead worker.
-      for (const [id, p] of pending) { pending.delete(id); p.reject(err); }
     };
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);

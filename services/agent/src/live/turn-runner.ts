@@ -165,10 +165,15 @@ export class LiveTurnRunner {
           catch (e: any) { return { tc, res: { output: `Error: ${String(e?.message ?? e)}`, isError: true as const } }; }
         };
         const results = await Promise.all(turn.toolCalls.map(runOne));
-        if (signal.aborted) return;
+        // Pair a tool_result to EVERY tool_use we just recorded — unconditionally,
+        // even on a barge-in abort. An assistant message carrying toolCalls with no
+        // matching tool results makes the very next turn 400 at Anthropic/OpenAI
+        // (orphaned tool_use), poisoning the rest of the call. runOne never throws
+        // (it maps errors to an error result), so this always fully pairs them.
         for (const { tc, res } of results) {
           this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: res.output, images: res.images, isError: res.isError });
         }
+        if (signal.aborted) return;
       }
     } catch (e: any) {
       if (signal.aborted) {

@@ -47,6 +47,25 @@ export async function createProvider(p: {
   return toProvider(row);
 }
 
+/** Upsert a provider's key by registry kind, ATOMICALLY. The find-or-create runs
+ *  inside the single write transaction, so two concurrent first-time POSTs for the
+ *  same kind can't each create a row (the second sees the first's row). */
+export async function upsertProviderByKind(kind: ProviderKind, name: string, apiKey?: string | null): Promise<Provider> {
+  const key = apiKey?.trim() || null;
+  let out!: Provider;
+  await updateJson<ProviderRow[]>(PROVIDERS, [], (rows) => {
+    let row = rows.find((r) => r.kind === kind);
+    if (!row) {
+      row = { id: randomUUID(), name, kind, apiKeyCiphertext: null, keyLast4: null, isDefault: rows.length === 0 };
+      rows.push(row);
+    }
+    if (key) { row.apiKeyCiphertext = encryptSecret(key); row.keyLast4 = key.slice(-4); }
+    out = toProvider(row);
+    return rows;
+  });
+  return out;
+}
+
 export async function updateProvider(id: string, p: {
   name?: string; apiKey?: string | null; isDefault?: boolean;
 }): Promise<Provider | undefined> {

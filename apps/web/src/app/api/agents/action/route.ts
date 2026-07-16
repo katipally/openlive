@@ -25,7 +25,11 @@ export async function POST(req: Request) {
   const spec = agent && action ? actionCommand(agent, action) : null;
   if (!agent || !action || !spec) return NextResponse.json({ error: "Unknown agent or action." }, { status: 400 });
 
-  const child = spawn(spec.cmd, spec.args, { env: { ...process.env, PATH: widenedPath() } });
+  // Windows: `npm` is a `.cmd` shim Node won't exec without a shell (ENOENT) — every
+  // Install/Update button died there. Real .exe launchers (powershell/cmd) don't need
+  // it. POSIX keeps shell:false.
+  const useShell = process.platform === "win32" && spec.cmd === "npm";
+  const child = spawn(spec.cmd, spec.args, { shell: useShell, env: { ...process.env, PATH: widenedPath() } });
   const enc = new TextEncoder();
   let sawEacces = false;
   const stream = new ReadableStream<Uint8Array>({

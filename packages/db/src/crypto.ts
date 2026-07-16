@@ -10,7 +10,14 @@ import { DATA_DIR } from "./paths";
 
 function loadKey(): Buffer {
   const fromEnv = process.env.OPENLIVE_ENC_KEY?.trim();
-  if (fromEnv && /^[0-9a-fA-F]{64}$/.test(fromEnv)) {
+  if (fromEnv) {
+    // Set-but-malformed is a MISCONFIGURATION — fail loudly. Silently falling back to
+    // the auto file key encrypts data under a different key than the operator
+    // configured; a later "corrected" boot then fails every decrypt while the UI still
+    // reports hasKey:true. Surfacing it here makes the fix obvious.
+    if (!/^[0-9a-fA-F]{64}$/.test(fromEnv)) {
+      throw new Error("OPENLIVE_ENC_KEY must be exactly 64 hex characters (a 32-byte key). Fix or unset it — refusing to fall back to the auto-generated file key.");
+    }
     return Buffer.from(fromEnv, "hex");
   }
   const keyFile = resolve(DATA_DIR, ".enc-key");

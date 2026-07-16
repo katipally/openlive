@@ -34,6 +34,10 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // expiresAt (epoch ms): when the server auto-denies an unanswered ask — drives
   // the client's visible countdown + spoken reminder.
   z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })), expiresAt: z.number().optional() }),
+  // A permission ask is no longer awaiting the user (answered, auto-denied, or the
+  // turn was cancelled) — the client dismisses its chip so a later utterance isn't
+  // mis-read as a yes/no answer.
+  z.object({ t: z.literal("permission_resolved"), reqId: z.string() }),
   // The bound agent's selectable models + modes (learned when it connects), so the
   // UI can offer model/mode pickers. Sent on connect and after a switch.
   z.object({

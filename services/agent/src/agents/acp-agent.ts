@@ -102,8 +102,14 @@ export class AcpAgent implements Agent {
     // A real project folder is required: it's where the agent files its session
     // (so `claude --resume` etc. can reopen it) and the only place it reads/writes.
     if (!cfg.cwd) throw new Error(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`);
+    const isWin = process.platform === "win32";
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
+      // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
+      // refuses to exec without a shell (ENOENT) — so bind Claude Code/Codex/OpenCode
+      // died on Windows. Run through a shell there. On POSIX we keep shell:false so
+      // the acpCommand override can't be shell-interpreted (validated + no shell).
+      shell: isWin,
       env: {
         ...process.env,
         PATH: widenedPath(),
@@ -119,11 +125,12 @@ export class AcpAgent implements Agent {
         ...(this.id === "claude-code" ? { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
-      // Own process group so dispose() can kill the WHOLE tree. The adapter is
+      // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
       // `npx …`/`npm exec …`, which spawns node → the real acp binary two levels
       // down; killing just our direct child orphans those grandchildren (they
       // reparent to init and leak). Group-kill (process.kill(-pid)) takes them all.
-      detached: true,
+      // Windows has no process groups this way — dispose() uses `taskkill /T` instead.
+      detached: !isWin,
     });
     this.child = child;
     let stderr = "";
@@ -447,8 +454,6 @@ export class AcpAgent implements Agent {
     }
   }
 
-  health() { return this.alive ? { ok: true } : { ok: false, detail: `${labelFor(this.id)} process is not running` }; }
-
   async dispose(): Promise<void> {
     this.alive = false;
     this.turnEmit = null;
@@ -457,12 +462,19 @@ export class AcpAgent implements Agent {
     this.conn = null;
     const pid = child?.pid;
     if (pid) {
-      // Kill the whole process group (negative pid) so the npx/npm-exec wrapper AND
-      // its node → acp-binary grandchildren all die — not just our direct child.
-      try { process.kill(-pid, "SIGTERM"); }
-      catch { try { child!.kill("SIGTERM"); } catch { /* already dead */ } }
-      // Escalate if it ignores SIGTERM, so a stuck adapter can't linger.
-      setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref();
+      if (process.platform === "win32") {
+        // No POSIX process groups: taskkill /T walks and kills the whole child tree
+        // (the cmd shim → node → acp binary), so grandchildren don't leak.
+        try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); }
+        catch { try { child!.kill(); } catch { /* already dead */ } }
+      } else {
+        // Kill the whole process group (negative pid) so the npx/npm-exec wrapper AND
+        // its node → acp-binary grandchildren all die — not just our direct child.
+        try { process.kill(-pid, "SIGTERM"); }
+        catch { try { child!.kill("SIGTERM"); } catch { /* already dead */ } }
+        // Escalate if it ignores SIGTERM, so a stuck adapter can't linger.
+        setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref();
+      }
     }
   }
 }

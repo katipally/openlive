@@ -9,8 +9,16 @@ const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch 
 
 function pidsOnPort(port) {
   if (process.platform === "win32") {
-    return [...new Set(sh(`netstat -ano -p tcp | findstr LISTENING | findstr :${port}`)
-      .split("\n").map((l) => l.trim().split(/\s+/).pop()).filter((p) => p && p !== "0"))];
+    // Parse netstat columns and match the local address's port EXACTLY. A naive
+    // `findstr :3000` also matches :30001, :30002, … and would taskkill unrelated
+    // processes. Columns: proto | local | foreign | state | pid.
+    const pids = new Set();
+    for (const line of sh("netstat -ano -p tcp").split("\n")) {
+      const c = line.trim().split(/\s+/);
+      if (c.length < 5 || c[3] !== "LISTENING") continue;
+      if (c[1].endsWith(`:${port}`) && c[4] && c[4] !== "0") pids.add(c[4]);
+    }
+    return [...pids];
   }
   return sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean);
 }

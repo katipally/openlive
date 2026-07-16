@@ -31,9 +31,20 @@ const { voiceRoutes } = await import("./voice/routes.js");
 app.route("/voice", voiceRoutes);
 
 const port = Number(process.env.AGENT_PORT ?? 8787);
-const server = serve({ fetch: app.fetch, port }) as unknown as Server;
+// Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
+// reaches it over localhost, and the container web-proxy reaches it over localhost
+// too. A split container deployment (web and agent on different hosts) can widen
+// this via AGENT_HOST — but only alongside OPENLIVE_AGENT_SECRET, which the startup
+// guard below enforces so a widened bind can never be unauthenticated.
+const host = process.env.AGENT_HOST?.trim() || "127.0.0.1";
+const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+if (!isLoopback && !AGENT_SECRET) {
+  log.error("agent", `refusing to bind ${host} without OPENLIVE_AGENT_SECRET — a non-loopback bind must be authenticated.`);
+  process.exit(1);
+}
+const server = serve({ fetch: app.fetch, port, hostname: host }) as unknown as Server;
 const wss = attachLiveWs(server); // live voice+vision on ws://…/live
-console.log(`▸ OpenLive agent service listening on http://localhost:${port}`);
+console.log(`▸ OpenLive agent service listening on http://${host}:${port}`);
 
 server.on("error", (e: NodeJS.ErrnoException) => {
   if (e.code === "EADDRINUSE") log.error("agent", `port ${port} is already in use — kill the old process or set AGENT_PORT.`);

@@ -29,8 +29,12 @@ export function writeJson(name: string, data: unknown): void {
 
 /** Cross-process-safe read-modify-write. Holds a lock on `<file>.lock` for the
  *  whole read→fn→write cycle so a concurrent update in the other process can't
- *  be lost. `realpath:false` lets us lock a file that doesn't exist yet;
- *  `stale:5000` self-heals a lock left behind by a killed process. */
+ *  be lost. `realpath:false` lets us lock a file that doesn't exist yet.
+ *  `update:2500` refreshes the held lock's mtime so a live-but-slow holder is never
+ *  judged stale and stolen mid-write; `stale:15000` still self-heals a lock a KILLED
+ *  process left behind (it stops refreshing), just with more headroom than the old
+ *  5s — which a GC pause or a briefly-suspended process could exceed, letting the
+ *  other process steal the lock and clobber this write. */
 const chains = new Map<string, Promise<unknown>>(); // per-file in-process queue
 
 export async function updateJson<T>(name: string, fallback: T, fn: (cur: T) => T | Promise<T>): Promise<T> {
@@ -41,8 +45,9 @@ export async function updateJson<T>(name: string, fallback: T, fn: (cur: T) => T
     mkdirSync(DATA_DIR, { recursive: true });
     const release = await lockfile.lock(path(name), {
       realpath: false,
-      stale: 5000,
-      retries: { retries: 10, minTimeout: 15, maxTimeout: 150 },
+      stale: 15000,
+      update: 2500,
+      retries: { retries: 15, minTimeout: 15, maxTimeout: 250 },
     });
     try {
       const next = await fn(readJson(name, fallback));

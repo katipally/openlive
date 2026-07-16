@@ -1,5 +1,5 @@
 import type { ChatRequest, Message, ProviderEvent, ProviderQuirks, ToolDef } from "./types"
-import { thinkingBudget } from "./effort"
+import { thinkingBudget, anthropicThinkingForm } from "./effort"
 import { fetchWithRetry } from "./retry"
 import { safeJsonParse, sseLines } from "./sse"
 
@@ -96,24 +96,25 @@ export async function* streamAnthropic(opts: {
       ? system
       : [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
   if (req.tools.length) body.tools = toTools(req.tools, quirks?.noCacheControl)
-  // Extended thinking. Current Anthropic models (Opus 4.6+, Sonnet 5/4.6, Fable 5)
-  // require adaptive thinking + output_config.effort — the old
-  // {type:"enabled",budget_tokens} form is rejected with a 400.
-  // ponytail: pre-4.6 models (claude-3.x, *-4-0/4-1, opus-4-5, sonnet-4-5) still
-  // take a token budget; kept as a fallback. Extend the regex if you add more.
-  // MiniMax (noThinking) ignores these — its M2.x reasoning is always-on.
+  // Extended thinking. The accepted form differs by model (see anthropicThinkingForm):
+  // current models (Opus 4.6+, Sonnet 4.6/5, Fable 5) take adaptive thinking +
+  // output_config.effort; pre-4.6 models take {type:"enabled",budget_tokens}; and
+  // models with NO thinking channel (Haiku 4.5 — the default live rec — and older)
+  // reject BOTH and must get neither, or they 400. MiniMax (noThinking) ignores
+  // these — its M2.x reasoning is always-on.
   if (req.effort && !quirks?.noThinking) {
-    const legacy = /claude-3|-4-0\b|-4-1\b|opus-4-5|sonnet-4-5/.test(req.model)
-    if (legacy) {
+    const form = anthropicThinkingForm(req.model)
+    if (form === "budget") {
       const budget = thinkingBudget(req.effort)
       body.thinking = { type: "enabled", budget_tokens: budget }
       body.max_tokens = Math.min(budget + (req.maxTokens ?? 8192), 32000) // must exceed the budget, capped for safety
-    } else {
+    } else if (form === "adaptive") {
       // display:"summarized" — current models default to "omitted" (empty
       // thinking text); OpenLive streams reasoning to the UI, so opt back in.
       body.thinking = { type: "adaptive", display: "summarized" }
       body.output_config = { effort: req.effort }
     }
+    // form === "none": send no thinking — the model rejects the parameter.
   }
 
   const res = await fetchWithRetry(
@@ -184,6 +185,11 @@ export async function* streamAnthropic(opts: {
       case "message_stop":
         yield { type: "done", stopReason: "stop" }
         return
+      case "error":
+        // Anthropic streams an `error` event mid-response (e.g. overloaded_error) and
+        // then just stops. Without this the reply was silently truncated and reported
+        // as a clean `done` — throw so the turn surfaces a real, actionable error.
+        throw new Error(`Anthropic stream error: ${json.error?.message ?? json.error?.type ?? "unknown"}`)
     }
   }
   yield { type: "done", stopReason: "stop" }

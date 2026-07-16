@@ -10,7 +10,7 @@ import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
-import { loadModels, modelsReady, modelsCached } from "./models";
+import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
 import { useLiveStore } from "./liveStore";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
@@ -140,6 +140,12 @@ export function useLiveSession(chatId: string) {
   const camRef = useRef<CameraCapture | null>(null);
   const screenRef = useRef<CameraCapture | null>(null);
   const micStream = useRef<MediaStream | null>(null);
+  // Re-entrancy guards: a media toggle awaits getUserMedia/getDisplayMedia, and the
+  // on/off decision reads store state that only flips AFTER the await — so two quick
+  // taps both take the "on" branch and the first stream is orphaned (camera light
+  // stuck on). These block the second tap until the first settles.
+  const camBusy = useRef(false);
+  const screenBusy = useRef(false);
   const assistantId = useRef<string | null>(null);
   const permReminder = useRef<ReturnType<typeof setTimeout> | null>(null); // spoken "30s left" nudge
   const turnStartedAt = useRef(0); // notify "finished" only for turns that took real time
@@ -154,6 +160,22 @@ export function useLiveSession(chatId: string) {
   const revealRaf = useRef<number | null>(null);
   const stopReveal = () => { if (revealRaf.current != null) { cancelAnimationFrame(revealRaf.current); revealRaf.current = null; } };
   const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; };
+  // A tool/reasoning part "closes" the current spoken text segment. Snap the chunk
+  // that's revealing to its full text, then RESET the accumulator — otherwise the
+  // next segment's `base` (segText) still carries the pre-tool sentences, which
+  // liveText writes into a fresh text part after the tool, duplicating them in the
+  // Activity panel and exported Markdown. Reset-on-new-user-turn alone missed this.
+  const closeSpokenSegment = useCallback(() => {
+    if (curChunk.current == null && !segText.current) return;
+    const id = assistantId.current;
+    if (id && curChunk.current != null) {
+      const full = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+      chatStore.liveText(chatId, id, full);
+    }
+    stopReveal();
+    segText.current = "";
+    curChunk.current = null;
+  }, [chatId]);
 
   // Desktop mini mode hides this window, which freezes rAF — snap the in-flight
   // word reveal to its full chunk so the saved/visible transcript never stalls
@@ -192,7 +214,7 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null });
   }, [chatId, set]);
 
   // Open the live socket + register every handler, binding this conversation's agent
@@ -223,6 +245,14 @@ export function useLiveSession(chatId: string) {
         if (remindIn > 0) permReminder.current = setTimeout(() => {
           if (useLiveStore.getState().permission?.reqId === reqId) engine.current?.say("Still waiting on that permission — I'll take it as a no in thirty seconds.");
         }, remindIn);
+      },
+      // The server settled the ask (answered elsewhere, auto-denied, or the turn was
+      // cancelled) — drop the chip + reminder so a later utterance isn't swallowed as
+      // a yes/no answer to a request that's already gone.
+      onPermissionResolved: (reqId) => {
+        if (useLiveStore.getState().permission?.reqId !== reqId) return;
+        if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
+        set({ permission: null });
       },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
@@ -259,7 +289,7 @@ export function useLiveSession(chatId: string) {
         // races ahead) — so an interrupt leaves the panel showing only what was said.
         if (e.type === "text_delta") { engine.current?.feedAgentDelta(e.text); return; }
         // Reasoning streams into the transcript's work block (interleaved with tools).
-        if (e.type === "reasoning_delta") { if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
+        if (e.type === "reasoning_delta") { closeSpokenSegment(); if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
         if (e.type === "done") {
           set({ toolStatus: "" });
           engine.current?.endAgentTurn();
@@ -279,6 +309,7 @@ export function useLiveSession(chatId: string) {
         // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
         // not bundled in after the answer. toolStatus drives the in-call status line.
         if (e.type === "tool_start") {
+          closeSpokenSegment(); // don't let the pre-tool text re-emit after the tool part
           set({ toolStatus: e.tool });
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
           return;
@@ -319,7 +350,7 @@ export function useLiveSession(chatId: string) {
     onPageHide.current = () => teardown();
     window.addEventListener("pagehide", onPageHide.current);
     return c;
-  }, [chatId, set, teardown]);
+  }, [chatId, set, teardown, closeSpokenSegment]);
 
   // Pre-call: connect a bound agent (with a project folder) so it reports its
   // models/modes into the lobby BEFORE the call starts. No-op for the built-in
@@ -341,8 +372,10 @@ export function useLiveSession(chatId: string) {
     if (!player.current) player.current = new AudioPlayer();
     player.current.resume();
     try {
-      // 1. Models (download-on-demand, cached). Shows a progress bar the first time.
-      if (!modelsReady()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
+      // 1. Models (download-on-demand, cached). Shows a progress bar the first time,
+      //    and reloads if the pipeline config changed (e.g. a new Whisper size) so the
+      //    warm worker doesn't keep serving the old weights.
+      if (!modelsMatchConfig()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
       if (tornDown.current) return;
 
       // Cloned voice: fire-and-forget a tiny synth so the agent-side engine's
@@ -508,8 +541,8 @@ export function useLiveSession(chatId: string) {
     // isn't warm in THIS page, silently pre-load it in the background so hitting
     // start is instant — no visible progress bar (it reads from cache, fast).
     const cached = modelsCached();
-    set({ modelsDownloaded: cached || modelsReady() });
-    if (cached && !modelsReady()) void loadModels(() => {}).catch(() => {});
+    set({ modelsDownloaded: cached || modelsMatchConfig() });
+    if (cached && !modelsMatchConfig()) void loadModels(() => {}).catch(() => {});
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       set({
@@ -576,57 +609,65 @@ export function useLiveSession(chatId: string) {
   }, [set]);
 
   const toggleCamera = useCallback(async () => {
-    const on = !useLiveStore.getState().cameraOn;
-    if (on) {
-      const camera = new CameraCapture();
-      camRef.current = camera;
-      try {
-        await camera.start(useLiveStore.getState().camId);
-        await refreshDevices();
-      } catch {
-        try { camera.stop(); } catch { /* */ }
+    if (camBusy.current) return; // a previous toggle is still resolving — ignore the double-tap
+    camBusy.current = true;
+    try {
+      const on = !useLiveStore.getState().cameraOn;
+      if (on) {
+        const camera = new CameraCapture();
+        camRef.current = camera;
+        try {
+          await camera.start(useLiveStore.getState().camId);
+          await refreshDevices();
+        } catch {
+          try { camera.stop(); } catch { /* */ }
+          camRef.current = null;
+          set({ error: "Camera access denied." });
+          return;
+        }
+        client.current?.control("camera_on");
+        set({ cameraOn: true, cameraStream: camera.getStream() ?? null });
+      } else {
+        client.current?.control("camera_off");
+        camRef.current?.stop();
         camRef.current = null;
-        set({ error: "Camera access denied." });
-        return;
+        set({ cameraOn: false, cameraStream: null });
       }
-      client.current?.control("camera_on");
-      set({ cameraOn: true, cameraStream: camera.getStream() ?? null });
-    } else {
-      client.current?.control("camera_off");
-      camRef.current?.stop();
-      camRef.current = null;
-      set({ cameraOn: false, cameraStream: null });
-    }
+    } finally { camBusy.current = false; }
   }, [set, refreshDevices]);
 
   // Share a screen/window — independent of the camera (both can be on). The
   // model sees the shared screen through the same inline-frame pipeline.
   const toggleScreen = useCallback(async () => {
-    const on = !useLiveStore.getState().screenOn;
-    if (on) {
-      const cap = new CameraCapture();
-      screenRef.current = cap;
-      try {
-        await cap.startScreen(() => {
-          client.current?.control("screen_off");
-          try { screenRef.current?.stop(); } catch { /* */ }
+    if (screenBusy.current) return; // ignore a double-tap while the previous toggle resolves
+    screenBusy.current = true;
+    try {
+      const on = !useLiveStore.getState().screenOn;
+      if (on) {
+        const cap = new CameraCapture();
+        screenRef.current = cap;
+        try {
+          await cap.startScreen(() => {
+            client.current?.control("screen_off");
+            try { screenRef.current?.stop(); } catch { /* */ }
+            screenRef.current = null;
+            set({ screenOn: false, screenStream: null });
+          });
+        } catch {
+          try { cap.stop(); } catch { /* */ }
           screenRef.current = null;
-          set({ screenOn: false, screenStream: null });
-        });
-      } catch {
-        try { cap.stop(); } catch { /* */ }
+          set({ error: "Screen share was cancelled." });
+          return;
+        }
+        client.current?.control("screen_on");
+        set({ screenOn: true, screenStream: cap.getStream() ?? null });
+      } else {
+        client.current?.control("screen_off");
+        screenRef.current?.stop();
         screenRef.current = null;
-        set({ error: "Screen share was cancelled." });
-        return;
+        set({ screenOn: false, screenStream: null });
       }
-      client.current?.control("screen_on");
-      set({ screenOn: true, screenStream: cap.getStream() ?? null });
-    } else {
-      client.current?.control("screen_off");
-      screenRef.current?.stop();
-      screenRef.current = null;
-      set({ screenOn: false, screenStream: null });
-    }
+    } finally { screenBusy.current = false; }
   }, [set]);
 
   const getLevels = useCallback(() => ({ mic: engine.current?.micLevel() ?? 0, agent: engine.current?.agentLevel() ?? 0 }), []);

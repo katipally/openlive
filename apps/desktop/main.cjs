@@ -89,11 +89,12 @@ function spawnServer(name, scriptRel, env) {
 function startServers() {
   if (DEV) return; // dev servers come from `pnpm dev`
   const dataDir = path.join(app.getPath("userData"), "data");
-  // No OPENLIVE_AGENT_SECRET anywhere on desktop: the agent binds localhost and
-  // the renderer connects to it directly — the secret only matters for the
-  // container deployment, where the web proxy injects it.
+  // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
+  // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN
+  // exposure by itself; the renderer connects over localhost.
   spawnServer("agent", "agent/agent.mjs", {
     AGENT_PORT: String(AGENT_PORT),
+    AGENT_HOST: "127.0.0.1",
     OPENLIVE_DATA_DIR: dataDir,
     WEB_PUBLIC_URL: WEB_URL,
   });
@@ -189,10 +190,18 @@ function createMainWindow() {
   });
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
 
-  // Open external links (docs, etc.) in the real browser, not the app window.
+  // Open external http(s) links (docs, etc.) in the real browser; DENY every other
+  // popup (file:, data:, etc.) rather than letting it open an in-app window.
   mainWin.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http")) { shell.openExternal(url); return { action: "deny" }; }
-    return { action: "allow" };
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  // Keep the main frame pinned to our own UI: an in-page navigation to anywhere
+  // other than the local app is blocked (http(s) is handed to the real browser).
+  mainWin.webContents.on("will-navigate", (e, url) => {
+    if (url.startsWith(WEB_URL)) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   mainWin.loadURL(WEB_URL);
@@ -243,6 +252,16 @@ function createPanelWindow() {
 // memory here (the renderer persists it and re-sends on each mini entry).
 // globalShortcut has no keyup, so it's always a press-to-TOGGLE.
 let miniHotkey = "Alt+Space";
+
+// Module-scope so BOTH enterMini() and the set-mini-hotkey IPC handler can arm it.
+// (It used to be declared inside wireMiniIpc(), so enterMini()'s call threw a
+// swallowed ReferenceError → the "Alt+Space from anywhere" hotkey never armed.)
+function registerMiniHotkey() {
+  try {
+    globalShortcut.unregisterAll();
+    return globalShortcut.register(miniHotkey, () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
+  } catch { return false; }
+}
 
 /** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
  *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
@@ -303,12 +322,6 @@ function wireNotifyIpc() {
 }
 
 function wireMiniIpc() {
-  const registerMiniHotkey = () => {
-    try {
-      globalShortcut.unregisterAll();
-      return globalShortcut.register(miniHotkey, () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
-    } catch { return false; }
-  };
   // Change the hotkey (Settings → General). Re-registers live if the panel is up;
   // an invalid/taken accelerator falls back to the previous one and reports it.
   ipcMain.handle("openlive:set-mini-hotkey", (_e, acc) => {

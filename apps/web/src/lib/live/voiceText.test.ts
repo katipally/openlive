@@ -83,3 +83,17 @@ test("SentenceChunker: after the first chunk, later short sentences hold to the 
   const out = c.push("Yes. ");                     // 4 chars, under MIN → held
   assert.equal(out.length, 0);
 });
+
+test("SentenceChunker: fenced code blocks are dropped from speech (incl. split across deltas)", () => {
+  const c = new SentenceChunker();
+  const spoken: string[] = [];
+  // A fence that spans several deltas, with the ``` marker split at a delta boundary.
+  for (const d of ["Here's the fix. ", "``", "`js\nconst x = arr[0];\nfoo();\n", "``", "` Done now."]) {
+    spoken.push(...c.push(d));
+  }
+  const all = (spoken.join(" ") + " " + c.flush()).replace(/\s+/g, " ").trim();
+  assert.ok(!all.includes("const x"), "code inside the fence must not be voiced");
+  assert.ok(!all.includes("`"), "no stray backticks reach TTS");
+  assert.ok(all.includes("Here's the fix"), "prose before the fence is kept");
+  assert.ok(all.includes("Done now"), "prose after the fence is kept");
+});

@@ -19,7 +19,7 @@ export type CredProbe =
 /** Shell recipes per action. `npm` means global npm install/uninstall of that
  *  package; `terminal` opens the user's terminal running an INTERACTIVE flow
  *  (e.g. hermes' setup wizard) instead of streaming a headless command. */
-export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string }
+export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string }
 
 export interface AgentDef {
   id: AgentId;
@@ -37,6 +37,9 @@ export interface AgentDef {
   uninstall?: InstallRecipe;
   /** CLI sign-in command — needs a real TTY/browser, so it runs in a terminal. */
   login: string;
+  /** Windows PowerShell variant of `login`, when the POSIX one won't parse in
+   *  PowerShell (e.g. hermes' pipeline/quoting). Falls back to `login`. */
+  winLogin?: string;
   /** CLI sign-out command; absent → no Sign out affordance. */
   logout?: string;
   /** Where the agent keeps its own sessions (display + discovery root). */
@@ -161,8 +164,11 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     installedProbe: { kind: "file", path: "~/.hermes" },
     install: {
       terminal: "command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+      // Windows/PowerShell: install uv via its .ps1 script, then run the setup wizard.
+      winTerminal: "if (-not (Get-Command uvx -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     },
     login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+    winLogin: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     // No logout — its setup wizard manages credentials in ~/.hermes.
     sessionsDir: "~/.hermes",
     sessionParser: "hermes-sqlite",
