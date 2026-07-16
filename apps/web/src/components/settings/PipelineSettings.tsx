@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check } from "lucide-react";
+import { api } from "@/lib/api";
 import {
   loadPipelineConfig, savePipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
@@ -215,8 +217,30 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </label>
       <Slider label="Speaking speed" value={cfg.tts.speed} min={0.5} max={2} step={0.05}
         fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => update({ ...cfg, tts: { ...cfg.tts, speed: v } })} />
+      <NarrateToggle />
       <ModelStatus />
     </div>
+  );
+}
+
+/** Spoken progress for coding-agent turns — a short voiced one-liner ("Step 2 of
+ *  4 — refactor the store.") when a tool has run a while and the agent is quiet. */
+function NarrateToggle() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const on = (data as Record<string, string> | undefined)?.narrateProgress === "1";
+  const flip = () => void api.updateSettings({ narrateProgress: on ? "" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
+  return (
+    <label className="flex cursor-pointer select-none items-start gap-2.5">
+      <button role="switch" aria-checked={on} onClick={flip}
+        className={cn("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition", on ? "bg-accent" : "bg-foreground/15")}>
+        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", on ? "left-[18px]" : "left-0.5")} />
+      </button>
+      <span className="text-[12.5px] leading-snug text-foreground">
+        Narrate agent progress
+        <span className="block text-[11px] text-faint">While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4 — …&rdquo;). At most a few short lines a turn.</span>
+      </span>
+    </label>
   );
 }
 

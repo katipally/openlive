@@ -8,6 +8,7 @@ import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
+import { wrapEmitWithNarration } from "./narrator.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ReplayMessage } from "../agents/index.js";
 import { log } from "../log.js";
 
@@ -245,7 +246,10 @@ export class LiveSession {
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
-        await this.agent.runTurn({ text, frames }, emit, ac.signal);
+        // Spoken progress (opt-in): long tool runs get a short voiced one-liner.
+        // The built-in brain keeps its own worker narration — no double-narrate.
+        const agentEmit = getSetting("narrateProgress") === "1" ? wrapEmitWithNarration(emit, ac.signal) : emit;
+        await this.agent.runTurn({ text, frames }, agentEmit, ac.signal);
       } else {
         await this.runner.runTurn(text, frames, emit, ac.signal);
       }
