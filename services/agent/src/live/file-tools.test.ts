@@ -3,6 +3,8 @@
 // assistant could read or overwrite arbitrary files.
 import assert from "node:assert";
 import path from "node:path";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { test } from "vitest";
 import { confine } from "./file-tools.ts";
 
@@ -30,4 +32,23 @@ test("blocks anything that escapes the root", () => {
 
 test("a sibling folder sharing a name prefix must NOT count as inside", () => {
   blocked("../proj-evil/x");
+});
+
+test("a symlink inside the workspace pointing outside is refused", () => {
+  const tmp = mkdtempSync(path.join(tmpdir(), "ol-confine-"));
+  try {
+    const ws = path.join(tmp, "workspace");
+    const outsideDir = path.join(tmp, "outside");
+    mkdirSync(ws); mkdirSync(outsideDir);
+    writeFileSync(path.join(outsideDir, "secret.txt"), "s");
+    symlinkSync(outsideDir, path.join(ws, "link"));           // dir symlink → out
+    symlinkSync(path.join(outsideDir, "secret.txt"), path.join(ws, "file-link")); // file symlink → out
+    assert.strictEqual(confine(ws, "link/secret.txt"), null, "read through an escaping dir symlink");
+    assert.strictEqual(confine(ws, "link/new.txt"), null, "write through an escaping dir symlink");
+    assert.strictEqual(confine(ws, "file-link"), null, "escaping file symlink");
+    // Sanity: real files inside still pass, including not-yet-existing write targets.
+    writeFileSync(path.join(ws, "ok.txt"), "x");
+    assert.strictEqual(confine(ws, "ok.txt"), path.join(realpathSync.native(ws), "ok.txt"));
+    assert.ok(confine(ws, "new-dir/new.txt"));
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

@@ -1,30 +1,41 @@
 import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
+import { realpathSync, existsSync } from "node:fs";
 import path from "node:path";
 import type { OpenLiveTool, ToolResult } from "../tools.js";
 
 // File tools for the BUILT-IN OpenLive assistant, scoped to the conversation's
 // workspace folder. Reads are free; writes/edits go through the same ask-before-
 // acting permission prompt the coding agents use. Every path is confined to the
-// workspace root — a request that escapes it (../, an absolute path elsewhere) is
-// refused before any fs call.
-//
-// ponytail: prefix-check confinement, not realpath — a symlink INSIDE the workspace
-// that points outside would still resolve out on read/write. Acceptable for a folder
-// the user explicitly picked; tighten with fs.realpath on the resolved path if the
-// workspace ever becomes untrusted.
+// workspace root — a request that escapes it lexically (../, an absolute path
+// elsewhere) OR through a symlink inside the workspace is refused before any
+// fs call.
 
 const MAX_READ = 100_000;   // chars returned from read_file (rest truncated)
 const MAX_FILE = 2_000_000; // refuse to read files larger than this (likely binary)
 
 const t = (output: string, isError = false): ToolResult => ({ output, isError });
 
+const safeReal = (p: string): string | null => { try { return realpathSync.native(p); } catch { return null; } };
+
 /** Resolve `rel` under `root`, or null if it escapes the root. Exported for the
- *  self-check — this is the security fence, so it gets a runnable test. */
+ *  self-check — this is the security fence, so it gets a runnable test.
+ *  Two fences: a lexical prefix check, then a realpath check on the deepest
+ *  existing ancestor (so a symlink inside the workspace pointing out — or a
+ *  write into a symlinked dir — resolves out and is refused). */
 export function confine(root: string, rel: string): string | null {
   if (!root) return null;
-  const base = path.resolve(root);
+  const base = safeReal(path.resolve(root)) ?? path.resolve(root);
   const abs = path.resolve(base, rel || ".");
   if (abs !== base && !abs.startsWith(base + path.sep)) return null;
+  // Realpath fence: walk down from base toward abs to the deepest EXISTING
+  // component (a write target may not exist yet), resolve symlinks, and require
+  // it still inside base. Never probes above base.
+  let probe = abs;
+  while (probe !== base && !existsSync(probe)) probe = path.dirname(probe);
+  if (!existsSync(probe)) return abs; // workspace itself doesn't exist yet — lexical fence only
+  const real = safeReal(probe);
+  if (real === null) return null;
+  if (real !== base && !real.startsWith(base + path.sep)) return null;
   return abs;
 }
 

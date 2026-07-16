@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, rmSync, openSync, readSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { AGENT_LIST, type AgentDef } from "@openlive/shared";
@@ -27,20 +27,18 @@ const iso = (ms: number) => new Date(ms).toISOString();
 const isBoilerplate = (t: string) => !t || /^\s*(<[a-z-]+|\[(you're being used|context —|image #)|base directory for this skill|# files mentioned|caveat:)/i.test(t);
 
 /** Read the first N lines of a file without loading the whole thing (session logs
- *  can be hundreds of MB — see the Codex growth issue). */
+ *  can be hundreds of MB — see the Codex growth issue). One bounded read: the
+ *  cwd/title always live in the first lines, so 1 MB is plenty; a line truncated
+ *  at the boundary just fails the caller's JSON.parse and is skipped. */
+const HEAD_BYTES = 1024 * 1024;
 function headLines(path: string, max: number): string[] {
   try {
-    const buf = readFileSync(path, "utf8");
-    const out: string[] = [];
-    let i = 0;
-    while (out.length < max && i < buf.length) {
-      const nl = buf.indexOf("\n", i);
-      const line = nl === -1 ? buf.slice(i) : buf.slice(i, nl);
-      if (line.trim()) out.push(line);
-      if (nl === -1) break;
-      i = nl + 1;
-    }
-    return out;
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(HEAD_BYTES);
+      const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+      return buf.toString("utf8", 0, Math.max(0, n)).split("\n").filter((l) => l.trim()).slice(0, max);
+    } finally { closeSync(fd); }
   } catch { return []; }
 }
 
@@ -143,9 +141,11 @@ function opencodeSessions(): ExternalSession[] {
   } catch { return []; } // locked db / schema change / old Node → just no sessions
 }
 
-// ── Hermes: sqlite at ~/.hermes/state.db (its shared SessionDB) ───────────────
-// ponytail: schema unverified until a first real hermes-acp run exists on this
-// machine — read attempts are fully guarded, so a mismatch = no sessions, not a crash.
+// ── Hermes: sqlite at ~/.hermes/state.db (its canonical SessionDB) ────────────
+// Schema verified against hermes-agent 0.18.2 source (hermes_state.py): table
+// `sessions`, PK `id`, columns cwd/title/started_at/ended_at (REAL unix seconds),
+// parent_session_id for internal sub-sessions, archived flag. Reads stay fully
+// guarded — a future schema change = no sessions, not a crash.
 function hermesSessions(): ExternalSession[] {
   const db = join(homedir(), ".hermes", "state.db");
   if (!existsSync(db)) return [];
@@ -155,13 +155,15 @@ function hermesSessions(): ExternalSession[] {
     const conn = new DatabaseSync(db, { readOnly: true });
     try {
       const rows = conn
-        .prepare("SELECT session_id AS id, cwd, title, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?")
-        .all(RECENT) as { id: string; cwd: string | null; title: string | null; updated_at: string | number }[];
+        .prepare(`SELECT id, cwd, title, COALESCE(ended_at, started_at) AS ts FROM sessions
+                  WHERE parent_session_id IS NULL AND archived = 0
+                  ORDER BY ts DESC LIMIT ?`)
+        .all(RECENT) as { id: string; cwd: string | null; title: string | null; ts: number }[];
       return rows.map((r) => ({
         id: String(r.id),
         cwd: r.cwd ?? "",
         title: clip(r.title || "Hermes session"),
-        updatedAt: typeof r.updated_at === "number" ? iso(r.updated_at) : new Date(r.updated_at).toISOString(),
+        updatedAt: iso(r.ts * 1000), // REAL unix seconds → ms
       })).filter((s) => s.cwd);
     } finally { conn.close(); }
   } catch { return []; }
