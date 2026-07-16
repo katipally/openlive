@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { isAgentId } from "@openlive/shared";
+import { isAgentId, agentLabel } from "@openlive/shared";
+import { notifyDesktop } from "@/lib/platform";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
@@ -141,6 +142,7 @@ export function useLiveSession(chatId: string) {
   const micStream = useRef<MediaStream | null>(null);
   const assistantId = useRef<string | null>(null);
   const permReminder = useRef<ReturnType<typeof setTimeout> | null>(null); // spoken "30s left" nudge
+  const turnStartedAt = useRef(0); // notify "finished" only for turns that took real time
   const tornDown = useRef(false);
   const onPageHide = useRef<() => void>(() => {});
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
@@ -214,6 +216,8 @@ export function useLiveSession(chatId: string) {
       onPermission: (reqId, question, options, expiresAt) => {
         set({ permission: { reqId, question, options, expiresAt } });
         engine.current?.feedAgentDelta(`${question} `);
+        // High-stakes while unfocused: an unanswered ask auto-denies in 2 minutes.
+        notifyDesktop("Permission needed", question);
         if (permReminder.current) clearTimeout(permReminder.current);
         const remindIn = (expiresAt ?? 0) - Date.now() - 30_000;
         if (remindIn > 0) permReminder.current = setTimeout(() => {
@@ -259,6 +263,12 @@ export function useLiveSession(chatId: string) {
         if (e.type === "done") {
           set({ toolStatus: "" });
           engine.current?.endAgentTurn();
+          // A long-running turn finished while you were in another app (mini-mode
+          // workflow) — quick answers don't notify. Main shows it only if unfocused.
+          if (turnStartedAt.current && Date.now() - turnStartedAt.current > 5000) {
+            notifyDesktop(agentLabel(useLiveStore.getState().boundAgent), "Finished — ready when you are.");
+          }
+          turnStartedAt.current = 0;
           // Finish the spoken turn but KEEP assistantId pointing at it, so any
           // trailing event still attaches. It rolls forward on the next user turn
           // (handleUserText) and is finalized on teardown.
@@ -465,6 +475,7 @@ export function useLiveSession(chatId: string) {
     if (st0.cameraOn && camRef.current) { const j = await camRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "camera" }); }
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     client.current?.userText(text, frames);
+    turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)

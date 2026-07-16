@@ -35,3 +35,10 @@ export const bridge: ((op: string, arg?: string) => Promise<string>) | undefined
   typeof window !== "undefined"
     ? (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive?.bridge
     : undefined;
+
+/** OS notification via the desktop shell — main process shows it only when the
+ *  app isn't focused; a click brings OpenLive forward. No-op in the browser. */
+export function notifyDesktop(title: string, body?: string): void {
+  if (typeof window === "undefined") return;
+  (window as unknown as { openlive?: { notify?: (t: string, b?: string) => void } }).openlive?.notify?.(title, body);
+}

@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("openlive", {
   // OS bridge for agent tools. op: "clipboard_read" | "clipboard_write" | "open_url".
   // Resolves to a short result string the agent speaks back.
   bridge: (op, arg) => ipcRenderer.invoke("openlive:bridge", { op, arg }),
+  // OS notification — shown only when the app isn't focused (main decides).
+  notify: (title, body) => ipcRenderer.send("openlive:notify", { title, body }),
   // Settings → General: launch-at-login (boolean sets, undefined reads) and the
   // configurable global mini-mode talk hotkey.
   loginItem: (v) => ipcRenderer.invoke("openlive:login-item", v),

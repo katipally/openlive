@@ -2,7 +2,7 @@
 // OpenLive desktop shell. Runs the web (Next) + agent (ws) servers locally and
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
-const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, globalShortcut } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, globalShortcut } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -242,6 +242,64 @@ function createPanelWindow() {
 // globalShortcut has no keyup, so it's always a press-to-TOGGLE.
 let miniHotkey = "Alt+Space";
 
+/** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
+ *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
+function enterMini() {
+  if (!mainWin) return;
+  const apply = () => {
+    if (!mainWin) return;
+    createPanelWindow();
+    mainWin.hide();
+  };
+  // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
+  if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
+    mainWin.once("leave-full-screen", apply);
+    mainWin.setFullScreen(false);
+  } else apply();
+  // Global push-to-talk while the panel is up: talk to the agent from any app.
+  registerMiniHotkey();
+}
+
+/** Leave mini mode / bring the app forward. Shared by IPC, the tray menu, and
+ *  notification clicks. */
+function restoreMainWindow() {
+  globalShortcut.unregisterAll();
+  if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
+  panelWin = null;
+  if (mainWin) { mainWin.show(); mainWin.focus(); }
+}
+
+// ── menu-bar (tray) presence + notifications ─────────────────────────────────
+let tray = null;
+
+function createTray() {
+  try {
+    const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
+    tray = new Tray(img);
+    tray.setToolTip("OpenLive");
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: "Open OpenLive", click: restoreMainWindow },
+      { label: "Mini mode", click: enterMini },
+      { type: "separator" },
+      { label: "Quit OpenLive", role: "quit" },
+    ]));
+  } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
+}
+
+function wireNotifyIpc() {
+  // Renderer asks for an OS notification ("agent finished", "permission needed").
+  // Only shown when the user ISN'T looking at the app — focused-and-visible means
+  // they already see it. Clicking brings OpenLive forward (also out of mini mode).
+  ipcMain.on("openlive:notify", (_e, p) => {
+    const title = String(p?.title ?? "").slice(0, 80);
+    if (!title || !Notification.isSupported()) return;
+    if (mainWin && mainWin.isVisible() && mainWin.isFocused()) return;
+    const n = new Notification({ title, body: String(p?.body ?? "").slice(0, 180), silent: true });
+    n.on("click", restoreMainWindow);
+    n.show();
+  });
+}
+
 function wireMiniIpc() {
   const registerMiniHotkey = () => {
     try {
@@ -259,27 +317,8 @@ function wireMiniIpc() {
     }
     return { ok: true, hotkey: miniHotkey };
   });
-  ipcMain.on("openlive:mini", () => {
-    if (!mainWin) return;
-    const apply = () => {
-      if (!mainWin) return;
-      createPanelWindow();
-      mainWin.hide();
-    };
-    // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
-    if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
-      mainWin.once("leave-full-screen", apply);
-      mainWin.setFullScreen(false);
-    } else apply();
-    // Global push-to-talk while the panel is up: talk to the agent from any app.
-    registerMiniHotkey();
-  });
-  ipcMain.on("openlive:unmini", () => {
-    globalShortcut.unregisterAll();
-    if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
-    panelWin = null;
-    if (mainWin) { mainWin.show(); mainWin.focus(); }
-  });
+  ipcMain.on("openlive:mini", enterMini);
+  ipcMain.on("openlive:unmini", restoreMainWindow);
   // The panel fits its content: its renderer measures the stacked previews + pill
   // and asks for a height. Grow UPWARD — the bottom edge stays put.
   ipcMain.on("openlive:mini-size", (_e, h) => {
@@ -411,8 +450,10 @@ function checkForUpdatesNow() {
 
 async function boot() {
   buildMenu();
+  createTray();
   wirePermissions();
   wireMiniIpc();
+  wireNotifyIpc();
   wireWindowIpc();
   wireBridgeIpc();
   createSplash();
