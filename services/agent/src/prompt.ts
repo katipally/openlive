@@ -63,5 +63,9 @@ export function buildLivePrompt(): string {
     const arr = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
     if (arr.length) notes = `\n\n---\nWHAT YOU REMEMBER ABOUT THIS USER (saved earlier — use naturally, don't recite):\n${arr.map((n) => `- ${n}`).join("\n")}`;
   } catch { /* no notes */ }
-  return `${PERSONA}\n\n${LIVE_RULES}${clock}${notes}`;
+  // The user's own instructions from Settings → General (same text every ACP
+  // agent receives via its session preamble). Read per session build.
+  const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
+  const persona = custom ? `\n\n---\nHOW THE USER WANTS YOU TO BEHAVE AND SPEAK (their own words — follow within reason):\n${custom}` : "";
+  return `${PERSONA}\n\n${LIVE_RULES}${clock}${notes}${persona}`;
 }

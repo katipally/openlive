@@ -30,7 +30,7 @@ function scrubControlTokens(blocks: MessageBlock[]): void {
 // is a single `[…]` block with no internal `]`, so we match its opening marker and
 // cut to the block's close — wherever it sits, and robust even if an agent's replay
 // collapses the blank lines between blocks (a paragraph split would then over-strip).
-const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|Context — earlier in this voice conversation|The user is sharing their)[^\]]*\]/g;
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context — earlier in this voice conversation|The user is sharing their)[^\]]*\]/g;
 export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
   return blocks
     .map((b) => (b.type === "text"

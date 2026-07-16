@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { Monitor, Sun, Moon, Keyboard } from "lucide-react";
+import { api } from "@/lib/api";
 import { voiceInputMode, setVoiceInputMode, type VoiceInputMode } from "@/lib/live/usePtt";
 import { isDesktop, savedMiniHotkey, saveMiniHotkey } from "@/lib/platform";
 import { toast } from "@/lib/toast";
@@ -102,11 +104,46 @@ function VoiceInputPicker() {
   );
 }
 
+/** Free-text custom instructions, injected into the built-in assistant's system
+ *  prompt AND every coding agent's session preamble. Debounced save. */
+function CustomInstructions() {
+  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const value = text ?? (data as Record<string, string> | undefined)?.customInstructions ?? "";
+
+  const onChange = (v: string) => {
+    setText(v.slice(0, 2000));
+    setSaved(false);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void api.updateSettings({ customInstructions: v.slice(0, 2000) }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500); });
+    }, 600);
+  };
+
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-1.5">
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4}
+        placeholder={'e.g. "Keep answers to one sentence unless I ask for detail. Call me Yash. Casual tone."'}
+        className="w-full resize-y rounded-lg bg-card p-3 text-[13px] leading-relaxed text-foreground shadow-[var(--shadow-card)] outline-none transition placeholder:text-faint focus:shadow-[var(--shadow-pop)]" />
+      <div className="flex items-center justify-between text-[11px] text-faint">
+        <span>Applies from the next call — to the built-in assistant and every coding agent.</span>
+        <span>{saved ? "Saved" : `${value.length}/2000`}</span>
+      </div>
+    </div>
+  );
+}
+
 export function GeneralSettings() {
   return (
     <div className="flex flex-col gap-7">
       <Section title="Appearance" desc="Match your system, or force light or dark. Applies everywhere, instantly.">
         <ThemePicker />
+      </Section>
+
+      <Section title="Your assistant's style" desc="How should it behave and speak? Your own words, passed to whoever you're talking to — the built-in assistant and coding agents alike.">
+        <CustomInstructions />
       </Section>
 
       <Section title="Voice input" desc="How Space behaves once you turn push-to-talk on during a call (the keyboard button next to the mic): hold it down like a walkie-talkie, or tap once to start and again to stop. Off by default — normally OpenLive just listens hands-free.">

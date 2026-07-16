@@ -27,21 +27,31 @@ import { log } from "../log.js";
 const PREAMBLE = `[You're being used through OpenLive, a hands-free VOICE interface — not a terminal. The user is TALKING to you out loud: their speech is transcribed to text and sent as their messages, and your text replies are read back to them aloud with text-to-speech. So this is a real spoken conversation — the user hears you, and you're effectively hearing them through the transcription. When they turn on their camera or share their screen, the current frame is attached to their message as an image so you can actually see what they're showing.
 Go along with this naturally: you're still yourself, doing your normal work, but talk the way people talk on a call. Keep replies to a sentence or two unless they ask for more — spoken words take time, and a paragraph you'd happily type is a monologue out loud. No markdown, no lists, no code dumps: describe code and changes in plain words instead of reading them out, and if they need the actual code, say where you put it. Before a long tool run or edit, say in a few words what you're about to do, then do it. Do NOT tell the user you "can't hear" or "can't see" them or that you're "just a text tool" — OpenLive bridges voice and vision for you, so that's simply false here. But never pretend or invent anything: if you genuinely didn't receive an image or can't make something out, say so plainly and ask.]`;
 
+/** The session preamble: the fixed voice-call context plus the user's own
+ *  instructions from Settings → General, read fresh per session so an edit
+ *  applies to the next call. Shared by every agent (Claude via system-prompt
+ *  append, the rest via the first user message). */
+export function preamble(): string {
+  const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
+  if (!custom) return PREAMBLE;
+  return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;
+}
+
 // Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on
 // session/new AND session/load. Two things ride on it:
 //   • persistSession — belt-and-braces so OpenLive sessions ALWAYS land in
 //     ~/.claude/projects/<cwd-slug>/ where `claude --resume` finds them.
 //   • systemPrompt append — the voice-call context goes into the system prompt
 //     instead of polluting the first user message of the saved transcript.
-// Other agents have no such channel, so they keep the first-turn PREAMBLE.
-const CLAUDE_META = {
+// Other agents have no such channel, so they keep the first-turn preamble.
+const buildClaudeMeta = () => ({
   claudeCode: {
     options: {
       persistSession: true,
-      systemPrompt: { type: "preset", preset: "claude_code", append: PREAMBLE },
+      systemPrompt: { type: "preset", preset: "claude_code", append: preamble() },
     },
   },
-};
+});
 
 export interface AcpOpts {
   onSession?: (sessionId: string) => void;   // report the ACP session id (resume-later persistence)
@@ -165,9 +175,9 @@ export class AcpAgent implements Agent {
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
     const canLoad = !!init.agentCapabilities?.loadSession;
-    // Claude gets the voice context through its system prompt (CLAUDE_META), so the
+    // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = this.id === "claude-code" ? CLAUDE_META : undefined;
+    const meta = this.id === "claude-code" ? buildClaudeMeta() : undefined;
     if (meta) this.sentPreamble = true;
     // Cursor advertises loadSession but its sessions die with the process (upstream
     // "Session not found" after restart), so it can't round-trip to its own CLI.
@@ -392,7 +402,7 @@ export class AcpAgent implements Agent {
 
     let userText = text;
     // Once per session, tell the agent it's in a spoken voice+vision call.
-    if (!this.sentPreamble) { userText = `${PREAMBLE}\n\n${userText}`; this.sentPreamble = true; }
+    if (!this.sentPreamble) { userText = `${preamble()}\n\n${userText}`; this.sentPreamble = true; }
     // Note any live camera/screen the user is sharing (frames attached below when supported).
     const sources = frames.length ? [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ") : "";
     if (sources) {
