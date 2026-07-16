@@ -345,6 +345,13 @@ export function useLiveSession(chatId: string) {
       if (!modelsReady()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
       if (tornDown.current) return;
 
+      // Cloned voice: fire-and-forget a tiny synth so the agent-side engine's
+      // ~1s cold start happens now, not on the first real reply.
+      const ttsCfg = (await import("./pipelineConfig")).loadPipelineConfig().tts;
+      if (ttsCfg.engine === "clone" && ttsCfg.voice) {
+        void fetch("/api/voice/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Hi.", profileId: ttsCfg.voice }) }).catch(() => {});
+      }
+
       // 2. Mic stream — chosen device + browser AEC (so the agent's own voice is
       //    cancelled from the mic and can't self-trigger barge-in).
       const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };

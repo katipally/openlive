@@ -25,6 +25,11 @@ app.use("*", async (c, next) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+// Voice Studio: cloned-voice model management, profiles, and synthesis.
+// Lazy import keeps sherpa-onnx (native addon) out of the boot path.
+const { voiceRoutes } = await import("./voice/routes.js");
+app.route("/voice", voiceRoutes);
+
 const port = Number(process.env.AGENT_PORT ?? 8787);
 const server = serve({ fetch: app.fetch, port }) as unknown as Server;
 const wss = attachLiveWs(server); // live voice+vision on ws://…/live

@@ -80,13 +80,30 @@ One turn, end to end:
 2. **STT** (Whisper) transcribes speech to text as it streams.
 3. **End-of-turn** (Smart-Turn v3) decides you actually *finished*, not just paused.
 4. The final text (plus the freshest camera/screen frame) goes out over `/live`.
-5. The reply streams back as text; **TTS** (Kokoro) voices it sentence by sentence
-   so speaking starts before the full answer exists.
+5. The reply streams back as text; **TTS** (Kokoro or Supertonic in the renderer,
+   or a cloned voice — see below) voices it sentence by sentence so speaking starts
+   before the full answer exists.
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
 
-All four models run on **WebGPU via transformers.js**. They download once (~200 MB,
-cached) and the worker stays warm for the tab's life.
+The renderer models run on **WebGPU via transformers.js**. They download once
+(roughly 200 MB with Kokoro, more with Supertonic or a bigger Whisper; cached)
+and the worker stays warm for the tab's life.
+
+## Voice cloning (`services/agent/src/voice/`)
+
+Voice Studio does zero-shot cloning with **ZipVoice** (k2-fsa, Apache-2.0, 123M
+distilled int8) through the **sherpa-onnx Node addon**, running in the agent
+service on CPU — the one place in OpenLive with a native module, loaded lazily
+via `createRequire` so nothing changes for people who never use it. The reference
+recording rides every `generate()` call, so one engine instance serves every
+saved profile; `generateAsync` synthesizes on sherpa's native thread pool
+(measured ~0.22x realtime on an M-series CPU) and the engine unloads after five
+idle minutes. The model is a user-managed ~208 MB install under
+`data/models/zipvoice`, profiles are a wav + transcript under `data/voices`, and
+the renderer reaches it all through a same-origin `/api/voice` proxy — the
+cloned audio streams back as raw Float32 PCM into the same `AudioPlayer` /
+barge-in path as the on-device engines, with Kokoro as automatic fallback.
 
 ## The built-in provider brain (`services/agent/src/live/turn-runner.ts`)
 

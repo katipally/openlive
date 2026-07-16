@@ -8,8 +8,8 @@
 export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
 export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
 export type TurnEngine = "smart-turn" | "silence";
-export type TtsEngine = "kokoro" | "supertonic";
-export const TTS_ENGINE_IDS: readonly TtsEngine[] = ["kokoro", "supertonic"];
+export type TtsEngine = "kokoro" | "supertonic" | "clone";
+export const TTS_ENGINE_IDS: readonly TtsEngine[] = ["kokoro", "supertonic", "clone"];
 
 export interface PipelineConfig {
   stt: { whisperSize: WhisperSize };                        // Whisper.en model size (applies on reload)
@@ -89,6 +89,10 @@ export const SUPERTONIC_VOICES: VoiceOption[] = (["M1", "M2", "M3", "M4", "M5", 
 export const TTS_ENGINES: { id: TtsEngine; name: string; voices: VoiceOption[]; defaultVoice: string }[] = [
   { id: "kokoro", name: "Kokoro — natural, 28 voices (~82 MB)", voices: KOKORO_VOICES, defaultVoice: "af_heart" },
   { id: "supertonic", name: "Supertonic — fastest, 10 voices (~400 MB)", voices: SUPERTONIC_VOICES, defaultVoice: "M1" },
+  // Cloned voices (Voice Studio): synthesis runs in the local agent service
+  // (ZipVoice via sherpa-onnx); `voice` holds a profile id, and the runtime
+  // falls back to Kokoro if the model/profile is missing.
+  { id: "clone", name: "Your voice — cloned in Voice Studio (~208 MB)", voices: [], defaultVoice: "" },
 ];
 const engineOf = (id: TtsEngine) => TTS_ENGINES.find((e) => e.id === id)!;
 
@@ -107,8 +111,9 @@ export function clampPipelineConfig(c: PipelineConfig): PipelineConfig {
     tts: {
       engine,
       // The voice must belong to the selected engine; a stale/foreign id falls
-      // back to that engine's default (e.g. after an engine switch).
-      voice: eng.voices.some((v) => v.id === c.tts.voice) ? c.tts.voice : eng.defaultVoice,
+      // back to that engine's default (e.g. after an engine switch). Clone
+      // voices are profile ids (dynamic) — validated at synth time instead.
+      voice: engine === "clone" || eng.voices.some((v) => v.id === c.tts.voice) ? c.tts.voice : eng.defaultVoice,
       speed: clamp(c.tts.speed, 0.5, 2),
     },
     turn: { engine: oneOf(c.turn.engine, ["smart-turn", "silence"], d.turn.engine), threshold: clamp(c.turn.threshold, 0, 1), holdMs: clamp(Math.round(num(c.turn.holdMs, d.turn.holdMs)), 1000, 8000) },

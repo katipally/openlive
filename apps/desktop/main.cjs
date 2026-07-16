@@ -98,11 +98,13 @@ function startServers() {
     WEB_PUBLIC_URL: WEB_URL,
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
+  // AGENT_PORT: the /api/voice proxy forwards to the agent on localhost.
   spawnServer("web", "web/server.js", {
     PORT: String(WEB_PORT),
     HOSTNAME: WEB_HOST,
     NODE_ENV: "production",
     OPENLIVE_DATA_DIR: dataDir,
+    AGENT_PORT: String(AGENT_PORT),
   });
 }
 

@@ -26,6 +26,19 @@ Releases before 0.1.9 predate this file — see the
 - Crash screen follows the OS theme and uses the brand accent.
 
 ### Added
+- **Voice Studio — clone your own voice.** Record 5–30 seconds and your assistant
+  speaks as you: zero-shot cloning (ZipVoice, Apache-2.0, via sherpa-onnx) running
+  locally in the agent service at ~4x realtime on CPU. Optional ~208 MB download,
+  removable anytime; profiles preview/export/delete; automatic Kokoro fallback;
+  consent required — clone only your own voice or one you have permission for.
+- **Persona.** Settings → General gains "Your assistant's style": your own words
+  on how it should behave and speak, applied to the built-in assistant AND every
+  coding agent via its session preamble.
+- **Spoken progress narration (opt-in).** While a coding agent works in silence,
+  OpenLive voices its plan steps ("Step 2 of 4 — …"), throttled and barge-in aware.
+- **Notifications + menu bar.** A tray icon (Open / Mini mode / Quit) and OS
+  notifications when a turn finishes or an agent asks permission while you're in
+  another app — clicking brings OpenLive forward.
 - **Markdown transcript.** Agent replies render as real markdown — code blocks
   with copy buttons, lists, tables — plus per-message copy and a one-tap export
   of the whole conversation to a Markdown file.

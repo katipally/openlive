@@ -143,9 +143,42 @@ export async function stt(audio: Float32Array): Promise<string> {
   return m.text;
 }
 
+// Cloned-voice synthesis runs in the LOCAL agent service (ZipVoice via
+// sherpa-onnx), reached through the same-origin /api/voice proxy. Falls back to
+// Kokoro (worker) if the model/profile is missing or the call fails — one toast
+// per session, never a broken call.
+let cloneFallbackToasted = false;
+async function cloneTts(text: string, voice: string, speed?: number): Promise<{ audio: Float32Array; sampleRate: number } | null> {
+  try {
+    const res = await fetch("/api/voice/tts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, profileId: voice, speed }),
+    });
+    if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    return { audio: new Float32Array(buf), sampleRate: Number(res.headers.get("x-sample-rate")) || 24000 };
+  } catch (e) {
+    if (!cloneFallbackToasted) {
+      cloneFallbackToasted = true;
+      const { toast } = await import("@/lib/toast");
+      toast("Cloned voice unavailable — using Kokoro. Check Settings → Pipeline → Voice Studio.");
+    }
+    const { log } = await import("@/lib/log");
+    log.error("tts", "clone synth failed, falling back:", e);
+    return null;
+  }
+}
+
 /** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
- *  user's pipeline config (Kokoro); both are optional and fall back in the worker. */
+ *  user's pipeline config; a cloned voice routes to the local agent service and
+ *  falls back to Kokoro if unavailable. */
 export async function tts(text: string, opts?: { engine?: string; voice?: string; speed?: number }): Promise<{ audio: Float32Array; sampleRate: number }> {
+  if (opts?.engine === "clone") {
+    const cloned = opts.voice ? await cloneTts(text, opts.voice, opts.speed) : null;
+    if (cloned) return cloned;
+    opts = { engine: "kokoro", speed: opts.speed }; // worker default voice
+  }
   const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, engine: opts?.engine, voice: opts?.voice, speed: opts?.speed });
   return { audio: m.audio, sampleRate: m.sampleRate };
 }

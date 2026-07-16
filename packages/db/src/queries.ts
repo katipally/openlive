@@ -151,6 +151,29 @@ export async function deleteChat(id: string): Promise<void> {
   });
 }
 
+// ─── Voice profiles (cloned-voice metadata; wavs live in DATA_DIR/voices) ───
+export interface VoiceProfile { id: string; name: string; transcript: string; wavFile: string; createdAt: string }
+const VOICES = "voice-profiles.json";
+
+export function listVoiceProfiles(): VoiceProfile[] {
+  return readJson<VoiceProfile[]>(VOICES, []);
+}
+
+export async function createVoiceProfile(p: { name: string; transcript: string; wavFile: string }): Promise<VoiceProfile> {
+  const row: VoiceProfile = { id: randomUUID(), createdAt: new Date().toISOString(), ...p };
+  await updateJson<VoiceProfile[]>(VOICES, [], (rows) => { rows.push(row); return rows; });
+  return row;
+}
+
+export async function deleteVoiceProfile(id: string): Promise<VoiceProfile | undefined> {
+  let removed: VoiceProfile | undefined;
+  await updateJson<VoiceProfile[]>(VOICES, [], (rows) => {
+    removed = rows.find((r) => r.id === id);
+    return rows.filter((r) => r.id !== id);
+  });
+  return removed;
+}
+
 // ─── Settings (key/value) ──────────────────────────────────────────────────
 export function getSetting(key: string): string | undefined {
   return readJson<Record<string, string>>(SETTINGS, {})[key];

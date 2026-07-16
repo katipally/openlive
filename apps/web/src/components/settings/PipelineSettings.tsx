@@ -13,6 +13,7 @@ import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/liv
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
+import { VoiceStudio } from "./VoiceStudio";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
@@ -184,39 +185,44 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
       <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine, voice, and speed apply to the next reply — switching engines downloads that engine's weights once." />
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {TTS_ENGINES.map((e) => (
           <button key={e.id} onClick={() => setEngine(e.id)}
             className={cn("rounded-xl border p-3 text-left transition",
               cfg.tts.engine === e.id ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]")}>
             <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-              {e.id === "kokoro" ? "Kokoro" : "Supertonic"}
+              {e.id === "kokoro" ? "Kokoro" : e.id === "supertonic" ? "Supertonic" : "Your voice"}
               {cfg.tts.engine === e.id && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent"><Star className="size-2.5" /> Active</span>}
             </div>
             <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
-              {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)." : "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."}
+              {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)."
+                : e.id === "supertonic" ? "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."
+                : "Cloned from a short recording in Voice Studio below (ZipVoice, ~208 MB, runs locally)."}
             </p>
           </button>
         ))}
       </div>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[12.5px] text-foreground">Voice</span>
-        <div className="flex items-center gap-2">
-          <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
-            {accents.map((accent) => (
-              <optgroup key={accent} label={accent}>
-                {engine.voices.filter((v) => v.accent === accent).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <button onClick={preview} disabled={busy} title="Play a sample (downloads the voice models first if needed)"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-40">
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Preview
-          </button>
-        </div>
-      </label>
+      {cfg.tts.engine !== "clone" && (
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] text-foreground">Voice</span>
+          <div className="flex items-center gap-2">
+            <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
+              {accents.map((accent) => (
+                <optgroup key={accent} label={accent}>
+                  {engine.voices.filter((v) => v.accent === accent).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
+                </optgroup>
+              ))}
+            </select>
+            <button onClick={preview} disabled={busy} title="Play a sample (downloads the voice models first if needed)"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-40">
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Preview
+            </button>
+          </div>
+        </label>
+      )}
       <Slider label="Speaking speed" value={cfg.tts.speed} min={0.5} max={2} step={0.05}
         fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => update({ ...cfg, tts: { ...cfg.tts, speed: v } })} />
+      <VoiceStudio />
       <NarrateToggle />
       <ModelStatus />
     </div>
