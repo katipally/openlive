@@ -16,3 +16,6 @@ apps/desktop/dist/
 
 # demo videos are hosted as GitHub assets, not committed (100MB limit + no inline playback)
 *.mp4
+
+# vendored voice runtime assets (copied from node_modules by copy-voice-assets.mjs)
+apps/web/public/vad/

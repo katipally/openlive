@@ -4,6 +4,35 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.0] - Unreleased
+
+### Fixed
+- **Cross-process data race.** Settings and conversations are written by both the
+  web and agent processes; every read-modify-write now runs under a file lock, so
+  a concurrent save can no longer silently drop the other side's update.
+- **Agent plans and usage now actually show.** The server has always emitted the
+  agent's working plan (ACP plan updates) and context/cost usage — the UI dropped
+  both. Plans render as a live checklist above the transcript; a context/cost chip
+  sits in the top bar.
+- **Permission asks no longer time out silently.** An unanswered agent permission
+  auto-denies after 2 minutes — the prompt now shows a visible countdown and the
+  voice speaks a reminder 30 seconds before the deadline.
+- **Hermes session history.** Discovery was querying columns that don't exist in
+  hermes' database; rewritten against the real hermes-agent 0.18.2 schema.
+- **History with huge session logs.** Reading titles from Codex rollout logs
+  (hundreds of MB) no longer loads whole files into memory.
+- **Workspace file confinement.** The built-in assistant's file tools now refuse
+  symlinks that point outside the workspace, not just `../` escapes.
+- Crash screen follows the OS theme and uses the brand accent.
+
+### Changed
+- **VAD assets are served from the app itself** (vendored at build time) instead
+  of a CDN — the voice loop no longer touches jsdelivr at runtime.
+- **Agents settings shows each CLI's version** and gains an **Update** button;
+  a failed npm install from a root-owned prefix now gets actionable guidance
+  instead of a raw error dump.
+- Slash-command metadata (never surfaced in the UI) removed from the wire protocol.
+
 ## [0.1.9] - 2026-07-11
 
 ### Added

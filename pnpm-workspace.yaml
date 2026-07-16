@@ -12,7 +12,6 @@ overrides:
 allowBuilds:
   electron: true
   electron-builder: true
-  better-sqlite3: true
   esbuild: true
   onnxruntime-node: true
   protobufjs: true

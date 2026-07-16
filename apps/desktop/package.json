@@ -1,8 +1,8 @@
 {
   "name": "@openlive/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "OpenLive \u2014 live voice + vision AI assistant (desktop)",
+  "description": "OpenLive — live voice + vision AI assistant (desktop)",
   "author": "OpenLive",
   "main": "main.cjs",
   "scripts": {

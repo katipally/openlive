@@ -7,7 +7,6 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
-const crypto = require("node:crypto");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -90,13 +89,13 @@ function spawnServer(name, scriptRel, env) {
 function startServers() {
   if (DEV) return; // dev servers come from `pnpm dev`
   const dataDir = path.join(app.getPath("userData"), "data");
-  const secret = crypto.randomUUID();
-  // Agent (internal): the renderer connects to it directly over ws on localhost.
+  // No OPENLIVE_AGENT_SECRET anywhere on desktop: the agent binds localhost and
+  // the renderer connects to it directly — the secret only matters for the
+  // container deployment, where the web proxy injects it.
   spawnServer("agent", "agent/agent.mjs", {
     AGENT_PORT: String(AGENT_PORT),
     OPENLIVE_DATA_DIR: dataDir,
     WEB_PUBLIC_URL: WEB_URL,
-    // No OPENLIVE_AGENT_SECRET → the agent accepts the direct localhost socket.
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
   spawnServer("web", "web/server.js", {
@@ -104,7 +103,6 @@ function startServers() {
     HOSTNAME: WEB_HOST,
     NODE_ENV: "production",
     OPENLIVE_DATA_DIR: dataDir,
-    OPENLIVE_AGENT_SECRET: secret,
   });
 }
 

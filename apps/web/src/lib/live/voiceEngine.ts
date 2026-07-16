@@ -73,11 +73,11 @@ export class VoiceEngine {
     const vadCfg = loadPipelineConfig().vad;
     this.vad = await MicVAD.new({
       model: "v5",
-      // Serve the Silero worklet + onnx + ort wasm from a CDN (the default
-      // resolves them to the app origin, which 404s). ponytail: CDN keeps it
-      // zero-config; vendor these into /public for a fully-offline HF Space.
-      baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/",
-      onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/",
+      // Silero worklet + onnx + ort wasm are vendored into /public/vad by
+      // scripts/copy-voice-assets.mjs (predev/prebuild) — served same-origin,
+      // no CDN dependency, versions track package.json.
+      baseAssetPath: "/vad/",
+      onnxWASMBasePath: "/vad/",
       getStream: async () => stream,             // our stream: chosen device + AEC on
       positiveSpeechThreshold: vadCfg.speechThreshold, // lower → picks up soft speech + faster barge-in
       negativeSpeechThreshold: Math.max(0.1, vadCfg.speechThreshold - 0.15),

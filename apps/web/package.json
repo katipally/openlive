@@ -1,10 +1,12 @@
 {
   "name": "@openlive/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-voice-assets.mjs",
     "dev": "node scripts/dev.mjs",
+    "prebuild": "node scripts/copy-voice-assets.mjs",
     "build": "next build",
     "start": "node server.mjs",
     "typecheck": "tsc --noEmit"

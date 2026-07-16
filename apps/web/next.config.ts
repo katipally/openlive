@@ -13,9 +13,13 @@ import { join } from "node:path";
 // ponytail: this widens the canvas-script exfiltration surface to the HF/jsdelivr
 // hosts (not arbitrary). Acceptable pre-launch; to fully re-fence, proxy model
 // downloads through a same-origin /api route with a host allowlist.
+// VAD assets are vendored same-origin (public/vad); jsdelivr stays allowed only
+// because transformers.js can fall back to it for its own ort wasm loader.
 const MODEL_HOSTS = "https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net";
-// Live voice connects to the agent over a WebSocket (direct, not via the Next
-// proxy). Allow its origin in connect-src, derived from env (dev: ws://localhost:8787).
+// Live voice connects to the agent over a WebSocket. Desktop/dev: directly to the
+// agent port (NEXT_PUBLIC_LIVE_WS_URL / localhost). Container: same-origin through
+// the server.mjs proxy, which injects the shared secret (browsers can't set that
+// header themselves). Both origins stay in connect-src.
 const LIVE_WS = (() => {
   const raw = process.env.NEXT_PUBLIC_LIVE_WS_URL || `ws://localhost:${process.env.AGENT_PORT || 8787}`;
   try { return new URL(raw).origin; } catch { return "ws://localhost:8787"; }
