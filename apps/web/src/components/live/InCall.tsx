@@ -11,6 +11,7 @@ import { CameraPiP } from "./CameraPiP";
 import { ScreenTile } from "./ScreenTile";
 import { EndCallButton } from "./EndCallButton";
 import { HoldToSend } from "./HoldToSend";
+import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { usePopIn } from "@/lib/usePopIn";
@@ -133,6 +134,9 @@ export function InCall(props: InCallProps) {
               <HoldToSend sendNow={sendNow} compact />
             </div>
           )}
+
+          {/* contextual hints — above the control bar, quiet, at most two chips */}
+          <HintChips className={cn("absolute inset-x-0", sharing ? "bottom-[132px]" : "bottom-[88px]")} />
 
           {/* control bar — a stable width regardless of sharing */}
           <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">

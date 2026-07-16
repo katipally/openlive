@@ -41,7 +41,7 @@ const selectClass = "h-9 w-full rounded-lg border border-border bg-card px-3 tex
 // removed). Additional swappable engines slot in beside this later.
 function EngineCard({ name, desc }: { name: string; desc: string }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
+    <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
         {name}
         <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent"><Star className="size-2.5" /> Default</span>
@@ -123,7 +123,7 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
       <StageHead title="Turn-taking" desc="Decides when you've actually finished speaking. Smart-Turn reads the semantics of your last words; silence timeout just waits out the trailing pause." />
-      <div className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-card p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
         {TURN_PRESETS.map((p) => (
           <button key={p.id} onClick={() => applyPreset(p.values)} title={p.desc}
             className={cn("rounded-lg px-2 py-2 text-center transition", preset === p.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground")}>
@@ -186,7 +186,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
         {TTS_ENGINES.map((e) => (
           <button key={e.id} onClick={() => setEngine(e.id)}
             className={cn("rounded-xl border p-3 text-left transition",
-              cfg.tts.engine === e.id ? "border-accent/50 bg-accent/[0.07]" : "border-border bg-card hover:border-border-heavy")}>
+              cfg.tts.engine === e.id ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]")}>
             <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
               {e.id === "kokoro" ? "Kokoro" : "Supertonic"}
               {cfg.tts.engine === e.id && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent"><Star className="size-2.5" /> Active</span>}
@@ -231,7 +231,7 @@ export function PipelineSettings() {
         <p className="text-[12.5px] leading-relaxed text-muted-foreground">
           Your whole voice pipeline runs on-device — tune each stage below. Nothing here leaves your machine.
         </p>
-        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-border bg-card p-1">
+        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
           {STAGES.map((s) => (
             <button key={s.id} onClick={() => setStage(s.id)}
               className={cn("flex flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-center transition", stage === s.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground")}>

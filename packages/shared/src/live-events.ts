@@ -46,6 +46,9 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
       id: z.string(), label: z.string(), category: z.string(),
       values: z.array(z.object({ id: z.string(), name: z.string() })), currentId: z.string().nullable(),
     })).default([]),
+    // Slash commands the agent advertises (ACP available_commands_update) — the
+    // UI shows them as "try /…" hints; they ride a normal turn as text.
+    commands: z.array(z.object({ name: z.string(), description: z.string() })).default([]),
     // Whether the session can be reopened in the agent's own CLI after a restart
     // (Claude yes, Cursor no, Codex best-effort) — drives an honest UI badge.
     resumeAcrossRestart: z.boolean().default(true),
@@ -62,7 +65,7 @@ export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 export const AGENT_ID = z.enum(AGENT_IDS);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
 export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
-export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; commands: { name: string; description: string }[]; resumeAcrossRestart: boolean };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [

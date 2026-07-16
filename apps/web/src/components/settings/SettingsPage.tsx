@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, SlidersHorizontal, AudioWaveform, Bot, Info } from "lucide-react";
+import { ArrowLeft, Settings2, SlidersHorizontal, AudioWaveform, Bot, Info } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useAppVersion } from "@/lib/useAppVersion";
+import { GeneralSettings } from "./GeneralSettings";
 import { ModelsSettings } from "./ModelsSettings";
 import { PipelineSettings } from "./PipelineSettings";
 import { AgentsSettings } from "./AgentsSettings";
@@ -14,10 +15,11 @@ import { cn } from "@/lib/cn";
 import { isDesktop } from "@/lib/platform";
 
 const SECTIONS = [
+  { id: "general", label: "General", sub: "Appearance, input & startup", icon: Settings2, Comp: GeneralSettings },
   { id: "models", label: "Models", sub: "Provider, model & vision", icon: SlidersHorizontal, Comp: ModelsSettings },
   { id: "pipeline", label: "Pipeline", sub: "On-device speech pipeline", icon: AudioWaveform, Comp: PipelineSettings },
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings },
-  { id: "about", label: "About", sub: "Appearance & version", icon: Info, Comp: AboutSettings },
+  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
 ] as const;
 type TabId = (typeof SECTIONS)[number]["id"];
 
@@ -95,7 +97,7 @@ export function SettingsPage() {
     <div ref={root} role="dialog" aria-modal="true" aria-label="Settings"
       className="fixed inset-0 z-[60] flex flex-col bg-background text-left">
       {/* header — drag region (frameless window) + back; clears the traffic lights */}
-      <header className={cn("relative flex h-14 shrink-0 items-center gap-3 border-b border-border pr-4",
+      <header className={cn("relative flex h-14 shrink-0 items-center gap-3 pr-4",
         isDesktop ? "pl-[84px] [-webkit-app-region:drag]" : "pl-4")}>
         <button onClick={requestClose} aria-label="Back" title="Back"
           className={cn("grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}>
@@ -109,7 +111,7 @@ export function SettingsPage() {
 
       <div className="flex min-h-0 flex-1">
         {/* side nav */}
-        <nav aria-label="Settings sections" className="w-[236px] shrink-0 space-y-1 overflow-y-auto border-r border-border p-3">
+        <nav aria-label="Settings sections" className="w-[236px] shrink-0 space-y-1 overflow-y-auto p-3">
           {SECTIONS.map((s) => {
             const on = s.id === tab;
             return (

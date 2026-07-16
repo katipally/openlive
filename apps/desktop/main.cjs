@@ -239,7 +239,28 @@ function createPanelWindow() {
   panelWin.on("closed", () => { panelWin = null; });
 }
 
+// The global mini-mode talk hotkey. Configurable from Settings → General; kept in
+// memory here (the renderer persists it and re-sends on each mini entry).
+// globalShortcut has no keyup, so it's always a press-to-TOGGLE.
+let miniHotkey = "Alt+Space";
+
 function wireMiniIpc() {
+  const registerMiniHotkey = () => {
+    try {
+      globalShortcut.unregisterAll();
+      return globalShortcut.register(miniHotkey, () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
+    } catch { return false; }
+  };
+  // Change the hotkey (Settings → General). Re-registers live if the panel is up;
+  // an invalid/taken accelerator falls back to the previous one and reports it.
+  ipcMain.handle("openlive:set-mini-hotkey", (_e, acc) => {
+    const prev = miniHotkey;
+    miniHotkey = String(acc || "Alt+Space");
+    if (panelWin && !panelWin.isDestroyed()) {
+      if (!registerMiniHotkey()) { miniHotkey = prev; registerMiniHotkey(); return { ok: false, hotkey: prev }; }
+    }
+    return { ok: true, hotkey: miniHotkey };
+  });
   ipcMain.on("openlive:mini", () => {
     if (!mainWin) return;
     const apply = () => {
@@ -253,12 +274,10 @@ function wireMiniIpc() {
       mainWin.setFullScreen(false);
     } else apply();
     // Global push-to-talk while the panel is up: talk to the agent from any app.
-    // globalShortcut has no keyup, so it's a press-to-TOGGLE (start/stop talking) —
-    // the renderer flips its PTT state on each fire.
-    globalShortcut.register("Alt+Space", () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
+    registerMiniHotkey();
   });
   ipcMain.on("openlive:unmini", () => {
-    globalShortcut.unregister("Alt+Space");
+    globalShortcut.unregisterAll();
     if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
     panelWin = null;
     if (mainWin) { mainWin.show(); mainWin.focus(); }
@@ -282,6 +301,12 @@ function wireMiniIpc() {
 
 // ── custom window controls (frameless window → no native traffic lights) ─────
 function wireWindowIpc() {
+  // Launch-at-login (Settings → General). Invoke with a boolean to set; with
+  // undefined to just read the current state.
+  ipcMain.handle("openlive:login-item", (_e, v) => {
+    if (typeof v === "boolean") app.setLoginItemSettings({ openAtLogin: v });
+    return app.getLoginItemSettings().openAtLogin;
+  });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
   ipcMain.on("openlive:win-zoom", () => {

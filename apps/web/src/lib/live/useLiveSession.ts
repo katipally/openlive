@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { bumpCoach } from "@/lib/hints";
+import { isAgentId } from "@openlive/shared";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
@@ -22,9 +24,8 @@ function abToBase64(ab: ArrayBuffer): string {
 
 // Per-conversation agent bind, remembered browser-side (localStorage) so reopening
 // a conversation resumes the same agent. Sent to the server on connect + on change.
-const AGENT_IDS: readonly AgentId[] = ["claude-code", "codex", "cursor", "opencode", "hermes"];
 function readBind(chatId: string): AgentId | null {
-  try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return (AGENT_IDS as readonly string[]).includes(v ?? "") ? (v as AgentId) : null; } catch { return null; }
+  try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return v && isAgentId(v) ? v : null; } catch { return null; }
 }
 // Classify a spoken reply to a permission ask; ambiguous → null (keep waiting).
 function classifyYesNo(text: string): "allow" | "deny" | null {
@@ -298,6 +299,7 @@ export function useLiveSession(chatId: string) {
 
   const start = useCallback(async () => {
     tornDown.current = false;
+    bumpCoach(); // first-calls PTT coaching hint counts calls, not sessions
     set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null, agentMeta: null, boundAgent: readBind(chatId), boundCwd: readCwd(chatId) });
     // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
     // AudioContext playback that starts after an await, so priming here (before the

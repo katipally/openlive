@@ -71,7 +71,7 @@ export class AcpAgent implements Agent {
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
   private sentPreamble = false;   // the voice+vision context is sent once per session
-  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], resumeAcrossRestart: true };
+  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], commands: [], resumeAcrossRestart: true };
   private modelConfigId: string | null = null; // the ACP config option id for model selection
   private replaying = false;      // inside a session/load: fold updates into the replay buffer
   private replay: ReplayMessage[] = []; // prior turns recovered from session/load replay
@@ -293,6 +293,12 @@ export class AcpAgent implements Agent {
           case "config_option_update":
             // A model/thought-level/… selection landed (ours or the agent's own).
             this.applyConfig(u.configOptions);
+            this.opts.onMeta?.(this.meta);
+            return;
+          case "available_commands_update":
+            // The agent's slash commands (/review, /plan, …) → UI hints. Say or
+            // type them as part of a turn; the agent interprets them itself.
+            this.meta = { ...this.meta, commands: (u.availableCommands ?? []).map((c) => ({ name: c.name, description: c.description })) };
             this.opts.onMeta?.(this.meta);
             return;
         }

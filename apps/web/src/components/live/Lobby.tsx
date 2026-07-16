@@ -132,8 +132,8 @@ export function Lobby(props: LobbyProps) {
       </main>
 
       {/* AI sidebar — same slot the in-call transcript uses, so start→call is continuous */}
-      <aside className="ol-lobby-aside flex w-[360px] shrink-0 flex-col border-l border-border bg-surface/40 text-left">
-        <header className={cn("flex h-14 shrink-0 items-center justify-between border-b border-border px-4", isDesktop && "[-webkit-app-region:drag]")}>
+      <aside className="ol-lobby-aside flex w-[360px] shrink-0 flex-col bg-surface/40 text-left">
+        <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-[13px] font-semibold">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
             <button onClick={onOpenSettings} title="Settings" aria-label="Settings"

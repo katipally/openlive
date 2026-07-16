@@ -81,7 +81,7 @@ function AgentRow({ a, cmd }: { a: AgentStatus; cmd: string }) {
   const btn = "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition disabled:opacity-40";
 
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-3 transition", a.hidden && "opacity-60")}>
+    <div className={cn("rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition", a.hidden && "opacity-60")}>
       <div className="flex items-start gap-3">
         <AgentIcon id={a.id as AgentId} className="mt-0.5 size-5 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">

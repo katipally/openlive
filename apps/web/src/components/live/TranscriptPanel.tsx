@@ -45,10 +45,10 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
   const empty = msgs.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="relative flex h-full shrink-0 flex-col border-l border-border bg-surface/40 text-left">
+    <aside ref={asideRef} style={{ width }} className="relative flex h-full shrink-0 flex-col bg-surface/40 text-left shadow-[inset_1px_0_0_rgba(0,0,0,0.03)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border pl-4 pr-2 text-[13px] font-semibold">
+      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-[13px] font-semibold">
         Activity
         <button onClick={onClose} title="Hide activity" aria-label="Hide activity"
           className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
@@ -117,7 +117,7 @@ function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
   const hasReasoning = parts.some((p) => p.kind === "reasoning");
 
   return (
-    <div className="rounded-lg border border-border bg-card/40">
+    <div className="rounded-lg bg-card/40 shadow-[var(--shadow-xs)]">
       <button onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition hover:text-foreground">
         {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}

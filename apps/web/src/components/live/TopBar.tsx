@@ -21,7 +21,7 @@ export function TopBar() {
   const toggleHistory = useUi((s) => s.toggleHistory);
 
   return (
-    <header className={cn("flex h-12 shrink-0 items-center justify-between border-b border-border pr-3",
+    <header className={cn("flex h-12 shrink-0 items-center justify-between pr-3",
       isDesktop ? "pl-[80px]" : "pl-3",
       isDesktop && "[-webkit-app-region:drag]")}>
       <div className="flex items-center gap-1">

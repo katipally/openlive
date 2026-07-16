@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("openlive", {
   // OS bridge for agent tools. op: "clipboard_read" | "clipboard_write" | "open_url".
   // Resolves to a short result string the agent speaks back.
   bridge: (op, arg) => ipcRenderer.invoke("openlive:bridge", { op, arg }),
+  // Settings → General: launch-at-login (boolean sets, undefined reads) and the
+  // configurable global mini-mode talk hotkey.
+  loginItem: (v) => ipcRenderer.invoke("openlive:login-item", v),
+  setMiniHotkey: (acc) => ipcRenderer.invoke("openlive:set-mini-hotkey", acc),
   // True when running inside the desktop app.
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).

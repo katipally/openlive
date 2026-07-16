@@ -5,6 +5,7 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
 import { openliveBridge, type PanelCmd, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { useUi } from "@/lib/uiStore";
+import { savedMiniHotkey } from "@/lib/platform";
 
 // Desktop mini mode. The main window HIDES (its renderer keeps running the whole
 // voice pipeline) and a separate always-on-top panel window shows the pill UI.
@@ -50,7 +51,13 @@ export function PanelBridge(props: PanelBridgeProps) {
   const p = useRef(props); p.current = props;
 
   // Mount = enter panel mode (hide main window, show panel); unmount = restore.
-  useEffect(() => { openliveBridge()?.mini?.(); return () => openliveBridge()?.unmini?.(); }, []);
+  // The saved global talk hotkey goes first so the main process registers the
+  // user's choice (not the default) when the panel comes up.
+  useEffect(() => {
+    (openliveBridge() as unknown as { setMiniHotkey?: (a: string) => Promise<unknown> } | undefined)?.setMiniHotkey?.(savedMiniHotkey())?.catch?.(() => {});
+    openliveBridge()?.mini?.();
+    return () => openliveBridge()?.unmini?.();
+  }, []);
 
   // Store state → panel, on every change (cheap: small JSON).
   useEffect(() => {

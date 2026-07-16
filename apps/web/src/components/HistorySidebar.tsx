@@ -118,8 +118,8 @@ export function HistorySidebar() {
   return (
     <>
       <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
-      <aside ref={root} className="fixed left-0 top-0 z-[55] flex h-full w-[300px] flex-col border-r border-border bg-background text-left shadow-2xl">
-        <header className={cn("flex h-14 shrink-0 items-center justify-between border-b border-border pr-3", isDesktop ? "pl-[84px] [-webkit-app-region:drag]" : "pl-4")}>
+      <aside ref={root} className="fixed left-0 top-0 z-[55] flex h-full w-[300px] flex-col bg-background text-left shadow-[var(--shadow-pop)]">
+        <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isDesktop ? "pl-[84px] [-webkit-app-region:drag]" : "pl-4")}>
           <span className="text-[14px] font-semibold">History</span>
           <button onClick={close} aria-label="Close history" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
         </header>
@@ -284,7 +284,7 @@ function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl">
+      <div className="relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/10 text-danger"><AlertTriangle className="size-5" /></span>
           <div className="min-w-0">

@@ -10,6 +10,16 @@ export const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(na
 export const basename = (p: string, fallback = ""): string =>
   p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p || fallback;
 
+/** The user's saved global mini-mode talk hotkey (Settings → General). Read by
+ *  PanelBridge on each mini entry so the main process registers the right one. */
+const HOTKEY_KEY = "openlive-mini-hotkey";
+export function savedMiniHotkey(): string {
+  try { return localStorage.getItem(HOTKEY_KEY) || "Alt+Space"; } catch { return "Alt+Space"; }
+}
+export function saveMiniHotkey(acc: string): void {
+  try { localStorage.setItem(HOTKEY_KEY, acc); } catch { /* private mode */ }
+}
+
 /** The Electron preload bridge for OS actions (clipboard / open URL / pick folder),
  *  or undefined in the browser. */
 export const bridge: ((op: string, arg?: string) => Promise<string>) | undefined =

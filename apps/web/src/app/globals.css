@@ -25,6 +25,11 @@
   --color-danger: var(--destructive);
   --color-success: var(--success);
   --color-link-foreground: var(--link-foreground);
+  --color-surface-raised: var(--surface-raised);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
 
   --text-chat: 13px;
   --text-chat--line-height: 21px;
@@ -62,7 +67,12 @@
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.16);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
+  /* Elevation scale — hierarchy comes from surface shifts + these soft shadows,
+     not boxes of borders (HIG-style de-boxing). xs ≈ a hairline substitute. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.08), 0 24px 48px -16px rgba(0, 0, 0, 0.22);
+  --surface-raised: #f0efeb;
 
   /* Shared motion vocabulary (used by CSS keyframes and JS presets alike). */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
@@ -93,7 +103,10 @@
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.5), 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  --surface-raised: #17171a;
 }
 
 html, body {

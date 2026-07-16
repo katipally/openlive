@@ -6,6 +6,7 @@ import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
+import { Onboarding } from "@/components/Onboarding";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -87,6 +88,7 @@ export default function Home() {
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
       {!minimized && <SettingsPage />}
       {!minimized && <HistorySidebar />}
+      {!minimized && <Onboarding />}
     </main>
   );
 }

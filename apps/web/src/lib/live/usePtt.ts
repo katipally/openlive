@@ -9,8 +9,19 @@ const isTyping = () => {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 };
 
+/** In-app Space behavior (Settings → General): "hold" = press-and-hold to talk;
+ *  "toggle" = tap to start, tap to stop. */
+export type VoiceInputMode = "hold" | "toggle";
+const MODE_KEY = "openlive-voice-input";
+export function voiceInputMode(): VoiceInputMode {
+  try { return localStorage.getItem(MODE_KEY) === "toggle" ? "toggle" : "hold"; } catch { return "hold"; }
+}
+export function setVoiceInputMode(m: VoiceInputMode): void {
+  try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
+}
+
 /** Push-to-talk + send-now keys for an active call:
- *  hold Space = talk (release sends the turn, auto end-of-turn suspended);
+ *  Space = talk (hold or toggle per the General setting);
  *  Enter = commit a held mid-thought pause immediately.
  *  In the desktop mini pill, the global hotkey arrives as a TOGGLE (Electron's
  *  globalShortcut has no keyup) via openlive:ptt-toggle. */
@@ -19,11 +30,15 @@ export function usePtt(active: boolean, { pttDown, pttUp, sendNow }: { pttDown: 
     if (!active) return;
     const down = (e: KeyboardEvent) => {
       if (isTyping()) return;
-      if (e.code === "Space" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); pttDown(); }
+      if (e.code === "Space" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        if (voiceInputMode() === "toggle") { if (useLiveStore.getState().pttActive) pttUp(); else pttDown(); }
+        else pttDown();
+      }
       else if (e.key === "Enter" && useLiveStore.getState().holdUntil) { e.preventDefault(); sendNow(); }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code === "Space" && useLiveStore.getState().pttActive) { e.preventDefault(); pttUp(); }
+      if (e.code === "Space" && voiceInputMode() === "hold" && useLiveStore.getState().pttActive) { e.preventDefault(); pttUp(); }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
