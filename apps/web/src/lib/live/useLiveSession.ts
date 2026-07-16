@@ -228,7 +228,14 @@ export function useLiveSession(chatId: string) {
       onSse: (e) => {
         // Also clear agentConnecting — a server-sent agent-start failure would
         // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
-        if (e.type === "error") { set({ error: e.message, agentConnecting: false }); return; }
+        if (e.type === "error") {
+          set({ error: e.message, agentConnecting: false });
+          // Speak a SHORT version (first sentence, capped) — the full text stays
+          // in the banner + hint chip. Voice-first users hear the failure.
+          const short = e.message.split(/(?<=[.!?])\s/)[0]?.slice(0, 140);
+          if (short) engine.current?.say(short);
+          return;
+        }
         // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
         if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
         // Prose text drives the VOICE only; the chat transcript is filled word-by-word

@@ -61,18 +61,22 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={startNew}
+              <button onClick={startNew} data-tour="new"
                 className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
                 <Plus className="size-5" /> New
               </button>
-              <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations"
+              <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"
                 className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-[14px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
                 <MessageSquare className="size-4" /> Resume
+              </button>
+              <button onClick={openSettings} title="Settings" aria-label="Settings" data-tour="settings"
+                className="grid size-[46px] place-items-center rounded-full border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+                <Settings2 className="size-[18px]" />
               </button>
             </div>
             {/* Choose what a new conversation talks to — the built-in assistant or a
                 coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-            <div className="flex items-center gap-1.5 text-[12.5px] text-faint">
+            <div className="flex items-center gap-1.5 text-[12.5px] text-faint" data-tour="talk-to">
               Talk to <AgentSelect />
             </div>
           </div>

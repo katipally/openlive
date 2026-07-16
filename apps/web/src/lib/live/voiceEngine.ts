@@ -350,6 +350,13 @@ export class VoiceEngine {
     }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
   }
 
+  /** Speak a short out-of-band line (e.g. an agent failure) through the same
+   *  TTS chain — voice-first users hear problems, not just see banners. */
+  say(text: string) {
+    const t = text.trim();
+    if (t) this.enqueueSpeak(t, this.epoch);
+  }
+
   private bargeIn() {
     this.epoch++;
     this.player.flush(this.epoch);
