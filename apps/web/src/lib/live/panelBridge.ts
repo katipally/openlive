@@ -2,7 +2,7 @@ import type { LivePhase, PendingPermission } from "./liveStore";
 
 // Wire shape between the hidden main renderer (voice pipeline) and the desktop
 // mini PANEL window, relayed through the Electron main process. A MediaStream
-// can't cross BrowserWindows, so previews travel as ~1 fps JPEG data-URLs.
+// can't cross BrowserWindows, so previews travel as ~10 fps JPEG data-URLs.
 export interface PanelStateSnapshot {
   phase: LivePhase; muted: boolean; cameraOn: boolean; screenOn: boolean;
   userCaption: string; userPartial: boolean; agentCaption: string;
@@ -14,7 +14,7 @@ export interface PanelStateSnapshot {
 export type PanelPacket =
   | { k: "s"; s: PanelStateSnapshot }                    // store state (on change)
   | { k: "b"; mic: number[]; agent: number[] }           // orb spectrum (~15 fps)
-  | { k: "f"; cam?: string; screen?: string };           // preview JPEGs (~1 fps)
+  | { k: "f"; cam?: string; screen?: string };           // preview JPEGs (~10 fps)
 
 export type PanelCmd =
   | { t: "mute" } | { t: "camera" } | { t: "screen" }

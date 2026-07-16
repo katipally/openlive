@@ -13,6 +13,7 @@ import { useFocusTrap } from "@/lib/useFocusTrap";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop } from "@/lib/platform";
+import { SpotlightTour } from "@/components/SpotlightTour";
 
 const SECTIONS = [
   { id: "general", label: "General", sub: "Appearance, input & startup", icon: Settings2, Comp: GeneralSettings },
@@ -111,7 +112,7 @@ export function SettingsPage() {
 
       <div className="flex min-h-0 flex-1">
         {/* side nav */}
-        <nav aria-label="Settings sections" className="w-[236px] shrink-0 space-y-1 overflow-y-auto p-3">
+        <nav aria-label="Settings sections" data-tour="settings-nav" className="w-[236px] shrink-0 space-y-1 overflow-y-auto p-3">
           {SECTIONS.map((s) => {
             const on = s.id === tab;
             return (
@@ -142,6 +143,10 @@ export function SettingsPage() {
           </div>
         </main>
       </div>
+
+      <SpotlightTour id="settings" steps={[
+        { target: "settings-nav", title: "Five focused tabs", body: "General (appearance & shortcuts), Models for the built-in assistant, the on-device voice Pipeline, agent install & sign-in under Agents, and About." },
+      ]} />
     </div>
   );
 }

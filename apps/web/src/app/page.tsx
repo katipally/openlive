@@ -6,7 +6,7 @@ import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
-import { Onboarding } from "@/components/Onboarding";
+import { SpotlightTour } from "@/components/SpotlightTour";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -92,7 +92,14 @@ export default function Home() {
       {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
       {!minimized && <SettingsPage />}
       {!minimized && <HistorySidebar />}
-      {!minimized && <Onboarding />}
+      {!minimized && (
+        <SpotlightTour id="home" active={!liveOpen} steps={[
+          { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use — locally, under your own login. Pick one here, or keep the built-in assistant." },
+          { target: "new", title: "Start a conversation", body: "New opens the call setup — pick a project folder, check your mic, then just talk. Interrupt any time." },
+          { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder — including sessions from the agent's own CLI." },
+          { target: "settings", title: "Make it yours", body: "Voice pipeline, agent install & sign-in, appearance, and shortcuts all live in Settings." },
+        ]} />
+      )}
     </main>
   );
 }

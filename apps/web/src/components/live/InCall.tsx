@@ -15,6 +15,7 @@ import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { setPttEnabled } from "@/lib/live/usePtt";
+import { SpotlightTour } from "@/components/SpotlightTour";
 import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
@@ -144,7 +145,7 @@ export function InCall(props: InCallProps) {
           <HintChips className={cn("absolute inset-x-0", sharing ? "bottom-[132px]" : "bottom-[88px]")} />
 
           {/* control bar — a stable width regardless of sharing */}
-          <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
+          <div data-tour="controls" className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
             <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Keyboard} />
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} label="Microphone" />
@@ -160,6 +161,10 @@ export function InCall(props: InCallProps) {
         {/* transcript sidebar — resizable + collapsible */}
         {panelOpen && <TranscriptPanel chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />}
       </div>
+
+      <SpotlightTour id="call" steps={[
+        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The keyboard button on the left arms push-to-talk — once on, Space drives talking." },
+      ]} />
     </div>
   );
 }

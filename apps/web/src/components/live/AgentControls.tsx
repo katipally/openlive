@@ -93,9 +93,6 @@ export function AgentSelect() {
               {o.id === boundAgent && <Check className="size-3.5 text-success" />}
             </button>
           ))}
-          <p className="border-t border-border px-3 py-2 text-[11px] leading-snug text-faint">
-            Uses your own install + subscription. Runs locally over ACP — nothing extra leaves your machine.
-          </p>
         </div>
       )}
     </div>

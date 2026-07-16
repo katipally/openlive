@@ -13,6 +13,7 @@ import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename, bridge } from "@/lib/platform";
+import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 
@@ -127,7 +128,7 @@ export function Lobby(props: LobbyProps) {
           </div>
 
           {/* project folder — front and center (it gates Start for a coding agent) */}
-          <div className="w-full max-w-[22rem] text-left">
+          <div className="w-full max-w-[22rem] text-left" data-tour="folder">
             <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "OpenLive"} required={!!boundAgent} />
           </div>
 
@@ -138,7 +139,7 @@ export function Lobby(props: LobbyProps) {
 
       {/* AI panel — a floating elevated card (same slot the in-call transcript uses,
           so start→call reads as continuous) */}
-      <aside className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-[13px] font-semibold">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
@@ -157,58 +158,60 @@ export function Lobby(props: LobbyProps) {
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
       </aside>
+
+      <SpotlightTour id="lobby" steps={[
+        { target: "folder", title: "Give it a project folder", body: "A coding agent works inside one folder — the only place it reads and writes, and where its session is saved so you can resume from the CLI too." },
+        { target: "setup-panel", title: "The AI side of the call", body: "Who you talk to, plus the model and mode it runs with — reported live by the agent itself the moment it connects." },
+      ]} />
     </div>
   );
 }
 
-// Reusable project-folder / workspace picker (recents + native Browse, or a path
-// input on web). REQUIRED for a coding agent (its file-access scope); OPTIONAL for
-// the built-in OpenLive assistant, so every "Talk to" target picks a workspace the
-// same way.
+// Compact project-folder picker: a label row with Browse on the right, recent
+// folders as one-line chips beneath. REQUIRED for a coding agent (its file-access
+// scope); optional for the built-in assistant.
 function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; required?: boolean }) {
   const chatId = useUi((s) => s.activeChatId);
-  const recents = recentFolders().slice(0, 3);
+  const recents = recentFolders().slice(0, 3).filter((f) => f !== cwd);
   const b = bridge;
   const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { log.error("lobby", "pick_folder:", e); toast("Couldn\u2019t open the folder picker."); } };
-  const inputClass = "h-9 w-full rounded-lg border border-border bg-card px-3 font-mono text-[12px] text-foreground outline-none focus:border-border-heavy";
   return (
-    <div className="space-y-2">
-      <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-        {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-[9.5px] font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
-      </p>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
+          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-[9.5px] font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
+        </p>
+        {b && (
+          <button onClick={browse} aria-label={`Choose a folder for ${name}`}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium text-accent transition hover:bg-accent/10">
+            <FolderOpen className="size-3.5" /> Browse…
+          </button>
+        )}
+      </div>
+
       {cwd ? (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <div className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 shadow-[var(--shadow-card)]">
           <Folder className="size-4 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground" title={cwd}>{cwd}</span>
           <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-[11px] text-faint transition hover:text-foreground">change</button>
         </div>
       ) : (
         <>
-          <p className="text-[12px] leading-relaxed text-muted-foreground">
-            {required ? `Choose the folder ${name} works in — the only place it can read and write.` : `Optionally ground ${name} in a project folder for this call.`}
-          </p>
           {recents.length > 0 && (
             <div className="flex flex-col gap-1">
-              <span className="text-[10.5px] uppercase tracking-wide text-faint">Recent</span>
               {recents.map((f) => (
-                <button key={f} onClick={() => setConversationFolder(chatId, f)}
-                  className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-left transition hover:border-border-heavy">
+                <button key={f} onClick={() => setConversationFolder(chatId, f)} title={f}
+                  className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-2 text-left shadow-[var(--shadow-xs)] transition hover:shadow-[var(--shadow-card)]">
                   <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] text-foreground">{basename(f)}</span>
-                    <span className="block truncate font-mono text-[10.5px] text-faint">{f}</span>
-                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{basename(f)}</span>
+                  <span className="max-w-[45%] shrink-0 truncate font-mono text-[10px] text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
                 </button>
               ))}
             </div>
           )}
-          {b ? (
-            <button onClick={browse}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[12.5px] text-foreground transition hover:border-border-heavy">
-              <FolderOpen className="size-4 text-accent" /> Choose a folder…
-            </button>
-          ) : (
-            <input placeholder="/path/to/your/project" spellCheck={false} className={inputClass}
+          {!b && (
+            <input placeholder="/path/to/your/project" spellCheck={false}
+              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-[12px] text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
               onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
           )}
         </>

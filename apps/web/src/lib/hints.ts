@@ -3,12 +3,11 @@
 import type { AgentMetaWire } from "@openlive/shared";
 import { useUi } from "@/lib/uiStore";
 
-// One small hints engine: a PURE ranked selector from live-session state to at
-// most two contextual chips. Sources: the agent's own slash commands (ACP
-// available_commands_update) and error recovery with a one-tap fix. Permission
-// asks and mid-thought holds have dedicated surfaces (PermissionPrompt,
-// HoldPill) — no duplicate chips here, and no keyboard coaching (push-to-talk
-// is an explicit opt-in toggle now, not something to teach in passing).
+// One small hints engine: a PURE selector from live-session state to at most
+// one contextual chip — ERROR RECOVERY with a one-tap fix. Nothing else:
+// permission asks and mid-thought holds have dedicated surfaces, keyboard
+// coaching died with the push-to-talk opt-in toggle, and the agent's slash
+// commands proved noise in practice (skill ids nobody would "say").
 export interface Hint {
   id: string;
   text: string;
@@ -46,12 +45,5 @@ export function selectHints(s: HintInputs): Hint[] {
     if (e) out.push(e);
   }
 
-  // The agent's own slash commands, while it's idle enough to read them.
-  const cmds = s.agentMeta?.commands ?? [];
-  if (s.active && s.boundAgent && cmds.length > 0 && (s.phase === "idle" || s.phase === "listening")) {
-    const top = cmds.slice(0, 3).map((c) => `/${c.name.replace(/^\//, "")}`).join("  ");
-    out.push({ id: "cmds", text: `Try saying: ${top}`, dismissable: true });
-  }
-
-  return out.slice(0, 2);
+  return out.slice(0, 1);
 }

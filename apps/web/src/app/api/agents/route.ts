@@ -29,15 +29,20 @@ function authDetail(id: string): string | undefined {
 export async function GET() {
   const home = homedir();
   const rows = await Promise.all(AGENT_LIST.map(async (a) => {
-    const installed = (await Promise.all(a.bins.map(present))).some(Boolean);
-    // Only probe credentials when the CLI exists — a probe hit without the CLI
-    // (leftover config from an old install) shouldn't render as signed in.
+    // Installed = runner binary on PATH, AND (where the binary alone proves
+    // nothing — hermes via uvx) the agent's own footprint exists.
+    const binPresent = (await Promise.all(a.bins.map(present))).some(Boolean);
+    const installed = binPresent && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
+    // Only probe credentials when actually installed — a leftover config file
+    // from an old install shouldn't render as signed in.
     const credState: CredState = installed ? await evalCredProbe(a.credProbe) : "unknown";
     return {
       id: a.id, label: a.label,
       installed,
       credState,
       authDetail: credState === "ready" ? authDetail(a.id) : undefined,
+      canInstall: !!a.install,
+      canUninstall: !!a.uninstall,
       canLogout: !!a.logout,
       hidden: getSetting(`agentHidden:${a.id}`) === "1",
       sessions: a.sessionsDir, home,

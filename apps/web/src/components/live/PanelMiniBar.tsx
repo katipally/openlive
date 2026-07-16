@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 // The desktop mini PANEL window's UI (loaded at /mini in its own BrowserWindow).
 // Everything it shows arrives over IPC from the hidden main renderer (which keeps
 // running the whole voice pipeline); every button sends a command back. Previews
-// are ~1 fps JPEG snapshots — a MediaStream can't cross windows.
+// are ~10 fps JPEG snapshots — a MediaStream can't cross windows.
 
 const NO_BANDS = [0, 0, 0, 0, 0];
 const IDLE: PanelStateSnapshot = {
@@ -31,8 +31,13 @@ function MiniBtn({ on, title, onClick, icon: Icon, danger }: { on: boolean; titl
   );
 }
 
+const MINI_HINT_KEY = "openlive-tour-mini";
+
 export function PanelMiniBar() {
   const [s, setS] = useState<PanelStateSnapshot>(IDLE);
+  const [hint, setHint] = useState(false);
+  useEffect(() => { try { setHint(!localStorage.getItem(MINI_HINT_KEY)); } catch { /* */ } }, []);
+  const dismissHint = () => { setHint(false); try { localStorage.setItem(MINI_HINT_KEY, "1"); } catch { /* */ } };
   const [frames, setFrames] = useState<{ cam?: string; screen?: string }>({});
   const [confirmEnd, setConfirmEnd] = useState(false);
   const bands = useRef<{ mic: number[]; agent: number[] }>({ mic: NO_BANDS, agent: NO_BANDS });
@@ -58,7 +63,13 @@ export function PanelMiniBar() {
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    const report = () => openliveBridge()?.miniSize?.(el.offsetHeight);
+    let last = 0;
+    const report = () => {
+      const h = el.offsetHeight;
+      if (Math.abs(h - last) <= 2) return; // pixel jitter never drives window bounds
+      last = h;
+      openliveBridge()?.miniSize?.(h);
+    };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
@@ -74,8 +85,23 @@ export function PanelMiniBar() {
   return (
     <div className="fixed inset-0 flex flex-col justify-end bg-surface [-webkit-app-region:drag]">
       <div ref={contentRef} className="flex flex-col gap-2 p-2">
-        {s.screenOn && frames.screen && <img src={frames.screen} alt="screen preview" className="block h-auto w-full overflow-hidden rounded-xl bg-black" />}
-        {s.cameraOn && frames.cam && <img src={frames.cam} alt="camera preview" className="block h-auto w-full overflow-hidden rounded-xl bg-black" />}
+        {hint && (
+          <div className="flex items-center gap-2 rounded-xl bg-card px-2.5 py-2 shadow-[var(--shadow-card)] animate-fade-up">
+            <span className="min-w-0 flex-1 text-[11.5px] leading-snug text-muted-foreground">The call keeps running here — your global shortcut toggles talking from any app.</span>
+            <button onClick={dismissHint} aria-label="Dismiss"
+              className="grid size-6 shrink-0 place-items-center rounded-full text-faint transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">×</button>
+          </div>
+        )}
+        {s.screenOn && frames.screen && (
+          <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
+            <img src={frames.screen} alt="screen preview" className="size-full object-contain" />
+          </div>
+        )}
+        {s.cameraOn && frames.cam && (
+          <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
+            <img src={frames.cam} alt="camera preview" className="size-full object-cover" />
+          </div>
+        )}
 
         {s.permission && (
           <div className="flex flex-col gap-1.5 rounded-xl border border-border bg-card px-2.5 py-2">

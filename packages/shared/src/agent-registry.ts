@@ -16,8 +16,10 @@ export type CredProbe =
   | { kind: "keychain"; service: string }               // macOS login keychain (exit code only — never reads the secret)
   | { kind: "anyOf"; probes: CredProbe[] };
 
-/** Shell recipes per action. `npm` means global npm install/uninstall of that package. */
-export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string }
+/** Shell recipes per action. `npm` means global npm install/uninstall of that
+ *  package; `terminal` opens the user's terminal running an INTERACTIVE flow
+ *  (e.g. hermes' setup wizard) instead of streaming a headless command. */
+export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string }
 
 export interface AgentDef {
   id: AgentId;
@@ -45,6 +47,10 @@ export interface AgentDef {
    *  the agent's live database — never written from OpenLive. */
   externalDeletable: boolean;
   credProbe: CredProbe;
+  /** Extra "is it actually installed" probe ANDed with the PATH check — for
+   *  agents whose runner binary alone proves nothing (hermes runs via uvx, so
+   *  uv's presence ≠ hermes configured; its setup wizard creates ~/.hermes). */
+  installedProbe?: CredProbe;
   /** Actionable one-liner when the agent dies before the ACP handshake. */
   startHint: string;
 }
@@ -145,12 +151,15 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Hermes",
     brand: {},
     logoSrc: "/agents/hermes.svg",
-    // Hermes runs via uvx (no persistent install) — "installed" means uv is present.
+    // Hermes runs via uvx (no persistent binary). uv on PATH alone proves
+    // NOTHING about hermes — "installed" additionally requires ~/.hermes (the
+    // setup wizard creates it). Install therefore IS the interactive setup:
+    // it installs uv if missing, then walks provider selection, in a terminal.
     adapter: { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
     bins: ["uvx"],
+    installedProbe: { kind: "file", path: "~/.hermes" },
     install: {
-      posixShell: "curl -LsSf https://astral.sh/uv/install.sh | sh",
-      winShell: "irm https://astral.sh/uv/install.ps1 | iex",
+      terminal: "command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     },
     login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
     // No logout — its setup wizard manages credentials in ~/.hermes.

@@ -28,9 +28,9 @@ export async function POST(req: Request) {
       child.on("error", (e) => { push(`\n[error] ${e.message}\n`); controller.close(); });
       child.on("close", (code) => {
         push(
-          action === "login" && code === 0 ? "\n✓ Sign-in started — finish it in the window that opened, then Re-check.\n"
-            : action === "logout" && code === 0 ? "\n✓ Sign-out started — it completes in the window that opened, then Re-check.\n"
-              : `\n[exit ${code ?? 0}]\n`,
+          spec.terminal && code === 0
+            ? "\n✓ Continues in the terminal window that opened — finish there, then Re-check.\n"
+            : `\n[exit ${code ?? 0}]\n`,
         );
         controller.close();
       });

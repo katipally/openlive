@@ -16,6 +16,7 @@ import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AGENT_REGISTRY, agentLabel, isAgentId } from "@openlive/shared";
 import type { HistoryChat, HistoryWorkspace } from "@openlive/shared";
+import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 
@@ -52,11 +53,12 @@ export function HistorySidebar() {
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState<PendingDelete | null>(null);
   const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
   const qc = useQueryClient();
   const { data: workspaces = [], isLoading } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
   const overrides = useHistoryOverrides((st) => st.titles);
 
-  useEffect(() => { if (open) setVisible(true); else setQuery(""); }, [open]);
+  useEffect(() => { if (open) setVisible(true); else { setQuery(""); setSearching(false); } }, [open]);
 
   const { contextSafe } = useGSAP(() => {
     if (!visible || prefersReduced()) return;
@@ -118,24 +120,38 @@ export function HistorySidebar() {
   return (
     <>
       <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
-      <aside ref={root} className="fixed left-0 top-0 z-[55] flex h-full w-[300px] flex-col bg-background text-left shadow-[var(--shadow-pop)]">
+      <aside ref={root} className="fixed bottom-3 left-3 top-3 z-[55] flex w-[300px] flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-[14px] font-semibold">History</span>
           <button onClick={close} aria-label="Close history" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
         </header>
 
-        {/* New Chat + search — pinned above the scroll area */}
-        <div className="shrink-0 space-y-2 p-2 pb-1">
-          <button onClick={newChat}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-accent-foreground transition hover:opacity-90">
-            <Plus className="size-4" /> New chat
+        {/* New Chat + search share one row — tapping the magnifier expands the
+            field over the button (width-animated), Escape/empty-blur collapses. */}
+        <div className="flex shrink-0 items-center gap-2 p-2 pb-1" data-tour="history-actions">
+          <button onClick={newChat} tabIndex={searching ? -1 : 0}
+            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-[12.5px] font-medium text-accent-foreground transition-all duration-300 hover:opacity-90",
+              searching ? "w-0 px-0 opacity-0" : "flex-1 px-3")}>
+            <Plus className="size-4 shrink-0" /> New chat
           </button>
-          <label className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5">
-            <Search className="size-3.5 shrink-0 text-faint" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
-              className="h-8 min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-faint" />
-            {query && <button onClick={() => setQuery("")} aria-label="Clear search" className="grid size-5 place-items-center rounded text-faint transition hover:text-foreground"><X className="size-3" /></button>}
-          </label>
+          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-all duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
+            {searching ? (
+              <>
+                <Search className="size-3.5 shrink-0 text-faint" />
+                <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
+                  onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearching(false); } }}
+                  onBlur={() => { if (!query.trim()) setSearching(false); }}
+                  className="h-8 min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-faint" />
+                <button onClick={() => { setQuery(""); setSearching(false); }} aria-label="Close search"
+                  className="grid size-5 shrink-0 place-items-center rounded text-faint transition hover:text-foreground"><X className="size-3" /></button>
+              </>
+            ) : (
+              <button onClick={() => setSearching(true)} aria-label="Search chats & folders" title="Search"
+                className="grid size-9 place-items-center text-muted-foreground transition hover:text-foreground">
+                <Search className="size-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="openlive-scroll min-h-0 flex-1 overflow-y-auto p-2 pt-1">
@@ -163,6 +179,10 @@ export function HistorySidebar() {
       </aside>
 
       {pending && <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />}
+
+      <SpotlightTour id="history" steps={[
+        { target: "history-actions", title: "All your conversations", body: "Chats are filed by project folder — every agent's work on a project in one place. Start fresh here, or tap the magnifier to search chats and folders." },
+      ]} />
     </>
   );
 }

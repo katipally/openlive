@@ -12,7 +12,9 @@ import { savedMiniHotkey } from "@/lib/platform";
 // This invisible component is the main-renderer half of that bridge: it publishes
 // live state to the panel and executes the panel's control commands.
 
-// Grab ~1 fps JPEG snapshots off a MediaStream (previews can't cross windows live).
+// Grab ~10 fps JPEG snapshots off a MediaStream (previews can't cross windows
+// live). Downscaled + mid-quality JPEG keeps each frame ~10-20 KB, so the IPC
+// relay stays cheap while the preview reads as motion instead of a slideshow.
 class Snap {
   private video = document.createElement("video");
   private canvas = document.createElement("canvas");
@@ -84,7 +86,8 @@ export function PanelBridge(props: PanelBridgeProps) {
     return () => clearInterval(t);
   }, []);
 
-  // Preview snapshots at 1 fps.
+  // Preview snapshots at ~10 fps (setInterval, NOT rAF — this window is hidden;
+  // backgroundThrottling is off, so timers and video decoding keep running).
   useEffect(() => {
     const cam = new Snap(), scr = new Snap();
     const t = setInterval(() => {
@@ -97,7 +100,7 @@ export function PanelBridge(props: PanelBridgeProps) {
         cam: s.cameraOn ? cam.grab(430) : undefined,
         screen: s.screenOn ? scr.grab(430) : undefined,
       });
-    }, 1000);
+    }, 100);
     return () => clearInterval(t);
   }, []);
 

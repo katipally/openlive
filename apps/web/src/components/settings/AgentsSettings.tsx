@@ -86,7 +86,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
             {a.credState === "ready" && a.authDetail ? <>{a.authDetail} · </> : null}session store · {a.sessions}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {!a.installed && (
+            {!a.installed && a.canInstall && (
               <button onClick={() => start(a.id, "install")} disabled={busy}
                 className={cn(btn, "border-transparent bg-accent text-accent-foreground hover:opacity-90")}>
                 {running === "install" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} Install
@@ -106,7 +106,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
                 {running === "logout" ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />} Sign out
               </button>
             )}
-            {a.installed && (
+            {a.installed && a.canUninstall && (
               <button
                 onClick={() => (confirmUn ? (setConfirmUn(false), start(a.id, "uninstall")) : setConfirmUn(true))}
                 disabled={busy} onBlur={() => setConfirmUn(false)}
