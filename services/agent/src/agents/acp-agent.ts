@@ -6,7 +6,7 @@ import type { Client, RequestPermissionRequest, RequestPermissionResponse, Sessi
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit } from "../tools.js";
-import type { Agent, AgentId, AgentMeta, AskPermission, Posture, TurnInput } from "./types.js";
+import type { Agent, AgentId, AgentMeta, AskPermission, TurnInput } from "./types.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
@@ -15,16 +15,15 @@ import type { Agent, AgentId, AgentMeta, AskPermission, Posture, TurnInput } fro
 // NO fs/terminal capabilities: a voice app isn't an editor, so the agent uses its
 // own file access and asks us (via request_permission) before doing anything risky.
 
-// Adapter command per agent. Overridable via a setting so an ecosystem package
-// rename doesn't strand a user.
+// Adapter command per agent (the ACP server we spawn to bridge each agent).
+// Overridable via a setting so an ecosystem package rename doesn't strand a user.
+// Verified 2026-07-15: ACP moved from the deprecated @zed-industries/* packages to
+// the vendor-neutral @agentclientprotocol/* org; Cursor's binary is now `agent`.
 const ADAPTERS: Record<AgentId, { command: string; args: string[] }> = {
-  "claude-code": { command: "npx", args: ["-y", "@zed-industries/claude-code-acp"] },
-  "codex": { command: "npx", args: ["-y", "@zed-industries/codex-acp"] },
-  "cursor": { command: "cursor-agent", args: ["acp"] },
+  "claude-code": { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp"] },
+  "codex": { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] },
+  "cursor": { command: "agent", args: ["acp"] },
 };
-
-// Auto-approvable tool kinds under the "auto-safe" posture — read-only, non-destructive.
-const SAFE_KINDS = new Set(["read", "search", "fetch", "think"]);
 
 // Sent once per session so the agent knows it's a spoken voice+vision call (not a
 // terminal) and goes ALONG with it as itself — without ever faking capabilities.
@@ -35,7 +34,6 @@ export interface AcpOpts {
   onSession?: (sessionId: string) => void;   // report the ACP session id (resume-later persistence)
   resumeSessionId?: string;                    // replay a prior session via session/load
   cwd?: string;                                // the project folder the agent runs in
-  posture?: () => Posture;                     // how to handle permission requests
   onMeta?: (meta: AgentMeta) => void;          // the agent's available models/modes → UI
 }
 
@@ -241,16 +239,12 @@ export class AcpAgent implements Agent {
         }
       },
       requestPermission: async (req: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
+        // The agent only asks when its own ACP mode requires it (the user picks that
+        // mode before the call — e.g. "always ask" vs "accept edits" vs "bypass"), so
+        // OpenLive just relays the ask. Map the options onto canonical allow/always/
+        // deny ids (the voice yes/no classifier keys on these) and ask the user.
         const byKind = (k: string) => req.options.find((o) => o.kind === k);
         const allow = byKind("allow_once");
-        // Posture: auto-approve everything, auto-approve read-only ops, or always ask.
-        const posture = this.opts.posture?.() ?? "ask";
-        const kind = req.toolCall?.kind ?? "";
-        if (allow && (posture === "auto-all" || (posture === "auto-safe" && SAFE_KINDS.has(kind)))) {
-          return { outcome: { outcome: "selected", optionId: allow.optionId } };
-        }
-        // Otherwise map the options onto canonical allow/always/deny ids (the voice
-        // yes/no classifier keys on these) and ask the user.
         const options: { id: string; label: string }[] = [];
         if (allow) options.push({ id: "allow", label: allow.name || "Allow" });
         const always = byKind("allow_always"); if (always) options.push({ id: "always", label: always.name || "Always allow" });
@@ -358,7 +352,7 @@ function extractAcpError(e: unknown): string {
 function startError(id: AgentId, code: number | null, stderr: string): string {
   const tail = stderr.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(-240);
   const hint = id === "cursor"
-    ? "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `cursor-agent login`."
+    ? "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`."
     : id === "codex"
       ? "Make sure `codex` is installed and signed in (run `codex`)."
       : "Make sure Claude Code is installed and signed in (run `claude`).";

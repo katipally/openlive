@@ -2,28 +2,14 @@ import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
+import { AGENTS, widenedPath } from "./agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Transparency for the Agents panel: is each agent's CLI installed, and where does
-// it keep its sessions. The agents run on THIS machine with the user's own login;
-// this just reports what's set up. Session dirs are the tools' own stores (resume
-// by reopening the OpenLive conversation, which replays via ACP session/load).
-const AGENTS = [
-  { id: "claude-code", label: "Claude Code", bins: ["claude"], sessions: "~/.claude" },
-  { id: "codex", label: "Codex", bins: ["codex"], sessions: "~/.codex/sessions" },
-  { id: "cursor", label: "Cursor", bins: ["cursor-agent", "agent"], sessions: "~/.cursor" },
-];
-
-// GUI-launched apps get a skeletal PATH on macOS; widen it like the agent driver
-// does so an installed CLI in homebrew/npm still resolves.
-function widenedPath(): string {
-  const extra = ["/usr/local/bin", "/opt/homebrew/bin", `${homedir()}/.local/bin`, `${homedir()}/bin`, `${homedir()}/.npm-global/bin`];
-  const cur = (process.env.PATH ?? "").split(":");
-  return [...cur, ...extra.filter((p) => !cur.includes(p))].join(":");
-}
-
+// Transparency for the Agents panel: is each agent's CLI installed, and where does it
+// keep its sessions. Session dirs are the tools' own stores (resume by reopening the
+// OpenLive conversation, which replays via ACP session/load).
 async function present(bin: string): Promise<boolean> {
   const finder = process.platform === "win32" ? "where" : "which";
   try { await promisify(execFile)(finder, [bin], { env: { ...process.env, PATH: widenedPath() }, timeout: 3000 }); return true; }

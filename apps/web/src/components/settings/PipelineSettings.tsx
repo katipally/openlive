@@ -11,10 +11,10 @@ import { cn } from "@/lib/cn";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
-  { id: "mic", label: "Microphone", sub: "Silero VAD", icon: Mic },
-  { id: "stt", label: "Speech", sub: "Whisper", icon: Languages },
+  { id: "mic", label: "VAD", sub: "Silero", icon: Mic },
+  { id: "stt", label: "Speech-to-text", sub: "Whisper", icon: Languages },
   { id: "turn", label: "Turn-taking", sub: "Smart-Turn", icon: Gauge },
-  { id: "tts", label: "Voice", sub: "Kokoro", icon: AudioWaveform },
+  { id: "tts", label: "Text-to-speech", sub: "Kokoro", icon: AudioWaveform },
 ] as const;
 type StageId = (typeof STAGES)[number]["id"];
 
@@ -80,7 +80,7 @@ function ModelStatus() {
 function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
-      <StageHead title="Microphone" desc="Silero voice-activity detection segments your speech. Applies when you next start a conversation." />
+      <StageHead title="Voice activity detection" desc="Silero VAD segments your speech — it decides when you start and stop talking. Applies when you next start a conversation." />
       <EngineCard name="Silero VAD" desc="Tiny on-device voice detector — decides when you're speaking and enables instant barge-in." />
       <Slider label="Speech sensitivity" value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
         fmt={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, speechThreshold: v } })} />
@@ -150,7 +150,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   };
   return (
     <div className="space-y-4">
-      <StageHead title="Voice" desc="Speaks replies back to you on-device — 28 English voices. Voice and speed apply to the next reply." />
+      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device — 28 English voices. Voice and speed apply to the next reply." />
       <EngineCard name="Kokoro TTS" desc="82M-param StyleTTS2 voice via kokoro-js — WebGPU with a WASM fallback." />
       <label className="flex flex-col gap-1.5">
         <span className="text-[12.5px] text-foreground">Voice</span>

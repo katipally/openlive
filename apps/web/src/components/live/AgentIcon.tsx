@@ -9,9 +9,16 @@ const PATHS: Record<AgentId, string> = {
   cursor: "M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z",
 };
 
+// Official brand color per mark (verified 2026-07-15). Only Claude has a colored
+// logo; OpenAI (Codex) and Cursor use monochrome marks that would be near-black and
+// invisible on the dark UI — so they inherit currentColor (the theme) instead.
+const COLORS: Partial<Record<AgentId, string>> = { "claude-code": "#D97757" };
+
 export function AgentIcon({ id, className }: { id: AgentId; className?: string }) {
+  const color = COLORS[id];
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"
+      style={color ? { color } : undefined}>
       <path d={PATHS[id]} />
     </svg>
   );

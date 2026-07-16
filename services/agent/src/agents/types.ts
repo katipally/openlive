@@ -31,9 +31,6 @@ export interface Agent {
  *  call UI). Resolves the chosen option id; times out / cancels to "deny". */
 export type AskPermission = (question: string, options: { id: string; label: string }[]) => Promise<string>;
 
-/** How to handle an agent's permission requests. */
-export type Posture = "ask" | "auto-safe" | "auto-all";
-
 /** A generic selectable agent config option (thought/reasoning level, model config,
  *  …) beyond the dedicated model + mode pickers. */
 export interface AgentOption {

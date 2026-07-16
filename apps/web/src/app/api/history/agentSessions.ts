@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -132,4 +132,48 @@ export function readExternalAgentSessions(): ExternalAgentSessions[] {
     { agentId: "codex", sessions: codexSessions() },
     { agentId: "cursor", sessions: cursorSessions() },
   ].filter((a) => a.sessions.length > 0);
+}
+
+// Permanently delete a coding agent's OWN on-disk session file/dir (History →
+// external session → Delete). Destructive and irreversible — it removes the session
+// from the agent itself, not just OpenLive. The id comes from our own history feed;
+// still, refuse anything with path separators as defense-in-depth.
+export function deleteExternalSession(agentId: string, id: string): boolean {
+  if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return false;
+  const rm = (p: string) => { try { rmSync(p, { recursive: true, force: true }); return true; } catch { return false; } };
+
+  if (agentId === "cursor") {
+    const dir = join(homedir(), ".cursor", "acp-sessions", id);
+    return existsSync(dir) && rm(dir);
+  }
+  if (agentId === "claude-code") {
+    const root = join(homedir(), ".claude", "projects");
+    for (const proj of safeReaddir(root)) {
+      const f = join(root, proj, `${id}.jsonl`);
+      if (existsSync(f)) return rm(f);
+    }
+    return false;
+  }
+  if (agentId === "codex") {
+    const root = join(homedir(), ".codex", "sessions");
+    let target: string | null = null;
+    const walk = (dir: string, depth: number) => {
+      for (const e of safeReaddir(dir)) {
+        if (target) return;
+        const p = join(dir, e);
+        let st; try { st = statSync(p); } catch { continue; }
+        if (st.isDirectory() && depth < 4) walk(p, depth + 1);
+        else if (e.startsWith("rollout-") && e.endsWith(".jsonl")) {
+          if (e.includes(id)) { target = p; return; } // id embedded in the filename
+          for (const line of headLines(p, 5)) {         // else match session_meta.id
+            let o: any; try { o = JSON.parse(line); } catch { continue; }
+            if (o.type === "session_meta" && o.payload?.id === id) { target = p; return; }
+          }
+        }
+      }
+    };
+    walk(root, 0);
+    return target ? rm(target) : false;
+  }
+  return false;
 }

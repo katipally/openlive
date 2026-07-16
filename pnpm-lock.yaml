@@ -7,9 +7,6 @@ settings:
 overrides:
   '@huggingface/transformers': 4.2.0
 
-patchedDependencies:
-  '@zed-industries/agent-client-protocol@0.4.5': fda9e47abecd2aee88d6eb7db3792737d9c462a6098171b5165a72b4078d76ec
-
 importers:
 
   .:

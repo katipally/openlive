@@ -16,7 +16,7 @@ const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator
 
 const SECTIONS = [
   { id: "models", label: "Models", sub: "Provider, model & vision", icon: SlidersHorizontal, Comp: ModelsSettings },
-  { id: "pipeline", label: "Voice", sub: "On-device speech pipeline", icon: AudioWaveform, Comp: PipelineSettings },
+  { id: "pipeline", label: "Pipeline", sub: "On-device speech pipeline", icon: AudioWaveform, Comp: PipelineSettings },
   { id: "agents", label: "Agents", sub: "Claude Code · Codex · Cursor", icon: Bot, Comp: AgentsSettings },
   { id: "about", label: "About", sub: "Appearance & version", icon: Info, Comp: AboutSettings },
 ] as const;
@@ -63,14 +63,16 @@ export function SettingsPage() {
     gsap.fromTo(".ol-set-body", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out });
   }, { scope: root, dependencies: [tab] });
 
+  // Exit = the entrance played in reverse: pane sinks back, nav slides back out
+  // (tail-first), surface fades — same offsets as the enter, just quicker.
   const requestClose = contextSafe(() => {
     const el = root.current;
     const done = () => { setVisible(false); closeStore(); };
     if (!el || prefersReduced()) { done(); return; }
     gsap.timeline({ onComplete: done })
-      .to(".ol-set-navitem", { autoAlpha: 0, x: -8, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(".ol-set-pane", { autoAlpha: 0, y: 8, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(el, { autoAlpha: 0, scale: 0.992, duration: DUR.base, ease: EASE.soft }, 0);
+      .to(".ol-set-pane", { autoAlpha: 0, y: 14, duration: DUR.base, ease: EASE.soft }, 0)
+      .to(".ol-set-navitem", { autoAlpha: 0, x: -10, stagger: { each: 0.03, from: "end" }, duration: DUR.fast, ease: EASE.soft }, 0)
+      .to(el, { autoAlpha: 0, duration: DUR.base, ease: EASE.soft }, 0.05);
   });
 
   useFocusTrap(root, visible, requestClose);

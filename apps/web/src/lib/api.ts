@@ -41,5 +41,10 @@ export const api = {
   history: () => fetch("/api/history").then(j<HistoryAgent[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE" }).then(j),
+  renameChat: (id: string, title: string) =>
+    fetch(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).then(j),
+  // Permanently delete a coding agent's OWN on-disk session (irreversible).
+  deleteExternalSession: (agentId: string, id: string) =>
+    fetch("/api/history/session", { method: "DELETE", body: JSON.stringify({ agentId, id }) }).then(j),
   agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
 };

@@ -2,9 +2,9 @@ import { homedir } from "node:os";
 import { getSetting, setSetting } from "@openlive/db";
 import { AcpAgent } from "./acp-agent.js";
 import { AgentSupervisor } from "./supervisor.js";
-import type { Agent, AgentId, AgentMeta, AskPermission, Posture } from "./types.js";
+import type { Agent, AgentId, AgentMeta, AskPermission } from "./types.js";
 
-export type { Agent, AgentId, AgentMeta, AskPermission, Posture } from "./types.js";
+export type { Agent, AgentId, AgentMeta, AskPermission } from "./types.js";
 
 export const AGENTS: { id: AgentId; label: string }[] = [
   { id: "claude-code", label: "Claude Code" },
@@ -23,21 +23,15 @@ export function setBoundAgent(chatId: string, id: AgentId | null): void {
   setSetting(`bind:${chatId}`, id ?? "");
 }
 
-/** How to handle an agent's permission requests (per agent, default = always ask). */
-export function agentPosture(id: AgentId): Posture {
-  const p = getSetting(`posture:${id}`);
-  return p === "auto-safe" || p === "auto-all" ? p : "ask";
-}
-
 /** The project folder a conversation's agent runs in: per-chat → global default → home. */
 export function agentCwd(chatId: string): string {
   return getSetting(`agentCwd:${chatId}`)?.trim() || getSetting("agentCwd")?.trim() || homedir();
 }
 
 /** Build the bound agent wrapped in the reliability supervisor, or null when the
- *  conversation runs on the built-in provider brain. Reads cwd/posture/session
- *  fresh per factory call so a supervisor restart (or a folder switch) picks up the
- *  latest. `startMs` is generous: a first `npx` run may download the adapter. */
+ *  conversation runs on the built-in provider brain. Reads cwd/session fresh per
+ *  factory call so a supervisor restart (or a folder switch) picks up the latest.
+ *  `startMs` is generous: a first `npx` run may download the adapter. */
 export function createBoundAgent(chatId: string, askPermission: AskPermission, onMeta?: (meta: AgentMeta) => void): Agent | null {
   const id = boundAgent(chatId);
   if (!id) return null;
@@ -45,7 +39,6 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, o
     onSession: (sid) => setSetting(`acpSession:${chatId}`, sid),
     resumeSessionId: getSetting(`acpSession:${chatId}`)?.trim() || undefined,
     cwd: agentCwd(chatId),
-    posture: () => agentPosture(id),
     onMeta,
   }), { startMs: 60_000 });
 }

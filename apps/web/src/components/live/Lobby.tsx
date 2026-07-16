@@ -8,7 +8,6 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
-import { AgentIcon } from "./AgentIcon";
 import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
@@ -52,10 +51,14 @@ export function Lobby(props: LobbyProps) {
       .fromTo(".ol-lobby-aside", { autoAlpha: 0, x: 26 }, { autoAlpha: 1, x: 0, duration: DUR.slow, ease: EASE.out }, "<");
   }, { scope: root });
 
-  // Back to home — animate out first (reverse of the entrance), then unmount.
+  // Back to home — exit is the entrance played in reverse (aside slides back out,
+  // stage children fall back with a tail-first stagger, surface fades), then unmount.
   const handleBack = contextSafe(() => {
     if (!root.current || prefersReduced()) { onExit(); return; }
-    gsap.to(root.current, { autoAlpha: 0, y: 8, duration: DUR.fast, ease: EASE.soft, onComplete: onExit });
+    gsap.timeline({ onComplete: onExit })
+      .to(".ol-lobby-aside", { autoAlpha: 0, x: 26, duration: DUR.base, ease: EASE.inOut }, 0)
+      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: 12, stagger: { each: 0.04, from: "end" }, duration: DUR.base, ease: EASE.soft }, 0)
+      .to(root.current, { autoAlpha: 0, duration: DUR.base, ease: EASE.soft }, 0.06);
   });
 
   const cta = downloading ? (
@@ -205,7 +208,6 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
 // connects (cached per-agent between calls) — so the selectors are always shown, and
 // sit disabled with a hint until that first connect populates them.
 function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
-  const openSettingsTab = useUi((s) => s.openSettingsTab);
   const liveMeta = useLiveStore((s) => s.agentMeta);
   const agentConnecting = useLiveStore((s) => s.agentConnecting);
   const meta = liveMeta ?? cachedAgentMeta(agent);
@@ -216,11 +218,6 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-        <AgentIcon id={agent} className="size-4" /> {agentLabel(agent)}
-        <button onClick={() => openSettingsTab("agents")} className="ml-auto text-[11px] font-normal text-accent transition hover:underline">Manage →</button>
-      </div>
-
       <WorkspaceField cwd={boundCwd} name={agentLabel(agent)} required />
 
       <label className="flex flex-col gap-1.5">

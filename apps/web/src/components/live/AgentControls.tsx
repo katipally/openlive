@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, MessageCircle, Check, ShieldQuestion } from "lucide-react";
+import { ChevronDown, Check, ShieldQuestion } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
+import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useUi } from "@/lib/uiStore";
 import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
@@ -37,7 +38,7 @@ export function AgentQuickPick() {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   return (
     <label className="flex items-center gap-2 text-muted-foreground">
-      {boundAgent ? <AgentIcon id={boundAgent} className="size-3.5 shrink-0" /> : <MessageCircle className="size-3.5 shrink-0" />}
+      <span className="grid size-3.5 shrink-0 place-items-center">{boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={14} />}</span>
       <select value={boundAgent ?? ""} aria-label="Talk to"
         onChange={(e) => { if (activeChatId) setConversationBind(activeChatId, (e.target.value || null) as AgentId | null); }}
         className="min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-[12px] text-foreground">
@@ -71,14 +72,14 @@ export function AgentSelect() {
     <div ref={ref} className={cn("relative", noDrag)}>
       <button onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-        {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <MessageCircle className="size-4" />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
+        {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <OpenLiveOrb size={16} />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
       {open && (
         <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           {OPTIONS.map((o) => (
             <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); setOpen(false); }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-foreground/[0.06]">
-              {o.id ? <AgentIcon id={o.id} className="size-4" /> : <MessageCircle className="size-4 text-muted-foreground" />}
+              {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}
               <span className="flex-1">{o.label}</span>
               {o.id === boundAgent && <Check className="size-3.5 text-success" />}
             </button>

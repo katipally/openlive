@@ -13,7 +13,9 @@ const LABEL: Record<string, string> = { "": "OpenLive", "claude-code": "Claude C
 // History grouped agent → workspace → session. Merges OpenLive's own sessions
 // (from our DB, filed by the agent + workspace stamped on each) with each coding
 // agent's OWN external sessions read from disk (source:"external", resumable via
-// ACP loadSession). Empty and legacy un-workspaced OpenLive chats are hidden.
+// ACP loadSession). Only truly empty chats (never spoken in) are hidden — folderless
+// OpenLive conversations show under a "No folder" workspace so OpenLive's own history
+// is always browsable here too.
 export function GET() {
   // agentKey → cwd → workspace
   const byAgent = new Map<string, Map<string, HistoryWorkspace>>();
@@ -25,11 +27,11 @@ export function GET() {
     byAgent.set(agentKey, wsMap);
   };
 
-  // OpenLive's own sessions.
+  // OpenLive's own sessions (folderless ones grouped under "" → "No folder").
   const counts = chatMessageCounts();
   for (const c of listChats()) {
-    if ((c.cwd ?? "") === "" || (counts[c.id] ?? 0) === 0) continue; // hide empty / legacy
-    add(c.agentId ?? "", c.cwd!, { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, source: "openlive" });
+    if ((counts[c.id] ?? 0) === 0) continue; // hide empty (a lobby connect never spoken in)
+    add(c.agentId ?? "", c.cwd ?? "", { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, source: "openlive" });
   }
 
   // Each agent's own external sessions (from disk).
