@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, type AgentMetaWire } from "@openlive/shared";
 import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
@@ -65,6 +65,8 @@ export class LiveSession {
   private agent: Agent | null = null;
   private boundId: AgentId | null = null;
   private boundCwd = ""; // the agent's project folder for this conversation (rebuild on change)
+  private lastMeta: AgentMetaWire | null = null; // last agent_meta sent — re-sent on a same-bind rebind
+  private lastBind: Promise<void> = Promise.resolve(); // most recent applyBind, awaited by start()
   private agentReady: Promise<void> | null = null;
   private agentAc: AbortController | null = null;
   private permPending = new Map<string, (optionId: string) => void>(); // agent permission asks awaiting the user
@@ -145,9 +147,13 @@ export class LiveSession {
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
-    // Resume a persisted bind (the client also re-sends its remembered choice on
-    // connect). A bound agent warms itself; the provider path warms the cache.
-    await this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
+    // Resume a persisted bind — but ONLY if the client's own bind hasn't already
+    // arrived. The client re-sends its choice the moment the socket opens, and on a
+    // NEW chat that message can beat this restore: the restore then read stale/empty
+    // DB state, superseded the client's bind via the epoch guard, and quietly
+    // reversed it — agent + folder shown in the UI, nothing bound on the server.
+    if (this.bindEpoch === 0) await this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
+    else await this.lastBind; // let the in-flight client bind finish deciding
     if (this.agent) return;
     // Warm the prompt cache + connection in the background so the first spoken turn
     // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
@@ -264,11 +270,26 @@ export class LiveSession {
         // The built-in brain keeps its own worker narration — no double-narrate.
         const agentEmit = getSetting("narrateProgress") === "1" ? wrapEmitWithNarration(emit, ac.signal) : emit;
         await this.agent.runTurn({ text, frames }, agentEmit, ac.signal);
+      } else if (this.boundId) {
+        // A coding agent is bound but not running (no folder yet, or its start
+        // failed). NEVER answer with the built-in brain as if it were the agent —
+        // that silently swaps who the user is talking to. Say what's wrong instead.
+        const label = agentLabel(this.boundId);
+        await emit({
+          type: "error",
+          message: this.boundCwd
+            ? `${label} isn't connected yet. Give it a moment, or switch agents and back to retry.`
+            : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
+        });
       } else {
         await this.runner.runTurn(text, frames, emit, ac.signal);
       }
     } catch (e) {
-      if (!ac.signal.aborted) log.error("live", "turn:", e);
+      if (!ac.signal.aborted) {
+        log.error("live", "turn:", e);
+        // A thrown turn was invisible before — the call went quiet with no clue.
+        try { await emit({ type: "error", message: `That didn't go through: ${String((e as Error)?.message ?? e)}` }); } catch { /* emit is best-effort */ }
+      }
     } finally {
       // Turn is over (normally, barge-in, watchdog cut, or error) — never leave an
       // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
@@ -339,6 +360,18 @@ export class LiveSession {
     // bail the moment a newer bind supersedes this one — otherwise two runs each spawn
     // an agent and the older one leaks an orphaned ACP child-process tree.
     const epoch = ++this.bindEpoch;
+    const run = this.applyBindInner(id, cwd, resumeSessionId, epoch);
+    this.lastBind = run.catch(() => {});
+    await run;
+    // Authoritative echo — whatever this bind attempt ended up with (including the
+    // superseding-bind and no-folder paths that return early above), tell the client
+    // what the session is ACTUALLY using so its chips can't drift from reality.
+    if (epoch === this.bindEpoch && !this.closed) {
+      this.send({ t: "bound_state", agentId: this.boundId, cwd: this.boundCwd, agentActive: !!this.agent });
+    }
+  }
+
+  private async applyBindInner(id: AgentId | null, cwd: string | undefined, resumeSessionId: string | undefined, epoch: number) {
     // These two MUST land before agentCwd()/createBoundAgent read them back.
     if (cwd !== undefined && this.chatId) await setSetting(`agentCwd:${this.chatId}`, cwd);
     // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
@@ -352,10 +385,16 @@ export class LiveSession {
     // under agent → workspace → session.
     if (this.chatId) await setChatContext(this.chatId, id, effectiveCwd);
     if (epoch !== this.bindEpoch) return;
-    if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) return;
+    if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) {
+      // Same bind, agent already up. The client may have cleared its model/mode
+      // chips (start() reuses the prewarmed socket and nulls them) — re-send the
+      // last meta so they come back without a rebuild.
+      if (this.lastMeta) this.send({ t: "agent_meta", ...this.lastMeta });
+      return;
+    }
     this.agentAc?.abort();
     void this.agent?.dispose();
-    this.agent = null; this.agentReady = null; this.boundId = id; this.boundCwd = effectiveCwd;
+    this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd;
     if (this.chatId) await setBoundAgent(this.chatId, id);
     if (epoch !== this.bindEpoch) return;
     if (!id || this.closed || !this.chatId) return;
@@ -368,7 +407,7 @@ export class LiveSession {
     // the chat is OpenLive-origin and drop the recovered transcript.
     this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
     const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o), {
-      onMeta: (meta) => { if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
+      onMeta: (meta) => { this.lastMeta = meta; if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
       // Recovered transcript from a session/load — persist + tell the client to reload.
       onReplay: (msgs) => this.ingestReplay(msgs),
     });

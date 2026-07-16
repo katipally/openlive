@@ -21,6 +21,9 @@ export interface LiveHandlers {
   onPermissionResolved?: (reqId: string) => void;
   onAgentMeta?: (meta: AgentMeta) => void;
   onReloadHistory?: () => void;
+  /** Authoritative bind echo: what agent + folder the server session is ACTUALLY
+   *  using, and whether the coding agent is running. */
+  onBoundState?: (agentId: AgentId | null, cwd: string, agentActive: boolean) => void;
   onError?: (message: string) => void;
 }
 
@@ -91,6 +94,7 @@ export class LiveClient {
         case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt);
         case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
         case "agent_meta": return this.h.onAgentMeta?.(m);
+        case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
         case "error": return this.h.onError?.(m.message);
       }
@@ -115,8 +119,10 @@ export class LiveClient {
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
-  /** Bind this conversation to a coding agent (null = provider brain) + project folder. */
-  bind(agentId: AgentId | null, cwd?: string, resumeSessionId?: string) { this.sendJson({ t: "bind", agentId, ...(cwd !== undefined ? { cwd } : {}), ...(resumeSessionId ? { resumeSessionId } : {}) }); }
+  /** Bind this conversation to a coding agent (null = provider brain) + project folder.
+   *  cwd ALWAYS travels (empty string = no folder) — the old omit-when-empty shape let
+   *  a transiently-empty store silently strand the server on a stale/absent folder. */
+  bind(agentId: AgentId | null, cwd: string, resumeSessionId?: string) { this.sendJson({ t: "bind", agentId, cwd, ...(resumeSessionId ? { resumeSessionId } : {}) }); }
   /** Answer an agent permission ask (chip tap or spoken yes/no). */
   permissionResponse(reqId: string, optionId: string) { this.sendJson({ t: "permission_response", reqId, optionId }); }
   /** Switch the bound agent's model / mode mid-session. */

@@ -23,6 +23,10 @@ export interface VoiceEngineHandlers {
   // A mid-thought pause is being held: `until` = when it auto-sends (UI shows a
   // "waiting for you… tap to send" affordance); null = hold resolved/cancelled.
   onHold: (h: { until: number } | null) => void;
+  /** True while user speech must NOT barge in — e.g. a permission ask is pending
+   *  and the next utterance IS the answer. Cancelling there killed the very ask
+   *  the user was answering (the chip vanished the moment they spoke). */
+  holdBargeIn?: () => boolean;
 }
 
 const PARTIAL_MS = 500;      // min gap between interim transcriptions
@@ -157,7 +161,7 @@ export class VoiceEngine {
     // user's voice is the only mic energy. ponytail: linear 2× scale; tune the
     // factor if speaker echo still self-triggers on some hardware.
     const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
-    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe) {
+    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !this.h.holdBargeIn?.()) {
       this.bargeIn();
     }
     this.clearHold();
@@ -295,7 +299,7 @@ export class VoiceEngine {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
-    if (this.phase === "speaking" || this.phase === "thinking" || this.player.level() > 0) this.bargeIn();
+    if ((this.phase === "speaking" || this.phase === "thinking" || this.player.level() > 0) && !this.h.holdBargeIn?.()) this.bargeIn();
     if (this.muted) void this.vad.start(); // lift a mute for the hold (restored on release)
   }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.

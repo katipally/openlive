@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Folder, ChevronDown, Check, Cpu, SlidersHorizontal, FolderOpen } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { setConversationFolder, setConversationModel, setConversationMode, recentFolders } from "@/lib/live/useLiveSession";
+import { setConversationFolder, setConversationModel, setConversationMode, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 import { isDesktop, basename, bridge } from "@/lib/platform";
@@ -59,8 +59,12 @@ export function AgentBar() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
-  const agentMeta = useLiveStore((s) => s.agentMeta);
+  const liveMeta = useLiveStore((s) => s.agentMeta);
   if (!boundAgent || !activeChatId) return null;
+  // Live meta when the agent has reported in; otherwise the per-agent cache (same
+  // fallback the lobby uses) — so the model/mode chips don't blink out whenever a
+  // reconnect/rebind clears the store before the agent re-reports.
+  const agentMeta = liveMeta ?? cachedAgentMeta(boundAgent);
 
   const folderItems: Item[] = recentFolders().map((f) => ({ id: f, label: basename(f), sub: f }));
   const b = bridge;

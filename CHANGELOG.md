@@ -7,6 +7,29 @@ Releases before 0.1.9 predate this file — see the
 ## [0.2.0] - 2026-07-16
 
 ### Fixed
+- **The workspace you picked is now the workspace the agent gets.** A bind race
+  on new conversations could silently strand the session with no agent and no
+  folder while the top bar showed both (the server's boot-time bind restore could
+  supersede and reverse the client's bind). The server now yields to the client's
+  bind, always receives the folder explicitly (empty means clear, not "keep
+  stale"), and echoes back what it actually bound so the UI can't drift — with a
+  one-shot self-heal re-bind if they ever disagree.
+- **No more silent brain swap.** If a coding agent is selected but can't run
+  (no folder, failed start), OpenLive says exactly that instead of quietly
+  answering with the built-in assistant as if it were the agent.
+- **Speaking to answer a permission no longer cancels it.** Starting to talk
+  while an agent asked for permission counted as barge-in: the ask vanished
+  mid-answer and your words became a new turn. Speech during a pending ask is
+  now the answer ("yes"/"no", matched against the agent's real option ids).
+- **Model/mode pickers stop blinking out.** Resumed sessions kept their model
+  and mode lists (updates during session replay were dropped), the server
+  re-sends them on a same-bind reconnect, and the in-call top bar falls back to
+  the per-agent cache like the lobby always did.
+- **Pre-call verification.** The lobby now checks the project folder actually
+  exists on disk, the built-in brain's provider has an API key, and a microphone
+  is present — gaps surface as chips (with a jump to the right Settings tab)
+  before Start instead of failing mid-call. A missing folder also gets a clear
+  error instead of a baffling "spawn npx ENOENT".
 - **Cross-process data race.** Settings and conversations are written by both the
   web and agent processes; every read-modify-write now runs under a file lock, so
   a concurrent save can no longer silently drop the other side's update.

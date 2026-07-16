@@ -46,7 +46,7 @@ export interface FileToolsCtx {
 
 export function buildFileTools(ctx: FileToolsCtx): OpenLiveTool[] {
   const root = () => ctx.cwd().trim();
-  const noWs = () => t("No workspace folder is set for this call. Ask the user to pick a project folder on the right, then try again.", true);
+  const noWs = () => t("No workspace folder is set for this call. Ask the user to pick a project folder from the folder menu in the top bar, then try again.", true);
   const outside = () => t("That path is outside the workspace folder — not allowed.", true);
   const confirmWrite = async (what: string) => {
     const choice = await ctx.ask(`OpenLive wants to ${what} in your workspace. Allow it?`, [{ id: "allow", label: "Allow" }, { id: "deny", label: "Deny" }]);

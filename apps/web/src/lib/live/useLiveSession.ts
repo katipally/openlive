@@ -149,6 +149,7 @@ export function useLiveSession(chatId: string) {
   const assistantId = useRef<string | null>(null);
   const permReminder = useRef<ReturnType<typeof setTimeout> | null>(null); // spoken "30s left" nudge
   const turnStartedAt = useRef(0); // notify "finished" only for turns that took real time
+  const cwdHealTried = useRef(false); // one self-heal re-bind per session when the server lost the folder
   const tornDown = useRef(false);
   const onPageHide = useRef<() => void>(() => {});
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
@@ -224,7 +225,7 @@ export function useLiveSession(chatId: string) {
   const ensureClient = useCallback((): LiveClient => {
     if (client.current) return client.current;
     const c = new LiveClient({
-      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd || undefined, readResume(chatId) || undefined); },
+      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined); },
       onReconnecting: () => set({ phase: "reconnecting" }),
       onClose: () => teardown(),
       onError: (m) => set({ error: m, agentConnecting: false }),
@@ -269,6 +270,23 @@ export function useLiveSession(chatId: string) {
             const p = readPref(`openlive-opt:${agent}:${o.id}`);
             if (p && p !== o.currentId && o.values.some((v) => v.id === p)) client.current?.setOption(o.id, p);
           }
+        }
+      },
+      // The server's authoritative bind result. The chips render optimistic client
+      // state — this reconciles them against what the session ACTUALLY bound, so a
+      // "workspace shown but agent never got it" mismatch can't ride silently.
+      onBoundState: (agentId, cwd, agentActive) => {
+        const st = useLiveStore.getState();
+        if (agentId !== st.boundAgent) return; // stale echo from a superseded bind
+        if (agentId && agentActive) { cwdHealTried.current = false; }
+        // Server has a folder the client doesn't (e.g. restored from a prior bind) —
+        // adopt it so the chip shows the truth.
+        if (cwd && cwd !== st.boundCwd) { setConversationFolder(chatId, cwd); return; }
+        // Client has a folder the server didn't apply (a dropped/raced bind):
+        // re-push once, then surface instead of looping.
+        if (agentId && st.boundCwd && !cwd) {
+          if (!cwdHealTried.current) { cwdHealTried.current = true; client.current?.bind(agentId, st.boundCwd); return; }
+          set({ error: `${agentLabel(agentId)} didn't get the project folder — pick it again from the top bar.`, agentConnecting: false });
         }
       },
       onSse: (e) => {
@@ -365,7 +383,12 @@ export function useLiveSession(chatId: string) {
 
   const start = useCallback(async () => {
     tornDown.current = false;
-    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null, agentMeta: null, boundAgent: readBind(chatId), boundCwd: readCwd(chatId) });
+    // NOTE: boundAgent/boundCwd/agentMeta are deliberately NOT touched here. The
+    // store is already synced per-conversation (the chatId effect below), and
+    // re-reading localStorage at Start raced it: a pick saved under another chatId
+    // clobbered the store with "", the change-effect re-bound with no folder, and
+    // the agent silently fell back — folder chip full, session empty.
+    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null });
     // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
     // AudioContext playback that starts after an await, so priming here (before the
     // model download) is what lets the agent's voice actually play on iPhone.
@@ -452,6 +475,11 @@ export function useLiveSession(chatId: string) {
           // barge-in, so a lingering approve/deny would just no-op if tapped.
           set({ agentCaption: "", userCaption: "", userPartial: false, permission: null });
         },
+        // While a permission ask is pending, the user's speech IS the answer —
+        // never a barge-in. Barging there cancelled the very ask being answered:
+        // the chip vanished as soon as they spoke, and the answer landed as a new
+        // turn. handleUserText classifies the utterance as yes/no instead.
+        holdBargeIn: () => !!useLiveStore.getState().permission,
       }, player.current ?? undefined);
       engine.current = eng;
       await eng.start(stream);
@@ -492,7 +520,7 @@ export function useLiveSession(chatId: string) {
     if (!client.current?.ready) return;
     // A bound agent's models/modes are agent-specific — clear + re-fetch on a switch.
     set({ agentMeta: null, agentConnecting: !!boundAgent && !!boundCwd });
-    client.current.bind(boundAgent, boundCwd || undefined);
+    client.current.bind(boundAgent, boundCwd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boundAgent, boundCwd]);
 
@@ -505,7 +533,14 @@ export function useLiveSession(chatId: string) {
     if (pend) {
       const yn = classifyYesNo(text);
       set({ userCaption: "", userPartial: false });
-      if (yn) answerPermission(yn === "allow" ? (pend.options.find((o) => o.id === "allow")?.id ?? pend.options.find((o) => o.id === "always")?.id ?? "deny") : "deny");
+      if (yn) {
+        // Match the agent's actual option ids/labels (ACP adapters vary:
+        // "allow" / "allow_once" / "approve", …) — first match wins, so
+        // allow-once beats allow-always where both exist.
+        const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
+        const opt = pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
+        answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
+      }
       return;
     }
     // Attach the freshest frame from every active visual source (camera + screen

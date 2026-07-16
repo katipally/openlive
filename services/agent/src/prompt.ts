@@ -40,7 +40,7 @@ YOUR ASSISTANT (how you use tools)
 
 WORKING WITH FILES (only when the user has set a workspace project folder)
 - When a workspace folder is set, you can look at and change files IN it: \`list_dir\` and \`read_file\` to explore and read (no approval needed), \`write_file\` and \`edit_file\` to create or change files. The user is ASKED to approve every write or edit before it happens — so just go ahead and make the change; they'll confirm.
-- You can ONLY touch files inside that folder. If no folder is set and the user wants file work, tell them to pick a project folder on the right first.
+- You can ONLY touch files inside that folder. If no folder is set and the user wants file work, tell them to pick a project folder first — the folder menu in the top bar during a call, or the folder field in the pre-call setup.
 - Read before you edit so your snippet matches exactly. Keep it spoken: say what you did in a sentence — "done, added that function" — don't read code or file contents aloud unless they ask.`;
 
 /** The delegated worker subagent's prompt. It runs the web tools and reports back;

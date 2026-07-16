@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionUpdate, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -102,6 +103,10 @@ export class AcpAgent implements Agent {
     // A real project folder is required: it's where the agent files its session
     // (so `claude --resume` etc. can reopen it) and the only place it reads/writes.
     if (!cfg.cwd) throw new Error(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`);
+    // Spawning into a missing directory fails as a baffling "spawn npx ENOENT"
+    // that reads like the agent isn't installed — name the real problem instead.
+    try { if (!statSync(cfg.cwd).isDirectory()) throw new Error("not a directory"); }
+    catch { throw new Error(`The project folder ${cfg.cwd} doesn't exist — pick a different one.`); }
     const isWin = process.platform === "win32";
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
@@ -297,8 +302,15 @@ export class AcpAgent implements Agent {
         const u = n.update;
         // During a session/load the agent replays the WHOLE prior conversation as
         // updates before responding — with no turn active. Fold them into the replay
-        // buffer (→ transcript) instead of dropping them.
-        if (this.replaying) { this.bufferReplay(u); return; }
+        // buffer (→ transcript) instead of dropping them. Mode/config updates that
+        // stream during the load are SESSION STATE, not transcript — apply them to
+        // meta (reportMeta emits it after the load), or resumed sessions lose their
+        // model/mode pickers while fresh ones keep them.
+        if (this.replaying) {
+          if (u.sessionUpdate === "current_mode_update") { this.meta = { ...this.meta, currentModeId: u.currentModeId }; return; }
+          if (u.sessionUpdate === "config_option_update") { this.applyConfig(u.configOptions); return; }
+          this.bufferReplay(u); return;
+        }
 
         // Turn-independent updates (mode / config) arrive any time, including
         // outside a turn — handle them without an emit.

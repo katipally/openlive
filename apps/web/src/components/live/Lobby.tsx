@@ -15,6 +15,7 @@ import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename, bridge } from "@/lib/platform";
+import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
@@ -52,6 +53,24 @@ export function Lobby(props: LobbyProps) {
   const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!boundAgent, refetchOnWindowFocus: true });
   const agentRow = boundAgent ? agentRows?.find((r) => r.id === boundAgent) : undefined;
   const agentGap = agentRow && !agentRow.installed ? "install" : agentRow?.credState === "login_required" ? "signin" : null;
+  // The folder must actually EXIST — a deleted/renamed/typo'd path used to sail
+  // through and fail confusingly mid-call. Re-checked on window focus so deleting
+  // the folder while the lobby is open surfaces too.
+  const { data: folderCheck } = useQuery({
+    queryKey: ["workspace-ok", boundCwd],
+    queryFn: () => fetch(`/api/workspace?path=${encodeURIComponent(boundCwd)}`).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    enabled: !!boundCwd, refetchOnWindowFocus: true,
+  });
+  const folderGap = !!boundCwd && folderCheck !== undefined && !folderCheck.ok;
+  // Built-in brain: its provider needs an API key (unless keyless, e.g. local Ollama).
+  const { data: lobbySettings } = useQuery({ queryKey: ["settings"], queryFn: api.settings, enabled: !boundAgent });
+  const { data: provRows = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers, enabled: !boundAgent });
+  const providerId = boundAgent ? null : lobbySettings?.liveProviderId ?? provRows.find((p) => p.isDefault)?.kind ?? provRows[0]?.kind ?? BUILTIN_PROVIDERS[0]!.id;
+  const provDef = providerId ? BUILTIN_PROVIDERS.find((p) => p.id === providerId) : null;
+  const keyGap = !boundAgent && !!provDef && !provDef.keyless && provRows.length > 0 && !provRows.some((r) => r.kind === providerId && r.hasKey);
+  // No audio input at all (nothing enumerated) — the call can't hear you. Warn, don't
+  // block: a transiently-empty list right after mount shouldn't dead-lock Start.
+  const micGap = mics.length === 0;
   const root = useRef<HTMLDivElement>(null);
 
   const { contextSafe } = useGSAP(() => {
@@ -97,19 +116,32 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={handleStart} disabled={needFolder || !!agentGap}
+      <button onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}
         className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
-      {agentGap ? (
+      {/* Pre-call verification: every gap that would break the call is surfaced HERE,
+          before Start — not as a confusing failure after. */}
+      {agentGap && (
         <button onClick={() => useUi.getState().openSettingsTab("agents")}
           className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
           <Wrench className="size-3.5" />
           {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
         </button>
-      ) : needFolder ? (
-        <p className="text-[11.5px] text-faint">Pick a project folder on the right to start.</p>
-      ) : null}
+      )}
+      {!agentGap && needFolder && <p className="text-[11.5px] text-faint">Pick a project folder above to start.</p>}
+      {folderGap && (
+        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-[12px] text-danger">
+          That folder doesn&apos;t exist anymore — pick a different one.
+        </p>
+      )}
+      {keyGap && provDef && (
+        <button onClick={() => useUi.getState().openSettingsTab("models")}
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          <Wrench className="size-3.5" /> No API key for {provDef.name} — add one in Settings
+        </button>
+      )}
+      {micGap && <p className="text-[11.5px] text-arc">No microphone detected — connect one so the call can hear you.</p>}
     </div>
   );
 

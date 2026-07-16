@@ -59,6 +59,11 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // A session/load replay just finished and its turns were persisted — the client
   // should refetch this chat's messages so the recovered transcript shows.
   z.object({ t: z.literal("reload_history") }),
+  // Authoritative result of a bind: the agent + folder this session is ACTUALLY
+  // using and whether the coding agent is running. Sent after every applyBind so
+  // the client can reconcile its optimistic chips — a folder shown in the top bar
+  // that the session never received is exactly the bug this closes.
+  z.object({ t: z.literal("bound_state"), agentId: z.enum(AGENT_IDS).nullable(), cwd: z.string(), agentActive: z.boolean() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
