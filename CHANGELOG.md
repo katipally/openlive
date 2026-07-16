@@ -25,7 +25,23 @@ Releases before 0.1.9 predate this file — see the
   symlinks that point outside the workspace, not just `../` escapes.
 - Crash screen follows the OS theme and uses the brand accent.
 
+### Added
+- **Markdown transcript.** Agent replies render as real markdown — code blocks
+  with copy buttons, lists, tables — plus per-message copy and a one-tap export
+  of the whole conversation to a Markdown file.
+- **In-call keyboard shortcuts.** M mute, C camera, S screen share, T activity
+  panel, H history, Cmd/Ctrl-E end call — press `?` for the cheat sheet.
+- **Lobby readiness check.** Picking an agent that isn't installed or signed in
+  shows a one-tap jump to Settings → Agents instead of failing the call.
+
 ### Changed
+- **Light mode rebuilt.** A stepped warm-paper ladder (no pure white): cards,
+  panels, and popovers now separate cleanly instead of fusing into one white
+  field, and borders are actually visible.
+- **README and docs rewritten** around what OpenLive is: the open voice and
+  vision layer for AI agents — bring your own model, with coding agents over ACP
+  as the flagship integration. Includes an honest note that the pipeline is
+  cascaded, not full-duplex speech-to-speech.
 - **VAD assets are served from the app itself** (vendored at build time) instead
   of a CDN — the voice loop no longer touches jsdelivr at runtime.
 - **Agents settings shows each CLI's version** and gains an **Update** button;

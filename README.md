@@ -4,10 +4,12 @@
 
 # OpenLive
 
-### Talk to your coding agents. Out loud.
+### Ears, eyes, and a voice for your AI.
 
-A live voice + vision front-end for Claude Code, Codex, Cursor, OpenCode, and Hermes —
-driven locally over the Agent Client Protocol, with the whole voice loop on-device.
+The open voice and vision layer for AI agents. Bring your own model, or talk to the
+coding agents you already use — Claude Code, Codex, Cursor, OpenCode, Hermes — with
+the whole voice loop running on your own machine. An open alternative to ElevenLabs
+Agents, Gemini Live, and OpenAI Realtime.
 
 [![Release](https://img.shields.io/github/v/release/katipally/openlive?color=2f6fed)](https://github.com/katipally/openlive/releases/latest)
 [![CI](https://github.com/katipally/openlive/actions/workflows/ci.yml/badge.svg)](https://github.com/katipally/openlive/actions/workflows/ci.yml)
@@ -28,19 +30,34 @@ https://github.com/user-attachments/assets/6ebe0e47-44cb-4d4f-bc33-7f15651e6342
 
 ## What this is
 
-You already have a coding agent you trust — Claude Code, Codex, Cursor, OpenCode, or
-Hermes — running on your machine with your own subscription. OpenLive puts a real
-conversation in front of it: you talk, it hears you, it works, and it talks back.
-Show it your camera or your screen and it sees what you see.
+Wiring an AI into a real conversation is harder than it looks: voice activity
+detection, knowing when someone actually stopped talking, streaming speech-to-text,
+the model turn, streaming text-to-speech, barge-in so you can interrupt. Then camera
+and screen on top. Hosted platforms rent you that pipeline by the minute and run it
+on their cloud.
 
-The entire voice loop — voice activity detection, speech-to-text, end-of-turn
-detection, text-to-speech, barge-in — runs **on-device** (WebGPU). The agent runs
-**locally over the [Agent Client Protocol](https://agentclientprotocol.com)** (JSON-RPC
-over stdio), under your own login. Nothing leaves the machine except what your agent
-already sends to its own provider.
+OpenLive is that pipeline, open and local. Voice activity detection, speech-to-text,
+end-of-turn detection, text-to-speech, and barge-in all run **on-device** (WebGPU).
+You pick the brain:
 
-There's also a built-in assistant (bring your own model key — Anthropic, OpenAI,
-Google, and a dozen more) for calls that aren't about code.
+- **A model you already have a key for.** Anthropic, OpenAI, Google, xAI, DeepSeek,
+  Groq, Ollama (fully local), and a dozen more. No per-minute audio fees — you pay
+  only the model costs you'd pay anyway.
+- **The coding agent you already use.** Claude Code, Codex, Cursor, OpenCode, or
+  Hermes, driven **locally over the
+  [Agent Client Protocol](https://agentclientprotocol.com)** (JSON-RPC over stdio),
+  under your own login. This is the flagship integration: talk to your agent, watch
+  it work, answer its permission asks by voice.
+
+Nothing you say leaves the machine. The only thing that goes out is the final
+transcript (plus camera or screen frames if you turn them on), to whatever brain you
+picked.
+
+An honest note on architecture: OpenLive is a cascaded pipeline (speech → text →
+model → speech), not a full-duplex speech-to-speech model like GPT-Live. That's a
+real trade — a speech-native model can overlap talk and listen in ways a cascade
+can't — but the cascade is exactly what makes "any brain, all local, no audio fees"
+possible.
 
 ## Features
 
@@ -54,14 +71,21 @@ Google, and a dozen more) for calls that aren't about code.
 - **Permission relay.** When the agent wants to run a command or edit files, OpenLive
   speaks the question; answer by voice ("yes" / "no") or tap.
 - **On-device voice loop.** Silero VAD, Whisper STT, Smart-Turn end-of-turn, and
-  Kokoro TTS all run in the app on WebGPU. Nothing you say leaves the machine.
+  your pick of two TTS engines — Kokoro (28 voices, light) or Supertonic (10 voices,
+  44.1 kHz) — all run in the app on WebGPU. Nothing you say leaves the machine.
 - **It can see.** Camera or screen frames ride each turn for agents that accept
-  images; the `look` tool grabs a crisp hi-res frame on demand.
+  images; the `look` tool grabs a crisp hi-res frame on demand. A text-only model
+  can borrow a separate vision model's eyes.
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.
+- **Live plans and costs.** The agent's working plan renders as a checklist while it
+  works, and a context/cost chip tracks the session.
 - **Floating mini mode.** Shrink to an always-on-top pill that keeps listening while
   you work; camera and screen previews stack right above it.
-- **Manage agents in Settings.** Install / sign in / uninstall each agent's CLI from
-  the app; everything streams live and keeps running if you close the panel.
+- **Manage agents in Settings.** Install / sign in / update / uninstall each agent's
+  CLI from the app, with its version shown; everything streams live and keeps
+  running if you close the panel.
+- **A transcript you can use.** Agent replies render as markdown with copy buttons
+  on code blocks, and the whole conversation exports to a Markdown file.
 - **Bring-your-own-model assistant.** The non-agent brain supports a dozen+
   providers with live model listings, vision, reasoning effort, and web-search
   tools via a delegate worker.
@@ -79,25 +103,26 @@ Google, and a dozen more) for calls that aren't about code.
 ## How it works
 
 ```
-mic ─▶ VAD ─▶ streaming STT ─▶ end-of-turn ─▶ your coding agent ─▶ streaming TTS ─▶ speaker
-     (Silero)  (Whisper)        (Smart-Turn)   (ACP, local stdio)    (Kokoro)
-                                                    ▲
-                             camera / screen frames ┘   (vision)
+mic ─▶ VAD ─▶ streaming STT ─▶ end-of-turn ─▶ your AI ──────────▶ streaming TTS ─▶ speaker
+     (Silero)  (Whisper)        (Smart-Turn)  (BYO model, or a     (Kokoro /
+                                    ▲          coding agent over    Supertonic)
+                camera / screen ────┘          ACP on local stdio)
+                frames (vision)
 ```
 
-Everything left of the agent runs locally in the renderer. The turn goes over a warm
-local WebSocket to a small agent server, which drives your coding agent's ACP adapter
-as a child process and streams the reply back — the app starts speaking sentence by
-sentence while the agent is still working. Conversations with no agent bound run on
-the built-in provider brain instead.
+Everything outside "your AI" runs locally in the renderer. The turn goes over a warm
+local WebSocket to a small agent server, which either streams a provider reply or
+drives your coding agent's ACP adapter as a child process — the app starts speaking
+sentence by sentence while the reply is still being written.
 
 ## Get started
 
 **Just use it:** grab the installer from the
 [latest release](https://github.com/katipally/openlive/releases/latest), open the app,
-pick the agent you already use (install/sign in from Settings → Agents if needed),
-choose a project folder, and start a call. The voice models download the first time
-you talk (about 200 MB, cached after that).
+paste a model key (or pick the coding agent you already use — install/sign in from
+Settings → Agents if needed), and start a call. The voice models download from
+Hugging Face the first time you talk — roughly 200 MB with Kokoro, more with
+Supertonic or a bigger Whisper — and are cached after that.
 
 **Build it from source:**
 

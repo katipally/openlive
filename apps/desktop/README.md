@@ -22,7 +22,7 @@ then runs electron-builder. Ports are the uncommon `47823` (agent) / `47824`
 (web) to avoid collisions on users' machines.
 
 ```bash
-pnpm desktop:build:mac    # → apps/desktop/release/OpenLive-<ver>-arm64.dmg (+ x64)
+pnpm desktop:build:mac    # → apps/desktop/release/OpenLive-<ver>-mac.dmg (universal)
 pnpm desktop:build:win    # → NSIS installer (run this on Windows / CI)
 ```
 

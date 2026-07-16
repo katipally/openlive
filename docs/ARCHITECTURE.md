@@ -38,7 +38,7 @@ Node-only helpers (credential probing, PATH widening, terminal launch) live in
 
 Two adapter versions are **pinned** on purpose (guarded by unit tests):
 `claude-agent-acp@0.59.0` (OpenLive relies on its `_meta.claudeCode.options`
-passthrough) and `hermes-agent==0.18.2`.
+passthrough) and `hermes-agent[acp]==0.18.2`.
 
 ## Driving a coding agent over ACP (`services/agent/src/agents/`)
 

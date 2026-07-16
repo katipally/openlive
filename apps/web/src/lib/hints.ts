@@ -36,7 +36,7 @@ function errorHint(error: string): Hint | null {
   return { id: "err", text: error };
 }
 
-/** At most 2 hints, most useful first. Pure — callers pass store state in. */
+/** At most ONE hint (error recovery only). Pure — callers pass store state in. */
 export function selectHints(s: HintInputs): Hint[] {
   const out: Hint[] = [];
 
