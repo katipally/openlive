@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef } from "react";
-import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench } from "lucide-react";
+import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -44,6 +46,12 @@ export function Lobby(props: LobbyProps) {
   // its session is filed). The built-in OpenLive assistant needs no folder — a folderless
   // voice chat is valid (History files it under "No folder").
   const needFolder = !!boundAgent && !boundCwd;
+  // Readiness of the picked coding agent: catch "not installed / signed out"
+  // HERE, before Start fails with a spoken error — first-run users otherwise
+  // never discover Settings → Agents.
+  const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!boundAgent, refetchOnWindowFocus: true });
+  const agentRow = boundAgent ? agentRows?.find((r) => r.id === boundAgent) : undefined;
+  const agentGap = agentRow && !agentRow.installed ? "install" : agentRow?.credState === "login_required" ? "signin" : null;
   const root = useRef<HTMLDivElement>(null);
 
   const { contextSafe } = useGSAP(() => {
@@ -89,11 +97,19 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={handleStart} disabled={needFolder}
+      <button onClick={handleStart} disabled={needFolder || !!agentGap}
         className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
-      {needFolder && <p className="text-[11.5px] text-faint">Pick a project folder on the right to start.</p>}
+      {agentGap ? (
+        <button onClick={() => useUi.getState().openSettingsTab("agents")}
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          <Wrench className="size-3.5" />
+          {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
+        </button>
+      ) : needFolder ? (
+        <p className="text-[11.5px] text-faint">Pick a project folder on the right to start.</p>
+      ) : null}
     </div>
   );
 

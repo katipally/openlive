@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronRight, ListTodo, Loader2, PanelRightClose } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -50,10 +52,18 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
       <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-[13px] font-semibold">
         Activity
-        <button onClick={onClose} title="Hide activity" aria-label="Hide activity"
-          className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-          <PanelRightClose className="size-4" />
-        </button>
+        <div className="flex items-center">
+          {msgs.length > 0 && (
+            <button onClick={() => exportTranscript(msgs)} title="Export transcript as Markdown" aria-label="Export transcript"
+              className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+              <Download className="size-4" />
+            </button>
+          )}
+          <button onClick={onClose} title="Hide activity" aria-label="Hide activity"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+            <PanelRightClose className="size-4" />
+          </button>
+        </div>
       </div>
       {todos.length > 0 && <PlanCard todos={todos} />}
       <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4">
@@ -100,6 +110,71 @@ function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
   );
 }
 
+/** Download the conversation as a Markdown file (agent replies are already
+ *  markdown; tool runs become one-liners). */
+function exportTranscript(msgs: ChatMsg[]) {
+  const lines: string[] = [];
+  for (const m of msgs) {
+    if (m.role === "user") { lines.push(`**You:** ${m.text ?? ""}`, ""); continue; }
+    const body = m.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("\n").trim();
+    const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" }> => p.kind === "tool");
+    if (tools.length) lines.push(tools.map((t) => `> _${meta(t.tool).label}${t.summary ? `: ${t.summary}` : ""}_`).join("\n"), "");
+    if (body) lines.push(`**Assistant:** ${body}`, "");
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `openlive-transcript-${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/** One-tap copy with a brief ✓ confirmation. */
+function CopyButton({ text, title, className }: { text: string; title: string; className?: string }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <button title={title} aria-label={title}
+      onClick={() => { navigator.clipboard.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1200); }).catch(() => {}); }}
+      className={cn("grid size-6 place-items-center rounded-md text-faint transition hover:bg-foreground/10 hover:text-foreground", className)}>
+      {ok ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+    </button>
+  );
+}
+
+// Agent replies are markdown — render them as such (code blocks with a copy
+// button, inline code, lists, links, tables via GFM). react-markdown builds
+// React elements, so model-authored text can't inject HTML.
+function MarkdownText({ text }: { text: string }) {
+  return (
+    <div className="ol-md min-w-0 text-[13px] leading-relaxed text-foreground">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          pre: ({ children }) => <>{children}</>, // the code renderer below owns the block chrome
+          code: ({ className, children }) => {
+            const body = String(children ?? "");
+            if (!body.includes("\n") && !className) {
+              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-[12px]">{body}</code>;
+            }
+            return (
+              <span className="group/code relative my-1.5 block overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
+                <CopyButton text={body.replace(/\n$/, "")} title="Copy code"
+                  className="absolute right-1.5 top-1.5 bg-card/80 opacity-0 backdrop-blur transition group-hover/code:opacity-100" />
+                <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-[12px] leading-relaxed">{body}</code>
+              </span>
+            );
+          },
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer" className="text-link-foreground underline underline-offset-2">{children}</a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   if (msg.role === "user") {
     return (
@@ -109,7 +184,7 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
     );
   }
 
-  // Group consecutive reasoning/tool parts into one "work" block; text renders plain.
+  // Group consecutive reasoning/tool parts into one "work" block; text renders as markdown.
   type Seg = { kind: "work"; parts: Part[] } | { kind: "text"; text: string };
   const segs: Seg[] = [];
   for (const p of msg.parts) {
@@ -121,14 +196,18 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
       segs.push({ kind: "text", text: p.text });
     }
   }
+  const fullText = segs.filter((s) => s.kind === "text").map((s) => (s as { text: string }).text).join("\n").trim();
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group/msg flex flex-col gap-2">
       {streaming && segs.length === 0 && <span className="arc-shimmer text-[13px] font-medium">Thinking…</span>}
       {segs.map((seg, i) =>
         seg.kind === "work"
           ? <WorkBlock key={i} parts={seg.parts} active={streaming && i === segs.length - 1} />
-          : <p key={i} className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{seg.text}</p>,
+          : <MarkdownText key={i} text={seg.text} />,
+      )}
+      {!streaming && fullText && (
+        <CopyButton text={fullText} title="Copy message" className="-mt-1 self-start opacity-0 transition group-hover/msg:opacity-100" />
       )}
     </div>
   );

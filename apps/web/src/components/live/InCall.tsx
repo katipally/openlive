@@ -101,6 +101,34 @@ export function InCall(props: InCallProps) {
   const statusLabel = pttActive ? "Push-to-talk — release to send" : toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
+  // In-call keyboard shortcuts. Single letters are safe here — there's no text
+  // input during a call (Space/Enter already belong to push-to-talk/hold-commit).
+  // Skipped when a menu input or modifier is involved, except ⌘E (end).
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const toggleHistory = useUi((s) => s.toggleHistory);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); handleEnd(); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      switch (e.key) {
+        case "m": case "M": toggleMute(); break;
+        case "c": case "C": void toggleCamera(); break;
+        case "s": case "S": void toggleScreen(); break;
+        case "t": case "T": setPanelOpen((v) => !v); break;
+        case "h": case "H": toggleHistory(); break;
+        case "?": setSheetOpen((v) => !v); break;
+        case "Escape": setSheetOpen(false); return; // don't preventDefault other Esc handlers
+        default: return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toggleMute, toggleCamera, toggleScreen, toggleHistory]);
+
   return (
     <div ref={root} className="fixed inset-0 z-40 flex flex-col bg-background">
       <TopBar />
@@ -132,7 +160,7 @@ export function InCall(props: InCallProps) {
           {/* Status pill (orb + caption) while sharing — floats ABOVE the control bar
               so toggling a screen/camera share never resizes the bar itself. */}
           {sharing && (
-            <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
+            <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[var(--shadow-pop)]">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={26} />
               <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">
                 {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
@@ -145,7 +173,7 @@ export function InCall(props: InCallProps) {
           <HintChips className={cn("absolute inset-x-0", sharing ? "bottom-[132px]" : "bottom-[88px]")} />
 
           {/* control bar — a stable width regardless of sharing */}
-          <div data-tour="controls" className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
+          <div data-tour="controls" className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[var(--shadow-pop)]">
             <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Keyboard} />
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} label="Microphone" />
@@ -163,8 +191,42 @@ export function InCall(props: InCallProps) {
       </div>
 
       <SpotlightTour id="call" steps={[
-        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The keyboard button on the left arms push-to-talk — once on, Space drives talking." },
+        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The keyboard button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
       ]} />
+
+      {sheetOpen && <ShortcutSheet pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />}
+    </div>
+  );
+}
+
+// The "?" cheat sheet — every in-call binding in one quiet card.
+function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: () => void }) {
+  const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
+  const mod = mac ? "⌘" : "Ctrl";
+  const rows: [string, string][] = [
+    ["M", "Mute / unmute"],
+    ["C", "Camera on / off"],
+    ["S", "Share screen"],
+    ["T", "Show / hide activity panel"],
+    ["H", "History sidebar"],
+    [`${mod} E`, "End call"],
+    [`${mod} ,`, "Settings"],
+    ...(pttEnabled ? [["Space", "Push-to-talk (hold or tap)"], ["Enter", "Send a held thought now"]] as [string, string][] : []),
+    ["?", "This cheat sheet"],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
+      <div className="w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
+        <p className="mb-2.5 text-[13px] font-semibold">Keyboard shortcuts</p>
+        <div className="flex flex-col gap-1.5">
+          {rows.map(([key, what]) => (
+            <div key={key} className="flex items-center justify-between text-[12.5px]">
+              <span className="text-muted-foreground">{what}</span>
+              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-foreground">{key}</kbd>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

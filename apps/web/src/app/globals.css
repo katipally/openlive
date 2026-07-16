@@ -43,19 +43,22 @@
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Light — "warm paper": warm off-white page, white cards, near-black ink. */
+/* Light — "warm paper": a stepped oat-to-cream ladder, no pure white anywhere.
+   Hierarchy mirrors dark mode's 4 clean levels: page < surface-raised < card <
+   elevated/popover. Cards used to be #ffffff on a near-white page (Δ≈4/255)
+   with 9%-alpha borders — everything fused into one white field. */
 :root {
   color-scheme: light;
-  --background: #f5f4f1;
-  --surface: #ecebe6;
-  --card: #ffffff;
-  --elevated: #ffffff;
-  --popover: #ffffff;
+  --background: #efede8;
+  --surface: #e7e4dd;
+  --card: #faf8f3;
+  --elevated: #fcfaf6;
+  --popover: #fcfaf6;
   --foreground: #1a1a18;
   --muted-foreground: #6a6a66;
   --faint: rgba(0, 0, 0, 0.45);
-  --border: rgba(0, 0, 0, 0.09);
-  --border-heavy: rgba(0, 0, 0, 0.16);
+  --border: rgba(0, 0, 0, 0.14);
+  --border-heavy: rgba(0, 0, 0, 0.22);
   --accent: #2f6fed;
   --accent-foreground: #ffffff;
   --accent-soft: rgba(47, 111, 237, 0.10);
@@ -69,10 +72,10 @@
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
   /* Elevation scale — hierarchy comes from surface shifts + these soft shadows,
      not boxes of borders (HIG-style de-boxing). xs ≈ a hairline substitute. */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.12);
-  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.08), 0 24px 48px -16px rgba(0, 0, 0, 0.22);
-  --surface-raised: #f0efeb;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px -12px rgba(0, 0, 0, 0.14);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.09), 0 24px 48px -16px rgba(0, 0, 0, 0.24);
+  --surface-raised: #f4f2ec;
 
   /* Shared motion vocabulary (used by CSS keyframes and JS presets alike). */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
@@ -142,6 +145,22 @@ body::before {
 .desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
 
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
+/* Markdown inside the transcript (agent replies). Tailwind preflight strips
+   list/heading/paragraph styling — restore a compact, chat-scaled subset. */
+.ol-md > :first-child { margin-top: 0; }
+.ol-md > :last-child { margin-bottom: 0; }
+.ol-md p { margin: 0.4em 0; white-space: pre-wrap; }
+.ol-md ul, .ol-md ol { margin: 0.4em 0; padding-left: 1.3em; }
+.ol-md ul { list-style: disc; }
+.ol-md ol { list-style: decimal; }
+.ol-md li { margin: 0.15em 0; }
+.ol-md h1, .ol-md h2, .ol-md h3, .ol-md h4 { font-weight: 600; margin: 0.7em 0 0.3em; font-size: 1.05em; }
+.ol-md blockquote { border-left: 2px solid var(--border-heavy); padding-left: 0.8em; color: var(--muted-foreground); margin: 0.4em 0; }
+.ol-md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7em 0; }
+.ol-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 12px; display: block; overflow-x: auto; }
+.ol-md th, .ol-md td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.ol-md strong { font-weight: 600; }
+
 .openlive-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
