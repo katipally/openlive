@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen, Keyboard } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
@@ -14,6 +14,7 @@ import { HoldToSend } from "./HoldToSend";
 import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
+import { setPttEnabled } from "@/lib/live/usePtt";
 import { usePopIn } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
@@ -32,12 +33,16 @@ export interface InCallProps {
   getBands: () => { mic: number[]; agent: number[] };
   onEnd: () => void;
   sendNow: () => void;
+  pttUp: () => void;
 }
 
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
-    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow } = props;
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, mics, cams, micId, camId } = useLiveStore();
+    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, pttUp } = props;
+  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore();
+  // Arm/disarm push-to-talk. Disarming while Space is held first ends the hold
+  // cleanly (the engine owns the held audio), then drops the armed flag.
+  const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };
   const setMinimized = useUi((s) => s.setMinimized);
   const root = useRef<HTMLDivElement>(null);
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
@@ -140,6 +145,7 @@ export function InCall(props: InCallProps) {
 
           {/* control bar — a stable width regardless of sharing */}
           <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[0_10px_34px_-10px_rgba(0,0,0,0.4)]">
+            <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Keyboard} />
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} label="Microphone" />
             <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} title={cameraOn ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}

@@ -12,7 +12,7 @@ import { setConversationFolder, setConversationModel, setConversationMode, setCo
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
-import { isDesktop, basename, bridge } from "@/lib/platform";
+import { isDesktop, isMacDesktop, basename, bridge } from "@/lib/platform";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 
@@ -101,9 +101,9 @@ export function Lobby(props: LobbyProps) {
       {/* main stage — self-preview, mic level, device pickers, Start */}
       <main className="relative min-w-0 flex-1 overflow-y-auto">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
-        <div className="app-drag absolute left-[84px] right-0 top-0 z-0 h-12" />
+        <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-[84px]" : "left-4")} />
         <button onClick={() => useUi.getState().setHistoryOpen(true)} title="History" aria-label="History"
-          className="absolute left-[84px] top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+          className={cn("absolute top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]", isMacDesktop ? "left-[84px]" : "left-3")}>
           <PanelLeft className="size-4" />
         </button>
         <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
@@ -126,13 +126,19 @@ export function Lobby(props: LobbyProps) {
             <div className="min-w-0 flex-1"><DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} /></div>
           </div>
 
+          {/* project folder — front and center (it gates Start for a coding agent) */}
+          <div className="w-full max-w-[22rem] text-left">
+            <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "OpenLive"} required={!!boundAgent} />
+          </div>
+
           {cta}
           {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
         </div>
       </main>
 
-      {/* AI sidebar — same slot the in-call transcript uses, so start→call is continuous */}
-      <aside className="ol-lobby-aside flex w-[360px] shrink-0 flex-col bg-surface/40 text-left">
+      {/* AI panel — a floating elevated card (same slot the in-call transcript uses,
+          so start→call reads as continuous) */}
+      <aside className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-[13px] font-semibold">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
@@ -148,12 +154,7 @@ export function Lobby(props: LobbyProps) {
             <AgentQuickPick />
           </div>
 
-          {boundAgent ? <AgentSetup agent={boundAgent} boundCwd={boundCwd} /> : (
-            <div className="space-y-6">
-              <ModelQuickPick onOpenSettings={onOpenSettings} />
-              <WorkspaceField cwd={boundCwd} name="OpenLive" />
-            </div>
-          )}
+          {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
       </aside>
     </div>
@@ -220,7 +221,7 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
 // model + mode. Models/modes come from the agent itself over ACP the moment it
 // connects (cached per-agent between calls) — so the selectors are always shown, and
 // sit disabled with a hint until that first connect populates them.
-function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
+function AgentSetup({ agent }: { agent: AgentId }) {
   const liveMeta = useLiveStore((s) => s.agentMeta);
   const agentConnecting = useLiveStore((s) => s.agentConnecting);
   const meta = liveMeta ?? cachedAgentMeta(agent);
@@ -231,8 +232,6 @@ function AgentSetup({ agent, boundCwd }: { agent: AgentId; boundCwd: string }) {
 
   return (
     <div className="space-y-5">
-      <WorkspaceField cwd={boundCwd} name={agentLabel(agent)} required />
-
       {meta?.resumeAcrossRestart === false && (
         <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).

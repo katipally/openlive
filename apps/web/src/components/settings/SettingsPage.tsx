@@ -12,7 +12,7 @@ import { AboutSettings } from "./AboutSettings";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
-import { isDesktop } from "@/lib/platform";
+import { isDesktop, isMacDesktop } from "@/lib/platform";
 
 const SECTIONS = [
   { id: "general", label: "General", sub: "Appearance, input & startup", icon: Settings2, Comp: GeneralSettings },
@@ -98,7 +98,7 @@ export function SettingsPage() {
       className="fixed inset-0 z-[60] flex flex-col bg-background text-left">
       {/* header — drag region (frameless window) + back; clears the traffic lights */}
       <header className={cn("relative flex h-14 shrink-0 items-center gap-3 pr-4",
-        isDesktop ? "pl-[84px] [-webkit-app-region:drag]" : "pl-4")}>
+        isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
         <button onClick={requestClose} aria-label="Back" title="Back"
           className={cn("grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}>
           <ArrowLeft className="size-5" />

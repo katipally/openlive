@@ -5,6 +5,15 @@
  *  need hydration-stable markup, gate on mount instead (see AgentControls). */
 export const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 
+/** OS platform inside the desktop shell ("darwin" | "win32" | "linux"), "" on web. */
+export const desktopPlatform: string =
+  (typeof window !== "undefined" && (window as unknown as { openlive?: { platform?: string } }).openlive?.platform) || "";
+
+/** macOS desktop: traffic lights live top-LEFT → headers clear ~84px on the left.
+ *  Windows/Linux desktop: controls live top-RIGHT → clear the right edge instead. */
+export const isMacDesktop = isDesktop && desktopPlatform === "darwin";
+export const isWinDesktop = isDesktop && !!desktopPlatform && desktopPlatform !== "darwin";
+
 /** Last path segment for display ("/a/b/c" → "c"); tolerant of trailing slashes
  *  and both separators. `fallback` shows when the path is empty. */
 export const basename = (p: string, fallback = ""): string =>

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { bumpCoach } from "@/lib/hints";
 import { isAgentId } from "@openlive/shared";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
@@ -299,7 +298,6 @@ export function useLiveSession(chatId: string) {
 
   const start = useCallback(async () => {
     tornDown.current = false;
-    bumpCoach(); // first-calls PTT coaching hint counts calls, not sessions
     set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null, agentMeta: null, boundAgent: readBind(chatId), boundCwd: readCwd(chatId) });
     // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
     // AudioContext playback that starts after an await, so priming here (before the

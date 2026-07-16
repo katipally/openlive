@@ -28,6 +28,7 @@ interface LiveState {
   toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
   holdUntil: number | null; // mid-thought pause held: epoch-ms when it auto-sends (drives "waiting for you… tap to send")
   pttActive: boolean;       // push-to-talk currently held (space / global hotkey)
+  pttEnabled: boolean;      // push-to-talk armed (opt-in via the in-call toggle; persisted)
   warming: boolean;   // true from socket-open until the agent signals warm-ready → shows "Warming up…"
   boundAgent: AgentId | null;         // coding agent this conversation talks to (null = built-in brain)
   boundCwd: string;                   // project folder for the bound agent ("" = default/home)
@@ -54,6 +55,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   downloadTotal: 0,
   downloadModels: [],
   muted: false,
+  pttEnabled: typeof window !== "undefined" && localStorage.getItem("openlive-ptt-enabled") === "1",
   cameraOn: false,
   screenOn: false,
   screenStream: null,

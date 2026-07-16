@@ -157,14 +157,12 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionsDir: "~/.hermes",
     sessionParser: "hermes-sqlite",
     externalDeletable: false,
-    credProbe: {
-      kind: "anyOf",
-      probes: [
-        { kind: "json", path: "~/.hermes/auth.json", rule: { anyNonEmptyArrayUnder: "credential_pool" } },
-        { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
-      ],
-    },
-    startHint: "OpenLive runs Hermes via uvx. Install uv (astral.sh/uv), then run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` once to pick a model provider.",
+    // A credential in the pool is NOT enough — hermes refuses to start until an
+    // ACTIVE provider is selected (auth.json `providers` non-empty). Verified
+    // against a machine with a pooled copilot credential but providers:{} —
+    // hermes-acp prints "No LLM provider configured" and exits 0.
+    credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
+    startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Sign in button in Settings → Agents) and pick a provider.",
   },
 };
 

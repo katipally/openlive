@@ -109,7 +109,7 @@ export function GeneralSettings() {
         <ThemePicker />
       </Section>
 
-      <Section title="Voice input" desc="How the Space key drives talking during a call: hold it down like a walkie-talkie, or tap once to start and again to stop.">
+      <Section title="Voice input" desc="How Space behaves once you turn push-to-talk on during a call (the keyboard button next to the mic): hold it down like a walkie-talkie, or tap once to start and again to stop. Off by default — normally OpenLive just listens hands-free.">
         <VoiceInputPicker />
       </Section>
 

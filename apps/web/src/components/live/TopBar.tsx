@@ -6,7 +6,7 @@ import { AgentSelect } from "./AgentControls";
 import { AgentBar } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
-import { isDesktop } from "@/lib/platform";
+import { isDesktop, isMacDesktop, isWinDesktop } from "@/lib/platform";
 
 // Running inside the desktop app? Then leave room for the custom window controls
 // (top-left) and make the bar draggable (the window is frameless).
@@ -21,8 +21,9 @@ export function TopBar() {
   const toggleHistory = useUi((s) => s.toggleHistory);
 
   return (
-    <header className={cn("flex h-12 shrink-0 items-center justify-between pr-3",
-      isDesktop ? "pl-[80px]" : "pl-3",
+    <header className={cn("flex h-12 shrink-0 items-center justify-between",
+      isMacDesktop ? "pl-[84px]" : "pl-3",
+      isWinDesktop ? "pr-[140px]" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
       <div className="flex items-center gap-1">
         <button onClick={toggleHistory} title="History" aria-label="Toggle history"

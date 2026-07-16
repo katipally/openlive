@@ -45,7 +45,7 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
   const empty = msgs.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="relative flex h-full shrink-0 flex-col bg-surface/40 text-left shadow-[inset_1px_0_0_rgba(0,0,0,0.03)]">
+    <aside ref={asideRef} style={{ width }} className="ol-panel-in relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
       <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-[13px] font-semibold">

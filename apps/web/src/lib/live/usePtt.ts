@@ -20,8 +20,19 @@ export function setVoiceInputMode(m: VoiceInputMode): void {
   try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
 }
 
-/** Push-to-talk + send-now keys for an active call:
- *  Space = talk (hold or toggle per the General setting);
+/** Arm/disarm push-to-talk (the in-call toggle next to the mic). OFF by default —
+ *  hands-free VAD listening is the normal mode; Space only drives talking once
+ *  the user opts in. Persisted across calls. */
+export function setPttEnabled(on: boolean): void {
+  useLiveStore.getState().set({ pttEnabled: on });
+  try { localStorage.setItem("openlive-ptt-enabled", on ? "1" : ""); } catch { /* private mode */ }
+  // Disarming mid-hold is the caller's job (it has the session's pttUp) — the
+  // engine owns the held-audio state, not this store flag.
+}
+
+/** Push-to-talk + send-now keys for an active call (only while push-to-talk is
+ *  ARMED via the in-call toggle):
+ *  Space = talk (hold or tap-to-toggle per the General setting);
  *  Enter = commit a held mid-thought pause immediately.
  *  In the desktop mini pill, the global hotkey arrives as a TOGGLE (Electron's
  *  globalShortcut has no keyup) via openlive:ptt-toggle. */
@@ -31,6 +42,7 @@ export function usePtt(active: boolean, { pttDown, pttUp, sendNow }: { pttDown: 
     const down = (e: KeyboardEvent) => {
       if (isTyping()) return;
       if (e.code === "Space" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!useLiveStore.getState().pttEnabled) return; // PTT not armed — Space stays a normal key
         e.preventDefault();
         if (voiceInputMode() === "toggle") { if (useLiveStore.getState().pttActive) pttUp(); else pttDown(); }
         else pttDown();

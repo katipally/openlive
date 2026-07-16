@@ -2,18 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, ChevronRight, Download, Trash2, LogIn, LogOut, Loader2 } from "lucide-react";
-import { adapterCommand, isAgentId } from "@openlive/shared";
+import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2 } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
-import { usePersistedOpen } from "@/lib/disclosure";
 import { useAgentActions } from "@/lib/agentActions";
 import type { AgentId } from "@/lib/live/liveClient";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
 
 export function AgentsSettings() {
-  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   // Re-probe on window focus: sign-in/out finishes in a separate terminal, so
   // coming back to the app should reflect the new state without a manual click.
   const { data: agents = [], isLoading, refetch, isFetching } = useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchOnWindowFocus: true });
@@ -21,16 +18,11 @@ export function AgentsSettings() {
   return (
     <div className="flex flex-col gap-7">
       <Section title="Coding agents"
-        desc={<>Talk to Claude Code, Codex, Cursor, OpenCode, or Hermes by voice. Each runs on <span className="text-foreground">your own machine with your own login</span> — OpenLive drives it locally over ACP and never sees your agent&apos;s data. Pick one per conversation from the &ldquo;Talk to&rdquo; menu, and choose its project folder + mode when you start the call.</>}>
-        <div />
-      </Section>
-
-      <Section title="Manage agents"
-        desc={<>Install, sign in to, or remove each agent&apos;s CLI right here — everything runs on your machine, and keeps running if you leave this panel. Sign-in and sign-out open the agent&apos;s own flow in a terminal. Toggle an agent off to hide it from the pickers and History (its sessions stay on disk).</>}>
+        desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span> — OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History — its sessions stay on disk.</>}>
         <div className="flex flex-col gap-2.5">
           {isLoading && <p className="text-[12px] text-muted-foreground">Checking…</p>}
           {agents.map((a) => (
-            <AgentRow key={a.id} a={a} cmd={(settings?.[`acpCommand:${a.id}`] as string) ?? ""} />
+            <AgentRow key={a.id} a={a} />
           ))}
           <button onClick={() => refetch()} disabled={isFetching}
             className="flex items-center gap-1.5 self-start text-[12px] text-muted-foreground transition hover:text-foreground disabled:opacity-50">
@@ -53,11 +45,10 @@ function statusChip(a: AgentStatus) {
 // One agent: status (probed, never asked of the agent), install / sign-in /
 // sign-out / uninstall (streamed via the background store, so it survives closing
 // this panel), a visibility toggle, and the advanced ACP-command override.
-function AgentRow({ a, cmd }: { a: AgentStatus; cmd: string }) {
+function AgentRow({ a }: { a: AgentStatus }) {
   const qc = useQueryClient();
   const run = useAgentActions((s) => s.runs[a.id]);
   const start = useAgentActions((s) => s.run);
-  const [advOpen, setAdvOpen] = usePersistedOpen(`agents:adv:${a.id}`);
   const [confirmUn, setConfirmUn] = useState(false);
 
   // When a background action finishes, re-check installed/signed-in status.
@@ -67,7 +58,6 @@ function AgentRow({ a, cmd }: { a: AgentStatus; cmd: string }) {
     wasRunning.current = !!run?.running;
   }, [run?.running, qc]);
 
-  const saveCmd = (v: string) => { if (v !== cmd) api.updateSettings({ [`acpCommand:${a.id}`]: v }).then(() => qc.invalidateQueries({ queryKey: ["settings"] })); };
   const setHidden = (hidden: boolean) =>
     api.updateSettings({ [`agentHidden:${a.id}`]: hidden ? "1" : "" }).then(() => {
       qc.invalidateQueries({ queryKey: ["agents"] });
@@ -139,17 +129,6 @@ function AgentRow({ a, cmd }: { a: AgentStatus; cmd: string }) {
         <pre className="openlive-scroll mt-2.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>
       )}
 
-      <details open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)} className="group mt-2.5 border-t border-border pt-2.5">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground transition hover:text-foreground [&::-webkit-details-marker]:hidden">
-          <ChevronRight className="size-3 transition group-open:rotate-90" /> Advanced · ACP command
-        </summary>
-        <div className="mt-2 space-y-1">
-          <input defaultValue={cmd} onBlur={(e) => saveCmd(e.target.value.trim())}
-            placeholder={isAgentId(a.id) ? adapterCommand(a.id) : "custom acp command"} spellCheck={false}
-            className="h-8 w-full rounded-lg border border-border bg-surface px-2.5 font-mono text-[11.5px] text-foreground outline-none focus:border-border-heavy" />
-          <p className="text-[10.5px] leading-relaxed text-faint">The command OpenLive runs to speak ACP with {a.label} over the Agent Client Protocol. Leave blank for the default; change it if the ecosystem package moves.</p>
-        </div>
-      </details>
     </div>
   );
 }

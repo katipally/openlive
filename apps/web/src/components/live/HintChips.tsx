@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X, Lightbulb, AlertCircle } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { selectHints, dismissCoach } from "@/lib/hints";
+import { selectHints } from "@/lib/hints";
 import { cn } from "@/lib/cn";
 
 // Contextual hint chips above the dock: what you can say/do right now, and
@@ -34,7 +34,7 @@ export function HintChips({ className }: { className?: string }) {
           )}
           {h.dismissable && (
             <button aria-label="Dismiss hint"
-              onClick={() => { setDismissed((d) => [...d, h.id]); if (h.id === "coach-ptt") dismissCoach(); }}
+              onClick={() => setDismissed((d) => [...d, h.id])}
               className="grid size-6 shrink-0 place-items-center rounded-full text-faint transition hover:bg-foreground/10 hover:text-foreground">
               <X className="size-3" />
             </button>

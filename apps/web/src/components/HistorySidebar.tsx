@@ -12,7 +12,7 @@ import { usePersistedOpen } from "@/lib/disclosure";
 import { useHistoryOverrides } from "@/lib/historyOverrides";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
-import { isDesktop, basename } from "@/lib/platform";
+import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AGENT_REGISTRY, agentLabel, isAgentId } from "@openlive/shared";
 import type { HistoryChat, HistoryWorkspace } from "@openlive/shared";
@@ -119,7 +119,7 @@ export function HistorySidebar() {
     <>
       <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
       <aside ref={root} className="fixed left-0 top-0 z-[55] flex h-full w-[300px] flex-col bg-background text-left shadow-[var(--shadow-pop)]">
-        <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isDesktop ? "pl-[84px] [-webkit-app-region:drag]" : "pl-4")}>
+        <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-[14px] font-semibold">History</span>
           <button onClick={close} aria-label="Close history" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
         </header>

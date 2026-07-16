@@ -5,6 +5,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("openlive", {
+  platform: process.platform,
   // Enter minimized mode: shrink to a small floating pill (always-on-top).
   mini: () => ipcRenderer.send("openlive:mini"),
   // Restore the normal window.

@@ -62,7 +62,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
       )}
       {active && !minimized && (
-        <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn}
+        <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttUp={pttUp}
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
           setMic={(id) => void setMic(id)} setCam={setCam}
