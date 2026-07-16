@@ -25,6 +25,8 @@ const OPTIONS: { id: AgentId | null; label: string }[] = [
   { id: "claude-code", label: "Claude Code" },
   { id: "codex", label: "Codex" },
   { id: "cursor", label: "Cursor" },
+  { id: "opencode", label: "OpenCode" },
+  { id: "hermes", label: "Hermes" },
 ];
 
 export function agentLabel(id: AgentId | null): string {

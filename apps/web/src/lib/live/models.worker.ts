@@ -36,10 +36,18 @@ const STT_WEBGPU: Record<string, string> = {
   tiny: "onnx-community/whisper-tiny.en",
   base: "onnx-community/whisper-base.en",
   small: "onnx-community/whisper-small.en",
+  // Multilingual (no `.en` variant exists at this size) — best accuracy on capable
+  // machines; the stt call pins `language: "en"` so it never auto-detects wrong.
+  "large-v3-turbo": "onnx-community/whisper-large-v3-turbo",
 };
 const STT_MODEL_WASM = "onnx-community/whisper-tiny.en"; // lighter on the WASM tier
 const sttModel = (device: Device, size: string): string =>
   device === "wasm" ? STT_MODEL_WASM : (STT_WEBGPU[size] ?? STT_WEBGPU.base!);
+const sttIsMultilingual = (model: string) => !model.endsWith(".en");
+// fp32 for the whole large model would blow past sane GPU memory — the standard
+// transformers.js split (fp16 encoder + q4 decoder) keeps it ~1.6 GB on disk.
+const sttDtype = (model: string, dtype: string) =>
+  model.includes("large-v3-turbo") ? { encoder_model: "fp16", decoder_model_merged: "q4" } : dtype;
 const TTS_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "af_heart";
 // Smart-Turn v3 (pipecat): Whisper-tiny encoder + head; input is a Whisper
@@ -50,6 +58,7 @@ const N8 = 8 * 16000; // Smart-Turn reads the last 8 s of audio
 
 type Device = "webgpu" | "wasm";
 let asr: any = null;
+let asrMultilingual = false; // multilingual models take (and need) a pinned language
 let tts: any = null;
 let turnSession: ort.InferenceSession | null = null;
 let turnProc: any = null;
@@ -84,7 +93,9 @@ self.onmessage = async (e: MessageEvent) => {
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts" | "turn") => (p: any) => post({ type: "progress", data: { ...p, model } });
-      asr = await pipeline("automatic-speech-recognition", sttModel(device, msg.whisperSize), { device, dtype, progress_callback: tagged("stt") });
+      const sttId = sttModel(device, msg.whisperSize);
+      asrMultilingual = sttIsMultilingual(sttId);
+      asr = await pipeline("automatic-speech-recognition", sttId, { device, dtype: sttDtype(sttId, dtype) as never, progress_callback: tagged("stt") });
       tts = await KokoroTTS.from_pretrained(TTS_MODEL, { device, dtype, progress_callback: tagged("tts") });
       // Smart-Turn is tiny → always CPU/WASM. Non-fatal if it fails to load.
       try {
@@ -93,12 +104,13 @@ self.onmessage = async (e: MessageEvent) => {
         turnSession = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] });
       } catch (err) { console.warn("[live] Smart-Turn unavailable:", err); turnSession = null; turnProc = null; }
       // Warm up (compiles WebGPU shaders) so the first real turn isn't janky.
-      try { await asr(new Float32Array(16000)); } catch { /* */ }
+      try { await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
       try { await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
       if (turnSession && turnProc) { try { await turnComplete(new Float32Array(16000)); } catch { /* */ } }
       post({ type: "ready", turn: !!(turnSession && turnProc) });
     } else if (msg.type === "stt") {
-      const text = await serial(async () => String((await asr(msg.audio))?.text ?? "").trim());
+      const opts = asrMultilingual ? { language: "en", task: "transcribe" } : undefined;
+      const text = await serial(async () => String((await asr(msg.audio, opts))?.text ?? "").trim());
       post({ type: "result", id: msg.id, text });
     } else if (msg.type === "tts") {
       const { audio, sampleRate } = await serial(async () => {

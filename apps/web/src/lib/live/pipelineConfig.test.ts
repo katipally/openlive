@@ -21,11 +21,18 @@ assert.equal(mergePipelineConfig({ stt: { whisperSize: "gigantic" } }).stt.whisp
 assert.equal(mergePipelineConfig({ turn: { engine: "telepathy" } }).turn.engine, "smart-turn");
 
 // Out-of-range numbers clamp (full configs → clampPipelineConfig).
-const full = (over) => ({ stt: { whisperSize: "base" }, tts: { voice: "af_heart", speed: 1 }, turn: { engine: "smart-turn", threshold: 0.5 }, vad: { speechThreshold: 0.5, redemptionMs: 550 }, ...over });
+const full = (over) => ({ stt: { whisperSize: "base" }, tts: { voice: "af_heart", speed: 1 }, turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000 }, vad: { speechThreshold: 0.5, redemptionMs: 550 }, ...over });
 assert.equal(clampPipelineConfig(full({ tts: { voice: "af_heart", speed: 99 } })).tts.speed, 2);
-assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: -5 } })).turn.threshold, 0);
+assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: -5, holdMs: 4000 } })).turn.threshold, 0);
 assert.equal(clampPipelineConfig(full({ vad: { speechThreshold: 5, redemptionMs: 550 } })).vad.speechThreshold, 0.9);
 assert.equal(clampPipelineConfig(full({ vad: { speechThreshold: 0.5, redemptionMs: 99999 } })).vad.redemptionMs, 1500);
+
+// Mid-thought hold clamps to 1–8 s; missing/garbage falls back to the default.
+assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: 0.5, holdMs: 100 } })).turn.holdMs, 1000);
+assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: 0.5, holdMs: 60000 } })).turn.holdMs, 8000);
+assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: 0.5 } })).turn.holdMs, 4000);
+assert.equal(mergePipelineConfig({ turn: { holdMs: 2500 } }).turn.holdMs, 2500);
+assert.equal(mergePipelineConfig({}).turn.holdMs, 4000);
 
 // Catalog integrity: 28 English voices, all with a valid accent/gender.
 assert.equal(KOKORO_VOICES.length, 28);

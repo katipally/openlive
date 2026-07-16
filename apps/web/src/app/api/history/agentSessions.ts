@@ -121,6 +121,51 @@ function cursorSessions(): ExternalSession[] {
   return recentFiles(out.map((s) => ({ ...s, path: "", mtimeMs: new Date(s.updatedAt).getTime() })) as any).map((x: any) => ({ id: x.id, cwd: x.cwd, title: x.title, updatedAt: x.updatedAt }));
 }
 
+// ── OpenCode: sqlite at ~/.local/share/opencode/opencode.db (session table) ───
+// Read-only via node:sqlite (Node ≥22.13 — already this repo's floor). Sub-sessions
+// (parent_id set) are agent-internal; only top-level sessions are the user's.
+function opencodeSessions(): ExternalSession[] {
+  const db = join(homedir(), ".local", "share", "opencode", "opencode.db");
+  if (!existsSync(db)) return [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const conn = new DatabaseSync(db, { readOnly: true });
+    try {
+      const rows = conn
+        .prepare("SELECT id, directory, title, time_updated FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC LIMIT ?")
+        .all(RECENT) as { id: string; directory: string; title: string; time_updated: number }[];
+      return rows
+        .filter((r) => r.directory)
+        .map((r) => ({ id: r.id, cwd: r.directory, title: clip(r.title || "OpenCode session"), updatedAt: iso(r.time_updated) }));
+    } finally { conn.close(); }
+  } catch { return []; } // locked db / schema change / old Node → just no sessions
+}
+
+// ── Hermes: sqlite at ~/.hermes/state.db (its shared SessionDB) ───────────────
+// ponytail: schema unverified until a first real hermes-acp run exists on this
+// machine — read attempts are fully guarded, so a mismatch = no sessions, not a crash.
+function hermesSessions(): ExternalSession[] {
+  const db = join(homedir(), ".hermes", "state.db");
+  if (!existsSync(db)) return [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const conn = new DatabaseSync(db, { readOnly: true });
+    try {
+      const rows = conn
+        .prepare("SELECT session_id AS id, cwd, title, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?")
+        .all(RECENT) as { id: string; cwd: string | null; title: string | null; updated_at: string | number }[];
+      return rows.map((r) => ({
+        id: String(r.id),
+        cwd: r.cwd ?? "",
+        title: clip(r.title || "Hermes session"),
+        updatedAt: typeof r.updated_at === "number" ? iso(r.updated_at) : new Date(r.updated_at).toISOString(),
+      })).filter((s) => s.cwd);
+    } finally { conn.close(); }
+  } catch { return []; }
+}
+
 function safeReaddir(dir: string): string[] {
   try { return readdirSync(dir); } catch { return []; }
 }
@@ -131,6 +176,8 @@ export function readExternalAgentSessions(): ExternalAgentSessions[] {
     { agentId: "claude-code", sessions: claudeSessions() },
     { agentId: "codex", sessions: codexSessions() },
     { agentId: "cursor", sessions: cursorSessions() },
+    { agentId: "opencode", sessions: opencodeSessions() },
+    { agentId: "hermes", sessions: hermesSessions() },
   ].filter((a) => a.sessions.length > 0);
 }
 
@@ -175,5 +222,7 @@ export function deleteExternalSession(agentId: string, id: string): boolean {
     walk(root, 0);
     return target ? rm(target) : false;
   }
+  // opencode/hermes: sessions live inside THEIR sqlite databases — never write into
+  // a third-party live db from here. History hides the delete affordance for these.
   return false;
 }

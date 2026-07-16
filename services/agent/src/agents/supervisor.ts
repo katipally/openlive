@@ -11,7 +11,7 @@ import type { Agent, AgentId, TurnInput } from "./types.js";
 export type SupervisorTimeouts = { startMs: number; firstOutputMs: number; stallMs: number };
 const DEFAULTS: SupervisorTimeouts = { startMs: 15_000, firstOutputMs: 30_000, stallMs: 60_000 };
 
-const LABEL: Record<AgentId, string> = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor" };
+const LABEL: Record<AgentId, string> = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode", hermes: "Hermes" };
 
 export class AgentSupervisor implements Agent {
   readonly id: AgentId;

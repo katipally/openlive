@@ -26,6 +26,8 @@ interface LiveState {
   agentCaption: string;
   agentCaptionMs: number; // playback duration of the current agent chunk — paces the word-by-word caption reveal
   toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
+  holdUntil: number | null; // mid-thought pause held: epoch-ms when it auto-sends (drives "waiting for you… tap to send")
+  pttActive: boolean;       // push-to-talk currently held (space / global hotkey)
   warming: boolean;   // true from socket-open until the agent signals warm-ready → shows "Warming up…"
   boundAgent: AgentId | null;         // coding agent this conversation talks to (null = built-in brain)
   boundCwd: string;                   // project folder for the bound agent ("" = default/home)
@@ -61,6 +63,8 @@ export const useLiveStore = create<LiveState>((set) => ({
   agentCaption: "",
   agentCaptionMs: 0,
   toolStatus: "",
+  holdUntil: null,
+  pttActive: false,
   warming: false,
   boundAgent: null,
   boundCwd: "",

@@ -2,7 +2,7 @@
 // OpenLive desktop shell. Runs the web (Next) + agent (ws) servers locally and
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
-const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard } = require("electron");
+const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, globalShortcut } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -178,6 +178,9 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Mini mode HIDES this window while its renderer keeps running the whole voice
+      // pipeline — throttled timers would wreck turn-taking (hold timers, TTS drain).
+      backgroundThrottling: false,
       // Hand the app version to the preload (app.* isn't reachable there). Released
       // builds show the tag version (CI stamps it); unpackaged dev builds get a
       // "-dev" suffix so it's obvious you're not on a release.
@@ -201,66 +204,80 @@ function createMainWindow() {
   mainWin.on("closed", () => { mainWin = null; });
 }
 
-// ── minimized (floating pill) mode ───────────────────────────────────────────
-// Mini mode shrinks the SINGLE main window to a small floating pill that still runs
-// the whole voice pipeline AND owns the camera/screen streams — so the renderer
-// shows the previews INLINE (stacked above the pill) with no separate windows. The
-// pill grows UPWARD as previews appear (its bottom edge stays put). Opaque,
-// always-on-top; macOS rounds the frameless window natively.
+// ── minimized (floating panel) mode ──────────────────────────────────────────
+// Mini mode HIDES the main window (its renderer keeps running the voice pipeline —
+// backgroundThrottling is off) and shows a separate thin PANEL window with the pill
+// UI. The panel is non-activating (clicking it never steals focus from the app
+// you're working in), floats above fullscreen apps, and lives on every Space.
+// State flows main-renderer → main process → panel; commands flow back the same
+// way (a MediaStream can't cross windows, so previews arrive as ~1 fps JPEGs).
 const PILL_W = 430, PILL_H = 56;
-let savedBounds = null;
+let panelWin = null;
 
 function miniDisplay() {
-  return screen.getDisplayMatching(savedBounds || (mainWin ? mainWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 }));
+  return screen.getDisplayMatching(mainWin ? mainWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 });
 }
 function pillBottom(area) { return area.y + area.height - 72; } // clear the dock
+
+function createPanelWindow() {
+  if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); return; }
+  const area = miniDisplay().workArea;
+  panelWin = new BrowserWindow({
+    width: PILL_W, height: PILL_H,
+    x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
+    show: false, frame: false, resizable: false, skipTaskbar: true,
+    roundedCorners: true, backgroundColor: DARK_BG,
+    // macOS: a "panel"-type window is non-activating — clicks land on its buttons
+    // without pulling focus away from whatever app the user is working in.
+    ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  panelWin.setAlwaysOnTop(true, "floating", 1);
+  panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  panelWin.loadURL(`${WEB_URL}/mini`);
+  panelWin.once("ready-to-show", () => { if (panelWin) panelWin.showInactive(); });
+  panelWin.on("closed", () => { panelWin = null; });
+}
 
 function wireMiniIpc() {
   ipcMain.on("openlive:mini", () => {
     if (!mainWin) return;
-    const applyPill = () => {
+    const apply = () => {
       if (!mainWin) return;
-      if (!savedBounds) savedBounds = mainWin.getBounds();
-      const area = miniDisplay().workArea;
-      mainWin.setResizable(false);
-      mainWin.setMinimumSize(PILL_W, PILL_H);
-      mainWin.setBounds({ width: PILL_W, height: PILL_H, x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H });
-      mainWin.setAlwaysOnTop(true, "floating");
-      mainWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      createPanelWindow();
+      mainWin.hide();
     };
-    // A fullscreen (or simple-fullscreen) window ignores setBounds — leave it first,
-    // then shrink to the pill once the OS transition completes.
+    // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
     if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
-      mainWin.once("leave-full-screen", applyPill);
+      mainWin.once("leave-full-screen", apply);
       mainWin.setFullScreen(false);
-    } else {
-      if (mainWin.isMaximized()) mainWin.unmaximize();
-      applyPill();
-    }
+    } else apply();
+    // Global push-to-talk while the panel is up: talk to the agent from any app.
+    // globalShortcut has no keyup, so it's a press-to-TOGGLE (start/stop talking) —
+    // the renderer flips its PTT state on each fire.
+    globalShortcut.register("Alt+Space", () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
   });
   ipcMain.on("openlive:unmini", () => {
-    if (!mainWin) return;
-    mainWin.setAlwaysOnTop(false);
-    mainWin.setVisibleOnAllWorkspaces(false);
-    mainWin.setResizable(true);
-    mainWin.setMinimumSize(940, 640);
-    if (savedBounds) { mainWin.setBounds(savedBounds); savedBounds = null; }
+    globalShortcut.unregister("Alt+Space");
+    if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
+    panelWin = null;
+    if (mainWin) { mainWin.show(); mainWin.focus(); }
   });
-  // The pill fits its content: the renderer measures the stacked previews + pill and
-  // asks for a height. Grow UPWARD — keep the bottom edge fixed so the pill doesn't
-  // walk up/down the screen as previews toggle.
+  // The panel fits its content: its renderer measures the stacked previews + pill
+  // and asks for a height. Grow UPWARD — the bottom edge stays put.
   ipcMain.on("openlive:mini-size", (_e, h) => {
-    if (!mainWin || !mainWin.isAlwaysOnTop()) return;
+    if (!panelWin || panelWin.isDestroyed()) return;
     const area = miniDisplay().workArea;
-    // Fit the content snugly (down to ~a bare pill); don't force the full PILL_H so
-    // there's no empty strip above the composer.
     const height = Math.max(44, Math.min(area.height - 96, Math.round(h) || PILL_H));
-    const b = mainWin.getBounds();
+    const b = panelWin.getBounds();
     if (height === b.height) return;
     const bottom = b.y + b.height;
     const y = Math.max(area.y + 8, bottom - height);
-    mainWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
+    panelWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
   });
+  // State/command relay between the main renderer (voice pipeline) and the panel.
+  ipcMain.on("openlive:panel-state", (_e, s) => { if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send("openlive:panel-state", s); });
+  ipcMain.on("openlive:panel-cmd", (_e, c) => { if (mainWin) mainWin.webContents.send("openlive:panel-cmd", c); });
 }
 
 // ── custom window controls (frameless window → no native traffic lights) ─────
@@ -392,3 +409,4 @@ app.whenReady().then(boot);
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => { app.isQuitting = true; for (const c of children) { try { c.kill(); } catch { /* */ } } });
+app.on("will-quit", () => globalShortcut.unregisterAll());

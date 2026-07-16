@@ -6,7 +6,7 @@ import {
   loadPipelineConfig, savePipelineConfig, KOKORO_VOICES, WHISPER_SIZES, TURN_ENGINES,
   DEFAULT_PIPELINE_CONFIG, type PipelineConfig,
 } from "@/lib/live/pipelineConfig";
-import { tts, modelsReady, modelsCached, loadModels } from "@/lib/live/models";
+import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
@@ -95,14 +95,16 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
 function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
-      <StageHead title="Speech-to-text" desc="Transcribes your voice on-device, English-only. Larger models are more accurate but heavier. Applies on the next call." />
-      <EngineCard name="Whisper (English)" desc="OpenAI Whisper via transformers.js — runs on WebGPU with a WASM fallback." />
+      <StageHead title="Speech-to-text" desc="Transcribes your voice on-device. Larger models are more accurate but heavier — the defaults favor modest machines; pick a bigger one if your device can carry it. Applies on the next call." />
+      <EngineCard name="Whisper" desc="OpenAI Whisper via transformers.js — runs on WebGPU with a WASM fallback." />
       <label className="flex flex-col gap-1.5">
         <span className="text-[12.5px] text-foreground">Model size</span>
         <select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className={selectClass}>
           {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
+      {!hasWebGPU() && <p className="-mt-2 text-[11px] text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless — the size choice applies when WebGPU is.</p>}
+      {cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-[11px] text-faint">A big download and a real GPU-memory footprint — expect the best transcription, but drop back to Small if your machine struggles.</p>}
       <ModelStatus />
     </div>
   );
@@ -126,6 +128,9 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
           <p className="-mt-2 text-[11px] text-faint">Higher waits longer (fewer interruptions); lower replies sooner.</p>
         </>
       )}
+      <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
+        fmt={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
+      <p className="-mt-2 text-[11px] text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
     </div>
   );
 }

@@ -57,7 +57,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 
 /** The coding agents a conversation can be bound to (null = built-in provider). */
-export const AGENT_ID = z.enum(["claude-code", "codex", "cursor"]);
+export const AGENT_ID = z.enum(["claude-code", "codex", "cursor", "opencode", "hermes"]);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
 export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
 export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };

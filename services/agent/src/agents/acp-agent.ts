@@ -21,16 +21,39 @@ import { PERMISSION_CANCELLED } from "./types.js";
 // Overridable via a setting so an ecosystem package rename doesn't strand a user.
 // Verified 2026-07-15: ACP moved from the deprecated @zed-industries/* packages to
 // the vendor-neutral @agentclientprotocol/* org; Cursor's binary is now `agent`.
+// claude-agent-acp is PINNED: we rely on its `_meta.claudeCode.options` passthrough
+// (native session persistence + system-prompt append, verified against 0.59.0), and
+// an unpinned `npx -y` silently floats to whatever ships next.
 const ADAPTERS: Record<AgentId, { command: string; args: string[] }> = {
-  "claude-code": { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp"] },
+  "claude-code": { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.59.0"] },
   "codex": { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] },
   "cursor": { command: "agent", args: ["acp"] },
+  "opencode": { command: "opencode", args: ["acp"] },
+  // Hermes ships an ACP entry (its registry manifest's uvx distribution) — pinned
+  // for the same float-protection reason as claude above.
+  "hermes": { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
 };
 
 // Sent once per session so the agent knows it's a spoken voice+vision call (not a
 // terminal) and goes ALONG with it as itself — without ever faking capabilities.
 const PREAMBLE = `[You're being used through OpenLive, a hands-free VOICE interface — not a terminal. The user is TALKING to you out loud: their speech is transcribed to text and sent as their messages, and your text replies are read back to them aloud with text-to-speech. So this is a real spoken conversation — the user hears you, and you're effectively hearing them through the transcription. When they turn on their camera or share their screen, the current frame is attached to their message as an image so you can actually see what they're showing.
-Go along with this naturally: you're still yourself, doing your normal work, but talk in a spoken, conversational style — short natural sentences, no markdown or long code dumps unless they ask, describe what you'd do rather than pasting walls of text. Do NOT tell the user you "can't hear" or "can't see" them or that you're "just a text tool" — OpenLive bridges voice and vision for you, so that's simply false here. But never pretend or invent anything: if you genuinely didn't receive an image or can't make something out, say so plainly and ask.]`;
+Go along with this naturally: you're still yourself, doing your normal work, but talk the way people talk on a call. Keep replies to a sentence or two unless they ask for more — spoken words take time, and a paragraph you'd happily type is a monologue out loud. No markdown, no lists, no code dumps: describe code and changes in plain words instead of reading them out, and if they need the actual code, say where you put it. Before a long tool run or edit, say in a few words what you're about to do, then do it. Do NOT tell the user you "can't hear" or "can't see" them or that you're "just a text tool" — OpenLive bridges voice and vision for you, so that's simply false here. But never pretend or invent anything: if you genuinely didn't receive an image or can't make something out, say so plainly and ask.]`;
+
+// Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on
+// session/new AND session/load. Two things ride on it:
+//   • persistSession — belt-and-braces so OpenLive sessions ALWAYS land in
+//     ~/.claude/projects/<cwd-slug>/ where `claude --resume` finds them.
+//   • systemPrompt append — the voice-call context goes into the system prompt
+//     instead of polluting the first user message of the saved transcript.
+// Other agents have no such channel, so they keep the first-turn PREAMBLE.
+const CLAUDE_META = {
+  claudeCode: {
+    options: {
+      persistSession: true,
+      systemPrompt: { type: "preset", preset: "claude_code", append: PREAMBLE },
+    },
+  },
+};
 
 export interface AcpOpts {
   onSession?: (sessionId: string) => void;   // report the ACP session id (resume-later persistence)
@@ -43,7 +66,7 @@ export interface AcpOpts {
 /** GUI-spawned processes get a skeletal PATH on macOS — the user's agent binaries
  *  (homebrew/npm) live outside it. Append the usual bins so `npx`/`cursor-agent` resolve. */
 function widenedPath(): string {
-  const extra = ["/usr/local/bin", "/opt/homebrew/bin", `${homedir()}/.local/bin`, `${homedir()}/bin`, `${homedir()}/.npm-global/bin`];
+  const extra = ["/usr/local/bin", "/opt/homebrew/bin", `${homedir()}/.local/bin`, `${homedir()}/bin`, `${homedir()}/.npm-global/bin`, `${homedir()}/.opencode/bin`];
   const cur = (process.env.PATH ?? "").split(":");
   return [...cur, ...extra.filter((p) => !cur.includes(p))].join(":");
 }
@@ -91,7 +114,20 @@ export class AcpAgent implements Agent {
     if (!cfg.cwd) throw new Error(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`);
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
-      env: { ...process.env, PATH: widenedPath() },
+      env: {
+        ...process.env,
+        PATH: widenedPath(),
+        // Claude Code's /resume picker HIDES sessions stamped with an SDK entrypoint
+        // (the CLI logs `filtered from /resume: entrypoint=sdk-ts`), which is why
+        // OpenLive sessions stopped appearing in the CLI (old Zed-era CLIs predate
+        // the filter). The SDK sets CLAUDE_CODE_ENTRYPOINT only when unset — and
+        // "cli" gets coerced back to the filtered "sdk-cli" — so we use
+        // "claude-vscode": the same entrypoint the VS Code extension uses for
+        // exactly this "IDE front-end sharing sessions with the CLI" contract.
+        // Sessions then show in /resume and are genuinely shared both ways
+        // (verified 2026-07-15 against claude 2.1.198 / adapter 0.59.0).
+        ...(this.id === "claude-code" ? { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } : {}),
+      },
       stdio: ["pipe", "pipe", "pipe"],
       // Own process group so dispose() can kill the WHOLE tree. The adapter is
       // `npx …`/`npm exec …`, which spawns node → the real acp binary two levels
@@ -107,10 +143,12 @@ export class AcpAgent implements Agent {
     // SIGNED-OUT agent (e.g. an old cursor-agent) prints a TUI / exits instead of
     // speaking ACP — a clean, actionable error beats a 60s hang + JSON-parse spam.
     let ready = false;
+    let exitCode: number | null = null;
     const died = new Promise<never>((_, reject) => {
       child.once("error", (e) => reject(new Error(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`)));
       child.once("exit", (code) => {
         this.alive = false;
+        exitCode = code;
         if (!ready) reject(new Error(startError(this.id, code, stderr)));
         else if (code) console.error(`[agent:${this.id}] ${cfg.command} exited ${code}`);
       });
@@ -123,7 +161,15 @@ export class AcpAgent implements Agent {
     const stream = ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>);
     this.conn = new ClientSideConnection((_agent) => this.clientHandler(), stream);
 
-    await Promise.race([this.handshake(cfg.cwd), died]);
+    try {
+      await Promise.race([this.handshake(cfg.cwd), died]);
+    } catch (e) {
+      // The SDK's "ACP connection closed" (stdout ended) outruns the child's `exit`
+      // event — give the exit a moment, and if the child is dead tell the actionable
+      // story (exit + stderr + per-agent hint), not the transport's.
+      const dead = await Promise.race([died.catch(() => true), new Promise<false>((r) => setTimeout(() => r(false), 500))]);
+      throw dead || !this.alive ? new Error(startError(this.id, exitCode, stderr)) : e;
+    }
     ready = true;
     this.opts.onSession?.(this.sessionId);
   }
@@ -139,6 +185,10 @@ export class AcpAgent implements Agent {
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
     const canLoad = !!init.agentCapabilities?.loadSession;
+    // Claude gets the voice context through its system prompt (CLAUDE_META), so the
+    // first user message stays clean; everyone else gets the PREAMBLE prepended.
+    const meta = this.id === "claude-code" ? CLAUDE_META : undefined;
+    if (meta) this.sentPreamble = true;
     // Cursor advertises loadSession but its sessions die with the process (upstream
     // "Session not found" after restart), so it can't round-trip to its own CLI.
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && this.id !== "cursor" };
@@ -156,7 +206,7 @@ export class AcpAgent implements Agent {
       this.sessionId = this.opts.resumeSessionId;
       this.replaying = true;
       try {
-        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers: [] });
+        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
         this.replaying = false;
         this.reportMeta(r);
         resumed = true;
@@ -172,7 +222,7 @@ export class AcpAgent implements Agent {
       }
     }
     if (!resumed) {
-      const r = await this.conn!.newSession({ cwd, mcpServers: [] });
+      const r = await this.conn!.newSession({ cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }
@@ -423,7 +473,8 @@ export class AcpAgent implements Agent {
   }
 }
 
-function labelFor(id: AgentId): string { return id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : "Cursor"; }
+const AGENT_LABELS: Record<AgentId, string> = { "claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "opencode": "OpenCode", "hermes": "Hermes" };
+function labelFor(id: AgentId): string { return AGENT_LABELS[id]; }
 
 /** Append a replayed block, merging into the trailing text/reasoning block of the
  *  same kind so streamed chunks read as one message (not one bubble per token). */
@@ -462,10 +513,13 @@ function extractAcpError(e: unknown): string {
 /** A clean, actionable error when an agent process dies before the ACP handshake. */
 function startError(id: AgentId, code: number | null, stderr: string): string {
   const tail = stderr.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(-240);
-  const hint = id === "cursor"
-    ? "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`."
-    : id === "codex"
-      ? "Make sure `codex` is installed and signed in (run `codex`)."
-      : "Make sure Claude Code is installed and signed in (run `claude`).";
+  const hints: Record<AgentId, string> = {
+    "cursor": "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`.",
+    "codex": "Make sure `codex` is installed and signed in (run `codex`).",
+    "claude-code": "Make sure Claude Code is installed and signed in (run `claude`).",
+    "opencode": "Make sure OpenCode is installed (opencode.ai) and signed in — run `opencode` in a terminal once.",
+    "hermes": "OpenLive runs Hermes via uvx. Install uv (astral.sh/uv), then run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` once to pick a model provider.",
+  };
+  const hint = hints[id];
   return `${labelFor(id)} exited before connecting${code != null ? ` (code ${code})` : ""}. ${hint}${tail ? ` — ${tail}` : ""}`;
 }

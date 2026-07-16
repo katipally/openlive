@@ -24,9 +24,11 @@ function Section({ title, desc, children }: { title: string; desc: React.ReactNo
 // Verified 2026-07-15: ACP moved off the deprecated @zed-industries/* packages to
 // the vendor-neutral @agentclientprotocol/* org; Cursor's binary is now `agent`.
 const DEFAULT_CMD: Record<string, string> = {
-  "claude-code": "npx -y @agentclientprotocol/claude-agent-acp",
+  "claude-code": "npx -y @agentclientprotocol/claude-agent-acp@0.59.0",
   "codex": "npx -y @agentclientprotocol/codex-acp",
   "cursor": "agent acp",
+  "opencode": "opencode acp",
+  "hermes": "uvx hermes-agent[acp]==0.18.2 hermes-acp",
 };
 
 export function AgentsSettings() {

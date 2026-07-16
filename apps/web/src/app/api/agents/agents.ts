@@ -8,6 +8,10 @@ export const AGENTS = [
   { id: "codex", label: "Codex", bins: ["codex"], sessions: "~/.codex/sessions", npm: "@openai/codex", login: "codex login" },
   // Cursor renamed its binary `cursor-agent` → `agent`; both land on PATH. No npm — a curl installer.
   { id: "cursor", label: "Cursor", bins: ["agent", "cursor-agent"], sessions: "~/.cursor", login: "agent login" },
+  { id: "opencode", label: "OpenCode", bins: ["opencode"], sessions: "~/.local/share/opencode", npm: "opencode-ai", login: "opencode auth login" },
+  // Hermes runs via uvx (no persistent install) — "installed" means uv is present.
+  // Its setup wizard (`hermes setup`) writes auth/config into ~/.hermes.
+  { id: "hermes", label: "Hermes", bins: ["uvx"], sessions: "~/.hermes", login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup" },
 ] as const;
 
 export type AgentDef = (typeof AGENTS)[number];
@@ -39,6 +43,10 @@ export function actionCommand(a: AgentDef, action: Action): { cmd: string; args:
       ? { cmd: "bash", args: ["-lc", "curl https://cursor.com/install -fsS | bash"] }
       : { cmd: "bash", args: ["-lc", "rm -f ~/.local/bin/agent ~/.local/bin/cursor-agent && echo 'Removed cursor-agent from ~/.local/bin.'"] };
   }
-  if (!a.npm) return null;
+  // Hermes has nothing to install/uninstall beyond uv itself (uvx fetches it per run).
+  if (a.id === "hermes") {
+    return action === "install" ? { cmd: "bash", args: ["-lc", "curl -LsSf https://astral.sh/uv/install.sh | sh"] } : null;
+  }
+  if (!("npm" in a) || !a.npm) return null;
   return { cmd: "npm", args: [action === "install" ? "install" : "uninstall", "-g", a.npm] };
 }

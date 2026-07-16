@@ -21,7 +21,7 @@ function abToBase64(ab: ArrayBuffer): string {
 
 // Per-conversation agent bind, remembered browser-side (localStorage) so reopening
 // a conversation resumes the same agent. Sent to the server on connect + on change.
-const AGENT_IDS: readonly AgentId[] = ["claude-code", "codex", "cursor"];
+const AGENT_IDS: readonly AgentId[] = ["claude-code", "codex", "cursor", "opencode", "hermes"];
 function readBind(chatId: string): AgentId | null {
   try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return (AGENT_IDS as readonly string[]).includes(v ?? "") ? (v as AgentId) : null; } catch { return null; }
 }
@@ -150,6 +150,23 @@ export function useLiveSession(chatId: string) {
   const revealRaf = useRef<number | null>(null);
   const stopReveal = () => { if (revealRaf.current != null) { cancelAnimationFrame(revealRaf.current); revealRaf.current = null; } };
   const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; };
+
+  // Desktop mini mode hides this window, which freezes rAF — snap the in-flight
+  // word reveal to its full chunk so the saved/visible transcript never stalls
+  // mid-word. Voice/TTS are timer-driven and unaffected (backgroundThrottling off).
+  useEffect(() => {
+    const onVis = () => {
+      if (!document.hidden || revealRaf.current == null) return;
+      stopReveal();
+      const id = assistantId.current;
+      if (id && curChunk.current != null) {
+        const full = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+        chatStore.liveText(chatId, id, full);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [chatId]);
 
   // ── single teardown authority — releases EVERYTHING, always ───────────────
   const teardown = useCallback(() => {
@@ -307,6 +324,8 @@ export function useLiveSession(chatId: string) {
         onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
         onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
         onUserText: (text) => void handleUserText(text),
+        // Mid-thought hold → "waiting for you… tap to send" affordance (null clears it).
+        onHold: (h) => set({ holdUntil: h?.until ?? null }),
         // A chunk just STARTED voicing. Drive TWO things from it: the composer
         // subtitle (rolling 3-4 word window — VoiceBar reads agentCaption) AND the
         // chat transcript, which types this chunk word-by-word in lockstep with the
@@ -322,6 +341,9 @@ export function useLiveSession(chatId: string) {
           if (!id) return;
           const words = sentence.split(/\s+/).filter(Boolean);
           const base = segText.current;
+          // Hidden window (desktop mini mode): rAF is frozen — write the whole chunk
+          // at once instead of animating it.
+          if (document.hidden) { chatStore.liveText(chatId, id, base ? `${base} ${sentence}` : sentence); return; }
           const dur = durationMs > 0 ? durationMs : words.length * 320;
           const startedAt = performance.now();
           const step = () => {
@@ -544,5 +566,11 @@ export function useLiveSession(chatId: string) {
   // reactive spectrum while you or the agent talk.
   const getBands = useCallback(() => ({ mic: engine.current?.micBands() ?? NO_BANDS, agent: engine.current?.agentBands() ?? NO_BANDS }), []);
 
-  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission };
+  // "Send now": commit a held mid-thought utterance instead of waiting out the hold.
+  const sendNow = useCallback(() => engine.current?.commitPending(), []);
+  // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
+  const pttDown = useCallback(() => { if (!engine.current) return; engine.current.beginPtt(); set({ pttActive: true }); }, [set]);
+  const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(); }, [set]);
+
+  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, pttDown, pttUp };
 }

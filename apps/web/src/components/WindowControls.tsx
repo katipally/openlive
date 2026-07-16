@@ -18,7 +18,9 @@ export function WindowControls() {
     if (ol()?.isDesktop) document.documentElement.classList.add("desktop");
   }, []);
 
-  if (!mounted || !ol()?.isDesktop || minimized) return null;
+  // The mini panel window (/mini) is a chromeless pill — no traffic lights there.
+  const isPanel = mounted && window.location.pathname.startsWith("/mini");
+  if (!mounted || !ol()?.isDesktop || minimized || isPanel) return null;
   const dot = "size-3 rounded-full transition hover:brightness-125 active:brightness-90 [-webkit-app-region:no-drag]";
   return (
     <div className="fixed left-4 top-[15px] z-[100] flex items-center gap-2">

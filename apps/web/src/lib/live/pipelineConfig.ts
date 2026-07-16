@@ -5,20 +5,21 @@
 // the next spoken sentence with no restart; VAD knobs are baked into MicVAD at
 // construction, so they apply on the next session start.
 
-export type WhisperSize = "tiny" | "base" | "small";
+export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
+export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
 export type TurnEngine = "smart-turn" | "silence";
 
 export interface PipelineConfig {
   stt: { whisperSize: WhisperSize };                        // Whisper.en model size (applies on reload)
   tts: { voice: string; speed: number };                    // Kokoro voice id + speaking rate
-  turn: { engine: TurnEngine; threshold: number };          // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1)
+  turn: { engine: TurnEngine; threshold: number; holdMs: number }; // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1); max mid-thought hold before auto-send
   vad: { speechThreshold: number; redemptionMs: number };   // Silero sensitivity + trailing silence before a turn ends
 }
 
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   stt: { whisperSize: "base" },
   tts: { voice: "af_heart", speed: 1 },
-  turn: { engine: "smart-turn", threshold: 0.5 },
+  turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000 },
   vad: { speechThreshold: 0.5, redemptionMs: 550 },
 };
 
@@ -26,10 +27,13 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
 // TTS engines beyond Kokoro (Piper/Kitten) are deferred: they need a new browser
 // runtime/dep and a real device test before shipping — one registry+worker branch
 // each. ponytail: don't add an engine the on-device load can't be verified to boot.
+// Defaults are tuned for modest devices; the bigger models are opt-in for machines
+// that can carry them (WebGPU only — WASM always runs tiny regardless).
 export const WHISPER_SIZES: { id: WhisperSize; name: string }[] = [
-  { id: "tiny", name: "Tiny — fastest, least accurate" },
-  { id: "base", name: "Base — balanced (default)" },
-  { id: "small", name: "Small — most accurate, heaviest" },
+  { id: "tiny", name: "Tiny — fastest, least accurate (~120 MB)" },
+  { id: "base", name: "Base — balanced, default (~290 MB)" },
+  { id: "small", name: "Small — more accurate, heavier (~950 MB)" },
+  { id: "large-v3-turbo", name: "Large v3 Turbo — best accuracy, multilingual (~1.6 GB)" },
 ];
 export const TURN_ENGINES: { id: TurnEngine; name: string }[] = [
   { id: "smart-turn", name: "Smart-Turn v3 — semantic end-of-turn" },
@@ -64,12 +68,12 @@ const oneOf = <T extends string>(x: unknown, allowed: readonly T[], d: T): T => 
 export function clampPipelineConfig(c: PipelineConfig): PipelineConfig {
   const d = DEFAULT_PIPELINE_CONFIG;
   return {
-    stt: { whisperSize: oneOf(c.stt.whisperSize, ["tiny", "base", "small"], d.stt.whisperSize) },
+    stt: { whisperSize: oneOf(c.stt.whisperSize, WHISPER_SIZE_IDS, d.stt.whisperSize) },
     tts: {
       voice: KOKORO_VOICES.some((v) => v.id === c.tts.voice) ? c.tts.voice : d.tts.voice,
       speed: clamp(c.tts.speed, 0.5, 2),
     },
-    turn: { engine: oneOf(c.turn.engine, ["smart-turn", "silence"], d.turn.engine), threshold: clamp(c.turn.threshold, 0, 1) },
+    turn: { engine: oneOf(c.turn.engine, ["smart-turn", "silence"], d.turn.engine), threshold: clamp(c.turn.threshold, 0, 1), holdMs: clamp(Math.round(num(c.turn.holdMs, d.turn.holdMs)), 1000, 8000) },
     vad: {
       speechThreshold: clamp(c.vad.speechThreshold, 0.1, 0.9),
       redemptionMs: clamp(Math.round(c.vad.redemptionMs), 200, 1500),
@@ -82,9 +86,9 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
   const p = (partial ?? {}) as Partial<{ [K in keyof PipelineConfig]: Partial<PipelineConfig[K]> }>;
   const d = DEFAULT_PIPELINE_CONFIG;
   return clampPipelineConfig({
-    stt: { whisperSize: oneOf(p.stt?.whisperSize, ["tiny", "base", "small"], d.stt.whisperSize) },
+    stt: { whisperSize: oneOf(p.stt?.whisperSize, WHISPER_SIZE_IDS, d.stt.whisperSize) },
     tts: { voice: typeof p.tts?.voice === "string" ? p.tts.voice : d.tts.voice, speed: num(p.tts?.speed, d.tts.speed) },
-    turn: { engine: oneOf(p.turn?.engine, ["smart-turn", "silence"], d.turn.engine), threshold: num(p.turn?.threshold, d.turn.threshold) },
+    turn: { engine: oneOf(p.turn?.engine, ["smart-turn", "silence"], d.turn.engine), threshold: num(p.turn?.threshold, d.turn.threshold), holdMs: num(p.turn?.holdMs, d.turn.holdMs) },
     vad: { speechThreshold: num(p.vad?.speechThreshold, d.vad.speechThreshold), redemptionMs: num(p.vad?.redemptionMs, d.vad.redemptionMs) },
   });
 }

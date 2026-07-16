@@ -23,7 +23,11 @@ type RequestDelete = (r: PendingDelete) => void;
 
 const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 const basename = (p: string) => p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p || "—";
-const agentLabel = (id: string | null) => (id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : id === "cursor" ? "Cursor" : "OpenLive");
+const AGENT_LABELS: Record<string, string> = { "claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "opencode": "OpenCode", "hermes": "Hermes" };
+const agentLabel = (id: string | null) => AGENT_LABELS[id ?? ""] ?? "OpenLive";
+// External sessions we can delete are plain files/dirs; opencode/hermes keep theirs
+// inside live sqlite databases we won't write into — no delete affordance for those.
+const canDeleteExternal = (id: string | null) => ["claude-code", "codex", "cursor"].includes(id ?? "");
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
   if (!t) return "";
@@ -150,12 +154,15 @@ function WorkspaceNode({ agentId, ws, activeChatId, resume, requestDelete }: { a
   const sessions = [...new Map(ws.sessions.map((s) => [s.id, s])).values()];
   const label = ws.cwd ? basename(ws.cwd) : "No folder";
 
-  const hasExternal = sessions.some((s) => s.source === "external");
+  // opencode/hermes external sessions can't be deleted from here (live sqlite) —
+  // they're skipped; the agent's own tooling manages them.
+  const deletable = sessions.filter((s) => s.source !== "external" || canDeleteExternal(agentId));
+  const hasExternal = deletable.some((s) => s.source === "external");
   const deleteWorkspace = () => requestDelete({
     title: "Delete this workspace’s history?",
-    body: `Removes all ${sessions.length} conversation${sessions.length === 1 ? "" : "s"} under “${label}”.${hasExternal ? " External agent sessions are deleted from disk — that can’t be undone." : ""}`,
+    body: `Removes ${deletable.length} conversation${deletable.length === 1 ? "" : "s"} under “${label}”.${hasExternal ? " External agent sessions are deleted from disk — that can’t be undone." : ""}${deletable.length < sessions.length ? ` ${sessions.length - deletable.length} of ${agentLabel(agentId)}’s own sessions stay (manage those in the agent).` : ""}`,
     run: async () => {
-      for (const s of sessions) {
+      for (const s of deletable) {
         if (s.source === "external") await api.deleteExternalSession(agentId ?? "", s.resumeSessionId ?? s.id);
         else await api.deleteChat(s.id);
       }
@@ -203,7 +210,7 @@ function SessionRow({ s, agentId, cwd, activeChatId, resume, requestDelete }: { 
     title: "Delete conversation?",
     body: s.source === "external"
       ? `Permanently deletes “${title}” from ${agentLabel(agentId)}’s own history on disk. This can’t be undone.`
-      : `Permanently deletes “${title}” and its transcript.`,
+      : `Permanently deletes “${title}” and its messages.`,
     run: async () => {
       if (s.source === "external") await api.deleteExternalSession(agentId ?? "", s.resumeSessionId ?? s.id);
       else await api.deleteChat(s.id);
@@ -229,7 +236,9 @@ function SessionRow({ s, agentId, cwd, activeChatId, resume, requestDelete }: { 
       </button>
       <span className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-card/90 opacity-0 shadow-sm backdrop-blur-sm transition group-hover/s:opacity-100">
         <button onClick={() => setEditing(true)} title="Rename" className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-foreground"><Pencil className="size-3" /></button>
-        <button onClick={del} title="Delete" className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-danger"><Trash2 className="size-3" /></button>
+        {(s.source !== "external" || canDeleteExternal(agentId)) && (
+          <button onClick={del} title="Delete" className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-danger"><Trash2 className="size-3" /></button>
+        )}
       </span>
     </div>
   );

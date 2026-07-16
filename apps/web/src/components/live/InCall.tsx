@@ -10,6 +10,7 @@ import { Orb } from "./Orb";
 import { CameraPiP } from "./CameraPiP";
 import { ScreenTile } from "./ScreenTile";
 import { EndCallButton } from "./EndCallButton";
+import { HoldToSend } from "./HoldToSend";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { usePopIn } from "@/lib/usePopIn";
@@ -29,22 +30,29 @@ export interface InCallProps {
   getLevels: () => { mic: number; agent: number };
   getBands: () => { mic: number[]; agent: number[] };
   onEnd: () => void;
+  sendNow: () => void;
 }
 
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
-    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd } = props;
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, mics, cams, micId, camId } = useLiveStore();
+    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow } = props;
+  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, mics, cams, micId, camId } = useLiveStore();
   const setMinimized = useUi((s) => s.setMinimized);
   const root = useRef<HTMLDivElement>(null);
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
 
   // Entrance — a gentle rise + settle when the call becomes active (skipped for
   // reduced-motion, which leaves the element at its final state).
-  useGSAP(() => {
+  const { contextSafe } = useGSAP(() => {
     if (prefersReduced()) return;
     gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.snappy });
   }, { scope: root });
+
+  // Exit — a quick settle-down before teardown so ending never feels like a cut.
+  const handleEnd = contextSafe(() => {
+    if (!root.current || prefersReduced()) { onEnd(); return; }
+    gsap.to(root.current, { autoAlpha: 0, y: 6, scale: 0.99, duration: DUR.fast, ease: EASE.soft, onComplete: onEnd });
+  });
 
   // Transcript sidebar: resizable width + open/closed, both remembered.
   const [panelOpen, setPanelOpen] = useState(() => (typeof window === "undefined" ? true : localStorage.getItem("ol-transcript-open") !== "0"));
@@ -82,8 +90,8 @@ export function InCall(props: InCallProps) {
       : null;
 
   // Status line: a live tool cue while a tool runs, "Warming up…" right after
-  // connecting (both blue shimmer), otherwise the plain phase label.
-  const statusLabel = toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
+  // connecting (both blue shimmer), push-to-talk while held, otherwise the phase label.
+  const statusLabel = pttActive ? "Push-to-talk — release to send" : toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
   return (
@@ -98,6 +106,7 @@ export function InCall(props: InCallProps) {
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={220} />
               <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-[20px] leading-snug tracking-tight">{words}</p>
               <p className={cn("mt-1 text-[12px] uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
+              <div className="mt-3 min-h-[30px]"><HoldToSend sendNow={sendNow} /></div>
             </div>
           )}
 
@@ -107,7 +116,7 @@ export function InCall(props: InCallProps) {
           {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
 
           {!panelOpen && (
-            <button onClick={() => setPanelOpen(true)} title="Show transcript" aria-label="Show transcript"
+            <button onClick={() => setPanelOpen(true)} title="Show activity" aria-label="Show activity"
               className="absolute right-3 top-3 z-20 grid size-9 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:text-foreground">
               <PanelRightOpen className="size-4" />
             </button>
@@ -121,6 +130,7 @@ export function InCall(props: InCallProps) {
               <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">
                 {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
               </span>
+              <HoldToSend sendNow={sendNow} compact />
             </div>
           )}
 
@@ -133,7 +143,7 @@ export function InCall(props: InCallProps) {
             <IconBtn on={screenOn} title={screenOn ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
             <span className="mx-0.5 h-5 w-px bg-border" />
             <IconBtn on={false} title="Minimize to floating bar" onClick={() => setMinimized(true)} icon={Minimize2} />
-            <EndCallButton onEnd={onEnd} />
+            <EndCallButton onEnd={handleEnd} />
           </div>
         </main>
 

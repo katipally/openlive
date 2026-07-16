@@ -3,23 +3,31 @@
 import { useEffect } from "react";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
+import { usePtt } from "@/lib/live/usePtt";
 import { useUi } from "@/lib/uiStore";
 import { api } from "@/lib/api";
 import { chatStore } from "@/lib/chatStore";
 import { Lobby } from "./Lobby";
 import { InCall } from "./InCall";
 import { MiniBar } from "./MiniBar";
+import { PanelBridge } from "./PanelBridge";
 import { PermissionPrompt } from "./AgentControls";
+
+const isDesktop = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
 
 // Hosts one live call: a full-page lobby before the call (self-preview, agent /
 // model pick, devices, model download) then the full-screen in-call view — both
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission } = useLiveSession(chatId);
+  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, pttDown, pttUp } = useLiveSession(chatId);
   const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore();
   const openSettings = useUi((s) => s.openSettings);
   const minimized = useUi((s) => s.minimized);
   const setMinimized = useUi((s) => s.setMinimized);
+
+  // Hold Space = push-to-talk, Enter = send a held pause now; the desktop mini
+  // pill's global hotkey arrives as a toggle through the same hook.
+  usePtt(active, { pttDown, pttUp, sendNow });
 
   useEffect(() => { void refreshDevices(); }, [refreshDevices]);
   // Preload a resumed conversation's transcript from the saved store.
@@ -42,18 +50,24 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           onOpenSettings={openSettings} onExit={end} />
       )}
 
-      {active && minimized && (
+      {/* Desktop mini = a separate always-on-top panel window (this window hides);
+          web mini = the in-page pill overlay. */}
+      {active && minimized && isDesktop && (
+        <PanelBridge toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
+          onEnd={end} sendNow={sendNow} answerPermission={answerPermission} getBands={getBands} />
+      )}
+      {active && minimized && !isDesktop && (
         <MiniBar phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn}
           cameraStream={cameraStream} screenStream={screenStream}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
-          getLevels={getLevels} getBands={getBands} onEnd={end} />
+          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
       )}
       {active && !minimized && (
         <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn}
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
           setMic={(id) => void setMic(id)} setCam={setCam}
-          getLevels={getLevels} getBands={getBands} onEnd={end} />
+          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
       )}
       {active && <PermissionPrompt answerPermission={answerPermission} />}
     </>

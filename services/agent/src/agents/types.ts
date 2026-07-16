@@ -7,7 +7,7 @@ import type { Emit } from "../tools.js";
 // Everything it says flows through the existing Emit stream (text/tool chips render
 // for free) and cancel is the same AbortSignal barge-in already uses, so LiveSession
 // treats an agent turn exactly like a provider turn.
-export type AgentId = "claude-code" | "codex" | "cursor";
+export type AgentId = "claude-code" | "codex" | "cursor" | "opencode" | "hermes";
 
 export type TurnFrame = { data: string; mime: string; source?: "camera" | "screen" };
 export type TurnInput = { text: string; frames: TurnFrame[] };

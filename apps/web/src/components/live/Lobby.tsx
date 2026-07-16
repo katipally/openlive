@@ -64,6 +64,17 @@ export function Lobby(props: LobbyProps) {
       .to(root.current, { autoAlpha: 0, duration: DUR.base, ease: EASE.soft }, 0.06);
   });
 
+  // Into the call — a short "lift": the lobby rises and fades while InCall's
+  // entrance rises to meet it, so start→call reads as one continuous move. The
+  // session's start() runs on completion (~0.2 s — noise next to model warm-up).
+  const handleStart = contextSafe(() => {
+    if (!root.current || prefersReduced()) { onStart(); return; }
+    gsap.timeline({ onComplete: onStart })
+      .to(".ol-lobby-aside", { autoAlpha: 0, x: 14, duration: DUR.fast, ease: EASE.soft }, 0)
+      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0)
+      .to(root.current, { autoAlpha: 0, scale: 1.008, duration: DUR.base, ease: EASE.soft }, 0.04);
+  });
+
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
       <p className="text-[12px] font-medium text-muted-foreground">Downloading on-device AI…</p>
@@ -78,7 +89,7 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={onStart} disabled={needFolder}
+      <button onClick={handleStart} disabled={needFolder}
         className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>

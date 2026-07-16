@@ -18,6 +18,8 @@ export const AGENTS: { id: AgentId; label: string }[] = [
   { id: "claude-code", label: "Claude Code" },
   { id: "codex", label: "Codex" },
   { id: "cursor", label: "Cursor" },
+  { id: "opencode", label: "OpenCode" },
+  { id: "hermes", label: "Hermes" },
 ];
 
 const isAgentId = (x: string | undefined): x is AgentId => AGENTS.some((a) => a.id === x);
