@@ -5,19 +5,17 @@ import type {
 } from "@openlive/shared";
 import { readJson, updateJson } from "./store";
 import { encryptSecret, decryptSecret } from "./crypto";
+import { getDb, withBusyRetry } from "./sqlite";
 
-// Stored shapes (on disk).
+// Stored shapes. Providers/settings/voice-profiles live in tiny JSON files;
+// chats + messages live in SQLite (append-shaped, growing — see sqlite.ts).
 interface ProviderRow { id: string; name: string; kind: string; apiKeyCiphertext: string | null; keyLast4: string | null; isDefault: boolean }
-interface ChatRow { id: string; title: string; createdAt: string; updatedAt?: string; agentId?: string | null; cwd?: string; agentSessionId?: string }
-interface MessageRow { id: string; chatId: string; role: MessageRole; content: MessageBlock[]; live: boolean; createdAt: string }
-interface Conversations { chats: ChatRow[]; messages: MessageRow[] }
+interface ChatDbRow { id: string; title: string; created_at: string; updated_at: string | null; agent_id: string | null; cwd: string | null; agent_session_id: string | null }
 
 const PROVIDERS = "providers.json";
 const SETTINGS = "settings.json";
-const CONVOS = "conversations.json";
 
 const readProviders = () => readJson<ProviderRow[]>(PROVIDERS, []);
-const readConvos = () => readJson<Conversations>(CONVOS, { chats: [], messages: [] });
 
 // ─── Providers ─────────────────────────────────────────────────────────────
 function toProvider(r: ProviderRow): Provider {
@@ -104,70 +102,63 @@ export function getProviderApiKey(id: string): string | null {
   try { return decryptSecret(row.apiKeyCiphertext); } catch { return null; }
 }
 
-// ─── Chats + messages ──────────────────────────────────────────────────────
+// ─── Chats + messages (SQLite) ─────────────────────────────────────────────
+const toSummary = (c: ChatDbRow): ChatSummary => ({
+  id: c.id, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at ?? c.created_at,
+  agentId: c.agent_id ?? null, cwd: c.cwd ?? "", agentSessionId: c.agent_session_id ?? undefined,
+});
+
 export async function createChat(id?: string, title = "Live conversation"): Promise<ChatSummary> {
   const chatId = id ?? randomUUID();
-  let out!: ChatRow;
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    let chat = c.chats.find((x) => x.id === chatId);
-    if (!chat) { chat = { id: chatId, title, createdAt: new Date().toISOString() }; c.chats.push(chat); }
-    out = chat;
-    return c;
-  });
-  return toSummary(out);
+  const db = getDb();
+  withBusyRetry(() => db.prepare(
+    "INSERT OR IGNORE INTO chats (id, title, created_at) VALUES (?, ?, ?)",
+  ).run(chatId, title, new Date().toISOString()));
+  const row = db.prepare("SELECT * FROM chats WHERE id = ?").get(chatId) as unknown as ChatDbRow;
+  return toSummary(row);
 }
 
-const toSummary = (c: ChatRow): ChatSummary => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt ?? c.createdAt, agentId: c.agentId ?? null, cwd: c.cwd ?? "", agentSessionId: c.agentSessionId });
-
 export function listChats(): ChatSummary[] {
-  return readConvos().chats
-    .map(toSummary)
-    .sort((a, b) => ((a.updatedAt ?? a.createdAt) < (b.updatedAt ?? b.createdAt) ? 1 : -1));
+  const rows = getDb().prepare(
+    "SELECT * FROM chats ORDER BY COALESCE(updated_at, created_at) DESC",
+  ).all() as unknown as ChatDbRow[];
+  return rows.map(toSummary);
 }
 
 /** Stamp a session's agent + workspace so history groups it agent→workspace→session.
  *  Called when a conversation binds (built-in or a coding agent) in the lobby/call. */
 export async function setChatContext(chatId: string, agentId: string | null, cwd: string): Promise<void> {
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    const chat = c.chats.find((x) => x.id === chatId);
-    if (chat) { chat.agentId = agentId; chat.cwd = cwd; }
-    return c;
-  });
+  withBusyRetry(() => getDb().prepare(
+    "UPDATE chats SET agent_id = ?, cwd = ? WHERE id = ?",
+  ).run(agentId, cwd, chatId));
 }
 
 /** Link this chat to the agent's OWN ACP session id (captured on connect). This is
  *  what makes the round-trip work: History dedups the OpenLive chat against the
  *  agent's on-disk session by this id, and it's the id `claude --resume` reopens. */
 export async function setChatAgentSession(chatId: string, agentSessionId: string): Promise<void> {
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    const chat = c.chats.find((x) => x.id === chatId);
-    if (chat && chat.agentSessionId !== agentSessionId) chat.agentSessionId = agentSessionId;
-    return c;
-  });
+  withBusyRetry(() => getDb().prepare(
+    "UPDATE chats SET agent_session_id = ? WHERE id = ? AND (agent_session_id IS NOT ? )",
+  ).run(agentSessionId, chatId, agentSessionId));
 }
 
 /** Per-chat message counts (for hiding empty sessions — e.g. a lobby connect the
  *  user never actually talked in). */
 export function chatMessageCounts(): Record<string, number> {
+  const rows = getDb().prepare(
+    "SELECT chat_id, COUNT(*) AS n FROM messages GROUP BY chat_id",
+  ).all() as unknown as { chat_id: string; n: number }[];
   const out: Record<string, number> = {};
-  for (const m of readConvos().messages) out[m.chatId] = (out[m.chatId] ?? 0) + 1;
+  for (const r of rows) out[r.chat_id] = Number(r.n);
   return out;
 }
 
 export async function renameChat(id: string, title: string): Promise<void> {
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    const chat = c.chats.find((x) => x.id === id);
-    if (chat) chat.title = title;
-    return c;
-  });
+  withBusyRetry(() => getDb().prepare("UPDATE chats SET title = ? WHERE id = ?").run(title, id));
 }
 
 export async function deleteChat(id: string): Promise<void> {
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    c.chats = c.chats.filter((x) => x.id !== id);
-    c.messages = c.messages.filter((m) => m.chatId !== id);
-    return c;
-  });
+  withBusyRetry(() => getDb().prepare("DELETE FROM chats WHERE id = ?").run(id)); // messages cascade
 }
 
 // ─── Voice profiles (cloned-voice metadata; wavs live in DATA_DIR/voices) ───
@@ -220,22 +211,27 @@ export function getAllSettings(): Record<string, string> {
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────
-// Array insertion order == chronological order (append-only), so listMessages
+// AUTOINCREMENT seq == chronological order (append-only), so listMessages
 // preserves user→assistant ordering without a separate tiebreaker.
 export async function addMessage(chatId: string, role: MessageRole, content: MessageBlock[], live = false): Promise<ChatMessage> {
   const now = new Date().toISOString();
-  const row: MessageRow = { id: randomUUID(), chatId, role, content, live, createdAt: now };
-  await updateJson<Conversations>(CONVOS, { chats: [], messages: [] }, (c) => {
-    c.messages.push(row);
-    const chat = c.chats.find((x) => x.id === chatId);
-    if (chat) chat.updatedAt = now; // last-activity, for history ordering
-    return c;
+  const id = randomUUID();
+  const db = getDb();
+  withBusyRetry(() => {
+    db.prepare(
+      "INSERT INTO messages (id, chat_id, role, content, live, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(id, chatId, role, JSON.stringify(content), live ? 1 : 0, now);
+    db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(now, chatId); // last-activity, for history ordering
   });
-  return { ...row };
+  return { id, chatId, role, content, live, createdAt: now };
 }
 
 export function listMessages(chatId: string): ChatMessage[] {
-  return readConvos().messages
-    .filter((m) => m.chatId === chatId)
-    .map((m) => ({ id: m.id, chatId: m.chatId, role: m.role, content: m.content, live: !!m.live, createdAt: m.createdAt }));
+  const rows = getDb().prepare(
+    "SELECT id, chat_id, role, content, live, created_at FROM messages WHERE chat_id = ? ORDER BY seq",
+  ).all(chatId) as unknown as { id: string; chat_id: string; role: MessageRole; content: string; live: number; created_at: string }[];
+  return rows.map((m) => ({
+    id: m.id, chatId: m.chat_id, role: m.role,
+    content: JSON.parse(m.content) as MessageBlock[], live: !!m.live, createdAt: m.created_at,
+  }));
 }
