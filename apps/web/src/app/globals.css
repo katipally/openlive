@@ -170,6 +170,15 @@ body::before {
 .desktop .app-drag { -webkit-app-region: drag; }
 .desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
 
+/* Native apps don't let you drag-select their chrome. Selection stays ON for
+   real content: anything the user typed or the model said (inputs, transcript
+   markdown, code, and anything tagged .ol-selectable). Web build unaffected. */
+.desktop body { user-select: none; -webkit-user-select: none; }
+.desktop :is(input, textarea, [contenteditable="true"], .ol-md, .ol-selectable, pre, code) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
 /* Markdown inside the transcript (agent replies). Tailwind preflight strips
    list/heading/paragraph styling — restore a compact, chat-scaled subset. */

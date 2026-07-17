@@ -190,7 +190,7 @@ const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; stream
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-body leading-relaxed text-accent-foreground">{msg.text}</div>
+        <div className="ol-selectable max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-body leading-relaxed text-accent-foreground">{msg.text}</div>
       </div>
     );
   }
