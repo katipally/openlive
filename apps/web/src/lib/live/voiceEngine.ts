@@ -230,7 +230,6 @@ export class VoiceEngine {
         useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
       const sttEndpointMs = performance.now() - perf0;
-      console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
       if (this.ptt) { this.pending = combined; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
@@ -362,7 +361,7 @@ export class VoiceEngine {
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {
         this.speakingStartAt = Date.now(); this.setPhase("speaking");
-        if (this.turnSentAt) { console.debug(`[live:perf] first audio ${Math.round(performance.now() - this.turnSentAt)}ms after user done`); this.turnSentAt = 0; perf.firstAudio(); }
+        if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
       }
       // Show the caption for THIS chunk when it actually starts playing (not now,
       // when it finished synthesizing — synth runs ahead of the voice), so the

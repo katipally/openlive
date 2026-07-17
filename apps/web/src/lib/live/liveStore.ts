@@ -109,9 +109,3 @@ export const useLiveStore = create<LiveState>((set) => ({
   termExit: (terminalId, exitCode) =>
     set((s) => ({ terminals: { ...s.terminals, [terminalId]: { ...(s.terminals[terminalId] ?? { output: "", truncated: false }), exitCode } } })),
 }));
-
-// Dev-only: expose stores for debugging (removed before merge).
-// ponytail: temporary test instrumentation
-if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
-  (window as unknown as Record<string, unknown>).__olLive = useLiveStore;
-}

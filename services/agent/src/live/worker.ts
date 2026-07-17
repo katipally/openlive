@@ -1,15 +1,8 @@
 import { streamProvider, isReasoningModel, type Message } from "@openlive/harness";
 import { buildWorkerTools, type Emit } from "../tools.js";
-import { collectTurn } from "../turn.js";
+import { collectTurn, safeParseArgs } from "../turn.js";
 import { WORKER_PROMPT } from "../prompt.js";
 import { resolveLive } from "../providers.js";
-
-/** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
-function safeParseArgs(s: string): any {
-  const t = (s ?? "").trim();
-  if (!t) return {};
-  try { return JSON.parse(t); } catch { return {}; }
-}
 
 // Only narrate once a step is ACTUALLY slow — under this it lands with the answer
 // and a spoken bridge would just be chatter.
