@@ -10,6 +10,7 @@ import { setConversationBind } from "@/lib/live/useLiveSession";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
+import { ModalVoiceInput } from "./ModalVoiceInput";
 import { useUi } from "@/lib/uiStore";
 import { useMenuPresence, usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -157,6 +158,7 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
           <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" />
           <p className="text-body leading-relaxed text-foreground">{permission.question}</p>
         </div>
+        <ModalVoiceInput hint="Say “yes” to allow, or “no” to reject" />
         <div className="flex flex-wrap justify-end gap-2">
           {permission.options.map((o) => (
             <button key={o.id} onClick={() => answerPermission(o.id)}
@@ -168,10 +170,9 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
             </button>
           ))}
         </div>
-        <p className="text-center text-caption text-faint">
-          …or just say “yes” or “no”.
-          {mmss && <span className={cn("tabular-nums", (left ?? 0) <= 30 && "text-danger")}> Auto-deny in {mmss}.</span>}
-        </p>
+        {mmss && <p className="text-center text-caption text-faint">
+          <span className={cn("tabular-nums", (left ?? 0) <= 30 && "text-danger")}>Auto-deny in {mmss}.</span>
+        </p>}
       </div>
     </div>
   );

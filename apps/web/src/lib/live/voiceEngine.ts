@@ -162,8 +162,16 @@ export class VoiceEngine {
     // user's voice is the only mic energy. ponytail: linear 2× scale; tune the
     // factor if speaker echo still self-triggers on some hardware.
     const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
-    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !this.h.holdBargeIn?.()) {
+    const holding = this.h.holdBargeIn?.();
+    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !holding) {
       this.bargeIn();
+    } else if (holding && echoSafe && (speaking || this.player.level() > 0)) {
+      // A permission/elicitation modal is open and the user is answering it — stop the
+      // agent's question audio LOCALLY so the mic captures a clean answer (no echo/
+      // talk-over), but NEVER send a cancel: barging would kill the very ask being
+      // answered (that's why holdBargeIn is set). The utterance still finalizes and
+      // routes to the modal.
+      this.hush();
     }
     this.clearHold();
     this.curBuf = []; this.curLen = 0;
@@ -398,11 +406,19 @@ export class VoiceEngine {
     if (t) this.enqueueSpeak(t, this.epoch, true /* out-of-band: voice it, don't persist it */);
   }
 
-  private bargeIn() {
+  // Stop the agent's LOCAL audio without telling the server (no cancel). Used to
+  // silence a modal's spoken question the instant the user answers it. Does NOT set
+  // acceptingReply=false: the turn CONTINUES after the modal answer, so its follow-up
+  // speech must still be voiced (that flag is barge-in only).
+  private hush() {
     this.epoch++;
-    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.player.flush(this.epoch);
     this.chunker.flush();
+  }
+
+  private bargeIn() {
+    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
+    this.hush();
     this.h.onBargeIn(this.spokenText.trim());
   }
 

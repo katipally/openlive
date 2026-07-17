@@ -96,10 +96,15 @@ export function InCall(props: InCallProps) {
     return () => cancelAnimationFrame(raf);
   }, [agentCaption, agentCaptionMs]);
 
+  // While a permission/elicitation modal is open, the user's speech is that modal's
+  // answer — it's shown INSIDE the modal (ModalVoiceInput), so don't also echo the
+  // interim caption here behind it ("taking my answer in the back").
+  const modalOpen = useLiveStore((s) => !!s.permission || !!s.elicitation);
+
   // Just the WORDS — what you're saying (interim) or what the agent is saying. The
   // live state is shown ONCE, by the status label below (no duplicate "Listening").
   const words = userPartial && userCaption
-    ? <span className="italic text-muted-foreground">{userCaption}</span>
+    ? (modalOpen ? null : <span className="italic text-muted-foreground">{userCaption}</span>)
     : agentCaption
       ? <span className="font-medium text-foreground">{agentWindow || agentCaption}</span>
       : null;

@@ -6,6 +6,7 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { bridge, isDesktop } from "@/lib/platform";
+import { ModalVoiceInput } from "./ModalVoiceInput";
 import { cn } from "@/lib/cn";
 
 // Overlay for an agent elicitation. URL mode: we already opened the browser and
@@ -54,11 +55,11 @@ function UrlBody({ url, answer }: { url: string; answer: NonNullable<ReturnType<
           <ExternalLink className="size-3.5" />Open the link again
         </button>
       )}
+      <ModalVoiceInput hint="Say “done” when finished, or “cancel”" />
       <div className="flex justify-end gap-2">
         <button onClick={() => answer("cancel")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Cancel</button>
         <button onClick={() => answer("accept")} className="rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition hover:opacity-90">Done</button>
       </div>
-      <p className="text-center text-caption text-faint">…or just say “done” or “cancel”.</p>
     </>
   );
 }
@@ -106,7 +107,7 @@ function FormBody({ schema, answer }: { schema: unknown; answer: NonNullable<Ret
           <Field key={key} name={key} p={p} required={required.has(key)} value={values[key]} onChange={(v) => setV(key, v)} />
         ))}
       </div>
-      <p className="text-center text-caption text-faint">…or just say your answer — say “cancel” to dismiss.</p>
+      <ModalVoiceInput hint="Say your answer — or “cancel” to dismiss" />
       <div className="flex justify-end gap-2">
         <button onClick={() => answer("decline")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Decline</button>
         <button onClick={submit} disabled={missing}

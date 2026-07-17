@@ -198,8 +198,21 @@ export class LiveSession {
     let msg;
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
-      case "user_text": return void this.runTurn(msg.text, msg.frames ?? []);
-      case "cancel": if (this.turnActive) this.bargeSpoken = msg.spoken ?? null; return this.interrupt();
+      case "user_text":
+        // A permission/elicitation is awaiting the user — a spoken utterance is its
+        // ANSWER, never a new turn. The client routes it when its modal is set, but if
+        // the ask reached the server before the client applied the modal, the raced
+        // utterance lands here as a user_text; bounce it back to be answered instead of
+        // starting/queuing a coding turn (which is how it used to leak to the agent).
+        if (this.modalPending()) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        return void this.runTurn(msg.text, msg.frames ?? []);
+      case "cancel":
+        // While a modal is open, the "barge-in" IS the user answering it — never
+        // interrupt (that cancelled the very ask being answered). Real cancellation
+        // goes through the modal's own "cancel"/"no" path.
+        if (this.modalPending()) return;
+        if (this.turnActive) this.bargeSpoken = msg.spoken ?? null;
+        return this.interrupt();
       case "control":
         if (msg.action === "camera_on") this.cameraOn = true;
         else if (msg.action === "camera_off") this.cameraOn = false;
@@ -338,6 +351,13 @@ export class LiveSession {
     this.ac?.abort();
     this.cancelPendingPermissions();
     this.cancelPendingElicitations();
+  }
+
+  /** A permission ask or elicitation is awaiting the user's answer. While one is, a
+   *  spoken utterance is that answer (routed to the modal), never a new turn or an
+   *  interrupt. */
+  private modalPending(): boolean {
+    return this.permPending.size > 0 || this.elicitPending.size > 0;
   }
 
   /** Answer any in-flight agent permission ask as cancelled (ACP MUST when a turn is

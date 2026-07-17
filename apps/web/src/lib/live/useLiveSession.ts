@@ -12,6 +12,7 @@ import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
 import { kindMeta } from "./toolMeta";
+import { classifyYesNo, buildElicitationAnswer } from "./modalAnswer";
 import { log } from "@/lib/log";
 import { useLiveStore } from "./liveStore";
 
@@ -29,41 +30,8 @@ function abToBase64(ab: ArrayBuffer): string {
 function readBind(chatId: string): AgentId | null {
   try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return v && isAgentId(v) ? v : null; } catch { return null; }
 }
-// Classify a spoken reply to a permission ask; ambiguous → null (keep waiting).
-function classifyYesNo(text: string): "allow" | "deny" | null {
-  const t = text.toLowerCase();
-  if (/\b(yes|yeah|yep|sure|ok|okay|approve|allow|go ahead|do it|confirm|permit|sounds good|please do)\b/.test(t)) return "allow";
-  if (/\b(no|nope|deny|don'?t|do not|stop|cancel|reject|decline|never mind)\b/.test(t)) return "deny";
-  return null;
-}
-
-// Map a spoken answer onto an elicitation form schema, hands-free: if a field lists
-// options, match the utterance to one (say the choice); otherwise drop the words
-// into the first free-text field. Returns the content to submit, or null if nothing fit.
-function buildElicitationAnswer(schema: unknown, text: string): Record<string, unknown> | null {
-  type Prop = { type?: string; enum?: unknown[]; oneOf?: Array<{ const?: unknown; title?: unknown }>; items?: { enum?: unknown[] } };
-  const props = Object.entries(((schema ?? {}) as { properties?: Record<string, Prop> }).properties ?? {});
-  if (!props.length || !text) return null;
-  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const nt = norm(text);
-  const content: Record<string, unknown> = {};
-  let freeKey: string | null = null;
-  for (const [key, p] of props) {
-    const opts: string[] =
-      Array.isArray(p.enum) ? p.enum.map(String)
-      : Array.isArray(p.oneOf) ? p.oneOf.map((o) => String(o.const ?? o.title ?? ""))
-      : Array.isArray(p.items?.enum) ? p.items!.enum!.map(String)
-      : [];
-    if (opts.length) {
-      const hit = opts.find((o) => o && (nt === norm(o) || nt.includes(norm(o)) || norm(o).includes(nt)));
-      if (hit) content[key] = p.type === "array" ? [hit] : hit;
-    } else if (!freeKey && (p.type === undefined || p.type === "string")) {
-      freeKey = key;
-    }
-  }
-  if (!Object.keys(content).length && freeKey) content[freeKey] = text;
-  return Object.keys(content).length ? content : null;
-}
+// Spoken-answer interpreters for permission (yes/no) + elicitation (form-fill).
+// Pure — extracted to ./modalAnswer so they're unit-tested (modalAnswer.test.ts).
 
 /** Set a conversation's agent bind (store + localStorage). The live session pushes
  *  the change to the server via its boundAgent effect. Usable outside the call
@@ -325,6 +293,10 @@ export function useLiveSession(chatId: string) {
       onElicitationResolved: (reqId) => {
         if (useLiveStore.getState().elicitation?.reqId === reqId) set({ elicitation: null });
       },
+      // A raced spoken answer the server bounced back (the user answered before the
+      // ask's modal reached this client): route it to the open modal — same hands-free
+      // resolution as a mic utterance — so it never leaks to the agent as a new prompt.
+      onModalVoiceAnswer: (text) => { answerModalByVoice(text); },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
         const agent = useLiveStore.getState().boundAgent;
@@ -613,6 +585,52 @@ export function useLiveSession(chatId: string) {
     set({ elicitation: null });
   }, [set]);
 
+  // Route a spoken utterance to whichever modal (permission / elicitation) is open:
+  // classify yes/no for a permission, fill the form / match the option for an
+  // elicitation, or a spoken nudge when it's ambiguous. Returns true if it consumed
+  // the utterance. Shared by THIS client's mic (handleUserText) AND the server's
+  // bounce-back (onModalVoiceAnswer) for the race where the ask arrived a beat after
+  // the user already started answering.
+  const answerModalByVoice = useCallback((text: string): boolean => {
+    const modal = useLiveStore.getState();
+    if (!modal.permission && !modal.elicitation) return false;
+    set({ userCaption: "", userPartial: false });
+    const t = text.toLowerCase();
+    const pend = modal.permission;
+    if (pend) {
+      const yn = classifyYesNo(text);
+      log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
+      if (yn) {
+        // Prefer the ACP option kind when present (a spoken "yes" means allow ONCE,
+        // never silently "always"); fall back to id/label matching for asks without
+        // kinds (adapters vary: "allow" / "allow_once" / "approve").
+        const wantKinds = yn === "allow" ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
+        const byKind = wantKinds.map((k) => pend.options.find((o) => o.kind === k)).find(Boolean);
+        const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
+        const opt = byKind ?? pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
+        answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
+      } else {
+        engine.current?.say("Say yes to allow, or no to reject.");
+      }
+      return true;
+    }
+    const elicit = modal.elicitation!;
+    if (elicit.mode === "url") {
+      if (/\b(done|finished|all set|logged in|signed in|completed?)\b/.test(t)) answerElicitation("accept");
+      else if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) answerElicitation("cancel");
+      else engine.current?.say("Say done when you're finished, or cancel.");
+      return true;
+    }
+    // Form mode — HANDS-FREE: the spoken answer fills the form. Match a listed option
+    // if the schema has one (just say the choice), else drop the words into the first
+    // free-text field. Touch still works too.
+    if (/\b(cancel|stop|never mind|give up|forget it|decline)\b/.test(t)) { answerElicitation("decline"); return true; }
+    const content = buildElicitationAnswer(elicit.schema, text.trim());
+    if (content) answerElicitation("accept", content);
+    else engine.current?.say("Say your answer, or say cancel.");
+    return true;
+  }, [set, answerPermission, answerElicitation]);
+
   // Publish the answer paths so the inline tool-card buttons and elicitation
   // card (rendered deep in the transcript, no prop thread) share the exact same
   // resolution as the overlay.
@@ -639,49 +657,11 @@ export function useLiveSession(chatId: string) {
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
   const handleUserText = useCallback(async (text: string) => {
-    // ── modal capture ────────────────────────────────────────────────────
-    // While a permission ask or an elicitation is pending, EVERY utterance is
-    // the answer to that modal — matched → resolve it; ambiguous/misheard →
-    // spoken nudge and keep waiting. NOTHING falls through to the agent as a
-    // prompt (a stray "mmm" mid-approval must never become a coding turn).
-    const modal = useLiveStore.getState();
-    if (modal.permission || modal.elicitation) {
-      set({ userCaption: "", userPartial: false });
-      const t = text.toLowerCase();
-      const pend = modal.permission;
-      if (pend) {
-        const yn = classifyYesNo(text);
-        log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
-        if (yn) {
-          // Prefer the ACP option kind when present (a spoken "yes" means allow
-          // ONCE, never silently "always"); fall back to id/label matching for
-          // asks without kinds (adapters vary: "allow" / "allow_once" / "approve").
-          const wantKinds = yn === "allow" ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
-          const byKind = wantKinds.map((k) => pend.options.find((o) => o.kind === k)).find(Boolean);
-          const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
-          const opt = byKind ?? pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
-          answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
-        } else {
-          engine.current?.say("Say yes to allow, or no to reject.");
-        }
-        return;
-      }
-      const elicit = modal.elicitation!;
-      if (elicit.mode === "url") {
-        if (/\b(done|finished|all set|logged in|signed in|completed?)\b/.test(t)) { answerElicitation("accept"); return; }
-        if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) { answerElicitation("cancel"); return; }
-        engine.current?.say("Say done when you're finished, or cancel.");
-        return;
-      }
-      // Form mode — HANDS-FREE: the spoken answer fills the form. Match a listed
-      // option if the schema has one (just say the choice), else drop the words into
-      // the first free-text field. Touch still works too.
-      if (/\b(cancel|stop|never mind|give up|forget it|decline)\b/.test(t)) { answerElicitation("decline"); return; }
-      const content = buildElicitationAnswer(elicit.schema, text.trim());
-      if (content) { answerElicitation("accept", content); return; }
-      engine.current?.say("Say your answer, or say cancel.");
-      return;
-    }
+    // While a permission ask or an elicitation is pending, EVERY utterance is the
+    // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
+    // "mmm" mid-approval must never become a coding turn). The server also bounces a
+    // raced utterance back to answerModalByVoice, so this can't leak either way.
+    if (answerModalByVoice(text)) return;
     // Attach the freshest frame from every active visual source (camera + screen
     // can both be on), inline with the turn so the model sees exactly this moment.
     const st0 = useLiveStore.getState();
@@ -694,7 +674,7 @@ export function useLiveSession(chatId: string) {
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
     assistantId.current = chatStore.liveUserTurn(chatId, text);
-  }, [chatId, set, answerPermission, answerElicitation]);
+  }, [chatId, set, answerModalByVoice]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
   // the user asks — and because the worker stays warm, this only happens once.

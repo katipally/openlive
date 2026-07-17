@@ -79,6 +79,11 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // the client can reconcile its optimistic chips — a folder shown in the top bar
   // that the session never received is exactly the bug this closes.
   z.object({ t: z.literal("bound_state"), agentId: z.enum(AGENT_IDS).nullable(), cwd: z.string(), agentActive: z.boolean() }),
+  // A raced spoken answer: the user answered a permission/elicitation before its
+  // modal event reached the client, so the client sent it as a user_text. The server
+  // (the authority on what's pending) bounces it back here to be routed to the open
+  // modal instead of leaking to the agent as a new prompt.
+  z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
