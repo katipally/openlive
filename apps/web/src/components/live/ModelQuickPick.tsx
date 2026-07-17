@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Brain, Eye, Zap } from "lucide-react";
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { allowedEfforts } from "@openlive/harness/types";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
-import { Section, Field, Picker, Segmented, FactChips, ThinkNote, THINK_HINT } from "./SetupControls";
+import { Section, Field, Picker, Segmented, ThinkNote, THINK_HINT } from "./SetupControls";
 
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless, protocol: p.protocol }));
 
@@ -42,15 +42,6 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   // levels it would silently ignore.
   const efforts = ["auto", ...allowedEfforts(provider?.protocol, model?.reasoning ?? true)];
 
-  // Facts about the picked model, not choices — they re-render as the model changes.
-  const facts: { label: string; tone?: "muted" | "warn" }[] = model
-    ? [
-        ...(model.vision ? [{ label: "vision" as const }] : []),
-        ...(model.reasoning ? [{ label: "reasoning" as const }] : []),
-        ...(model.contextWindow ? [{ label: `${compact(model.contextWindow)} ctx` }] : []),
-      ]
-    : [];
-
   return (
     <Section title="How it runs">
       <Field label="Provider">
@@ -68,7 +59,16 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
             { id: "", name: "Recommended", detail: "Let OpenLive pick a fast one", starred: true },
             ...models.map((m) => ({ id: m.id, name: m.display_name })),
           ]} />
-        {facts.length > 0 && <div className="pt-1.5"><FactChips items={facts} /></div>}
+        {/* Same badge row as Settings → Models (ModelBadges), abbreviated for the panel. */}
+        {model && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-caption text-muted-foreground">
+            {model.vision && <span className="inline-flex items-center gap-1 text-foreground"><Eye className="size-3.5" /> vision</span>}
+            {model.reasoning
+              ? <span className="inline-flex items-center gap-1 text-foreground"><Brain className="size-3.5" /> reasoning</span>
+              : <span className="inline-flex items-center gap-1"><Zap className="size-3.5" /> fast</span>}
+            {model.contextWindow ? <span>Context <b className="text-foreground">{compact(model.contextWindow)}</b></span> : null}
+          </div>
+        )}
         {blind && (
           <p className="flex items-center gap-1 pt-1 text-micro text-arc">
             <AlertCircle className="size-3 shrink-0" /> This model can&apos;t see — set a vision model in Settings.
