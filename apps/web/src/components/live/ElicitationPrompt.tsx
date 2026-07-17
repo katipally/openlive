@@ -106,6 +106,7 @@ function FormBody({ schema, answer }: { schema: unknown; answer: NonNullable<Ret
           <Field key={key} name={key} p={p} required={required.has(key)} value={values[key]} onChange={(v) => setV(key, v)} />
         ))}
       </div>
+      <p className="text-center text-caption text-faint">…or just say your answer — say “cancel” to dismiss.</p>
       <div className="flex justify-end gap-2">
         <button onClick={() => answer("decline")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Decline</button>
         <button onClick={submit} disabled={missing}
@@ -133,10 +134,16 @@ function Field({ name, p, required, value, onChange }: {
       ) : p.type === "array" ? (
         <MultiSelect items={choices({ enum: p.items?.enum, oneOf: p.items?.oneOf })} value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />
       ) : opts.length ? (
-        <select value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={cn("ol-select", input)}>
-          <option value="" disabled>Choose…</option>
-          {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        // All options visible (not a dropdown) so they're glanceable and speakable —
+        // say the choice and the voice path selects it; tap works too.
+        <div className="flex flex-col gap-0.5">
+          {opts.map((o) => (
+            <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-body text-foreground transition hover:bg-foreground/[0.06]">
+              <input type="radio" name={name} checked={String(value ?? "") === o.value} onChange={() => onChange(o.value)} className="size-4 accent-accent" />
+              {o.label}
+            </label>
+          ))}
+        </div>
       ) : p.type === "number" || p.type === "integer" ? (
         <input type="number" value={value == null ? "" : String(value)} min={p.minimum ?? undefined} max={p.maximum ?? undefined}
           step={p.type === "integer" ? 1 : "any"}

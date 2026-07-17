@@ -113,8 +113,10 @@ export class AgentSupervisor implements Agent {
         : `crashed (${String(e?.message ?? e)})`;
       log.error(`agent:${this.id}`, e);
       await this.recycle();
-      await emit({ type: "text_delta", text: `Sorry — ${agentLabel(this.id)} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — try again." : "Check that it's installed and signed in."}` });
-      await emit({ type: "error", message: `Agent "${this.id}" ${detail}` });
+      // A recovery NOTICE — not part of the agent's answer. Emit it as an error so the
+      // client speaks it out-of-band (engine.say) and shows a banner, instead of a
+      // text_delta that gets concatenated into — and persisted as — the agent's reply.
+      await emit({ type: "error", message: `${agentLabel(this.id)} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — say that again." : "Check that it's installed and signed in."}` });
     } finally {
       clearInterval(watchdog);
       signal.removeEventListener("abort", onAbort);

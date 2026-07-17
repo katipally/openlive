@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check } from "lucide-react";
+import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2 } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
   DEFAULT_PIPELINE_CONFIG, mergePipelineConfig, type PipelineConfig, type TtsEngine,
 } from "@/lib/live/pipelineConfig";
-import { tts, modelsReady, modelsCached, loadModels, hasWebGPU } from "@/lib/live/models";
+import { tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
@@ -63,9 +63,10 @@ function StageHead({ title, desc }: { title: string; desc: string }) {
 }
 
 // Shared on-device model download status + prefetch (all stage weights load together).
-function ModelStatus() {
+function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supertonic" }) {
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
+  const [removing, setRemoving] = useState(false);
   // modelsCached() is now config-aware (matches the SELECTED size/engine), so a
   // fresh size/engine correctly shows the download button instead of a false
   // "Downloaded". (Don't fall back to modelsReady() — that's true for ANY loaded
@@ -75,8 +76,23 @@ function ModelStatus() {
     setBusy(true);
     try { await loadModels((p) => setPct(p.pct)); } catch (e) { log.error("models", e); toast("Model download failed — check your connection and try again."); } finally { setBusy(false); }
   };
+  const remove = async () => {
+    if (!removeKind) return;
+    setRemoving(true);
+    try { const n = await removeModel(removeKind); toast(n ? "Removed — freed the disk it used. It re-downloads when next needed." : "Nothing to remove — not downloaded yet."); }
+    catch { toast("Couldn't remove that model."); }
+    finally { setRemoving(false); }
+  };
   return cached ? (
-    <p className="flex items-center gap-1.5 text-caption text-success"><Check className="size-3.5" /> Downloaded on this device.</p>
+    <div className="flex items-center gap-2.5">
+      <p className="flex items-center gap-1.5 text-caption text-success"><Check className="size-3.5" /> Downloaded on this device.</p>
+      {removeKind && (
+        <button onClick={remove} disabled={removing}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-caption text-muted-foreground transition hover:border-border-heavy hover:text-danger disabled:opacity-50">
+          {removing ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />} Remove
+        </button>
+      )}
+    </div>
   ) : (
     <button onClick={download} disabled={busy}
       className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-60">
@@ -114,7 +130,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </label>
       {!hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless — the size choice applies when WebGPU is.</p>}
       {cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint — expect the best transcription, but drop back to Small if your machine struggles.</p>}
-      <ModelStatus />
+      <ModelStatus removeKind="whisper" />
     </div>
   );
 }
@@ -225,7 +241,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
           </div>
         </label>
       )}
-      <ModelStatus />
+      <ModelStatus removeKind={cfg.tts.engine === "supertonic" ? "supertonic" : cfg.tts.engine === "kokoro" ? "kokoro" : undefined} />
     </div>
   );
 }

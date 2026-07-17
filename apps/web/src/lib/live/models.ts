@@ -69,6 +69,27 @@ export function modelsCached(): boolean {
   } catch { return false; }
 }
 
+// Remove a downloaded on-device model from the browser caches (frees the disk it
+// took). The warm worker is reset and the ready flag cleared so whatever's left
+// reloads — and the removed model re-downloads — the next time it's needed.
+// Kokoro/Whisper weights live in transformers.js's "transformers-cache"; Supertonic
+// (and Smart-Turn) in the app's "openlive-models-v1" — clear matching URLs from both.
+export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Promise<number> {
+  const needle = kind; // "whisper" / "kokoro" / "supertonic" each appear in their HF file URLs
+  let removed = 0;
+  for (const name of ["transformers-cache", "openlive-models-v1"]) {
+    try {
+      const cache = await caches.open(name);
+      for (const req of await cache.keys()) {
+        if (req.url.toLowerCase().includes(needle)) { await cache.delete(req); removed++; }
+      }
+    } catch { /* Cache API unavailable (private mode) */ }
+  }
+  resetWorker();
+  try { localStorage.removeItem(READY_KEY); } catch { /* private mode */ }
+  return removed;
+}
+
 let loading: Promise<void> | null = null;
 
 export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {

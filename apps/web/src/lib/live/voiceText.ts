@@ -64,6 +64,10 @@ export function stripMarkdown(s: string): string {
     .replace(/\b[\w-]+\.(?:tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb)\b/gi, "that file")
     .replace(/\bin (?:the|this|your) (?:image|photo|picture|frame)\b/gi, "here")
     .replace(/\b(?:the|this|that|your) (?:image|photo|picture|frame)\b/gi, "this")
+    // Repair a missing space at a sentence join ("now.Right" → "now. Right"): a
+    // lowercase word, sentence punctuation, then a capital. Narrow enough to leave
+    // "e.g.", "U.S.", and decimals alone.
+    .replace(/([a-z])([.!?])([A-Z])/g, "$1$2 $3")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -37,6 +37,34 @@ function classifyYesNo(text: string): "allow" | "deny" | null {
   return null;
 }
 
+// Map a spoken answer onto an elicitation form schema, hands-free: if a field lists
+// options, match the utterance to one (say the choice); otherwise drop the words
+// into the first free-text field. Returns the content to submit, or null if nothing fit.
+function buildElicitationAnswer(schema: unknown, text: string): Record<string, unknown> | null {
+  type Prop = { type?: string; enum?: unknown[]; oneOf?: Array<{ const?: unknown; title?: unknown }>; items?: { enum?: unknown[] } };
+  const props = Object.entries(((schema ?? {}) as { properties?: Record<string, Prop> }).properties ?? {});
+  if (!props.length || !text) return null;
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const nt = norm(text);
+  const content: Record<string, unknown> = {};
+  let freeKey: string | null = null;
+  for (const [key, p] of props) {
+    const opts: string[] =
+      Array.isArray(p.enum) ? p.enum.map(String)
+      : Array.isArray(p.oneOf) ? p.oneOf.map((o) => String(o.const ?? o.title ?? ""))
+      : Array.isArray(p.items?.enum) ? p.items!.enum!.map(String)
+      : [];
+    if (opts.length) {
+      const hit = opts.find((o) => o && (nt === norm(o) || nt.includes(norm(o)) || norm(o).includes(nt)));
+      if (hit) content[key] = p.type === "array" ? [hit] : hit;
+    } else if (!freeKey && (p.type === undefined || p.type === "string")) {
+      freeKey = key;
+    }
+  }
+  if (!Object.keys(content).length && freeKey) content[freeKey] = text;
+  return Object.keys(content).length ? content : null;
+}
+
 /** Set a conversation's agent bind (store + localStorage). The live session pushes
  *  the change to the server via its boundAgent effect. Usable outside the call
  *  (e.g. the top-bar selector) — takes effect on the next connect if idle. */
@@ -336,10 +364,9 @@ export function useLiveSession(chatId: string) {
         // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
         if (e.type === "error") {
           set({ error: e.message, agentConnecting: false });
-          // Speak a SHORT version (first sentence, capped) — the full text stays
-          // in the banner + hint chip. Voice-first users hear the failure.
-          const short = e.message.split(/(?<=[.!?])\s/)[0]?.slice(0, 140);
-          if (short) engine.current?.say(short);
+          // Voice-first users hear the failure/recovery — speak the whole thing
+          // (capped), not just the first sentence, so a "…say that again." tail isn't lost.
+          if (e.message) engine.current?.say(e.message.slice(0, 200));
           return;
         }
         // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
@@ -541,11 +568,11 @@ export function useLiveSession(chatId: string) {
           // barge-in, so a lingering approve/deny would just no-op if tapped.
           set({ agentCaption: "", userCaption: "", userPartial: false, permission: null });
         },
-        // While a permission ask is pending, the user's speech IS the answer —
-        // never a barge-in. Barging there cancelled the very ask being answered:
-        // the chip vanished as soon as they spoke, and the answer landed as a new
-        // turn. handleUserText classifies the utterance as yes/no instead.
-        holdBargeIn: () => !!useLiveStore.getState().permission,
+        // While a permission ask OR an elicitation is pending, the user's speech IS
+        // the answer — never a barge-in. Barging there cancelled the very ask being
+        // answered. handleUserText routes the utterance to whichever modal is open
+        // (yes/no for permission, form-fill for elicitation) — fully hands-free.
+        holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
       }, player.current ?? undefined);
       engine.current = eng;
       await eng.start(stream);
@@ -643,9 +670,13 @@ export function useLiveSession(chatId: string) {
         engine.current?.say("Say done when you're finished, or cancel.");
         return;
       }
-      // Form mode: filled by touch; speech only cancels.
-      if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) { answerElicitation("cancel"); return; }
-      engine.current?.say("There's a short form on screen — fill it in, or say cancel.");
+      // Form mode — HANDS-FREE: the spoken answer fills the form. Match a listed
+      // option if the schema has one (just say the choice), else drop the words into
+      // the first free-text field. Touch still works too.
+      if (/\b(cancel|stop|never mind|give up|forget it|decline)\b/.test(t)) { answerElicitation("decline"); return; }
+      const content = buildElicitationAnswer(elicit.schema, text.trim());
+      if (content) { answerElicitation("accept", content); return; }
+      engine.current?.say("Say your answer, or say cancel.");
       return;
     }
     // Attach the freshest frame from every active visual source (camera + screen
