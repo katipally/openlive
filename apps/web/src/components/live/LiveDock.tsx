@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useShallow } from "zustand/react/shallow";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
 import { usePtt } from "@/lib/live/usePtt";
@@ -21,7 +22,16 @@ import { isDesktop } from "@/lib/platform";
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
   const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, pttDown, pttUp } = useLiveSession(chatId);
-  const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore();
+  // Narrow selector: this component must NOT subscribe to the hot per-chunk
+  // fields (captions, toolStatus, todos, usage, terminals) — InCall and
+  // TranscriptPanel own those. Whole-store destructuring made the entire call
+  // UI re-render on every caption tick.
+  const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore(useShallow((s) => ({
+    active: s.active, phase: s.phase, modelsDownloaded: s.modelsDownloaded, downloading: s.downloading,
+    downloadPct: s.downloadPct, downloadLoaded: s.downloadLoaded, downloadTotal: s.downloadTotal, downloadModels: s.downloadModels,
+    muted: s.muted, cameraOn: s.cameraOn, screenOn: s.screenOn, cameraStream: s.cameraStream, screenStream: s.screenStream,
+    error: s.error, mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId, boundAgent: s.boundAgent, boundCwd: s.boundCwd,
+  })));
   const openSettings = useUi((s) => s.openSettings);
   const minimized = useUi((s) => s.minimized);
   const setMinimized = useUi((s) => s.setMinimized);

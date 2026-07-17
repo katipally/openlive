@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen, Keyboard } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
@@ -40,7 +41,13 @@ export interface InCallProps {
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
     toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, pttUp } = props;
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore();
+  // Narrow selector: captions re-render this component by design (it displays
+  // them), but download/todos/usage/terminals/permission changes should not.
+  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption, agentCaptionMs: s.agentCaptionMs,
+    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, pttEnabled: s.pttEnabled,
+    mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId,
+  })));
   // Arm/disarm push-to-talk. Disarming while Space is held first ends the hold
   // cleanly (the engine owns the held audio), then drops the armed flag.
   const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff } from "lucide-react";
 import { useLiveStore, type LivePhase } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
@@ -50,7 +51,10 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
   sendNow: () => void;
 }) {
   const setMinimized = useUi((s) => s.setMinimized);
-  const { userCaption, userPartial, agentCaption, toolStatus, warming, pttActive } = useLiveStore();
+  const { userCaption, userPartial, agentCaption, toolStatus, warming, pttActive } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption,
+    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive,
+  })));
   const [confirmEnd, setConfirmEnd] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 

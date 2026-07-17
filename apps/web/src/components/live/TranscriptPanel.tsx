@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertCircle, Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
@@ -19,7 +20,9 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
   chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
 }) {
   const msgs = useChat(chatId);
-  const { userCaption, userPartial, todos } = useLiveStore();
+  const { userCaption, userPartial, todos } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, todos: s.todos,
+  })));
   const scroller = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 

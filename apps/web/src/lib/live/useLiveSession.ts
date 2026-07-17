@@ -506,12 +506,18 @@ export function useLiveSession(chatId: string) {
           if (document.hidden) { chatStore.liveText(chatId, id, base ? `${base} ${sentence}` : sentence); return; }
           const dur = durationMs > 0 ? durationMs : words.length * 320;
           const startedAt = performance.now();
+          let lastIdx = 0; // only write to the store when a NEW word is revealed —
+          // the rAF still paces the reveal, but the transcript re-renders at word
+          // rate (~3-6/s) instead of 60fps for the whole time the agent speaks.
           const step = () => {
             if (id !== assistantId.current) return; // turn moved on
             const frac = Math.min(1, (performance.now() - startedAt) / dur);
             const idx = Math.max(1, Math.min(words.length, Math.ceil(frac * words.length)));
-            const revealed = words.slice(0, idx).join(" ");
-            chatStore.liveText(chatId, id, base ? `${base} ${revealed}` : revealed);
+            if (idx !== lastIdx) {
+              lastIdx = idx;
+              const revealed = words.slice(0, idx).join(" ");
+              chatStore.liveText(chatId, id, base ? `${base} ${revealed}` : revealed);
+            }
             if (frac < 1) revealRaf.current = requestAnimationFrame(step);
             else revealRaf.current = null;
           };
