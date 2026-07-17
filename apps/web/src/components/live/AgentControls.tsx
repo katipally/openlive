@@ -122,8 +122,11 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
   if (!permission) return null;
   const mmss = left != null ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 grid place-items-center px-4">
-      <div className="pointer-events-auto flex max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+    // A real centered modal: the agent is blocked on this answer, so it owns the
+    // stage. Dim backdrop (no click-through — an approval needs an explicit
+    // answer), card centered in the main view.
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
+      <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
           <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" />
           <p className="text-[13px] leading-relaxed text-foreground">{permission.question}</p>
@@ -132,7 +135,8 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
           {permission.options.map((o) => (
             <button key={o.id} onClick={() => answerPermission(o.id)}
               className={cn("rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition",
-                o.id === "deny" ? "border border-border text-muted-foreground hover:text-foreground hover:border-border-heavy"
+                o.id === "deny" || o.kind?.startsWith("reject")
+                  ? "border border-border text-muted-foreground hover:text-foreground hover:border-border-heavy"
                   : "bg-foreground text-background hover:opacity-90")}>
               {o.label}
             </button>

@@ -419,6 +419,10 @@ function wireBridgeIpc() {
         await shell.openExternal(u);
         return `Opened ${u} in the browser.`;
       }
+      // Tool-card file locations: reveal in Finder/Explorer, or open with the
+      // OS default app. Paths come from the agent's own tool calls.
+      if (op === "reveal_path") { shell.showItemInFolder(String(arg ?? "")); return "Revealed."; }
+      if (op === "open_path") { const err = await shell.openPath(String(arg ?? "")); return err || "Opened."; }
       return "Unknown action.";
     } catch (e) { return `Couldn't do that: ${e?.message ?? e}`; }
   });

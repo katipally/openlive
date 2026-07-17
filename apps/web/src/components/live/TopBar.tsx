@@ -10,15 +10,22 @@ import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, isWinDesktop } from "@/lib/platform";
 
 // Compact context/cost readout from the latest turn (ACP usage_update or the
-// built-in brain's accounting). Hidden until the first turn reports.
+// built-in brain's accounting). Hidden until the first turn reports. When the
+// agent reports its window size, the chip becomes a real used/size meter.
 function UsageChip() {
   const usage = useLiveStore((s) => s.usage);
   if (!usage || (!usage.contextTokens && !usage.outputTokens)) return null;
   const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
+  const pct = usage.contextSize ? Math.min(100, Math.round((usage.contextTokens / usage.contextSize) * 100)) : null;
   return (
-    <span title="Context used this session · cost so far"
-      className="rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] tabular-nums text-muted-foreground">
-      {k(usage.contextTokens)} ctx{usage.costUsd > 0 && ` · $${usage.costUsd.toFixed(2)}`}
+    <span title={pct != null ? `Context: ${k(usage.contextTokens)} of ${k(usage.contextSize!)} tokens used · cost so far` : "Context used this session · cost so far"}
+      className="flex items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] tabular-nums text-muted-foreground">
+      {pct != null && (
+        <span className="relative h-1 w-8 overflow-hidden rounded-full bg-foreground/10">
+          <span className={cn("absolute inset-y-0 left-0 rounded-full", pct >= 90 ? "bg-destructive" : "bg-accent")} style={{ width: `${pct}%` }} />
+        </span>
+      )}
+      {pct != null ? `${pct}%` : `${k(usage.contextTokens)} ctx`}{usage.costUsd > 0 && ` · $${usage.costUsd.toFixed(2)}`}
     </span>
   );
 }

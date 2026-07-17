@@ -15,6 +15,10 @@ const ARM_MS = 1500;
 const MIN_GAP_MS = 8000;
 const MAX_LINES = 4;
 
+/** Narration is ON unless the user explicitly turned it off ("0"). The legacy
+ *  values ("" = never touched, "1" = explicitly on) both mean enabled. */
+export const narrationEnabled = (v: string | undefined | null): boolean => v !== "0";
+
 export function wrapEmitWithNarration(emit: Emit, signal: AbortSignal): Emit {
   let todos: { text: string; done: boolean }[] = [];
   let textSinceToolStart = false;
@@ -33,10 +37,13 @@ export function wrapEmitWithNarration(emit: Emit, signal: AbortSignal): Emit {
   return async (e) => {
     if (e.type === "text_delta") { textSinceToolStart = true; clearTimeout(timer); }
     if (e.type === "todos") todos = e.items;
-    if (e.type === "tool_start") {
+    // Legacy tool_start (built-in brain) and rich acp_tool_call both arm the timer.
+    if (e.type === "tool_start" || e.type === "acp_tool_call") {
       textSinceToolStart = false;
       clearTimeout(timer);
-      const label = e.tool;
+      const label = e.type === "tool_start"
+        ? e.tool
+        : `${e.call.title}${e.call.locations[0]?.path ? ` · ${e.call.locations[0].path}` : ""}`;
       timer = setTimeout(() => {
         if (signal.aborted || textSinceToolStart || lines >= MAX_LINES || Date.now() - lastLineAt < MIN_GAP_MS) return;
         lines++; lastLineAt = Date.now();

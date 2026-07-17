@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
+import { AlertCircle, Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { toolMeta as meta } from "@/lib/live/toolMeta";
+import { kindMeta, toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
+import { ToolCallCard } from "./ToolCallCard";
 
 // The running conversation, beside the orb. Assistant turns render as they
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
@@ -66,7 +67,9 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
         </div>
       </div>
       {todos.length > 0 && <PlanCard todos={todos} />}
-      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4">
+      {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
+          anchoring fights content-visibility height estimates. */}
+      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
         {empty && <p className="mt-8 text-center text-[12.5px] text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
           <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />
@@ -117,8 +120,10 @@ function exportTranscript(msgs: ChatMsg[]) {
   for (const m of msgs) {
     if (m.role === "user") { lines.push(`**You:** ${m.text ?? ""}`, ""); continue; }
     const body = m.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("\n").trim();
-    const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" }> => p.kind === "tool");
-    if (tools.length) lines.push(tools.map((t) => `> _${meta(t.tool).label}${t.summary ? `: ${t.summary}` : ""}_`).join("\n"), "");
+    const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
+    if (tools.length) lines.push(tools.map((t) => t.kind === "tool"
+      ? `> _${meta(t.tool).label}${t.summary ? `: ${t.summary}` : ""}_`
+      : `> _${t.call.title}${t.call.status === "failed" ? " (failed)" : ""}_`).join("\n"), "");
     if (body) lines.push(`**Assistant:** ${body}`, "");
   }
   const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
@@ -143,8 +148,9 @@ function CopyButton({ text, title, className }: { text: string; title: string; c
 
 // Agent replies are markdown — render them as such (code blocks with a copy
 // button, inline code, lists, links, tables via GFM). react-markdown builds
-// React elements, so model-authored text can't inject HTML.
-function MarkdownText({ text }: { text: string }) {
+// React elements, so model-authored text can't inject HTML. Memoized: markdown
+// parsing is the most expensive thing in this panel — never re-parse unchanged text.
+const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   return (
     <div className="ol-md min-w-0 text-[13px] leading-relaxed text-foreground">
       <ReactMarkdown
@@ -173,9 +179,11 @@ function MarkdownText({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
 
-function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
+// Memoized: during the word-by-word voice reveal only ONE message object changes
+// per frame (chatStore preserves identities), so the rest skip re-render.
+const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
@@ -188,7 +196,7 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   type Seg = { kind: "work"; parts: Part[] } | { kind: "text"; text: string };
   const segs: Seg[] = [];
   for (const p of msg.parts) {
-    if (p.kind === "reasoning" || p.kind === "tool") {
+    if (p.kind === "reasoning" || p.kind === "tool" || p.kind === "acp_tool") {
       const last = segs[segs.length - 1];
       if (last?.kind === "work") last.parts.push(p);
       else segs.push({ kind: "work", parts: [p] });
@@ -199,30 +207,44 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   const fullText = segs.filter((s) => s.kind === "text").map((s) => (s as { text: string }).text).join("\n").trim();
 
   return (
-    <div className="group/msg flex flex-col gap-2">
+    // ol-cv: off-screen messages skip layout/paint — the panel stays smooth on
+    // long transcripts without a virtualization library.
+    <div className="ol-cv group/msg flex flex-col gap-2">
       {streaming && segs.length === 0 && <span className="arc-shimmer text-[13px] font-medium">Thinking…</span>}
       {segs.map((seg, i) =>
         seg.kind === "work"
           ? <WorkBlock key={i} parts={seg.parts} active={streaming && i === segs.length - 1} />
-          : <MarkdownText key={i} text={seg.text} />,
+          // The trailing segment updates every frame while the voice reveals it —
+          // render it as plain text (spoken prose has no markdown by design) and
+          // flip to markdown once the segment closes or the turn finishes.
+          : streaming && i === segs.length - 1
+            ? <div key={i} className="min-w-0 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{seg.text}</div>
+            : <MarkdownText key={i} text={seg.text} />,
       )}
       {!streaming && fullText && (
         <CopyButton text={fullText} title="Copy message" className="-mt-1 self-start opacity-0 transition group-hover/msg:opacity-100" />
       )}
     </div>
   );
-}
+})
 
 // A run of reasoning + tool calls — the message's "work". Expanded while active,
 // auto-collapses to a one-line summary once the answer starts.
-function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
+const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
   const [open, setOpen] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => { if (wasActive.current && !active) setOpen(false); wasActive.current = active; }, [active]);
-  const expanded = open || active;
+  // A pending permission targeting one of these calls must stay visible even
+  // after the block auto-collapses — force it open while the ask is live.
+  const permTool = useLiveStore((s) => s.permission?.toolCallId);
+  const hasPendingAsk = !!permTool && parts.some((p) => p.kind === "acp_tool" && p.call.id === permTool);
+  const expanded = open || active || hasPendingAsk;
 
-  const tools = parts.filter((p): p is Extract<Part, { kind: "tool" }> => p.kind === "tool");
-  const running = tools.find((t) => !t.done);
+  const tools = parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
+  const failed = tools.filter((t) => (t.kind === "tool" ? t.detail === "error" : t.call.status === "failed")).length;
+  const running = tools.find((t) => (t.kind === "tool" ? !t.done : t.call.status === "pending" || t.call.status === "in_progress"));
+  const runningLabel = running?.kind === "tool" ? `${meta(running.tool).active}…`
+    : running?.kind === "acp_tool" ? `${kindMeta(running.call.kind).active} — ${running.call.title}…` : "Thinking…";
   const hasReasoning = parts.some((p) => p.kind === "reasoning");
 
   return (
@@ -231,11 +253,12 @@ function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition hover:text-foreground">
         {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
         {active ? (
-          <span className="arc-shimmer font-medium">{running ? `${meta(running.tool).active}…` : "Thinking…"}</span>
+          <span className="arc-shimmer truncate font-medium">{runningLabel}</span>
         ) : (
           <>
             <span className="font-medium text-foreground/80">Worked it out</span>
             {tools.length > 0 && <span className="text-faint">· {tools.length} step{tools.length === 1 ? "" : "s"}</span>}
+            {failed > 0 && <span className="flex items-center gap-1 text-destructive"><AlertCircle className="size-3" />{failed} failed</span>}
             {hasReasoning && <span className="text-faint">· reasoned</span>}
           </>
         )}
@@ -246,21 +269,26 @@ function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
           {parts.map((p, i) =>
             p.kind === "reasoning"
               ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2.5 text-[12px] italic leading-relaxed text-muted-foreground">{p.text}</p>
-              : p.kind === "tool" ? <ToolRow key={i} part={p} /> : null,
+              : p.kind === "tool" ? <ToolRow key={i} part={p} />
+              : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}
         </div>
       )}
     </div>
   );
-}
+});
 
 function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
   const m = meta(part.tool);
   const Icon = m.icon;
+  const failed = part.done && part.detail === "error";
   return (
     <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-      {part.done ? <Icon className="size-3.5 shrink-0 text-faint" /> : <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />}
-      <span className="shrink-0">{part.done ? m.label : `${m.active}…`}</span>
+      {!part.done ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
+        : failed ? <AlertCircle className="size-3.5 shrink-0 text-destructive" />
+        : <Icon className="size-3.5 shrink-0 text-faint" />}
+      <span className={cn("shrink-0", failed && "text-destructive")}>{part.done ? m.label : `${m.active}…`}</span>
+      {failed && <span className="shrink-0 text-[10.5px] text-destructive">failed</span>}
       {part.summary && <span className="truncate text-faint">· {part.summary}</span>}
     </div>
   );

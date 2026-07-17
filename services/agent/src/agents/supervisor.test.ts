@@ -34,3 +34,22 @@ test("barge-in (parent signal abort) is NOT a failure — no error events", asyn
   await turn;
   assert.equal(events.filter((e) => e.type === "error").length, 0);
 });
+
+test("restart-seed history stays bounded: entry count capped, oversized turns clipped", async () => {
+  const big = "x".repeat(10_000);
+  let crash = false;
+  let seeded: { role: string; text: string }[] = [];
+  const sup = new AgentSupervisor(() => agent({
+    seed: (h: { role: string; text: string }[]) => { seeded = h; },
+    runTurn: async (_i: unknown, emit: (e: unknown) => void) => {
+      if (crash) throw new Error("boom");
+      emit({ type: "text_delta", text: big });
+    },
+  }) as any, noAsk);
+  const { emit } = collect();
+  for (let i = 0; i < 25; i++) await sup.runTurn({ text: big, frames: [] }, emit, new AbortController().signal); // 50 entries pushed
+  crash = true;
+  await sup.runTurn({ text: "last", frames: [] }, emit, new AbortController().signal); // recycle → seed(history)
+  assert.ok(seeded.length <= 40, `history capped (got ${seeded.length})`);
+  assert.ok(seeded.every((m) => m.text.length <= 4097), "every entry clipped to ~4KB");
+});

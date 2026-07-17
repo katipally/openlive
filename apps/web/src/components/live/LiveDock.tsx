@@ -12,6 +12,7 @@ import { InCall } from "./InCall";
 import { MiniBar } from "./MiniBar";
 import { PanelBridge } from "./PanelBridge";
 import { PermissionPrompt } from "./AgentControls";
+import { ElicitationPrompt } from "./ElicitationPrompt";
 import { isDesktop } from "@/lib/platform";
 
 // Hosts one live call: a full-page lobby before the call (self-preview, agent /
@@ -69,6 +70,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
       )}
       {active && <PermissionPrompt answerPermission={answerPermission} />}
+      {active && <ElicitationPrompt />}
     </>
   );
 }

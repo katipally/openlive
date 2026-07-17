@@ -124,8 +124,10 @@ function SpeakingSpeed() {
 function NarrateToggle() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const on = (data as Record<string, string> | undefined)?.narrateProgress === "1";
-  const flip = () => void api.updateSettings({ narrateProgress: on ? "" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
+  // On unless explicitly "0" — mirrors narrationEnabled() on the server, so the
+  // switch always shows what the session will actually do.
+  const on = (data as Record<string, string> | undefined)?.narrateProgress !== "0";
+  const flip = () => void api.updateSettings({ narrateProgress: on ? "0" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
   return (
     <label className="flex cursor-pointer select-none items-start gap-2.5">
       <button role="switch" aria-checked={on} onClick={flip}

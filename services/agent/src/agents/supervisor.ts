@@ -13,6 +13,12 @@ import { log } from "../log.js";
 export type SupervisorTimeouts = { startMs: number; firstOutputMs: number; stallMs: number };
 const DEFAULTS: SupervisorTimeouts = { startMs: 15_000, firstOutputMs: 30_000, stallMs: 60_000 };
 
+// Restart-seed history caps: 40 entries ≈ 2× the session's own HISTORY_TURNS
+// rehydrate window; 4KB per entry keeps a pasted wall of text from pinning memory.
+const MAX_HISTORY = 40;
+const MAX_ENTRY_CHARS = 4096;
+export const clipHistoryText = (t: string): string => (t.length > MAX_ENTRY_CHARS ? `${t.slice(0, MAX_ENTRY_CHARS)}…` : t);
+
 export class AgentSupervisor implements Agent {
   readonly id: AgentId;
   private agent: Agent;
@@ -29,9 +35,9 @@ export class AgentSupervisor implements Agent {
     // The agent asks the user for permission through us, so we can PAUSE the stall
     // watchdog while the user is deciding (they get 120s; the watchdog fires at 30–60s
     // of silence — without this it would abort + restart mid-decision).
-    this.ask = async (q, o) => {
+    this.ask = async (q, o, toolCallId) => {
       this.awaitingUser = true;
-      try { return await askPermission(q, o); }
+      try { return await askPermission(q, o, toolCallId); }
       finally { this.awaitingUser = false; this.lastActivity = Date.now(); }
     };
     this.agent = factory(this.ask);
@@ -72,7 +78,7 @@ export class AgentSupervisor implements Agent {
       if (ac.signal.aborted) return;
       this.lastActivity = Date.now();
       if (e.type === "text_delta") { sawOutput = true; spoken += e.text; }
-      else if (e.type === "tool_start" || e.type === "reasoning_delta") sawOutput = true;
+      else if (e.type === "tool_start" || e.type === "acp_tool_call" || e.type === "reasoning_delta") sawOutput = true;
       return emit(e);
     };
     const watchdog = setInterval(() => {
@@ -95,8 +101,11 @@ export class AgentSupervisor implements Agent {
       // A clean turn means the (possibly restarted) agent is healthy again — refresh
       // the restart budget so a LATER, unrelated failure still gets its one restart.
       this.restartAttempted = false;
-      this.history.push({ role: "user", text: input.text });
-      if (spoken.trim()) this.history.push({ role: "assistant", text: spoken.trim() });
+      this.history.push({ role: "user", text: clipHistoryText(input.text) });
+      if (spoken.trim()) this.history.push({ role: "assistant", text: clipHistoryText(spoken.trim()) });
+      // History only exists to re-seed a restarted child — keep it bounded or a
+      // long call accumulates every turn's full text in memory forever.
+      if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     } catch (e: any) {
       if (signal.aborted) return; // barge-in / session end — not a failure
       const detail = timedOut

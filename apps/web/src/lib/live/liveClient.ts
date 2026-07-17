@@ -8,7 +8,10 @@ const TAG_FRAME_IN = 0x02;
 
 export type AgentId = AgentIdWire;
 export type AgentMeta = AgentMetaWire;
-export type PermissionOption = { id: string; label: string };
+// `kind` is the ACP option kind (allow_once/allow_always/reject_once/reject_always)
+// when the ask comes from a coding agent — drives styling + voice yes/no mapping.
+export type PermissionOption = { id: string; label: string; kind?: string };
+export type ElicitationWire = { reqId: string; mode: "url" | "form"; message: string; url?: string; schema?: unknown; expiresAt?: number };
 
 export interface LiveHandlers {
   onOpen?: () => void;
@@ -17,8 +20,10 @@ export interface LiveHandlers {
   onSse?: (e: SseEvent) => void;
   onNeedFrame?: (reqId: string) => void;
   onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
-  onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number) => void;
+  onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number, toolCallId?: string) => void;
   onPermissionResolved?: (reqId: string) => void;
+  onElicitation?: (e: ElicitationWire) => void;
+  onElicitationResolved?: (reqId: string) => void;
   onAgentMeta?: (meta: AgentMeta) => void;
   onReloadHistory?: () => void;
   /** Authoritative bind echo: what agent + folder the server session is ACTUALLY
@@ -91,8 +96,10 @@ export class LiveClient {
         case "sse": return this.h.onSse?.(m.event);
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
         case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
-        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt);
+        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt, m.toolCallId);
         case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
+        case "elicitation": return this.h.onElicitation?.(m);
+        case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
@@ -125,6 +132,10 @@ export class LiveClient {
   bind(agentId: AgentId | null, cwd: string, resumeSessionId?: string) { this.sendJson({ t: "bind", agentId, cwd, ...(resumeSessionId ? { resumeSessionId } : {}) }); }
   /** Answer an agent permission ask (chip tap or spoken yes/no). */
   permissionResponse(reqId: string, optionId: string) { this.sendJson({ t: "permission_response", reqId, optionId }); }
+  /** Answer an agent elicitation (form submit / spoken "done" / cancel). */
+  elicitationResponse(reqId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) {
+    this.sendJson({ t: "elicitation_response", reqId, action, ...(content ? { content } : {}) });
+  }
   /** Switch the bound agent's model / mode mid-session. */
   setModel(modelId: string) { this.sendJson({ t: "set_model", modelId }); }
   setMode(modeId: string) { this.sendJson({ t: "set_mode", modeId }); }

@@ -57,3 +57,11 @@ test("throttle: min gap and max lines per turn hold", async () => {
   expect(narrated().length).toBe(4);
   vi.useRealTimers();
 });
+
+test("narration is ON by default: only an explicit \"0\" disables it", async () => {
+  const { narrationEnabled } = await import("./narrator.ts");
+  expect(narrationEnabled(undefined)).toBe(true); // never touched
+  expect(narrationEnabled("")).toBe(true);        // legacy "off" empty-string default → now on
+  expect(narrationEnabled("1")).toBe(true);       // explicitly on
+  expect(narrationEnabled("0")).toBe(false);      // explicitly off
+});

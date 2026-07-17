@@ -60,6 +60,27 @@ export interface AgentDef {
   wizard?: boolean;
   /** Actionable one-liner when the agent dies before the ACP handshake. */
   startHint: string;
+  /** Per-agent ACP plumbing quirks — each agent plugged per its own spec, not
+   *  generically. Read by the ACP driver (acp-agent.ts); pure data. */
+  acp: {
+    /** Sessions survive the agent process (loadSession after a restart works).
+     *  Cursor advertises loadSession but its sessions die with the process. */
+    resumeAcrossRestart: boolean;
+    /** Where the voice-call preamble goes: Claude's adapter takes a system-prompt
+     *  append via `_meta.claudeCode.options`; everyone else gets it prepended to
+     *  the first user message. */
+    preamble: "systemPrompt" | "firstMessage";
+    /** MCP passthrough policy for session/new + session/load. "native" = the
+     *  agent reads the project's .mcp.json itself (passing it again would
+     *  double-register); "passthrough" = we read .mcp.json and pass it. */
+    mcp: "native" | "passthrough";
+    /** Advertise client-hosted terminals to this agent. */
+    terminal: boolean;
+    /** Extra env for the adapter process (e.g. Claude's entrypoint marker that
+     *  files sessions where `claude --resume` finds them — verified 2026-07-15
+     *  against claude 2.1.198 / adapter 0.59.0). */
+    env?: Record<string, string>;
+  };
 }
 
 // Facts verified 2026-07-16 against each tool's CLI on this machine (auth
@@ -90,6 +111,13 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
         { kind: "file", path: "~/.claude/.credentials.json" },    // Linux/Windows
       ],
     },
+    acp: {
+      resumeAcrossRestart: true,
+      preamble: "systemPrompt",
+      mcp: "native", // claude reads the project's .mcp.json itself
+      terminal: true,
+      env: { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" },
+    },
     startHint: "Make sure Claude Code is installed and signed in (run `claude`).",
   },
   "codex": {
@@ -107,6 +135,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "codex-rollout",
     externalDeletable: true,
     credProbe: { kind: "file", path: "~/.codex/auth.json" },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Make sure `codex` is installed and signed in (run `codex`).",
   },
   "cursor": {
@@ -132,6 +161,9 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "cursor-meta",
     externalDeletable: true,
     credProbe: { kind: "json", path: "~/.cursor/cli-config.json", rule: { hasKey: "authInfo" } },
+    // resumeAcrossRestart false: advertises loadSession but sessions die with
+    // the process (upstream "Session not found" after restart).
+    acp: { resumeAcrossRestart: false, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`.",
   },
   "opencode": {
@@ -152,6 +184,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "opencode-sqlite",
     externalDeletable: false,
     credProbe: { kind: "json", path: "~/.local/share/opencode/auth.json", rule: "nonEmptyObject" },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Make sure OpenCode is installed (opencode.ai) and signed in — run `opencode` in a terminal once.",
   },
   "hermes": {
@@ -190,6 +223,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // against a machine with a pooled copilot credential but providers:{} —
     // hermes-acp prints "No LLM provider configured" and exits 0.
     credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
   },
 };

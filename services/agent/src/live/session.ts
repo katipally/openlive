@@ -5,11 +5,11 @@ import { LIVE_TAG, liveClientMsgSchema, agentLabel, type AgentMetaWire } from "@
 import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
-import { foldBlock } from "../block-emit.js";
+import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
-import { wrapEmitWithNarration } from "./narrator.js";
-import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ReplayMessage } from "../agents/index.js";
+import { narrationEnabled, wrapEmitWithNarration } from "./narrator.js";
+import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { log } from "../log.js";
 
 type Frame = { data: string; mime: string };
@@ -66,6 +66,8 @@ export class LiveSession {
   private boundId: AgentId | null = null;
   private boundCwd = ""; // the agent's project folder for this conversation (rebuild on change)
   private lastMeta: AgentMetaWire | null = null; // last agent_meta sent — re-sent on a same-bind rebind
+  private elicitPending = new Map<string, (a: ElicitationAnswer) => void>(); // by reqId
+  private elicitById = new Map<string, (a: ElicitationAnswer) => void>();    // by agent elicitationId (URL completion)
   private lastBind: Promise<void> = Promise.resolve(); // most recent applyBind, awaited by start()
   private agentReady: Promise<void> | null = null;
   private agentAc: AbortController | null = null;
@@ -219,6 +221,10 @@ export class LiveSession {
         this.permPending.get(msg.reqId)?.(msg.optionId); // settle() clears the map + notifies the client
         return;
       }
+      case "elicitation_response": {
+        this.elicitPending.get(msg.reqId)?.({ action: msg.action, content: msg.content as Record<string, unknown> | undefined });
+        return;
+      }
       case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => log.error("live", "set_model:", e)); return; }
       case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => log.error("live", "set_mode:", e)); return; }
       case "set_option": { this.agent?.setOption?.(msg.optionId, msg.valueId)?.catch((e) => log.error("live", "set_option:", e)); return; }
@@ -256,7 +262,8 @@ export class LiveSession {
     this.ac = ac;
 
     const blocks: MessageBlock[] = [];
-    const emit = this.blockEmit(blocks, ac.signal);
+    const foldCtx = newFoldCtx();
+    const emit = this.blockEmit(blocks, ac.signal, foldCtx);
 
     if (this.chatId) {
       await addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */).catch((e) => log.error("live", "persist user turn:", e));
@@ -266,9 +273,9 @@ export class LiveSession {
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
-        // Spoken progress (opt-in): long tool runs get a short voiced one-liner.
-        // The built-in brain keeps its own worker narration — no double-narrate.
-        const agentEmit = getSetting("narrateProgress") === "1" ? wrapEmitWithNarration(emit, ac.signal) : emit;
+        // Spoken progress (on by default, opt-out): long tool runs get a short
+        // voiced one-liner. The built-in brain keeps its own worker narration.
+        const agentEmit = narrationEnabled(getSetting("narrateProgress")) ? wrapEmitWithNarration(emit, ac.signal) : emit;
         await this.agent.runTurn({ text, frames }, agentEmit, ac.signal);
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -299,6 +306,9 @@ export class LiveSession {
       if (ac.signal.aborted && this.bargeSpoken != null) truncateSpokenText(blocks, this.bargeSpoken);
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
+      // Snapshot live terminal output into its tool calls + settle unfinished
+      // statuses (pending/in_progress → canceled) before the turn is persisted.
+      finalizeToolBlocks(blocks, foldCtx);
       if (this.chatId && blocks.length) { await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => log.error("live", "persist assistant turn:", e)); }
       this.send({ t: "sse", event: { type: "done" } });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
@@ -309,10 +319,10 @@ export class LiveSession {
 
   /** An Emit that both forwards SSE to the client and records ordered blocks.
    *  The signal gate drops late events after a barge-in aborts the spoken turn. */
-  private blockEmit(blocks: MessageBlock[], signal: AbortSignal): Emit {
+  private blockEmit(blocks: MessageBlock[], signal: AbortSignal, ctx: FoldCtx): Emit {
     return async (e: SseEvent) => {
       if (signal.aborted || this.closed) return; // barge-in → drop late events
-      foldBlock(blocks, e);
+      foldBlock(blocks, e, ctx);
       this.send({ t: "sse", event: e });
     };
   }
@@ -320,6 +330,7 @@ export class LiveSession {
   private interrupt() {
     this.ac?.abort();
     this.cancelPendingPermissions();
+    this.cancelPendingElicitations();
   }
 
   /** Answer any in-flight agent permission ask as cancelled (ACP MUST when a turn is
@@ -406,10 +417,12 @@ export class LiveSession {
     // user who speaks before the session/load finishes doesn't make ingestReplay think
     // the chat is OpenLive-origin and drop the recovered transcript.
     this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
-    const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o), {
+    const agent = createBoundAgent(this.chatId, (q, o, toolCallId) => this.askPermission(q, o, toolCallId), {
       onMeta: (meta) => { this.lastMeta = meta; if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
       // Recovered transcript from a session/load — persist + tell the client to reload.
       onReplay: (msgs) => this.ingestReplay(msgs),
+      askElicitation: (req) => this.askElicitation(req),
+      completeElicitation: (elicitationId) => this.elicitById.get(elicitationId)?.({ action: "accept" }),
     });
     if (!agent) return;
     this.agent = agent;
@@ -421,9 +434,10 @@ export class LiveSession {
       .catch((e) => { if (!this.closed) this.send({ t: "sse", event: { type: "error", message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}` } }); });
   }
 
-  /** Relay an agent permission ask to the client (spoken + chips) and await the
-   *  chosen option id; times out to "deny" so a hung decision never wedges a turn. */
-  private askPermission(question: string, options: { id: string; label: string }[]): Promise<string> {
+  /** Relay an agent permission ask to the client (spoken + chips + inline on the
+   *  tool card when toolCallId is known) and await the chosen option id; times
+   *  out to "deny" so a hung decision never wedges a turn. */
+  private askPermission(question: string, options: PermissionAskOption[], toolCallId?: string): Promise<string> {
     return new Promise((resolve) => {
       if (this.closed) return resolve("deny");
       const reqId = randomUUID();
@@ -440,8 +454,38 @@ export class LiveSession {
       };
       const timer = setTimeout(() => settle("deny"), PERM_TIMEOUT_MS);
       this.permPending.set(reqId, settle);
-      this.send({ t: "permission", reqId, question, options, expiresAt });
+      this.send({ t: "permission", reqId, question, options, expiresAt, toolCallId });
     });
+  }
+
+  /** Relay an agent elicitation (login URL / input form) to the client and await
+   *  the user's action. Same lifecycle discipline as askPermission: one settle
+   *  path, 120s timeout → cancel, dismissed client-side via elicitation_resolved.
+   *  URL elicitations also register under the agent's elicitationId so an
+   *  agent-side completion (OAuth landed) auto-accepts the card. */
+  private askElicitation(req: ElicitationAsk): Promise<ElicitationAnswer> {
+    return new Promise((resolve) => {
+      if (this.closed) return resolve({ action: "cancel" });
+      const reqId = randomUUID();
+      const ELICIT_TIMEOUT_MS = 120_000;
+      const expiresAt = Date.now() + ELICIT_TIMEOUT_MS;
+      const settle = (a: ElicitationAnswer) => {
+        if (!this.elicitPending.delete(reqId)) return; // already settled
+        if (req.elicitationId) this.elicitById.delete(req.elicitationId);
+        clearTimeout(timer);
+        this.send({ t: "elicitation_resolved", reqId });
+        resolve(a);
+      };
+      const timer = setTimeout(() => settle({ action: "cancel" }), ELICIT_TIMEOUT_MS);
+      this.elicitPending.set(reqId, settle);
+      if (req.elicitationId) this.elicitById.set(req.elicitationId, settle);
+      this.send({ t: "elicitation", reqId, mode: req.mode, message: req.message, url: req.url, schema: req.schema, expiresAt });
+    });
+  }
+
+  /** Settle any in-flight elicitations as cancelled (turn end / teardown). */
+  private cancelPendingElicitations() {
+    for (const settle of [...this.elicitPending.values()]) settle({ action: "cancel" });
   }
 
   // ── `look` handshake ────────────────────────────────────────────────────
@@ -480,6 +524,7 @@ export class LiveSession {
     this.agentAc?.abort();
     void this.agent?.dispose();
     for (const settle of [...this.permPending.values()]) settle("deny");
+    this.cancelPendingElicitations();
     this.lookPending?.resolve(null);
     for (const r of this.bridgePending.values()) r("The session ended.");
     this.bridgePending.clear();

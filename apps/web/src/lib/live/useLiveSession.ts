@@ -11,6 +11,8 @@ import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
+import { kindMeta } from "./toolMeta";
+import { log } from "@/lib/log";
 import { useLiveStore } from "./liveStore";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
@@ -215,7 +217,7 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null, terminals: {}, elicitation: null });
   }, [chatId, set]);
 
   // Open the live socket + register every handler, binding this conversation's agent
@@ -236,8 +238,8 @@ export function useLiveSession(chatId: string) {
       // A bound agent wants permission: speak the ask and show approve/deny chips.
       // A spoken reminder fires ~30s before the server's auto-deny — a voice-first
       // user may not be looking at the countdown.
-      onPermission: (reqId, question, options, expiresAt) => {
-        set({ permission: { reqId, question, options, expiresAt } });
+      onPermission: (reqId, question, options, expiresAt, toolCallId) => {
+        set({ permission: { reqId, question, options, expiresAt, toolCallId } });
         engine.current?.feedAgentDelta(`${question} `);
         // High-stakes while unfocused: an unanswered ask auto-denies in 2 minutes.
         notifyDesktop("Permission needed", question);
@@ -254,6 +256,23 @@ export function useLiveSession(chatId: string) {
         if (useLiveStore.getState().permission?.reqId !== reqId) return;
         if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
         set({ permission: null });
+      },
+      // An agent elicitation: speak the ask, open login URLs hands-free, and show
+      // the card (Done/Cancel for URLs, a real form for form mode).
+      onElicitation: (e) => {
+        set({ elicitation: e });
+        if (e.mode === "url" && e.url) {
+          engine.current?.feedAgentDelta(`${e.message} I opened your browser — say done when you're finished, or cancel. `);
+          const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
+          if (api?.bridge) void api.bridge("open_url", e.url);
+          else window.open(e.url, "_blank", "noopener");
+        } else {
+          engine.current?.feedAgentDelta(`${e.message} I put a short form on screen. `);
+        }
+        notifyDesktop("Input needed", e.message);
+      },
+      onElicitationResolved: (reqId) => {
+        if (useLiveStore.getState().elicitation?.reqId === reqId) set({ elicitation: null });
       },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
@@ -337,13 +356,31 @@ export function useLiveSession(chatId: string) {
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
           return;
         }
+        // Rich ACP tool calls (coding agents): same live-cue treatment as
+        // tool_start/tool_done, but the full call state flows to the transcript.
+        if (e.type === "acp_tool_call") {
+          closeSpokenSegment();
+          set({ toolStatus: `${kindMeta(e.call.kind).active} — ${e.call.title}` });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        if (e.type === "acp_tool_update") {
+          const s = e.delta.status;
+          if (s === "completed" || s === "failed" || s === "canceled" || s === "rejected") set({ toolStatus: "" });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        // Live terminal output from a client-hosted ACP terminal → per-terminal
+        // buffer in the live store (ToolCallCard renders it inside the call).
+        if (e.type === "term_output") { useLiveStore.getState().termAppend(e.terminalId, e.chunk, e.truncated); return; }
+        if (e.type === "term_exit") { useLiveStore.getState().termExit(e.terminalId, e.exitCode ?? null); return; }
         // The agent's working plan (ACP plan updates / update_todos tool). Kept
         // across turns — plans span them; the server sends [] on plan_removed,
         // and teardown clears the store.
         if (e.type === "todos") { set({ todos: e.items }); return; }
         // Context/cost from the latest turn (ACP usage_update or the built-in
         // brain's own accounting).
-        if (e.type === "usage") { set({ usage: { contextTokens: e.contextTokens, outputTokens: e.outputTokens, costUsd: e.costUsd } }); return; }
+        if (e.type === "usage") { set({ usage: { contextTokens: e.contextTokens, outputTokens: e.outputTokens, contextSize: e.contextSize, costUsd: e.costUsd } }); return; }
       },
       onNeedFrame: async (reqId) => {
         const st = useLiveStore.getState();
@@ -509,6 +546,22 @@ export function useLiveSession(chatId: string) {
     set({ permission: null });
   }, [set]);
 
+  // Answer a pending elicitation (form submit / spoken or tapped Done / Cancel).
+  const answerElicitation = useCallback((action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+    const e = useLiveStore.getState().elicitation;
+    if (!e) return;
+    client.current?.elicitationResponse(e.reqId, action, content);
+    set({ elicitation: null });
+  }, [set]);
+
+  // Publish the answer paths so the inline tool-card buttons and elicitation
+  // card (rendered deep in the transcript, no prop thread) share the exact same
+  // resolution as the overlay.
+  useEffect(() => {
+    useLiveStore.setState({ answerPermission, answerElicitation });
+    return () => { useLiveStore.setState({ answerPermission: undefined, answerElicitation: undefined }); };
+  }, [answerPermission, answerElicitation]);
+
 
   // Reflect this conversation's saved agent + project folder in the store when it
   // opens, so the pre-call pickers show the right values before the call starts.
@@ -527,20 +580,43 @@ export function useLiveSession(chatId: string) {
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
   const handleUserText = useCallback(async (text: string) => {
-    // While an agent permission is pending, the next utterance IS the answer — a
-    // spoken yes/no, not a new turn. Ambiguous replies are ignored (keep waiting).
-    const pend = useLiveStore.getState().permission;
-    if (pend) {
-      const yn = classifyYesNo(text);
+    // ── modal capture ────────────────────────────────────────────────────
+    // While a permission ask or an elicitation is pending, EVERY utterance is
+    // the answer to that modal — matched → resolve it; ambiguous/misheard →
+    // spoken nudge and keep waiting. NOTHING falls through to the agent as a
+    // prompt (a stray "mmm" mid-approval must never become a coding turn).
+    const modal = useLiveStore.getState();
+    if (modal.permission || modal.elicitation) {
       set({ userCaption: "", userPartial: false });
-      if (yn) {
-        // Match the agent's actual option ids/labels (ACP adapters vary:
-        // "allow" / "allow_once" / "approve", …) — first match wins, so
-        // allow-once beats allow-always where both exist.
-        const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
-        const opt = pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
-        answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
+      const t = text.toLowerCase();
+      const pend = modal.permission;
+      if (pend) {
+        const yn = classifyYesNo(text);
+        log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
+        if (yn) {
+          // Prefer the ACP option kind when present (a spoken "yes" means allow
+          // ONCE, never silently "always"); fall back to id/label matching for
+          // asks without kinds (adapters vary: "allow" / "allow_once" / "approve").
+          const wantKinds = yn === "allow" ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
+          const byKind = wantKinds.map((k) => pend.options.find((o) => o.kind === k)).find(Boolean);
+          const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
+          const opt = byKind ?? pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
+          answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
+        } else {
+          engine.current?.say("Say yes to allow, or no to reject.");
+        }
+        return;
       }
+      const elicit = modal.elicitation!;
+      if (elicit.mode === "url") {
+        if (/\b(done|finished|all set|logged in|signed in|completed?)\b/.test(t)) { answerElicitation("accept"); return; }
+        if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) { answerElicitation("cancel"); return; }
+        engine.current?.say("Say done when you're finished, or cancel.");
+        return;
+      }
+      // Form mode: filled by touch; speech only cancels.
+      if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) { answerElicitation("cancel"); return; }
+      engine.current?.say("There's a short form on screen — fill it in, or say cancel.");
       return;
     }
     // Attach the freshest frame from every active visual source (camera + screen
@@ -555,7 +631,7 @@ export function useLiveSession(chatId: string) {
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
     assistantId.current = chatStore.liveUserTurn(chatId, text);
-  }, [chatId, set, answerPermission]);
+  }, [chatId, set, answerPermission, answerElicitation]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
   // the user asks — and because the worker stays warm, this only happens once.

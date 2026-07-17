@@ -28,9 +28,14 @@ export interface Agent {
   setOption?(optionId: string, valueId: string): Promise<void>;
 }
 
+/** One choice in a permission ask. `kind` is the ACP option kind — the client
+ *  uses it for voice yes/no mapping + button styling. */
+export type PermissionAskOption = { id: string; label: string; kind?: "allow_once" | "allow_always" | "reject_once" | "reject_always" };
+
 /** Ask the user to approve something the agent wants to do (spoken + chips in the
- *  call UI). Resolves the chosen option id; times out / cancels to "deny". */
-export type AskPermission = (question: string, options: { id: string; label: string }[]) => Promise<string>;
+ *  call UI, and inline on the tool card when `toolCallId` is present). Resolves
+ *  the chosen option id; times out / cancels to "deny". */
+export type AskPermission = (question: string, options: PermissionAskOption[], toolCallId?: string) => Promise<string>;
 
 /** Sentinel a pending permission ask resolves to when the turn is cancelled
  *  (barge-in / interrupt). ACP requires the client to answer any in-flight

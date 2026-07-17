@@ -5,11 +5,17 @@ import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclie
 import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionUpdate, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import { AGENT_REGISTRY, agentLabel as labelFor, type MessageBlock } from "@openlive/shared";
+import {
+  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, mergeToolCall, toolKindSchema,
+  type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
+} from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
 import type { Emit } from "../tools.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
+import { TerminalManager } from "./terminal-manager.js";
+import { killTree } from "./proc.js";
+import { readProjectMcpServers } from "./mcp-config.js";
 import { log } from "../log.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -60,6 +66,8 @@ export interface AcpOpts {
   cwd?: string;                                // the project folder the agent runs in
   onMeta?: (meta: AgentMeta) => void;          // the agent's available models/modes → UI
   onReplay?: (messages: ReplayMessage[]) => void; // prior turns recovered from session/load
+  askElicitation?: (req: { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string }) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }>;
+  completeElicitation?: (elicitationId: string) => void; // URL elicitation finished agent-side
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -86,6 +94,11 @@ export class AcpAgent implements Agent {
   private modelConfigId: string | null = null; // the ACP config option id for model selection
   private replaying = false;      // inside a session/load: fold updates into the replay buffer
   private replay: ReplayMessage[] = []; // prior turns recovered from session/load replay
+  private turnTools = new Map<string, ToolCallState>(); // this turn's tool calls, by id (cleared per turn)
+  private terminals = new TerminalManager({
+    cwd: () => adapterFor(this.id, this.opts.cwd).cwd,
+    emit: () => this.turnEmit,
+  });
 
   constructor(id: AgentId, private askPermission: AskPermission, private opts: AcpOpts = {}) {
     this.id = id;
@@ -118,16 +131,13 @@ export class AcpAgent implements Agent {
       env: {
         ...process.env,
         PATH: widenedPath(),
-        // Claude Code's /resume picker HIDES sessions stamped with an SDK entrypoint
-        // (the CLI logs `filtered from /resume: entrypoint=sdk-ts`), which is why
-        // OpenLive sessions stopped appearing in the CLI (old Zed-era CLIs predate
-        // the filter). The SDK sets CLAUDE_CODE_ENTRYPOINT only when unset — and
-        // "cli" gets coerced back to the filtered "sdk-cli" — so we use
-        // "claude-vscode": the same entrypoint the VS Code extension uses for
-        // exactly this "IDE front-end sharing sessions with the CLI" contract.
-        // Sessions then show in /resume and are genuinely shared both ways
+        // Per-agent env quirks live in the registry. Claude's entry:
+        // CLAUDE_CODE_ENTRYPOINT="claude-vscode" — the CLI's /resume picker HIDES
+        // sessions stamped with an SDK entrypoint, and "claude-vscode" is the
+        // "IDE front-end sharing sessions with the CLI" contract, so OpenLive
+        // sessions show in /resume and are genuinely shared both ways
         // (verified 2026-07-15 against claude 2.1.198 / adapter 0.59.0).
-        ...(this.id === "claude-code" ? { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } : {}),
+        ...(AGENT_REGISTRY[this.id].acp.env ?? {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
       // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
@@ -183,17 +193,29 @@ export class AcpAgent implements Agent {
   private async handshake(cwd: string): Promise<void> {
     const init = await this.conn!.initialize({
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      // fs stays false by design (no editor = no unsaved buffers to serve), but
+      // we DO host terminals (registry-gated per agent): commands run through
+      // OpenLive, so output streams live into the tool card and cancel actually
+      // kills the process tree.
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: AGENT_REGISTRY[this.id].acp.terminal,
+        // Elicitations: login/OAuth URLs open the user's browser (narrated); form
+        // requests render a proper modal. Both fully handled in clientHandler().
+        elicitation: { url: {}, form: {} },
+      },
     });
     this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
     const canLoad = !!init.agentCapabilities?.loadSession;
+    const quirks = AGENT_REGISTRY[this.id].acp;
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = this.id === "claude-code" ? buildClaudeMeta() : undefined;
+    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta() : undefined;
     if (meta) this.sentPreamble = true;
-    // Cursor advertises loadSession but its sessions die with the process (upstream
-    // "Session not found" after restart), so it can't round-trip to its own CLI.
-    this.meta = { ...this.meta, resumeAcrossRestart: canLoad && this.id !== "cursor" };
+    this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
+    // MCP passthrough: the project's own .mcp.json rides along for agents that
+    // don't read it themselves ("native" agents would double-register).
+    const mcpServers = quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : [];
 
     let resumed = false;
     // Resume the chat's own prior session when the agent can. A failure here is
@@ -208,13 +230,23 @@ export class AcpAgent implements Agent {
       this.sessionId = this.opts.resumeSessionId;
       this.replaying = true;
       try {
-        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
+        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
         this.replaying = false;
         this.reportMeta(r);
         resumed = true;
         // The agent restored the FULL conversation itself — drop our text recap
         // so the first turn isn't prefixed with a redundant "[Context — earlier…]".
         this.seedText = "";
+        // Dead turns can't finish their calls — a replayed "in_progress" would
+        // spin forever in the transcript. Settle to canceled before ingest.
+        for (const m of this.replay) {
+          for (let j = 0; j < m.content.length; j++) {
+            const b = m.content[j]!;
+            if (b.type === "acp_tool" && (b.call.status === "pending" || b.call.status === "in_progress")) {
+              m.content[j] = { type: "acp_tool", call: { ...b.call, status: "canceled" } };
+            }
+          }
+        }
         if (this.replay.length) this.opts.onReplay?.(this.replay);
       } catch (e) {
         log.debug(`agent:${this.id}`, `resume failed (${extractAcpError(e)}) — starting fresh`);
@@ -224,7 +256,7 @@ export class AcpAgent implements Agent {
       }
     }
     if (!resumed) {
-      const r = await this.conn!.newSession({ cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
+      const r = await this.conn!.newSession({ cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }
@@ -325,8 +357,8 @@ export class AcpAgent implements Agent {
             this.opts.onMeta?.(this.meta);
             return;
           case "available_commands_update":
-            // Slash commands proved noise for a voice UI (tried, removed) — the
-            // agent still interprets a spoken "/review" fine on its own.
+            // Slash commands proved unusable for a voice UI (tried twice, removed) —
+            // the agent still interprets a spoken "/review" fine on its own.
             return;
         }
 
@@ -341,15 +373,28 @@ export class AcpAgent implements Agent {
             if (u.content.type === "text") await emit({ type: "reasoning_delta", text: u.content.text });
             return;
           case "tool_call": {
-            // Include the file it touches (if any) so the transcript shows file changes.
-            const path = u.locations?.[0]?.path;
-            const label = u.title || u.kind || "tool";
-            await emit({ type: "tool_start", id: u.toolCallId, tool: path ? `${label} · ${path}` : label });
+            // Full snapshot: title, kind, 4-state status, content (text/diff/
+            // terminal), locations, raw input/output — nothing dropped anymore.
+            const call: ToolCallState = {
+              id: u.toolCallId,
+              title: u.title || u.kind || "tool",
+              kind: toToolKind(u.kind),
+              status: u.status ?? "pending",
+              content: contentFromAcp(u.content),
+              locations: locationsFromAcp(u.locations),
+              rawInputJson: rawJson(u.rawInput),
+              rawOutputJson: rawJson(u.rawOutput),
+            };
+            this.turnTools.set(call.id, call);
+            await emit({ type: "acp_tool_call", call });
             return;
           }
-          case "tool_call_update":
-            if (u.status === "completed" || u.status === "failed") await emit({ type: "tool_done", id: u.toolCallId, detail: u.status === "failed" ? "error" : undefined });
+          case "tool_call_update": {
+            const delta = deltaFromAcp(u);
+            this.turnTools.set(u.toolCallId, mergeToolCall(this.turnTools.get(u.toolCallId), delta));
+            await emit({ type: "acp_tool_update", delta });
             return;
+          }
           case "plan":
             // The agent's evolving plan → the transcript's todo list.
             await emit({ type: "todos", items: u.entries.map((e) => ({ text: e.content, done: e.status === "completed" })) });
@@ -358,9 +403,10 @@ export class AcpAgent implements Agent {
             await emit({ type: "todos", items: [] });
             return;
           case "usage_update":
-            // Context/cost meter (reuses the existing usage UI). outputTokens isn't
-            // reported by ACP usage_update, so 0.
-            await emit({ type: "usage", contextTokens: u.used, outputTokens: 0, costUsd: u.cost?.amount ?? 0 });
+            // Context/cost meter. ACP usage_update has no output-token count —
+            // omit the field rather than fabricate a 0; `size` drives a real
+            // used/size context meter in the UI.
+            await emit({ type: "usage", contextTokens: u.used, contextSize: u.size, costUsd: u.cost?.amount ?? 0 });
             return;
           default:
             return; // user echoes, plan_update (unstable) — nothing to render
@@ -369,33 +415,103 @@ export class AcpAgent implements Agent {
       requestPermission: async (req: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
         // The agent only asks when its own ACP mode requires it (the user picks that
         // mode before the call — e.g. "always ask" vs "accept edits" vs "bypass"), so
-        // OpenLive just relays the ask. Map the options onto canonical allow/always/
-        // deny ids (the voice yes/no classifier keys on these) and ask the user.
+        // OpenLive just relays the ask. ALL options pass through with their real
+        // optionId + kind (allows first, rejects last); the client uses kind for
+        // voice yes/no mapping + styling, and toolCallId interleaves the ask on
+        // that tool's card in the activity panel.
+        const KINDS = ["allow_once", "allow_always", "reject_once", "reject_always"] as const;
+        const isKind = (k: unknown): k is (typeof KINDS)[number] => KINDS.includes(k as never);
         const byKind = (k: string) => req.options.find((o) => o.kind === k);
-        const allow = byKind("allow_once");
-        const options: { id: string; label: string }[] = [];
-        if (allow) options.push({ id: "allow", label: allow.name || "Allow" });
-        const always = byKind("allow_always"); if (always) options.push({ id: "always", label: always.name || "Always allow" });
-        const deny = byKind("reject_once") ?? byKind("reject_always"); if (deny) options.push({ id: "deny", label: deny.name || "Deny" });
+        const options = [...req.options]
+          .sort((a, b) => KINDS.indexOf(a.kind as never) - KINDS.indexOf(b.kind as never))
+          .map((o) => ({ id: o.optionId, label: o.name || o.optionId, kind: isKind(o.kind) ? o.kind : undefined }));
         if (!options.length) return { outcome: { outcome: "cancelled" } };
+        const toolCallId = req.toolCall?.toolCallId;
         const title = req.toolCall?.title ? ` ${req.toolCall.title}.` : "";
-        const choice = await this.askPermission(`${labelFor(this.id)} wants permission:${title} Allow it?`, options);
+        const choice = await this.askPermission(`${labelFor(this.id)} wants permission:${title} Allow it?`, options, toolCallId);
         // Barge-in / interrupt resolves any pending ask with this sentinel — ACP
         // requires the client to answer in-flight permission requests as cancelled.
-        if (choice === PERMISSION_CANCELLED) return { outcome: { outcome: "cancelled" } };
-        const picked = choice === "allow" ? allow : choice === "always" ? always : deny;
-        return picked ? { outcome: { outcome: "selected", optionId: picked.optionId } } : { outcome: { outcome: "cancelled" } };
+        if (choice === PERMISSION_CANCELLED) {
+          if (toolCallId) await this.settleToolStatus(toolCallId, "canceled");
+          return { outcome: { outcome: "cancelled" } };
+        }
+        // The chosen id is normally the ACP optionId verbatim; the timeout path and
+        // voice fallbacks may still answer canonical "allow"/"always"/"deny".
+        const picked = req.options.find((o) => o.optionId === choice)
+          ?? (choice === "allow" ? byKind("allow_once")
+            : choice === "always" ? byKind("allow_always")
+            : choice === "deny" ? (byKind("reject_once") ?? byKind("reject_always")) : undefined);
+        if (!picked) return { outcome: { outcome: "cancelled" } };
+        // A denial settles the card immediately (Zed parity); if the agent follows
+        // up with its own status update, the later merge simply wins.
+        if (toolCallId && String(picked.kind).startsWith("reject")) await this.settleToolStatus(toolCallId, "rejected");
+        return { outcome: { outcome: "selected", optionId: picked.optionId } };
+      },
+
+      // ── client-hosted terminals (terminal/*) ────────────────────────────
+      createTerminal: async (p) => {
+        this.assertSession(p.sessionId);
+        return this.terminals.create(p);
+      },
+      terminalOutput: async (p) => {
+        this.assertSession(p.sessionId);
+        return this.terminals.output(p.terminalId);
+      },
+      waitForTerminalExit: async (p) => {
+        this.assertSession(p.sessionId);
+        const exit = await this.terminals.waitForExit(p.terminalId);
+        return { exitCode: exit.exitCode, signal: exit.signal };
+      },
+      killTerminal: async (p) => {
+        this.assertSession(p.sessionId);
+        this.terminals.kill(p.terminalId);
+      },
+      releaseTerminal: async (p) => {
+        this.assertSession(p.sessionId);
+        this.terminals.release(p.terminalId);
+      },
+
+      // ── elicitations (unstable): login URLs + input forms ────────────────
+      unstable_createElicitation: async (req) => {
+        const ask = this.opts.askElicitation;
+        if (!ask) return { action: "decline" };
+        // The union's custom-mode arm ({mode: string}) defeats TS narrowing —
+        // read the mode-specific fields structurally instead.
+        const r = req as { mode: string; message: string; url?: string; elicitationId?: unknown; requestedSchema?: unknown };
+        if (r.mode === "url" && typeof r.url === "string") {
+          return ask({ mode: "url", message: r.message, url: r.url, elicitationId: String(r.elicitationId ?? "") || undefined });
+        }
+        if (r.mode === "form" && r.requestedSchema) {
+          return ask({ mode: "form", message: r.message, schema: r.requestedSchema });
+        }
+        return { action: "decline" }; // unknown future mode — refuse cleanly, never hang
+      },
+      unstable_completeElicitation: async (n) => {
+        // The agent noticed the URL flow finished (OAuth landed) — settle our card.
+        this.opts.completeElicitation?.(String(n.elicitationId));
       },
     };
   }
 
+  /** Terminal calls for a session we don't own are protocol errors, not silence. */
+  private assertSession(sessionId: string): void {
+    if (sessionId !== this.sessionId) throw new Error(`unknown session: ${sessionId}`);
+  }
+
   /** Fold one replayed session/load update into the recovered-message buffer,
-   *  merging consecutive same-role chunks into a single message. */
+   *  merging consecutive same-role chunks into a single message. Tool calls
+   *  replay RICH (kind/status/diffs/raw input), so a resumed session's history
+   *  renders exactly like it did live. Capped to the newest 200 messages —
+   *  external sessions can be huge. (No optimistic-user-message dedup needed:
+   *  replay is only ever ingested into an EMPTY chat, see ingestReplay.) */
   private bufferReplay(u: SessionUpdate): void {
     const add = (role: "user" | "assistant", block: MessageBlock) => {
       const last = this.replay[this.replay.length - 1];
       if (last && last.role === role) appendBlock(last.content, block);
-      else this.replay.push({ role, content: [block] });
+      else {
+        this.replay.push({ role, content: [block] });
+        if (this.replay.length > 200) this.replay.shift();
+      }
     };
     switch (u.sessionUpdate) {
       case "user_message_chunk":
@@ -408,11 +524,49 @@ export class AcpAgent implements Agent {
         if (u.content.type === "text") add("assistant", { type: "reasoning", text: u.content.text });
         return;
       case "tool_call":
-        add("assistant", { type: "tool", id: u.toolCallId, tool: u.title || u.kind || "tool", status: "done" });
+        add("assistant", {
+          type: "acp_tool",
+          call: {
+            id: u.toolCallId,
+            title: u.title || u.kind || "tool",
+            kind: toToolKind(u.kind),
+            status: u.status ?? "pending",
+            content: contentFromAcp(u.content),
+            locations: locationsFromAcp(u.locations),
+            rawInputJson: rawJson(u.rawInput),
+            rawOutputJson: rawJson(u.rawOutput),
+          },
+        });
         return;
+      case "tool_call_update": {
+        // Merge into the already-replayed call (scan from the end). An update
+        // for a call we never replayed isn't history worth inventing — drop it.
+        const delta = deltaFromAcp(u);
+        for (let i = this.replay.length - 1; i >= 0; i--) {
+          const content = this.replay[i]!.content;
+          for (let j = content.length - 1; j >= 0; j--) {
+            const b = content[j]!;
+            if (b.type === "acp_tool" && b.call.id === delta.id) {
+              content[j] = { type: "acp_tool", call: mergeToolCall(b.call, delta) };
+              return;
+            }
+          }
+        }
+        return;
+      }
       default:
         return; // plans/usage/etc. aren't part of the recovered transcript
     }
+  }
+
+  /** Settle a tool card's status from the client side (permission denied /
+   *  cancelled) — emitted as a normal delta so every layer folds it identically. */
+  private async settleToolStatus(toolCallId: string, status: "canceled" | "rejected"): Promise<void> {
+    const emit = this.turnEmit;
+    if (!emit) return;
+    const delta = { id: toolCallId, status } as const;
+    this.turnTools.set(toolCallId, mergeToolCall(this.turnTools.get(toolCallId), delta));
+    await emit({ type: "acp_tool_update", delta });
   }
 
   async runTurn({ text, frames }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
@@ -437,7 +591,12 @@ export class AcpAgent implements Agent {
     if (this.supportsImages) for (const f of frames) prompt.push({ type: "image", data: f.data, mimeType: f.mime });
 
     this.turnEmit = emit;
-    const onAbort = () => { void this.conn?.cancel({ sessionId: this.sessionId }).catch(() => {}); };
+    const onAbort = () => {
+      void this.conn?.cancel({ sessionId: this.sessionId }).catch(() => {});
+      // Barge-in kills running commands too — a canceled turn must not leave a
+      // test suite churning. Buffers stay valid for late terminal/output reads.
+      this.terminals.killAll();
+    };
     signal.addEventListener("abort", onAbort, { once: true });
     try {
       // Awaiting the prompt also waits out a barge-in: after we send session/cancel
@@ -463,31 +622,20 @@ export class AcpAgent implements Agent {
     } finally {
       signal.removeEventListener("abort", onAbort);
       if (this.turnEmit === emit) this.turnEmit = null;
+      this.turnTools.clear(); // per-turn state — never accumulates across turns
     }
   }
 
   async dispose(): Promise<void> {
     this.alive = false;
     this.turnEmit = null;
+    this.terminals.disposeAll(); // hosted commands die with the session
     const child = this.child;
     this.child = null;
     this.conn = null;
-    const pid = child?.pid;
-    if (pid) {
-      if (process.platform === "win32") {
-        // No POSIX process groups: taskkill /T walks and kills the whole child tree
-        // (the cmd shim → node → acp binary), so grandchildren don't leak.
-        try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); }
-        catch { try { child!.kill(); } catch { /* already dead */ } }
-      } else {
-        // Kill the whole process group (negative pid) so the npx/npm-exec wrapper AND
-        // its node → acp-binary grandchildren all die — not just our direct child.
-        try { process.kill(-pid, "SIGTERM"); }
-        catch { try { child!.kill("SIGTERM"); } catch { /* already dead */ } }
-        // Escalate if it ignores SIGTERM, so a stuck adapter can't linger.
-        setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref();
-      }
-    }
+    // Kill the adapter's whole process tree (npx → node → acp binary) so
+    // grandchildren don't leak — POSIX process group / Windows taskkill /T.
+    if (child) killTree(child);
   }
 }
 
@@ -498,6 +646,53 @@ export function appendBlock(content: MessageBlock[], block: MessageBlock): void 
   if (block.type === "text" && last?.type === "text") { last.text += block.text; return; }
   if (block.type === "reasoning" && last?.type === "reasoning") { last.text += block.text; return; }
   content.push(block);
+}
+
+// ── ACP → shared tool-call converters ──────────────────────────────────────
+const toToolKind = (k: unknown): ToolKind => (toolKindSchema.safeParse(k).success ? (k as ToolKind) : "other");
+
+/** Convert ACP tool-call content into the shared wire shape, applying the
+ *  emit-time size caps. Non-text content blocks (images/resources inside a
+ *  "content" item) have no voice-app rendering — skipped. */
+function contentFromAcp(items: unknown[] | null | undefined): ToolContent[] {
+  const out: ToolContent[] = [];
+  for (const raw of items ?? []) {
+    const c = raw as { type?: string; content?: { type?: string; text?: string }; path?: string; oldText?: string | null; newText?: string; terminalId?: string };
+    if (c.type === "content" && c.content?.type === "text" && typeof c.content.text === "string") {
+      out.push(capToolContent({ type: "text", text: c.content.text }));
+    } else if (c.type === "diff" && typeof c.path === "string" && typeof c.newText === "string") {
+      out.push(capToolContent({ type: "diff", path: c.path, oldText: c.oldText ?? undefined, newText: c.newText }));
+    } else if (c.type === "terminal" && typeof c.terminalId === "string") {
+      out.push({ type: "terminal", terminalId: c.terminalId });
+    }
+  }
+  return out;
+}
+
+const locationsFromAcp = (locs: Array<{ path: string; line?: number | null }> | null | undefined): ToolLocation[] =>
+  (locs ?? []).map((l) => ({ path: l.path, line: l.line ?? undefined }));
+
+/** rawInput/rawOutput are arbitrary JSON — stringify + cap for the wire. */
+const rawJson = (v: unknown): string | undefined => {
+  if (v == null) return undefined;
+  try { return capRawJson(JSON.stringify(v)); } catch { return undefined; }
+};
+
+/** Normalize an ACP tool_call_update into a sparse shared delta — ACP uses
+ *  null/absent for "unchanged" (Zed parity). Shared by the live and replay paths. */
+function deltaFromAcp(u: {
+  toolCallId: string; title?: string | null; kind?: string | null; status?: "pending" | "in_progress" | "completed" | "failed" | null;
+  content?: unknown[] | null; locations?: Array<{ path: string; line?: number | null }> | null; rawInput?: unknown; rawOutput?: unknown;
+}): ToolCallDelta {
+  const delta: ToolCallDelta = { id: u.toolCallId };
+  if (u.title != null) delta.title = u.title;
+  if (u.kind != null) delta.kind = toToolKind(u.kind);
+  if (u.status != null) delta.status = u.status;
+  if (u.content != null) delta.content = contentFromAcp(u.content);
+  if (u.locations != null) delta.locations = locationsFromAcp(u.locations);
+  if (u.rawInput != null) delta.rawInputJson = rawJson(u.rawInput);
+  if (u.rawOutput != null) delta.rawOutputJson = rawJson(u.rawOutput);
+  return delta;
 }
 
 /** Flatten ACP select options (which may be flat or grouped) into {id,name}. */

@@ -1,4 +1,5 @@
-import { Search, Globe, Bookmark, ListTodo, Clipboard, ExternalLink, Eye, Wrench } from "lucide-react";
+import { ArrowLeftRight, Bookmark, Brain, Clipboard, ExternalLink, Eye, FileSearch, FolderInput, Globe, Hammer, ListTodo, Pencil, Search, Terminal, Trash2, Wrench } from "lucide-react";
+import type { ToolKind } from "@openlive/shared";
 
 // Human labels + icon per tool — shared by the transcript (chips) and the in-call
 // status line, so "Searching the web" reads the same everywhere.
@@ -15,3 +16,19 @@ export const TOOL_META: Record<string, { label: string; active: string; icon: ty
 
 export const toolMeta = (tool: string) =>
   TOOL_META[tool] ?? { label: tool.replace(/_/g, " "), active: `Using ${tool.replace(/_/g, " ")}`, icon: Wrench };
+
+// ACP tool-call kinds (coding agents) → icon + spoken-status verb. Zed's
+// kind→icon mapping, translated to lucide.
+export const KIND_META: Record<ToolKind, { icon: typeof Wrench; active: string }> = {
+  read: { icon: FileSearch, active: "Reading" },
+  edit: { icon: Pencil, active: "Editing" },
+  delete: { icon: Trash2, active: "Deleting" },
+  move: { icon: FolderInput, active: "Moving" },
+  search: { icon: Search, active: "Searching" },
+  execute: { icon: Terminal, active: "Running" },
+  think: { icon: Brain, active: "Thinking" },
+  fetch: { icon: Globe, active: "Fetching" },
+  switch_mode: { icon: ArrowLeftRight, active: "Switching mode" },
+  other: { icon: Hammer, active: "Working" },
+};
+export const kindMeta = (kind: ToolKind) => KIND_META[kind] ?? KIND_META.other;
