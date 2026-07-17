@@ -11,7 +11,7 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useUi } from "@/lib/uiStore";
-import { usePopIn } from "@/lib/usePopIn";
+import { useMenuPresence } from "@/lib/usePopIn";
 import { Picker } from "./SetupControls";
 import { cn } from "@/lib/cn";
 
@@ -78,31 +78,31 @@ export function AgentSelect() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const options = useVisibleOptions(boundAgent);
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const noDrag = useNoDrag();
-  usePopIn(menuRef, open);
+  const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
 
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const current = options.find((o) => o.id === boundAgent) ?? options[0]!;
 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
-      <button onClick={() => setOpen((o) => !o)}
+      <button onClick={toggle}
         className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-body text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
         {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <OpenLiveOrb size={16} />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
-      {open && (
+      {mounted && (
         <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           {options.map((o) => (
-            <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); setOpen(false); }}
+            <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); requestClose(); }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-foreground transition hover:bg-foreground/[0.06]">
               {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}
               <span className="flex-1">{o.label}</span>

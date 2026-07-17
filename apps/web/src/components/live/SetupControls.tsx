@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Check } from "lucide-react";
-import { usePopIn } from "@/lib/usePopIn";
+import { useMenuPresence } from "@/lib/usePopIn";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
 
@@ -57,11 +57,15 @@ export interface Opt {
 // the one that should recede, because it's repeated furniture, while the field name
 // is the thing you actually scan for.
 
-/** A titled group of fields. */
+/** A titled group of fields. The accent tick + stronger label give each section
+ *  a visible anchor (the old faint text disappeared against the panel). */
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h3 className="text-micro font-semibold uppercase tracking-[0.09em] text-faint">{title}</h3>
+      <h3 className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+        <span aria-hidden className="h-2.5 w-0.5 rounded-full bg-accent/80" />
+        {title}
+      </h3>
       <div className="space-y-4">{children}</div>
     </section>
   );
@@ -77,7 +81,7 @@ export function Field({ label, hint, required, children }: {
         <span className="text-label font-medium text-foreground/90">
           {label}{required && <span className="text-danger"> *</span>}
         </span>
-        {hint && <span className="shrink-0 text-micro leading-tight text-faint">{hint}</span>}
+        {hint && <span className="shrink-0 text-micro leading-tight text-muted-foreground">{hint}</span>}
       </div>
       {children}
     </div>
@@ -95,19 +99,22 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
   placeholder?: string;
   ariaLabel: string;
 }) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  usePopIn(menuRef, open);
+  const { open, mounted, requestClose: closeMenu, toggle } = useMenuPresence(menuRef);
+  const requestClose = (refocus = false) => {
+    closeMenu();
+    if (refocus) ref.current?.querySelector("button")?.focus();
+  };
 
   // Close on outside click OR Escape — a menu you can only dismiss by picking
   // something is a trap, especially when it covers the Start button. Arrow keys
   // walk the options (listbox convention); focus lands on the selection on open.
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setOpen(false); ref.current?.querySelector("button")?.focus(); return; }
+      if (e.key === "Escape") { requestClose(true); return; }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
       const opts = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? [])];
       if (!opts.length) return;
@@ -124,18 +131,20 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
     // Focus the current selection so arrows continue from it.
     requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("[aria-selected=true]")?.focus());
     return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // A disabled control that's still open would float a dead menu (e.g. the agent
   // disconnects mid-pick).
-  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (disabled && open) requestClose(); }, [disabled]);
 
   const current = options.find((o) => o.id === value) ?? null;
 
   return (
     <div ref={ref} className="relative">
       <button type="button" disabled={disabled} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className={cn(
           "flex h-9 w-full items-center gap-2 rounded-lg bg-card px-3 text-left shadow-[var(--shadow-xs)] transition",
           disabled ? "cursor-not-allowed opacity-55" : "hover:shadow-[var(--shadow-card)]",
@@ -148,13 +157,13 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
         {!disabled && <ChevronDown className={cn("size-3.5 shrink-0 text-faint transition", open && "rotate-180")} />}
       </button>
 
-      {open && (
+      {mounted && (
         <div ref={menuRef} role="listbox" aria-label={ariaLabel}
           className="openlive-scroll absolute left-0 right-0 z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-[var(--shadow-pop)]">
           {options.length === 0 && <p className="px-2.5 py-2 text-label text-faint">Nothing to choose yet.</p>}
           {options.map((o) => (
             <button key={o.id} type="button" role="option" aria-selected={o.id === value}
-              onClick={() => { onChange(o.id); setOpen(false); }}
+              onClick={() => { onChange(o.id); requestClose(); }}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-foreground/[0.06]">
               {o.icon && <span className="grid size-4 shrink-0 place-items-center">{o.icon}</span>}
               <span className="min-w-0 flex-1">
@@ -249,11 +258,20 @@ export function AutoControl(props: {
 }
 
 /** Read-only facts about the current selection (vision / context / …). Not
- *  choices — never make them look tappable. */
+ *  choices — never make them look tappable. New facts cascade in when the
+ *  selection changes, so the row visibly reacts to the pick above it. */
 export function FactChips({ items }: { items: { label: string; tone?: "muted" | "warn" }[] }) {
+  const row = useRef<HTMLDivElement>(null);
+  const key = items.map((f) => f.label).join("|");
+  useGSAP(() => {
+    if (!row.current || prefersReduced()) return;
+    gsap.fromTo(row.current.children,
+      { autoAlpha: 0, y: 4 },
+      { autoAlpha: 1, y: 0, duration: DUR.fast, ease: EASE.out, stagger: 0.045, overwrite: "auto", clearProps: "all" });
+  }, { dependencies: [key] });
   if (!items.length) return null;
   return (
-    <div className="flex flex-wrap gap-1">
+    <div ref={row} className="flex flex-wrap gap-1">
       {items.map((f) => (
         <span key={f.label}
           className={cn("rounded-md px-1.5 py-0.5 text-micro font-medium",

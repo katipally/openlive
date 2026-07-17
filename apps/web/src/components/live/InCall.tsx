@@ -17,7 +17,7 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { setPttEnabled } from "@/lib/live/usePtt";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { usePopIn } from "@/lib/usePopIn";
+import { useMenuPresence } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
 
 const PHASE_LABEL: Record<LivePhase, string> = {
@@ -252,30 +252,30 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
   on: boolean; icon: typeof Mic; title: string; onClick: () => void; danger?: boolean;
   devices: DeviceOpt[]; activeId?: string; onPick: (id: string) => void; label: string;
 }) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  usePopIn(menuRef, open);
+  const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   return (
     <div ref={ref} className="relative flex items-center">
       <IconBtn on={on} title={title} onClick={onClick} icon={icon} danger={danger} />
       {devices.length > 0 && (
-        <button onClick={() => setOpen((o) => !o)} aria-label={`Choose ${label}`}
+        <button onClick={toggle} aria-label={`Choose ${label}`}
           className="-ml-1 grid size-5 place-items-center rounded-full text-faint transition hover:text-foreground">
           <ChevronUp className={cn("size-3.5 transition", open && "rotate-180")} />
         </button>
       )}
-      {open && (
+      {mounted && (
         <div ref={menuRef} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
           <div className="px-3 py-1.5 text-caption font-medium uppercase tracking-wide text-faint">{label}</div>
           {devices.map((d) => (
-            <button key={d.id} onClick={() => { onPick(d.id); setOpen(false); }}
+            <button key={d.id} onClick={() => { onPick(d.id); requestClose(); }}
               className={cn("block w-full truncate px-3 py-1.5 text-left text-label transition hover:bg-foreground/[0.06]",
                 d.id === activeId ? "text-foreground" : "text-muted-foreground")}>
               {d.id === activeId ? "✓ " : "   "}{d.label}
