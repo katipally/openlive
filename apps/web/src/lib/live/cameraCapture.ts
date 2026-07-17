@@ -57,9 +57,6 @@ export class CameraCapture {
   async captureFreshest(): Promise<ArrayBuffer | null> {
     return this.buffer[this.buffer.length - 1] ?? this.grab(this.sampleSize, 0.72);
   }
-  recent(n = 2): ArrayBuffer[] {
-    return this.buffer.slice(-Math.max(1, n));
-  }
   /** A fresh, higher-res grab for the `look` tool (read small labels/text). */
   captureHiRes(size = 1280, q = 0.86): Promise<ArrayBuffer | null> { return this.grab(size, q); }
 

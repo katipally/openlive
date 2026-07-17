@@ -1,24 +1,45 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema } from "@openlive/shared";
-import { createChat, addMessage, listMessages, renameChat } from "@openlive/db";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, type AgentMetaWire } from "@openlive/shared";
+import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import type { Emit, TaktTool } from "../tools.js";
+import type { Emit, OpenLiveTool } from "../tools.js";
 import { foldBlock } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
+import { buildFileTools } from "./file-tools.js";
+import { wrapEmitWithNarration } from "./narrator.js";
+import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ReplayMessage } from "../agents/index.js";
+import { log } from "../log.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
 const HISTORY_TURNS = 20; // recent messages to rehydrate on reconnect
 
 // Some providers (e.g. MiniMax) leak control-token fragments like "[e[" into the
-// text stream. Spoken replies never contain square brackets, so scrub them from
-// saved text blocks — the live client strips the same noise for display/TTS.
+// text stream. Scrub ONLY those bracket-pair fragments — NOT every bracket: coding
+// agents legitimately say things like `arr[0]`, and blanket-stripping brackets
+// corrupted saved transcripts (`arr 0`). The live client strips the same noise for
+// display/TTS.
 function scrubControlTokens(blocks: MessageBlock[]): void {
   for (const b of blocks) {
-    if (b.type === "text") b.text = b.text.replace(/[[\]][a-z0-9~!]{0,3}[[\]]/gi, " ").replace(/[[\]]/g, "").replace(/[ \t]{2,}/g, " ");
+    if (b.type === "text") b.text = b.text.replace(/[[\]][a-z0-9~!]{0,3}[[\]]/gi, " ").replace(/[ \t]{2,}/g, " ");
   }
+}
+
+// Strip OpenLive's OWN injected context out of a replayed user message so a resumed
+// transcript reads as what the user actually said — not the voice/vision preamble,
+// the "[Context — earlier…]" recap, or the "[The user is sharing…]" frame note. Each
+// is a single `[…]` block with no internal `]`, so we match its opening marker and
+// cut to the block's close — wherever it sits, and robust even if an agent's replay
+// collapses the blank lines between blocks (a paragraph split would then over-strip).
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context — earlier in this voice conversation|The user is sharing their)[^\]]*\]/g;
+export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
+  return blocks
+    .map((b) => (b.type === "text"
+      ? { ...b, text: b.text.replace(OPENLIVE_INJECTED, "").replace(/\n{3,}/g, "\n\n").trim() }
+      : b))
+    .filter((b) => b.type !== "text" || b.text.length > 0);
 }
 
 // Replace the assistant's spoken text in `blocks` with exactly what the client
@@ -39,11 +60,27 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
 // the conversation.
 export class LiveSession {
   private runner: LiveTurnRunner;
+  // When bound, a coding agent (Claude Code / Codex / Cursor) is the brain instead
+  // of the provider loop. `agentReady` resolves once the ACP handshake completes.
+  private agent: Agent | null = null;
+  private boundId: AgentId | null = null;
+  private boundCwd = ""; // the agent's project folder for this conversation (rebuild on change)
+  private lastMeta: AgentMetaWire | null = null; // last agent_meta sent — re-sent on a same-bind rebind
+  private lastBind: Promise<void> = Promise.resolve(); // most recent applyBind, awaited by start()
+  private agentReady: Promise<void> | null = null;
+  private agentAc: AbortController | null = null;
+  private permPending = new Map<string, (optionId: string) => void>(); // agent permission asks awaiting the user
   private warmAc: AbortController | null = null; // aborts the cache-warm request on teardown
   private ac: AbortController | null = null;
   private turnActive = false;
-  private queuedText: string | null = null; // an utterance that arrived mid-turn (barge-in)
+  // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
+  // current turn settles. Frames are queued too so a barge-in with the camera on
+  // doesn't lose what the user was showing.
+  private queued: { text: string; frames: TurnFrame[] } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
+  private bindEpoch = 0;                      // guards applyBind against re-entrant/overlapping binds
+  private expectReplay = false;               // this chat was empty when a resume began → persist recovered turns
+  private frameChain: Promise<unknown> = Promise.resolve(); // serialize concurrent `look` frame grabs
   private cameraOn = false;
   private screenOn = false;
   private titled = false;                  // rename the chat from the first user turn
@@ -58,7 +95,7 @@ export class LiveSession {
   private bridgePending = new Map<string, (out: string) => void>();
 
   constructor(private ws: WebSocket, private chatId: string) {
-    const lookTool: TaktTool = {
+    const lookTool: OpenLiveTool = {
       name: "look",
       description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -70,29 +107,33 @@ export class LiveSession {
         return { output: `This is what ${what} is showing right now — talk about it naturally, as what you're both looking at.`, images: [frame] };
       },
     };
-    const clipboardRead: TaktTool = {
+    const clipboardRead: OpenLiveTool = {
       name: "clipboard_read",
       description: "Read the text currently on the user's clipboard (what they just copied). Use when they say things like 'what did I just copy' or 'read my clipboard'. Desktop app only.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => ({ output: await this.bridge("clipboard_read") }),
     };
-    const clipboardWrite: TaktTool = {
+    const clipboardWrite: OpenLiveTool = {
       name: "clipboard_write",
       description: "Copy text to the user's clipboard so they can paste it somewhere. Use when they ask you to 'copy that' or 'put it on my clipboard'. Desktop app only.",
       parameters: { type: "object", properties: { text: { type: "string", description: "The text to place on the clipboard" } }, required: ["text"], additionalProperties: false },
       execute: async (args) => ({ output: await this.bridge("clipboard_write", String(args?.text ?? "")) }),
     };
-    const openUrl: TaktTool = {
+    const openUrl: OpenLiveTool = {
       name: "open_url",
       description: "Open a web page in the user's default browser. Use when they ask you to open, pull up, or go to a site. Desktop app only.",
       parameters: { type: "object", properties: { url: { type: "string", description: "The http(s) URL to open" } }, required: ["url"], additionalProperties: false },
       execute: async (args) => ({ output: await this.bridge("open_url", String(args?.url ?? "")) }),
     };
-    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl]);
+    // File tools for the built-in assistant, scoped to this conversation's workspace
+    // folder (`boundCwd`, read live so it tracks folder changes). Writes/edits go
+    // through the same permission ask the coding agents use; reads are free.
+    const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
+    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl, ...fileTools]);
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
-      else this.onText(data.toString()).catch((e) => console.error("[live] text:", e));
+      else this.onText(data.toString()).catch((e) => log.error("live", "text:", e));
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
@@ -102,10 +143,18 @@ export class LiveSession {
     // Persist the chat row + rehydrate recent history (so a reconnect mid-call
     // doesn't make the agent forget what was already said).
     if (this.chatId) {
-      createChat(this.chatId);
+      await createChat(this.chatId);
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);
     }
+    // Resume a persisted bind — but ONLY if the client's own bind hasn't already
+    // arrived. The client re-sends its choice the moment the socket opens, and on a
+    // NEW chat that message can beat this restore: the restore then read stale/empty
+    // DB state, superseded the client's bind via the epoch guard, and quietly
+    // reversed it — agent + folder shown in the UI, nothing bound on the server.
+    if (this.bindEpoch === 0) await this.applyBind(this.chatId ? boundAgent(this.chatId) : null);
+    else await this.lastBind; // let the in-flight client bind finish deciding
+    if (this.agent) return;
     // Warm the prompt cache + connection in the background so the first spoken turn
     // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
     // always signal ready, even on failure, so the indicator never sticks.
@@ -165,6 +214,14 @@ export class LiveSession {
         if (r) { this.bridgePending.delete(msg.reqId); r(msg.output); }
         return;
       }
+      case "bind": return this.applyBind(msg.agentId, msg.cwd, msg.resumeSessionId);
+      case "permission_response": {
+        this.permPending.get(msg.reqId)?.(msg.optionId); // settle() clears the map + notifies the client
+        return;
+      }
+      case "set_model": { this.agent?.setModel?.(msg.modelId)?.catch((e) => log.error("live", "set_model:", e)); return; }
+      case "set_mode": { this.agent?.setMode?.(msg.modeId)?.catch((e) => log.error("live", "set_mode:", e)); return; }
+      case "set_option": { this.agent?.setOption?.(msg.optionId, msg.valueId)?.catch((e) => log.error("live", "set_option:", e)); return; }
     }
   }
 
@@ -185,8 +242,15 @@ export class LiveSession {
   private async runTurn(text: string, frames: TurnFrame[] = []) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
-    // queue it (append) and the finally below drains it as one turn.
-    if (this.turnActive) { this.queuedText = this.queuedText ? `${this.queuedText} ${text}` : text; return; }
+    // queue it (append text, keep the freshest frames) and the finally below drains
+    // it as one turn.
+    if (this.turnActive) {
+      this.queued = {
+        text: this.queued ? `${this.queued.text} ${text}` : text,
+        frames: frames.length ? frames : (this.queued?.frames ?? []),
+      };
+      return;
+    }
     this.turnActive = true;
     const ac = new AbortController();
     this.ac = ac;
@@ -195,24 +259,51 @@ export class LiveSession {
     const emit = this.blockEmit(blocks, ac.signal);
 
     if (this.chatId) {
-      addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */);
+      await addMessage(this.chatId, "user", [{ type: "text", text }], true /* live */).catch((e) => log.error("live", "persist user turn:", e));
       // Auto-title the conversation from the first thing the user says.
-      if (!this.titled) { this.titled = true; try { renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation"); } catch { /* */ } }
+      if (!this.titled) { this.titled = true; await renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation").catch(() => {}); }
     }
     try {
-      await this.runner.runTurn(text, frames, emit, ac.signal);
+      if (this.agent) {
+        await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
+        // Spoken progress (opt-in): long tool runs get a short voiced one-liner.
+        // The built-in brain keeps its own worker narration — no double-narrate.
+        const agentEmit = getSetting("narrateProgress") === "1" ? wrapEmitWithNarration(emit, ac.signal) : emit;
+        await this.agent.runTurn({ text, frames }, agentEmit, ac.signal);
+      } else if (this.boundId) {
+        // A coding agent is bound but not running (no folder yet, or its start
+        // failed). NEVER answer with the built-in brain as if it were the agent —
+        // that silently swaps who the user is talking to. Say what's wrong instead.
+        const label = agentLabel(this.boundId);
+        await emit({
+          type: "error",
+          message: this.boundCwd
+            ? `${label} isn't connected yet. Give it a moment, or switch agents and back to retry.`
+            : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
+        });
+      } else {
+        await this.runner.runTurn(text, frames, emit, ac.signal);
+      }
     } catch (e) {
-      if (!ac.signal.aborted) console.error("[live] turn:", e);
+      if (!ac.signal.aborted) {
+        log.error("live", "turn:", e);
+        // A thrown turn was invisible before — the call went quiet with no clue.
+        try { await emit({ type: "error", message: `That didn't go through: ${String((e as Error)?.message ?? e)}` }); } catch { /* emit is best-effort */ }
+      }
     } finally {
+      // Turn is over (normally, barge-in, watchdog cut, or error) — never leave an
+      // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
+      // one was actually pending.
+      this.cancelPendingPermissions();
       // On barge-in, persist only what was actually SPOKEN.
       if (ac.signal.aborted && this.bargeSpoken != null) truncateSpokenText(blocks, this.bargeSpoken);
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
-      if (this.chatId && blocks.length) { try { addMessage(this.chatId, "assistant", blocks, true /* live */); } catch { /* */ } }
+      if (this.chatId && blocks.length) { await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => log.error("live", "persist assistant turn:", e)); }
       this.send({ t: "sse", event: { type: "done" } });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
-      const q = this.queuedText; this.queuedText = null;
-      if (q && !this.closed) void this.runTurn(q); // drain a barge-in utterance
+      const q = this.queued; this.queued = null;
+      if (q && !this.closed) void this.runTurn(q.text, q.frames); // drain a barge-in utterance (with its frames)
     }
   }
 
@@ -226,11 +317,142 @@ export class LiveSession {
     };
   }
 
-  private interrupt() { this.ac?.abort(); }
+  private interrupt() {
+    this.ac?.abort();
+    this.cancelPendingPermissions();
+  }
+
+  /** Answer any in-flight agent permission ask as cancelled (ACP MUST when a turn is
+   *  cancelled — barge-in OR a watchdog cut). Idempotent: settle() removes each from
+   *  the map (so iterate a copy) and no-ops if already settled. */
+  private cancelPendingPermissions() {
+    for (const settle of [...this.permPending.values()]) settle(PERMISSION_CANCELLED);
+  }
+
+  /** Persist + surface prior turns recovered from an agent's session/load. Only
+   *  when the chat is empty (external-origin resume) — an OpenLive-origin chat
+   *  already renders its own transcript, so the replayed copy is dropped (the load
+   *  just re-primes the agent's context). */
+  private async ingestReplay(messages: ReplayMessage[]): Promise<void> {
+    if (!this.chatId || this.closed || !messages.length) return;
+    // `expectReplay` was decided at bind time, BEFORE any user turn could persist —
+    // so a user who spoke before the load finished can't flip this to "OpenLive-origin"
+    // and drop the recovered transcript (the old listMessages check raced that turn).
+    if (!this.expectReplay) return;
+    this.expectReplay = false; // ingest once
+    try {
+      for (const m of messages) {
+        const content = m.role === "user" ? stripInjectedContext(m.content) : m.content;
+        if (content.length) await addMessage(this.chatId, m.role, content); // sequential: keep order
+      }
+      this.send({ t: "reload_history" });
+    } catch (e) { log.error("live", "replay ingest:", e); }
+  }
+
+  // ── agent binding ─────────────────────────────────────────────────────────
+  /** Bind (or unbind) this conversation to a coding agent, optionally with a project
+   *  folder. Rebuilds + reconnects the ACP agent when the agent OR folder changes;
+   *  a no-op when neither did (an agent's cwd is fixed at spawn, so a folder switch
+   *  means a restart). */
+  private async applyBind(id: AgentId | null, cwd?: string, resumeSessionId?: string) {
+    // Re-entrancy guard: applyBind awaits several writes, and binds can overlap (a
+    // fast agent/folder switch, or a resume racing a reconnect). Stamp an epoch and
+    // bail the moment a newer bind supersedes this one — otherwise two runs each spawn
+    // an agent and the older one leaks an orphaned ACP child-process tree.
+    const epoch = ++this.bindEpoch;
+    const run = this.applyBindInner(id, cwd, resumeSessionId, epoch);
+    this.lastBind = run.catch(() => {});
+    await run;
+    // Authoritative echo — whatever this bind attempt ended up with (including the
+    // superseding-bind and no-folder paths that return early above), tell the client
+    // what the session is ACTUALLY using so its chips can't drift from reality.
+    if (epoch === this.bindEpoch && !this.closed) {
+      this.send({ t: "bound_state", agentId: this.boundId, cwd: this.boundCwd, agentActive: !!this.agent });
+    }
+  }
+
+  private async applyBindInner(id: AgentId | null, cwd: string | undefined, resumeSessionId: string | undefined, epoch: number) {
+    // These two MUST land before agentCwd()/createBoundAgent read them back.
+    if (cwd !== undefined && this.chatId) await setSetting(`agentCwd:${this.chatId}`, cwd);
+    // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
+    // session id so createBoundAgent loadSession-s it instead of starting fresh.
+    if (resumeSessionId && this.chatId) await setSetting(`acpSession:${this.chatId}`, resumeSessionId);
+    if (epoch !== this.bindEpoch) return; // superseded while awaiting
+    // Canonical, per-chat→global — the SAME resolution the agent spawns in, so the
+    // rebuild guard below and History grouping stay consistent.
+    const effectiveCwd = this.chatId ? agentCwd(this.chatId) : "";
+    // Stamp the session's agent + workspace so the History sidebar can file it
+    // under agent → workspace → session.
+    if (this.chatId) await setChatContext(this.chatId, id, effectiveCwd);
+    if (epoch !== this.bindEpoch) return;
+    if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) {
+      // Same bind, agent already up. The client may have cleared its model/mode
+      // chips (start() reuses the prewarmed socket and nulls them) — re-send the
+      // last meta so they come back without a rebuild.
+      if (this.lastMeta) this.send({ t: "agent_meta", ...this.lastMeta });
+      return;
+    }
+    this.agentAc?.abort();
+    void this.agent?.dispose();
+    this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd;
+    if (this.chatId) await setBoundAgent(this.chatId, id);
+    if (epoch !== this.bindEpoch) return;
+    if (!id || this.closed || !this.chatId) return;
+    // A coding agent needs a real folder. Don't spawn (then instantly kill) one with
+    // no cwd — that surfaced a spurious "pick a folder" error and churned processes on
+    // the first bind. Wait for a bind that supplies a folder (the lobby gates Start on it).
+    if (!effectiveCwd) return;
+    // Decide replay-persistence NOW, before any user turn can persist a message — so a
+    // user who speaks before the session/load finishes doesn't make ingestReplay think
+    // the chat is OpenLive-origin and drop the recovered transcript.
+    this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
+    const agent = createBoundAgent(this.chatId, (q, o) => this.askPermission(q, o), {
+      onMeta: (meta) => { this.lastMeta = meta; if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
+      // Recovered transcript from a session/load — persist + tell the client to reload.
+      onReplay: (msgs) => this.ingestReplay(msgs),
+    });
+    if (!agent) return;
+    this.agent = agent;
+    const prior = this.rehydrate();
+    if (prior.length) agent.seed(prior);
+    const ac = new AbortController(); this.agentAc = ac;
+    this.agentReady = agent.start(ac.signal)
+      .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })
+      .catch((e) => { if (!this.closed) this.send({ t: "sse", event: { type: "error", message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}` } }); });
+  }
+
+  /** Relay an agent permission ask to the client (spoken + chips) and await the
+   *  chosen option id; times out to "deny" so a hung decision never wedges a turn. */
+  private askPermission(question: string, options: { id: string; label: string }[]): Promise<string> {
+    return new Promise((resolve) => {
+      if (this.closed) return resolve("deny");
+      const reqId = randomUUID();
+      const PERM_TIMEOUT_MS = 120_000;
+      const expiresAt = Date.now() + PERM_TIMEOUT_MS; // client renders the countdown + speaks a reminder
+      // Single settle path for every outcome (answered / auto-deny / cancelled): it
+      // removes the pending entry AND tells the client the ask is resolved, so the
+      // chip is dismissed and a later utterance isn't mis-read as a yes/no answer.
+      const settle = (optionId: string) => {
+        if (!this.permPending.delete(reqId)) return; // already settled
+        clearTimeout(timer);
+        this.send({ t: "permission_resolved", reqId });
+        resolve(optionId);
+      };
+      const timer = setTimeout(() => settle("deny"), PERM_TIMEOUT_MS);
+      this.permPending.set(reqId, settle);
+      this.send({ t: "permission", reqId, question, options, expiresAt });
+    });
+  }
 
   // ── `look` handshake ────────────────────────────────────────────────────
+  /** Grab one fresh hi-res frame. SERIALIZED: the client↔server handshake has a
+   *  single in-flight slot (binary frames carry no reqId), so two concurrent `look`
+   *  calls (the turn-runner fans tool calls out with Promise.all) would otherwise
+   *  overwrite each other's slot — the first promise would never resolve and the
+   *  whole session would wedge (turnActive stuck true). Chaining makes each look
+   *  wait its turn; every one resolves (frame or null on timeout). */
   private requestFrame(): Promise<Frame | null> {
-    return new Promise((resolve) => {
+    const run = () => new Promise<Frame | null>((resolve) => {
       const reqId = randomUUID();
       const timer = setTimeout(() => {
         if (this.lookPending?.reqId === reqId) { this.lookPending = null; this.awaitingLookFrame = false; resolve(null); }
@@ -239,6 +461,9 @@ export class LiveSession {
       this.awaitingLookFrame = false;
       this.send({ t: "need_frame", reqId });
     });
+    const p = this.frameChain.then(run, run);
+    this.frameChain = p.catch(() => {});
+    return p;
   }
 
   // ── send / teardown ───────────────────────────────────────────────────────
@@ -252,6 +477,9 @@ export class LiveSession {
     this.closed = true;
     this.warmAc?.abort();
     this.ac?.abort();
+    this.agentAc?.abort();
+    void this.agent?.dispose();
+    for (const settle of [...this.permPending.values()]) settle("deny");
     this.lookPending?.resolve(null);
     for (const r of this.bridgePending.values()) r("The session ended.");
     this.bridgePending.clear();

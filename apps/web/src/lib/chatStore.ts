@@ -117,6 +117,13 @@ export const chatStore = {
     }
     useChatState.getState()._set(chatId, () => msgs);
   },
+  // Like preload, but ONLY if the transcript is still empty. Used by a session/load
+  // reload_history refetch: the empty-check + replace is synchronous, so it can't
+  // clobber a live turn the user started while the async refetch was in flight.
+  preloadIfEmpty(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; tool?: string }> }>) {
+    if ((useChatState.getState().byChat[chatId] ?? []).length > 0) return;
+    this.preload(chatId, messages);
+  },
 };
 
 const EMPTY: ChatMsg[] = [];

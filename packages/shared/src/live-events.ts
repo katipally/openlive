@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sseEventSchema } from "./sse-events";
+import { AGENT_IDS } from "./agent-registry";
 
 // The live-mode wire protocol between the browser and the agent's /live
 // WebSocket. THICK CLIENT: the browser runs the whole voice stack (VAD, STT,
@@ -27,9 +28,52 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // only. The client executes it via the Electron bridge and replies with
   // tool_bridge_result. Enables agent-side clipboard_read/write + open_url tools.
   z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url"]), arg: z.string().optional() }),
+  // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
+  // something (run a command, edit files). The client speaks the question and shows
+  // approve/deny chips; the answer comes back as permission_response.
+  // expiresAt (epoch ms): when the server auto-denies an unanswered ask — drives
+  // the client's visible countdown + spoken reminder.
+  z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })), expiresAt: z.number().optional() }),
+  // A permission ask is no longer awaiting the user (answered, auto-denied, or the
+  // turn was cancelled) — the client dismisses its chip so a later utterance isn't
+  // mis-read as a yes/no answer.
+  z.object({ t: z.literal("permission_resolved"), reqId: z.string() }),
+  // The bound agent's selectable models + modes (learned when it connects), so the
+  // UI can offer model/mode pickers. Sent on connect and after a switch.
+  z.object({
+    t: z.literal("agent_meta"),
+    models: z.array(z.object({ id: z.string(), name: z.string() })),
+    currentModelId: z.string().nullable(),
+    modes: z.array(z.object({ id: z.string(), name: z.string() })),
+    currentModeId: z.string().nullable(),
+    // Other ACP session config options the agent exposes (thought/reasoning level,
+    // model config, …) — rendered generically as dropdowns.
+    options: z.array(z.object({
+      id: z.string(), label: z.string(), category: z.string(),
+      values: z.array(z.object({ id: z.string(), name: z.string() })), currentId: z.string().nullable(),
+    })).default([]),
+    // Whether the session can be reopened in the agent's own CLI after a restart
+    // (Claude yes, Cursor no, Codex best-effort) — drives an honest UI badge.
+    resumeAcrossRestart: z.boolean().default(true),
+  }),
+  // A session/load replay just finished and its turns were persisted — the client
+  // should refetch this chat's messages so the recovered transcript shows.
+  z.object({ t: z.literal("reload_history") }),
+  // Authoritative result of a bind: the agent + folder this session is ACTUALLY
+  // using and whether the coding agent is running. Sent after every applyBind so
+  // the client can reconcile its optimistic chips — a folder shown in the top bar
+  // that the session never received is exactly the bug this closes.
+  z.object({ t: z.literal("bound_state"), agentId: z.enum(AGENT_IDS).nullable(), cwd: z.string(), agentActive: z.boolean() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
+
+/** The coding agents a conversation can be bound to (null = built-in provider).
+ *  Derived from the shared agent registry — the single source of agent identity. */
+export const AGENT_ID = z.enum(AGENT_IDS);
+export type AgentIdWire = z.infer<typeof AGENT_ID>;
+export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [
@@ -53,5 +97,16 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("frame_response"), reqId: z.string() }),
   // Result of a tool_bridge OS action (clipboard text / ok / error message).
   z.object({ t: z.literal("tool_bridge_result"), reqId: z.string(), output: z.string() }),
+  // Bind (or unbind) this conversation to a coding agent + set its project folder.
+  // Sent on connect (from the client's remembered choice) and whenever the user
+  // switches agents OR the project folder. null agentId = the built-in provider brain.
+  z.object({ t: z.literal("bind"), agentId: AGENT_ID.nullable(), cwd: z.string().optional(), resumeSessionId: z.string().optional() }),
+  // The user's answer to a permission request (chip tap or a spoken yes/no).
+  z.object({ t: z.literal("permission_response"), reqId: z.string(), optionId: z.string() }),
+  // Switch the bound agent's model / mode mid-session (ACP set_model / set_mode).
+  z.object({ t: z.literal("set_model"), modelId: z.string() }),
+  z.object({ t: z.literal("set_mode"), modeId: z.string() }),
+  // Set any other ACP session config option (thought/reasoning level, …).
+  z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

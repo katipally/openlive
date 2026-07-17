@@ -5,6 +5,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("openlive", {
+  platform: process.platform,
   // Enter minimized mode: shrink to a small floating pill (always-on-top).
   mini: () => ipcRenderer.send("openlive:mini"),
   // Restore the normal window.
@@ -19,10 +20,26 @@ contextBridge.exposeInMainWorld("openlive", {
   // OS bridge for agent tools. op: "clipboard_read" | "clipboard_write" | "open_url".
   // Resolves to a short result string the agent speaks back.
   bridge: (op, arg) => ipcRenderer.invoke("openlive:bridge", { op, arg }),
+  // OS notification — shown only when the app isn't focused (main decides).
+  notify: (title, body) => ipcRenderer.send("openlive:notify", { title, body }),
+  // Settings → General: launch-at-login (boolean sets, undefined reads) and the
+  // configurable global mini-mode talk hotkey.
+  loginItem: (v) => ipcRenderer.invoke("openlive:login-item", v),
+  setMiniHotkey: (acc) => ipcRenderer.invoke("openlive:set-mini-hotkey", acc),
   // True when running inside the desktop app.
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).
   version: (process.argv.find((a) => a.startsWith("--openlive-version=")) || "").split("=")[1] || "",
   // The native menu (⌘,) asks the UI to open Settings.
   onOpenSettings: (cb) => ipcRenderer.on("openlive:open-settings", () => cb()),
+  // Global push-to-talk toggle (mini mode's Alt+Space). Single listener: each call
+  // replaces the previous callback so remounts don't stack stale handlers.
+  onPttToggle: (cb) => { ipcRenderer.removeAllListeners("openlive:ptt-toggle"); ipcRenderer.on("openlive:ptt-toggle", () => cb()); },
+  // Mini-panel bridge. The main renderer (voice pipeline) publishes state; the panel
+  // window renders it and sends control commands back. Single listener each, same
+  // replace-on-subscribe rule as above.
+  panelState: (s) => ipcRenderer.send("openlive:panel-state", s),
+  onPanelState: (cb) => { ipcRenderer.removeAllListeners("openlive:panel-state"); ipcRenderer.on("openlive:panel-state", (_e, s) => cb(s)); },
+  panelCmd: (c) => ipcRenderer.send("openlive:panel-cmd", c),
+  onPanelCmd: (cb) => { ipcRenderer.removeAllListeners("openlive:panel-cmd"); ipcRenderer.on("openlive:panel-cmd", (_e, c) => cb(c)); },
 });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent } from "undici";
 import { z, type ZodRawShape } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SseEvent } from "@openlive/shared";
@@ -12,7 +13,7 @@ export type RunWorker = (task: string, emit: Emit, signal: AbortSignal) => Promi
 
 export type Emit = (e: SseEvent) => Promise<void> | void;
 
-export interface TaktTool {
+export interface OpenLiveTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -26,6 +27,13 @@ export interface ToolResult {
 
 const text = (t: string): ToolResult => ({ output: t });
 
+// Decode a numeric character reference. fromCodePoint (not fromCharCode) so astral
+// codepoints — emoji, rare CJK — decode to whole characters instead of broken
+// surrogate halves. Out-of-range values decode to nothing.
+function codePoint(n: number): string {
+  return Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+}
+
 // Minimal HTML → text for fetch_url: drop script/style, strip tags, unescape
 // common entities, collapse whitespace.
 export function htmlToText(html: string): string {
@@ -33,10 +41,11 @@ export function htmlToText(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => codePoint(parseInt(n, 16)))
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&") // last: so "&amp;lt;" → "&lt;", not "<"
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -50,20 +59,44 @@ function params(shape: ZodRawShape): Record<string, unknown> {
 }
 
 // fetch_url SSRF guard: block loopback / private / link-local / metadata hosts.
-function isPrivateIp(ip: string): boolean {
-  if (ip === "::1" || ip.startsWith("fe80:") || ip.startsWith("fc") || ip.startsWith("fd")) return true;
+function isPrivateIp4(ip: string): boolean {
   const p = ip.split(".").map(Number);
-  if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return false;
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
   return p[0] === 127 || p[0] === 10 || p[0] === 0 ||
-    (p[0] === 169 && p[1] === 254) ||           // link-local + cloud metadata
+    (p[0] === 169 && p[1] === 254) ||                 // link-local + cloud metadata (169.254.169.254)
     (p[0] === 172 && p[1]! >= 16 && p[1]! <= 31) ||
-    (p[0] === 192 && p[1] === 168);
+    (p[0] === 192 && p[1] === 168) ||
+    (p[0] === 100 && p[1]! >= 64 && p[1]! <= 127);    // carrier-grade NAT
 }
-async function hostIsPrivate(hostname: string): Promise<boolean> {
-  if (isIP(hostname)) return isPrivateIp(hostname);
-  if (/^(localhost|.*\.local)$/i.test(hostname)) return true;
-  try { const { address } = await dnsLookup(hostname); return isPrivateIp(address); }
-  catch { return true; } // unresolvable → refuse
+export function isPrivateIp(ip: string): boolean {
+  let s = ip.toLowerCase();
+  if (s.startsWith("[") && s.endsWith("]")) s = s.slice(1, -1);
+  if (s === "::1" || s === "::" || s.startsWith("fe80:") || s.startsWith("fc") || s.startsWith("fd")) return true;
+  // IPv4-mapped / -embedded IPv6 (e.g. ::ffff:127.0.0.1, ::ffff:7f00:1, ::127.0.0.1)
+  // must be unwrapped and checked as IPv4 — otherwise http://[::ffff:127.0.0.1]/
+  // slipped straight past the guard.
+  const dotted = s.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (dotted) return isPrivateIp4(dotted[1]!);
+  const hex = s.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) {
+    const hi = parseInt(hex[1]!, 16), lo = parseInt(hex[2]!, 16);
+    return isPrivateIp4([hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join("."));
+  }
+  return isPrivateIp4(s); // plain IPv4 (a public IPv6 returns false here → allowed)
+}
+
+/** Resolve a hostname to the addresses we'll actually connect to, or null if ANY
+ *  of them is private/loopback/metadata. Returns the vetted addresses so the fetch
+ *  can be PINNED to them — closing the DNS-rebinding (TOCTOU) window where the name
+ *  re-resolves to a private IP between this check and the socket connect. */
+async function resolvePublicAddrs(hostname: string): Promise<string[] | null> {
+  if (isIP(hostname)) return isPrivateIp(hostname) ? null : [hostname];
+  if (/^(localhost|.*\.local)$/i.test(hostname)) return null;
+  let addrs: { address: string }[];
+  try { addrs = await dnsLookup(hostname, { all: true }); }
+  catch { return null; } // unresolvable → refuse
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) return null;
+  return addrs.map((a) => a.address);
 }
 
 // ── Individual tools (factories over the turn's `emit`) ──────────────────────
@@ -71,7 +104,7 @@ async function hostIsPrivate(hostname: string): Promise<boolean> {
 // MAIN agent never touches them directly — it hands work off via `delegate` and
 // keeps talking. `look` (camera) is injected per-session by LiveSession.
 
-function makeWebSearch(emit: Emit): TaktTool {
+function makeWebSearch(emit: Emit): OpenLiveTool {
   return {
     name: "web_search",
     description: "Search the web for current or factual info — news, weather, prices, recent events, a specific fact. Returns titles, URLs, and highlights (fetch_url a result for its full text).",
@@ -93,7 +126,7 @@ function makeWebSearch(emit: Emit): TaktTool {
   };
 }
 
-function makeFetchUrl(emit: Emit): TaktTool {
+function makeFetchUrl(emit: Emit): OpenLiveTool {
   return {
     name: "fetch_url",
     description: "Fetch a public web page and return its readable text. Use for a specific URL. Returns plain text (scripts/markup stripped).",
@@ -105,9 +138,19 @@ function makeFetchUrl(emit: Emit): TaktTool {
       let url: URL;
       try { url = new URL(raw); } catch { await emit({ type: "tool_done", id, detail: "bad url" }); return text(`"${raw}" is not a valid URL.`); }
       if (url.protocol !== "http:" && url.protocol !== "https:") { await emit({ type: "tool_done", id, detail: "blocked" }); return text("Only http(s) URLs are allowed."); }
-      if (await hostIsPrivate(url.hostname)) { await emit({ type: "tool_done", id, detail: "blocked" }); return text("That host is not allowed (private/loopback/metadata address)."); }
+      const vetted = await resolvePublicAddrs(url.hostname);
+      if (!vetted) { await emit({ type: "tool_done", id, detail: "blocked" }); return text("That host is not allowed (private/loopback/metadata address)."); }
+      // Pin the socket to a pre-vetted address: undici otherwise re-resolves the
+      // hostname on connect, which a DNS-rebinding attacker can flip to a private IP
+      // in the window between the check above and the connect. The Host/SNI still use
+      // url.hostname, so name-based virtual hosts and TLS keep working.
+      const dispatcher = new Agent({
+        connect: { lookup: (_h: unknown, _o: unknown, cb: (e: Error | null, a: { address: string; family: number }[]) => void) => cb(null, [{ address: vetted[0]!, family: isIP(vetted[0]!) || 4 }]) },
+      });
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "manual", headers: { "user-agent": "OpenLiveBot/1.0" } });
+        // `dispatcher` is an undici extension to fetch options, not in the DOM lib types.
+        const fetchOpts: Record<string, unknown> = { dispatcher, signal: AbortSignal.timeout(15_000), redirect: "manual", headers: { "user-agent": "OpenLiveBot/1.0" } };
+        const res = await fetch(url, fetchOpts as RequestInit);
         if (res.status >= 300 && res.status < 400) { await emit({ type: "tool_done", id, detail: "redirect" }); return text("The URL redirected; pass the final URL directly."); }
         if (!res.ok) { await emit({ type: "tool_done", id, detail: `HTTP ${res.status}` }); return text(`Fetch failed: HTTP ${res.status}.`); }
         const body = htmlToText(await res.text()).slice(0, 20_000);
@@ -118,7 +161,7 @@ function makeFetchUrl(emit: Emit): TaktTool {
   };
 }
 
-function makeUpdateTodos(emit: Emit): TaktTool {
+function makeUpdateTodos(emit: Emit): OpenLiveTool {
   return {
     name: "update_todos",
     description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
@@ -133,7 +176,7 @@ function makeUpdateTodos(emit: Emit): TaktTool {
 
 // Lightweight persistent memory: append a fact to notes.json. Remembered notes
 // are auto-injected into the system prompt on the next call (see buildLivePrompt).
-function makeRemember(emit: Emit): TaktTool {
+function makeRemember(emit: Emit): OpenLiveTool {
   return {
     name: "remember",
     description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",
@@ -145,7 +188,7 @@ function makeRemember(emit: Emit): TaktTool {
       await emit({ type: "tool_start", id, tool: "remember", summary: note });
       try {
         const cur = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
-        if (!cur.includes(note)) { cur.push(note); setSetting("agent_notes", JSON.stringify(cur.slice(-50))); }
+        if (!cur.includes(note)) { cur.push(note); await setSetting("agent_notes", JSON.stringify(cur.slice(-50))); }
       } catch { /* best-effort */ }
       await emit({ type: "tool_done", id, detail: "saved" });
       return text("Got it — I'll remember that.");
@@ -157,7 +200,7 @@ function makeRemember(emit: Emit): TaktTool {
 // owns the web tools. The worker's own tool activity streams to the UI (so the user
 // watches it work) while the main agent keeps talking; it returns tight findings the
 // main agent then speaks. Present even without `runWorker` (for prompt-cache warming).
-function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: RunWorker): TaktTool {
+function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: RunWorker): OpenLiveTool {
   return {
     name: "delegate",
     description: "Hand off anything that needs the web — a search, a lookup, reading a page, checking a current fact — to your assistant, who has those tools. Give the task in one clear line. Say a short natural line to the user FIRST ('let me look that up'), then delegate: your assistant works while you talk, and reports back what it found for you to relay. Don't delegate things you already know — answer those instantly.",
@@ -173,11 +216,11 @@ function makeDelegate(emit: Emit, signal: AbortSignal | undefined, runWorker?: R
 }
 
 /** Tools for the WORKER subagent — the web tools it actually runs. */
-export function buildWorkerTools(ctx: { emit: Emit }): TaktTool[] {
+export function buildWorkerTools(ctx: { emit: Emit }): OpenLiveTool[] {
   return [makeWebSearch(ctx.emit), makeFetchUrl(ctx.emit)];
 }
 
 /** Tools for the MAIN voice agent: it delegates web work and otherwise talks. */
-export function buildTaktTools(ctx: { emit: Emit; signal?: AbortSignal; runWorker?: RunWorker }): TaktTool[] {
+export function buildOpenLiveTools(ctx: { emit: Emit; signal?: AbortSignal; runWorker?: RunWorker }): OpenLiveTool[] {
   return [makeDelegate(ctx.emit, ctx.signal, ctx.runWorker), makeUpdateTodos(ctx.emit), makeRemember(ctx.emit)];
 }

@@ -5,7 +5,7 @@ Maintainer notes — not linked from the README on purpose.
 CI typechecks every push and PR. A release is one tag, no manual version bump:
 
 ```bash
-git tag v0.1.8 && git push origin v0.1.8
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The tag drives the version. CI builds the macOS (universal, signed and notarized)

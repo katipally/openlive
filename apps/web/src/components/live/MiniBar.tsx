@@ -6,6 +6,7 @@ import { useLiveStore, type LivePhase } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { useUi } from "@/lib/uiStore";
 import { Orb } from "./Orb";
+import { HoldToSend } from "./HoldToSend";
 import { cn } from "@/lib/cn";
 
 const noDrag = "[-webkit-app-region:no-drag]";
@@ -41,14 +42,15 @@ function MiniBtn({ on, title, onClick, icon: Icon, danger }: { on: boolean; titl
 // the SAME window — which grows upward to fit. The surface fills the whole window
 // (so there's never a dark gap), no border, and macOS rounds the frameless window.
 export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screenStream,
-  toggleMute, toggleCamera, toggleScreen, getLevels, getBands, onEnd }: {
+  toggleMute, toggleCamera, toggleScreen, getLevels, getBands, onEnd, sendNow }: {
   phase: LivePhase; muted: boolean; cameraOn: boolean; screenOn: boolean;
   cameraStream: MediaStream | null; screenStream: MediaStream | null;
   toggleMute: () => void; toggleCamera: () => void | Promise<void>; toggleScreen: () => void | Promise<void>;
   getLevels: () => { mic: number; agent: number }; getBands: () => { mic: number[]; agent: number[] }; onEnd: () => void;
+  sendNow: () => void;
 }) {
   const setMinimized = useUi((s) => s.setMinimized);
-  const { userCaption, userPartial, agentCaption, toolStatus, warming } = useLiveStore();
+  const { userCaption, userPartial, agentCaption, toolStatus, warming, pttActive } = useLiveStore();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -72,7 +74,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
 
   // While a tool runs or the model warms (and nothing's being spoken yet), surface
   // that as the caption with a shimmer.
-  const cue = toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : "";
+  const cue = pttActive ? "Release to send…" : toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : "";
   const caption = userPartial && userCaption ? userCaption : agentCaption || cue || (phase === "thinking" ? "Thinking…" : "Listening…");
   const cueOnly = !!cue && !(userPartial && userCaption) && !agentCaption;
 
@@ -94,6 +96,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
           ) : (
             <>
               <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
+              <span className={noDrag}><HoldToSend sendNow={sendNow} compact /></span>
               <MiniBtn on={!muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute} icon={muted ? MicOff : Mic} danger={muted} />
               <MiniBtn on={cameraOn} title={cameraOn ? "Camera off" : "Camera on"} onClick={() => void toggleCamera()} icon={cameraOn ? Video : VideoOff} />
               <MiniBtn on={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />

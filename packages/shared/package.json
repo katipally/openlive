@@ -1,12 +1,13 @@
 {
   "name": "@openlive/shared",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./sse-events": "./src/sse-events.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./node": "./src/node/agent-node.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

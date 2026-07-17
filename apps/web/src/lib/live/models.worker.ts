@@ -7,6 +7,7 @@
 import { pipeline, env, AutoProcessor } from "@huggingface/transformers";
 import { KokoroTTS } from "kokoro-js";
 import * as ort from "onnxruntime-web";
+import { Supertonic } from "./supertonic";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
@@ -17,7 +18,7 @@ ort.env.wasm.numThreads = 1;  // single-thread → no cross-origin-isolation nee
 // ONNX we fetch by hand. Falls back to a plain fetch where Cache API is blocked.
 async function cachedArrayBuffer(url: string): Promise<ArrayBuffer> {
   try {
-    const cache = await caches.open("takt-live-models-v1");
+    const cache = await caches.open("openlive-models-v1");
     let res = await cache.match(url);
     if (!res) { await cache.add(url); res = await cache.match(url); }
     if (res) return await res.arrayBuffer();
@@ -29,8 +30,25 @@ async function cachedArrayBuffer(url: string): Promise<ArrayBuffer> {
 // accurate on English (incl. product terms) — the assistant is English-only, and
 // the turn model already uses whisper-tiny.en. (.en models reject a `language`
 // arg, so the stt call passes none.)
-const STT_MODEL = "onnx-community/whisper-base.en";
+// English-only Whisper family; the user picks the size (Pipeline settings). WASM
+// is always tiny (small/base are too slow on CPU). ponytail: `.en` ids only —
+// the assistant is English-only and `.en` rejects a `language` arg.
+const STT_WEBGPU: Record<string, string> = {
+  tiny: "onnx-community/whisper-tiny.en",
+  base: "onnx-community/whisper-base.en",
+  small: "onnx-community/whisper-small.en",
+  // Multilingual (no `.en` variant exists at this size) — best accuracy on capable
+  // machines; the stt call pins `language: "en"` so it never auto-detects wrong.
+  "large-v3-turbo": "onnx-community/whisper-large-v3-turbo",
+};
 const STT_MODEL_WASM = "onnx-community/whisper-tiny.en"; // lighter on the WASM tier
+const sttModel = (device: Device, size: string): string =>
+  device === "wasm" ? STT_MODEL_WASM : (STT_WEBGPU[size] ?? STT_WEBGPU.base!);
+const sttIsMultilingual = (model: string) => !model.endsWith(".en");
+// fp32 for the whole large model would blow past sane GPU memory — the standard
+// transformers.js split (fp16 encoder + q4 decoder) keeps it ~1.6 GB on disk.
+const sttDtype = (model: string, dtype: string) =>
+  model.includes("large-v3-turbo") ? { encoder_model: "fp16", decoder_model_merged: "q4" } : dtype;
 const TTS_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "af_heart";
 // Smart-Turn v3 (pipecat): Whisper-tiny encoder + head; input is a Whisper
@@ -41,7 +59,29 @@ const N8 = 8 * 16000; // Smart-Turn reads the last 8 s of audio
 
 type Device = "webgpu" | "wasm";
 let asr: any = null;
-let tts: any = null;
+let asrMultilingual = false; // multilingual models take (and need) a pinned language
+let tts: any = null;              // Kokoro (lazy when Supertonic is the pick)
+let supertonic: Supertonic | null = null;
+let deviceTier: Device = "wasm";
+
+// One in-flight loader per engine so a mid-call engine switch never races two
+// downloads of the same weights.
+let kokoroLoading: Promise<void> | null = null;
+let supertonicLoading: Promise<void> | null = null;
+const taggedTts = (p: any) => post({ type: "progress", data: { ...p, model: "tts" } });
+function ensureKokoro(): Promise<void> {
+  if (tts) return Promise.resolve();
+  kokoroLoading ??= KokoroTTS.from_pretrained(TTS_MODEL, { device: deviceTier, dtype: deviceTier === "webgpu" ? "fp32" : "q8", progress_callback: taggedTts })
+    .then((t: any) => { tts = t; }).finally(() => { kokoroLoading = null; });
+  return kokoroLoading;
+}
+function ensureSupertonic(): Promise<void> {
+  if (supertonic) return Promise.resolve();
+  supertonicLoading ??= Supertonic.load(deviceTier, taggedTts)
+    .then((s) => { supertonic = s; }).finally(() => { supertonicLoading = null; });
+  return supertonicLoading;
+}
+
 let turnSession: ort.InferenceSession | null = null;
 let turnProc: any = null;
 
@@ -71,12 +111,18 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     if (msg.type === "load") {
       const device: Device = msg.device;
+      deviceTier = device;
       const dtype = device === "webgpu" ? "fp32" : "q8";
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts" | "turn") => (p: any) => post({ type: "progress", data: { ...p, model } });
-      asr = await pipeline("automatic-speech-recognition", device === "wasm" ? STT_MODEL_WASM : STT_MODEL, { device, dtype, progress_callback: tagged("stt") });
-      tts = await KokoroTTS.from_pretrained(TTS_MODEL, { device, dtype, progress_callback: tagged("tts") });
+      const sttId = sttModel(device, msg.whisperSize);
+      asrMultilingual = sttIsMultilingual(sttId);
+      asr = await pipeline("automatic-speech-recognition", sttId, { device, dtype: sttDtype(sttId, dtype) as never, progress_callback: tagged("stt") });
+      // Load only the SELECTED TTS engine up front; the other lazy-loads on a
+      // mid-call engine switch (its first sentence pays the download).
+      if (msg.ttsEngine === "supertonic") await ensureSupertonic();
+      else await ensureKokoro();
       // Smart-Turn is tiny → always CPU/WASM. Non-fatal if it fails to load.
       try {
         turnProc = await AutoProcessor.from_pretrained(TURN_PROCESSOR, { progress_callback: tagged("turn") });
@@ -84,24 +130,33 @@ self.onmessage = async (e: MessageEvent) => {
         turnSession = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] });
       } catch (err) { console.warn("[live] Smart-Turn unavailable:", err); turnSession = null; turnProc = null; }
       // Warm up (compiles WebGPU shaders) so the first real turn isn't janky.
-      try { await asr(new Float32Array(16000)); } catch { /* */ }
-      try { await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
+      try { await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
+      try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1"); else await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
       if (turnSession && turnProc) { try { await turnComplete(new Float32Array(16000)); } catch { /* */ } }
       post({ type: "ready", turn: !!(turnSession && turnProc) });
     } else if (msg.type === "stt") {
-      const text = await serial(async () => String((await asr(msg.audio))?.text ?? "").trim());
+      const opts = asrMultilingual ? { language: "en", task: "transcribe" } : undefined;
+      const text = await serial(async () => String((await asr(msg.audio, opts))?.text ?? "").trim());
       post({ type: "result", id: msg.id, text });
     } else if (msg.type === "tts") {
       const { audio, sampleRate } = await serial(async () => {
-        const a = await tts.generate(msg.text, { voice: VOICE });
+        // engine/voice/speed come from the user's pipeline config, read fresh per
+        // sentence — an engine switch applies to the very next spoken sentence.
+        if (msg.engine === "supertonic") {
+          await ensureSupertonic();
+          const audio = await supertonic!.synthesize(msg.text, msg.voice || "M1", msg.speed || 1);
+          return { audio, sampleRate: supertonic!.sampleRate };
+        }
+        await ensureKokoro();
+        const a = await tts.generate(msg.text, { voice: msg.voice || VOICE, speed: msg.speed || 1 });
         return { audio: a.audio as Float32Array, sampleRate: a.sampling_rate as number };
       });
       post({ type: "result", id: msg.id, audio, sampleRate }, [audio.buffer]);
     } else if (msg.type === "turn") {
-      const complete = await serial(() => turnComplete(msg.audio));
+      const complete = await serial(() => turnComplete(msg.audio, msg.threshold));
       post({ type: "result", id: msg.id, complete });
     } else if (msg.type === "dispose") {
-      asr = null; tts = null;
+      asr = null; tts = null; supertonic = null;
       try { await turnSession?.release?.(); } catch { /* */ }
       turnSession = null; turnProc = null;
       self.close();
@@ -112,11 +167,13 @@ self.onmessage = async (e: MessageEvent) => {
 };
 
 // Is the user's turn actually complete? true if no model (caller falls back).
-async function turnComplete(audio: Float32Array): Promise<boolean> {
+// `threshold` is the sigmoid cutoff (default 0.5); higher = the user must sound
+// more clearly finished before we respond.
+async function turnComplete(audio: Float32Array, threshold = 0.5): Promise<boolean> {
   if (!turnSession || !turnProc) return true;
   const feats = await turnFeatures(audio);
   const inName = turnSession.inputNames[0]!;
   const outName = turnSession.outputNames[0]!;
   const res: any = await turnSession.run({ [inName]: feats });
-  return (res[outName].data[0] as number) > 0.5;
+  return (res[outName].data[0] as number) > threshold;
 }

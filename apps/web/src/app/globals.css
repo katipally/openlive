@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ─── Takt design tokens ───────────────────────────────────────────────────
+/* ─── OpenLive design tokens ───────────────────────────────────────────────
    Token *names* are mapped to CSS custom properties via @theme inline, so the
    Tailwind utilities (bg-card, text-accent, …) resolve to var() at runtime.
    The actual values live in :root (warm-paper light) and .dark (near-black),
@@ -25,6 +25,11 @@
   --color-danger: var(--destructive);
   --color-success: var(--success);
   --color-link-foreground: var(--link-foreground);
+  --color-surface-raised: var(--surface-raised);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
 
   --text-chat: 13px;
   --text-chat--line-height: 21px;
@@ -38,19 +43,22 @@
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Light — "warm paper": warm off-white page, white cards, near-black ink. */
+/* Light — "warm paper": a stepped oat-to-cream ladder, no pure white anywhere.
+   Hierarchy mirrors dark mode's 4 clean levels: page < surface-raised < card <
+   elevated/popover. Cards used to be #ffffff on a near-white page (Δ≈4/255)
+   with 9%-alpha borders — everything fused into one white field. */
 :root {
   color-scheme: light;
-  --background: #f5f4f1;
-  --surface: #ecebe6;
-  --card: #ffffff;
-  --elevated: #ffffff;
-  --popover: #ffffff;
+  --background: #efede8;
+  --surface: #e7e4dd;
+  --card: #faf8f3;
+  --elevated: #fcfaf6;
+  --popover: #fcfaf6;
   --foreground: #1a1a18;
   --muted-foreground: #6a6a66;
   --faint: rgba(0, 0, 0, 0.45);
-  --border: rgba(0, 0, 0, 0.09);
-  --border-heavy: rgba(0, 0, 0, 0.16);
+  --border: rgba(0, 0, 0, 0.14);
+  --border-heavy: rgba(0, 0, 0, 0.22);
   --accent: #2f6fed;
   --accent-foreground: #ffffff;
   --accent-soft: rgba(47, 111, 237, 0.10);
@@ -62,7 +70,12 @@
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.16);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.12);
+  /* Elevation scale — hierarchy comes from surface shifts + these soft shadows,
+     not boxes of borders (HIG-style de-boxing). xs ≈ a hairline substitute. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px -12px rgba(0, 0, 0, 0.14);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.09), 0 24px 48px -16px rgba(0, 0, 0, 0.24);
+  --surface-raised: #f4f2ec;
 
   /* Shared motion vocabulary (used by CSS keyframes and JS presets alike). */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
@@ -93,7 +106,10 @@
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.5), 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  --surface-raised: #17171a;
 }
 
 html, body {
@@ -129,18 +145,34 @@ body::before {
 .desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
 
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
-.takt-scroll {
+/* Markdown inside the transcript (agent replies). Tailwind preflight strips
+   list/heading/paragraph styling — restore a compact, chat-scaled subset. */
+.ol-md > :first-child { margin-top: 0; }
+.ol-md > :last-child { margin-bottom: 0; }
+.ol-md p { margin: 0.4em 0; white-space: pre-wrap; }
+.ol-md ul, .ol-md ol { margin: 0.4em 0; padding-left: 1.3em; }
+.ol-md ul { list-style: disc; }
+.ol-md ol { list-style: decimal; }
+.ol-md li { margin: 0.15em 0; }
+.ol-md h1, .ol-md h2, .ol-md h3, .ol-md h4 { font-weight: 600; margin: 0.7em 0 0.3em; font-size: 1.05em; }
+.ol-md blockquote { border-left: 2px solid var(--border-heavy); padding-left: 0.8em; color: var(--muted-foreground); margin: 0.4em 0; }
+.ol-md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7em 0; }
+.ol-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 12px; display: block; overflow-x: auto; }
+.ol-md th, .ol-md td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.ol-md strong { font-weight: 600; }
+
+.openlive-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-.takt-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
-.takt-scroll::-webkit-scrollbar-thumb {
+.openlive-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.openlive-scroll::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-.takt-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
+.openlive-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
 
 /* ─── Interaction animations ───────────────────────────────────────────────── */
 @keyframes streaming-fade {
@@ -160,6 +192,14 @@ body::before {
   50% { opacity: 0.45; transform: scale(0.82); }
 }
 .animate-pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+/* Floating panel entrance — slides in from the right edge with a soft settle */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ol-panel-in { animation: panel-in 320ms var(--ease-out-quart); }
+@media (prefers-reduced-motion: reduce) { .ol-panel-in { animation: none; } }
 
 /* Live stage entrance — a gentle fade + settle when a call becomes active */
 @keyframes live-in {

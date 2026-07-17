@@ -20,6 +20,9 @@ files:
   - main.cjs
   - preload.cjs
   - splash.html
+  # Packed INTO the asar so the menu-bar tray (main.cjs loads build/icon.png via
+  # __dirname) has its image in installed builds — without this the tray was blank.
+  - build/icon.png
 
 extraResources:
   - from: dist/web

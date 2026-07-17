@@ -4,6 +4,8 @@ import { stt, tts, hasWebGPU, turnComplete, turnModelReady } from "./models";
 import { isJunk, endsMidThought, stripMarkdown, SentenceChunker } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
+import { loadPipelineConfig } from "./pipelineConfig";
+import { log } from "@/lib/log";
 
 // The on-device conversation loop (replaces the old server pipeline). Silero VAD
 // segments the user's speech; Whisper transcribes it (streaming partials + a
@@ -18,10 +20,16 @@ export interface VoiceEngineHandlers {
   onUserText: (text: string) => void;      // final user turn → send to server
   onAgentText: (sentence: string, durationMs: number) => void; // agent caption chunk + how long it plays (for word-timed reveal)
   onBargeIn: (spoken: string) => void;      // cancel the LLM stream; `spoken` = what was actually voiced so far
+  // A mid-thought pause is being held: `until` = when it auto-sends (UI shows a
+  // "waiting for you… tap to send" affordance); null = hold resolved/cancelled.
+  onHold: (h: { until: number } | null) => void;
+  /** True while user speech must NOT barge in — e.g. a permission ask is pending
+   *  and the next utterance IS the answer. Cancelling there killed the very ask
+   *  the user was answering (the chip vanished the moment they spoke). */
+  holdBargeIn?: () => boolean;
 }
 
 const PARTIAL_MS = 500;      // min gap between interim transcriptions
-const HOLD_MS = 4000;        // safety: never hold a mid-thought pause longer than this
 const ONSET_GRACE_MS = 250;  // agent's own first syllable can't self-trigger barge-in
 const MIN_UTTER_SAMPLES = 16000 * 0.25; // ignore <0.25s blips
 const RMS_GATE = 0.006;      // reject near-silence; low enough to hear a soft talker
@@ -41,6 +49,8 @@ export class VoiceEngine {
   private lastPartialAt = 0;
   private partialBusy = false;
   private finalizing = false;
+  private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
+  private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
 
   private micRms = 0;
   // A dedicated analyser on the mic stream → a real frequency spectrum for the orb
@@ -55,6 +65,14 @@ export class VoiceEngine {
   private speakingStartAt = 0;
   private turnSentAt = 0;                         // perf: when the final user text went out
   private spokenText = "";                         // what the agent has actually VOICED this reply (for barge-in cutoff)
+  // After a barge-in, IGNORE the interrupted reply's late deltas/done (they cross the
+  // wire after the local cancel) until the next user turn re-arms — otherwise a
+  // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
+  // new user turn is sent.
+  private acceptingReply = true;
+  // Audio segments that arrived while the previous one was still finalizing (slow STT
+  // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
+  private deferred: Float32Array[] = [];
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
@@ -62,23 +80,26 @@ export class VoiceEngine {
 
   async start(stream: MediaStream) {
     this.player.resume();
+    // VAD sensitivity + trailing silence come from the user's pipeline config;
+    // baked into MicVAD at construction, so edits apply on the next start().
+    const vadCfg = loadPipelineConfig().vad;
     this.vad = await MicVAD.new({
       model: "v5",
-      // Serve the Silero worklet + onnx + ort wasm from a CDN (the default
-      // resolves them to the app origin, which 404s). ponytail: CDN keeps it
-      // zero-config; vendor these into /public for a fully-offline HF Space.
-      baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/",
-      onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/",
+      // Silero worklet + onnx + ort wasm are vendored into /public/vad by
+      // scripts/copy-voice-assets.mjs (predev/prebuild) — served same-origin,
+      // no CDN dependency, versions track package.json.
+      baseAssetPath: "/vad/",
+      onnxWASMBasePath: "/vad/",
       getStream: async () => stream,             // our stream: chosen device + AEC on
-      positiveSpeechThreshold: 0.5,              // lower → picks up soft speech + faster barge-in
-      negativeSpeechThreshold: 0.35,
+      positiveSpeechThreshold: vadCfg.speechThreshold, // lower → picks up soft speech + faster barge-in
+      negativeSpeechThreshold: Math.max(0.1, vadCfg.speechThreshold - 0.15),
       minSpeechMs: 250,
       // Wait through short natural pauses before ending a turn. Kept modest because
       // Smart-Turn v3 (semantic end-of-turn) + the mid-thought hold below already
       // catch premature ends — so we don't need a long silence buffer, and shaving it
       // takes real latency off every turn. ponytail: raise toward 700 if it starts
       // cutting slow talkers off mid-sentence.
-      redemptionMs: 550,
+      redemptionMs: vadCfg.redemptionMs,
       onSpeechStart: () => this.onSpeechStart(),
       onSpeechEnd: (audio) => { void this.onSpeechEnd(audio); },
       onFrameProcessed: (_p, frame) => this.onFrame(frame),
@@ -125,8 +146,22 @@ export class VoiceEngine {
 
   // ── user speech ─────────────────────────────────────────────────────────
   private onSpeechStart() {
-    // Barge-in: user talks over the agent (past the onset grace) → kill audio now.
-    if ((this.phase === "speaking" || this.player.level() > 0) && Date.now() - this.speakingStartAt > ONSET_GRACE_MS) {
+    // Barge-in: the user talks over the agent — whether it's SPEAKING, or still
+    // THINKING/working (e.g. a coding agent running tools or editing). Cancel the
+    // in-flight turn AND the agent's execution (the server aborts the turn, which
+    // fires ACP session/cancel). The onset grace applies only while speaking, so the
+    // agent's own first syllable (echoed through the mic) can't self-trigger.
+    const speaking = this.phase === "speaking" || this.player.level() > 0;
+    const thinking = this.phase === "thinking";
+    // Playback-aware gate: on SPEAKERS the browser's AEC leaks some of the agent's
+    // own voice back into the mic. While agent audio is playing, require the mic's
+    // smoothed RMS to clear the noise gate scaled UP with the playback level —
+    // real speech over the top clears it, residual echo doesn't. Headphones
+    // (agentLevel high but zero acoustic leak) still barge instantly because the
+    // user's voice is the only mic energy. ponytail: linear 2× scale; tune the
+    // factor if speaker echo still self-triggers on some hardware.
+    const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
+    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !this.h.holdBargeIn?.()) {
       this.bargeIn();
     }
     this.clearHold();
@@ -171,26 +206,38 @@ export class VoiceEngine {
   }
 
   private async onSpeechEnd(audio: Float32Array) {
-    if (this.finalizing) return;
+    // A segment ended while the previous one is still finalizing (STT + turn detection
+    // take real time on CPU/WASM). DON'T drop it — defer and re-process below, or the
+    // user's words vanish.
+    if (this.finalizing) { this.deferred.push(audio); return; }
     const combined = this.pending ? this.concat([this.pending, audio], this.pending.length + audio.length) : audio;
-    // Reject blips and near-silence up front (ambient noise that tripped the VAD).
-    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { this.pending = null; this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
+    // Reject blips and near-silence up front (ambient noise that tripped the VAD) —
+    // but during push-to-talk a blip must not throw away what's already held.
+    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { if (!this.ptt) { this.pending = null; this.h.onPartial(""); } if (this.phase === "listening") this.setPhase("idle"); return; }
     this.finalizing = true;
     const perf0 = performance.now();
     try {
       // Transcribe AND ask Smart-Turn (semantic end-of-turn) in parallel. If the
       // turn model isn't loaded, fall back to the VAD's silence endpointing.
+      // "silence" turn engine skips Smart-Turn entirely and lets the VAD's trailing
+      // silence (redemptionMs) end the turn; "smart-turn" uses the semantic model.
+      const turnCfg = loadPipelineConfig().turn;
+      // While push-to-talk is held, no end-of-turn decision at all: just accumulate
+      // and caption — release (endPtt) is the one and only turn boundary.
+      const useTurnModel = !this.ptt && turnModelReady() && turnCfg.engine !== "silence";
       const [text, modelComplete] = await Promise.all([
         stt(combined).then((t) => t.trim()),
-        turnModelReady() ? turnComplete(combined) : Promise.resolve(true),
+        useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
       const sttEndpointMs = performance.now() - perf0;
       console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
+      if (this.ptt) { this.pending = combined; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
       if (isJunk(text)) { this.pending = null; this.h.onPartial(""); this.setPhase("idle"); return; }
       // Hold through a mid-thought pause (model says "not done", or the words
-      // trail off) instead of cutting in — but never longer than HOLD_MS / 20 s.
+      // trail off) instead of cutting in — but never longer than the configured
+      // hold / 20 s.
       const done = modelComplete && !endsMidThought(text);
       if (!done && combined.length < 16000 * 20) {
         this.pending = combined;
@@ -203,6 +250,7 @@ export class VoiceEngine {
       this.clearHold();
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
+      this.acceptingReply = true; // re-arm: this turn's reply should be voiced
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
@@ -210,29 +258,83 @@ export class VoiceEngine {
       // A stalled/failed inference (now time-limited in models.call) must not strand
       // the turn loop — recover to idle and clear the frozen partial caption.
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
-    } finally { this.finalizing = false; }
+    } finally {
+      this.finalizing = false;
+      // Speech that arrived mid-finalize: merge it and process as a continuation
+      // (onSpeechEnd folds in `pending`, so a mid-thought hold still coalesces).
+      if (this.deferred.length) {
+        const parts = this.deferred; this.deferred = [];
+        const merged = this.concat(parts, parts.reduce((n, p) => n + p.length, 0));
+        void this.onSpeechEnd(merged);
+      }
+    }
   }
 
   private scheduleHold() {
     this.clearHold();
-    this.holdTimer = setTimeout(() => {
-      const p = this.pending; this.pending = null; this.holdTimer = null;
-      if (!p || this.phase !== "idle") return;
-      void stt(p).then((t) => {
-        const text = t.trim();
-        if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.turnSentAt = performance.now(); this.h.onUserText(text); }
-        else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
-      }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
-    }, HOLD_MS);
+    const holdMs = loadPipelineConfig().turn.holdMs;
+    this.holdTimer = setTimeout(() => this.flushPending(), holdMs);
+    this.h.onHold({ until: Date.now() + holdMs });
   }
-  private clearHold() { if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; } }
+  /** Send the held mid-thought utterance NOW (hold timer fired, or the user tapped
+   *  "send now" / hit Enter instead of waiting it out). */
+  private flushPending() {
+    const p = this.pending; this.pending = null;
+    this.clearHold();
+    if (!p || this.phase !== "idle") return;
+    void stt(p).then((t) => {
+      const text = t.trim();
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); this.h.onUserText(text); }
+      else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
+    }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
+  }
+  /** Public "send now": commit a held utterance without waiting for the hold timer. */
+  commitPending() { if (this.pending && !this.ptt) this.flushPending(); }
+  private clearHold() { if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; this.h.onHold(null); } }
+
+  // ── push-to-talk ────────────────────────────────────────────────────────
+  /** Hold-to-talk pressed: barge in if the agent is mid-reply, unmute if needed,
+   *  and suspend all auto end-of-turn — release is the turn boundary. */
+  beginPtt() {
+    if (this.ptt || !this.vad) return;
+    this.ptt = true;
+    this.clearHold(); // keep `pending`: PTT continues an already-held thought
+    if ((this.phase === "speaking" || this.phase === "thinking" || this.player.level() > 0) && !this.h.holdBargeIn?.()) this.bargeIn();
+    if (this.muted) void this.vad.start(); // lift a mute for the hold (restored on release)
+  }
+  /** Released: everything accumulated (held segments + the in-flight one) is the turn.
+   *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
+   *  it into `pending` (the ptt branch) instead of racing an auto end-of-turn. */
+  async endPtt() {
+    if (!this.ptt) return;
+    // The user just stopped talking: the VAD ends the segment after redemptionMs of
+    // silence, then onSpeechEnd (ptt branch) appends it to `pending`. Bounded wait.
+    for (let i = 0; i < 40 && (this.phase === "listening" || this.finalizing); i++) await new Promise((r) => setTimeout(r, 50));
+    this.ptt = false;
+    if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
+    const p = this.pending;
+    this.pending = null;
+    if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
+    try {
+      const text = (await stt(p)).trim();
+      if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
+      this.setPhase("thinking");
+      this.spokenText = "";
+      this.acceptingReply = true;
+      this.turnSentAt = performance.now();
+      this.h.onUserText(text);
+    } catch { this.h.onPartial(""); this.setPhase("idle"); }
+  }
+  pttActive() { return this.ptt; }
 
   // ── agent reply → speech ───────────────────────────────────────────────
   feedAgentDelta(text: string) {
+    if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     perf.firstToken(); // no-op after the first delta of a turn
     for (const s of this.chunker.push(text)) this.enqueueSpeak(s, this.epoch);
   }
   endAgentTurn() {
+    if (!this.acceptingReply) return; // the barged reply's `done` — no tail to flush/voice
     const tail = this.chunker.flush();
     if (tail) this.enqueueSpeak(tail, this.epoch);
     // When the TTS chain drains and audio finishes, drop back to idle.
@@ -248,12 +350,14 @@ export class VoiceEngine {
     check();
   }
 
-  private enqueueSpeak(sentence: string, epoch: number) {
+  private enqueueSpeak(sentence: string, epoch: number, outOfBand = false) {
     this.ttsChain = this.ttsChain.then(async () => {
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
       const spoken = stripMarkdown(sentence);
       if (!spoken) return;
-      const { audio, sampleRate } = await tts(spoken);
+      // Read voice/speed per sentence so a settings change applies to the next reply.
+      const ttsCfg = loadPipelineConfig().tts;
+      const { audio, sampleRate } = await tts(spoken, { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed });
       if (this.epoch !== epoch) return;
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {
@@ -265,17 +369,30 @@ export class VoiceEngine {
       // subtitle reads out only the words being spoken right now.
       this.player.play(audio, epoch, sampleRate, () => {
         if (this.epoch !== epoch) return;
+        // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
+        // model's reply — keep them out of `spokenText` (barge-in cutoff) and out of
+        // onAgentText (which the client persists into the transcript), or they get
+        // saved as if the assistant said them and contaminate the cutoff.
+        if (outOfBand) return;
         // Accumulate ONLY as each chunk actually begins playing — so on barge-in
         // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
         // tail is excluded from the saved history.
         this.spokenText += (this.spokenText ? " " : "") + spoken;
         this.h.onAgentText(spoken, durationMs);
       });
-    }).catch((e) => { console.warn("[live] TTS failed:", e?.message ?? e); });
+    }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
+  }
+
+  /** Speak a short out-of-band line (e.g. an agent failure) through the same
+   *  TTS chain — voice-first users hear problems, not just see banners. */
+  say(text: string) {
+    const t = text.trim();
+    if (t) this.enqueueSpeak(t, this.epoch, true /* out-of-band: voice it, don't persist it */);
   }
 
   private bargeIn() {
     this.epoch++;
+    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.player.flush(this.epoch);
     this.chunker.flush();
     this.h.onBargeIn(this.spokenText.trim());
@@ -291,6 +408,7 @@ export class VoiceEngine {
 
   /** Mute (manual / hands-free toggle): pause listening; a held pending is dropped. */
   setMuted(muted: boolean) {
+    this.muted = muted;
     if (!this.vad) return;
     if (muted) { this.clearHold(); this.pending = null; this.micRms = 0; void this.vad.pause(); if (this.phase === "listening") this.setPhase("idle"); }
     else void this.vad.start();
@@ -309,6 +427,7 @@ export class VoiceEngine {
 
   stop() {
     this.clearHold();
+    this.ptt = false;
     this.epoch++;
     try { this.vad?.destroy(); } catch { /* */ }
     this.vad = null;

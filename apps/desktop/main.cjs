@@ -2,12 +2,11 @@
 // OpenLive desktop shell. Runs the web (Next) + agent (ws) servers locally and
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
-const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard } = require("electron");
-const { spawn } = require("node:child_process");
+const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, globalShortcut } = require("electron");
+const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
-const crypto = require("node:crypto");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -78,7 +77,7 @@ function spawnServer(name, scriptRel, env) {
     const r = (restarts[name] ||= { count: 0, first: Date.now() });
     if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
     if (++r.count > 5) {
-      dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Please relaunch the app.`);
+      dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Relaunch the app; if it keeps happening, check that nothing else is using ports ${AGENT_PORT} and ${WEB_PORT}, and please attach any console output to a GitHub issue.`);
       return;
     }
     setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
@@ -87,24 +86,60 @@ function spawnServer(name, scriptRel, env) {
   return child;
 }
 
+// A crashed or force-killed run can leave the server children alive — Windows
+// especially, where children aren't tied to the parent's lifetime — still holding
+// 47823/47824. The next launch's servers then die with EADDRINUSE in a respawn
+// loop that ends at "The web service keeps crashing" (issue #6), and relaunching
+// never helps. We hold the single-instance lock, so any OTHER OpenLive process
+// listening on our ports is a zombie: kill it. Foreign processes are left alone.
+function freeStalePorts() {
+  const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
+  const mine = path.basename(process.execPath).toLowerCase(); // zombie children ran OUR binary (ELECTRON_RUN_AS_NODE)
+  for (const port of [AGENT_PORT, WEB_PORT]) {
+    if (process.platform === "win32") {
+      for (const line of sh("netstat -ano -p tcp").split("\n")) {
+        const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
+        if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
+        const pid = c[4];
+        if (!pid || pid === "0" || Number(pid) === process.pid) continue;
+        if (sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase().includes(mine)) {
+          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
+          sh(`taskkill /F /PID ${pid}`);
+        }
+      }
+    } else {
+      for (const pid of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
+        if (Number(pid) === process.pid) continue;
+        if (sh(`ps -p ${pid} -o comm=`).trim().toLowerCase().includes(mine)) {
+          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
+          sh(`kill -9 ${pid}`);
+        }
+      }
+    }
+  }
+}
+
 function startServers() {
   if (DEV) return; // dev servers come from `pnpm dev`
+  freeStalePorts();
   const dataDir = path.join(app.getPath("userData"), "data");
-  const secret = crypto.randomUUID();
-  // Agent (internal): the renderer connects to it directly over ws on localhost.
+  // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
+  // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN
+  // exposure by itself; the renderer connects over localhost.
   spawnServer("agent", "agent/agent.mjs", {
     AGENT_PORT: String(AGENT_PORT),
+    AGENT_HOST: "127.0.0.1",
     OPENLIVE_DATA_DIR: dataDir,
     WEB_PUBLIC_URL: WEB_URL,
-    // No OPENLIVE_AGENT_SECRET → the agent accepts the direct localhost socket.
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
+  // AGENT_PORT: the /api/voice proxy forwards to the agent on localhost.
   spawnServer("web", "web/server.js", {
     PORT: String(WEB_PORT),
     HOSTNAME: WEB_HOST,
     NODE_ENV: "production",
     OPENLIVE_DATA_DIR: dataDir,
-    OPENLIVE_AGENT_SECRET: secret,
+    AGENT_PORT: String(AGENT_PORT),
   });
 }
 
@@ -178,6 +213,9 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Mini mode HIDES this window while its renderer keeps running the whole voice
+      // pipeline — throttled timers would wreck turn-taking (hold timers, TTS drain).
+      backgroundThrottling: false,
       // Hand the app version to the preload (app.* isn't reachable there). Released
       // builds show the tag version (CI stamps it); unpackaged dev builds get a
       // "-dev" suffix so it's obvious you're not on a release.
@@ -186,10 +224,18 @@ function createMainWindow() {
   });
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
 
-  // Open external links (docs, etc.) in the real browser, not the app window.
+  // Open external http(s) links (docs, etc.) in the real browser; DENY every other
+  // popup (file:, data:, etc.) rather than letting it open an in-app window.
   mainWin.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http")) { shell.openExternal(url); return { action: "deny" }; }
-    return { action: "allow" };
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  // Keep the main frame pinned to our own UI: an in-page navigation to anywhere
+  // other than the local app is blocked (http(s) is handed to the real browser).
+  mainWin.webContents.on("will-navigate", (e, url) => {
+    if (url.startsWith(WEB_URL)) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   mainWin.loadURL(WEB_URL);
@@ -201,70 +247,152 @@ function createMainWindow() {
   mainWin.on("closed", () => { mainWin = null; });
 }
 
-// ── minimized (floating pill) mode ───────────────────────────────────────────
-// Mini mode shrinks the SINGLE main window to a small floating pill that still runs
-// the whole voice pipeline AND owns the camera/screen streams — so the renderer
-// shows the previews INLINE (stacked above the pill) with no separate windows. The
-// pill grows UPWARD as previews appear (its bottom edge stays put). Opaque,
-// always-on-top; macOS rounds the frameless window natively.
+// ── minimized (floating panel) mode ──────────────────────────────────────────
+// Mini mode HIDES the main window (its renderer keeps running the voice pipeline —
+// backgroundThrottling is off) and shows a separate thin PANEL window with the pill
+// UI. The panel is non-activating (clicking it never steals focus from the app
+// you're working in), floats above fullscreen apps, and lives on every Space.
+// State flows main-renderer → main process → panel; commands flow back the same
+// way (a MediaStream can't cross windows, so previews arrive as ~1 fps JPEGs).
 const PILL_W = 430, PILL_H = 56;
-let savedBounds = null;
+let panelWin = null;
 
 function miniDisplay() {
-  return screen.getDisplayMatching(savedBounds || (mainWin ? mainWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 }));
+  return screen.getDisplayMatching(mainWin ? mainWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 });
 }
 function pillBottom(area) { return area.y + area.height - 72; } // clear the dock
 
+function createPanelWindow() {
+  if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); return; }
+  const area = miniDisplay().workArea;
+  panelWin = new BrowserWindow({
+    width: PILL_W, height: PILL_H,
+    x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
+    show: false, frame: false, resizable: false, skipTaskbar: true,
+    roundedCorners: true, backgroundColor: DARK_BG,
+    // macOS: a "panel"-type window is non-activating — clicks land on its buttons
+    // without pulling focus away from whatever app the user is working in.
+    ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  panelWin.setAlwaysOnTop(true, "floating", 1);
+  panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  panelWin.loadURL(`${WEB_URL}/mini`);
+  panelWin.once("ready-to-show", () => { if (panelWin) panelWin.showInactive(); });
+  panelWin.on("closed", () => { panelWin = null; });
+}
+
+// The global mini-mode talk hotkey. Configurable from Settings → General; kept in
+// memory here (the renderer persists it and re-sends on each mini entry).
+// globalShortcut has no keyup, so it's always a press-to-TOGGLE.
+let miniHotkey = "Alt+Space";
+
+// Module-scope so BOTH enterMini() and the set-mini-hotkey IPC handler can arm it.
+// (It used to be declared inside wireMiniIpc(), so enterMini()'s call threw a
+// swallowed ReferenceError → the "Alt+Space from anywhere" hotkey never armed.)
+function registerMiniHotkey() {
+  try {
+    globalShortcut.unregisterAll();
+    return globalShortcut.register(miniHotkey, () => { if (mainWin) mainWin.webContents.send("openlive:ptt-toggle"); });
+  } catch { return false; }
+}
+
+/** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
+ *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
+function enterMini() {
+  if (!mainWin) return;
+  const apply = () => {
+    if (!mainWin) return;
+    createPanelWindow();
+    mainWin.hide();
+  };
+  // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
+  if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
+    mainWin.once("leave-full-screen", apply);
+    mainWin.setFullScreen(false);
+  } else apply();
+  // Global push-to-talk while the panel is up: talk to the agent from any app.
+  registerMiniHotkey();
+}
+
+/** Leave mini mode / bring the app forward. Shared by IPC, the tray menu, and
+ *  notification clicks. */
+function restoreMainWindow() {
+  globalShortcut.unregisterAll();
+  if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
+  panelWin = null;
+  if (mainWin) { mainWin.show(); mainWin.focus(); }
+}
+
+// ── menu-bar (tray) presence + notifications ─────────────────────────────────
+let tray = null;
+
+function createTray() {
+  try {
+    const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
+    tray = new Tray(img);
+    tray.setToolTip("OpenLive");
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: "Open OpenLive", click: restoreMainWindow },
+      { label: "Mini mode", click: enterMini },
+      { type: "separator" },
+      { label: "Quit OpenLive", role: "quit" },
+    ]));
+  } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
+}
+
+function wireNotifyIpc() {
+  // Renderer asks for an OS notification ("agent finished", "permission needed").
+  // Only shown when the user ISN'T looking at the app — focused-and-visible means
+  // they already see it. Clicking brings OpenLive forward (also out of mini mode).
+  ipcMain.on("openlive:notify", (_e, p) => {
+    const title = String(p?.title ?? "").slice(0, 80);
+    if (!title || !Notification.isSupported()) return;
+    if (mainWin && mainWin.isVisible() && mainWin.isFocused()) return;
+    const n = new Notification({ title, body: String(p?.body ?? "").slice(0, 180), silent: true });
+    n.on("click", restoreMainWindow);
+    n.show();
+  });
+}
+
 function wireMiniIpc() {
-  ipcMain.on("openlive:mini", () => {
-    if (!mainWin) return;
-    const applyPill = () => {
-      if (!mainWin) return;
-      if (!savedBounds) savedBounds = mainWin.getBounds();
-      const area = miniDisplay().workArea;
-      mainWin.setResizable(false);
-      mainWin.setMinimumSize(PILL_W, PILL_H);
-      mainWin.setBounds({ width: PILL_W, height: PILL_H, x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H });
-      mainWin.setAlwaysOnTop(true, "floating");
-      mainWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    };
-    // A fullscreen (or simple-fullscreen) window ignores setBounds — leave it first,
-    // then shrink to the pill once the OS transition completes.
-    if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
-      mainWin.once("leave-full-screen", applyPill);
-      mainWin.setFullScreen(false);
-    } else {
-      if (mainWin.isMaximized()) mainWin.unmaximize();
-      applyPill();
+  // Change the hotkey (Settings → General). Re-registers live if the panel is up;
+  // an invalid/taken accelerator falls back to the previous one and reports it.
+  ipcMain.handle("openlive:set-mini-hotkey", (_e, acc) => {
+    const prev = miniHotkey;
+    miniHotkey = String(acc || "Alt+Space");
+    if (panelWin && !panelWin.isDestroyed()) {
+      if (!registerMiniHotkey()) { miniHotkey = prev; registerMiniHotkey(); return { ok: false, hotkey: prev }; }
     }
+    return { ok: true, hotkey: miniHotkey };
   });
-  ipcMain.on("openlive:unmini", () => {
-    if (!mainWin) return;
-    mainWin.setAlwaysOnTop(false);
-    mainWin.setVisibleOnAllWorkspaces(false);
-    mainWin.setResizable(true);
-    mainWin.setMinimumSize(940, 640);
-    if (savedBounds) { mainWin.setBounds(savedBounds); savedBounds = null; }
-  });
-  // The pill fits its content: the renderer measures the stacked previews + pill and
-  // asks for a height. Grow UPWARD — keep the bottom edge fixed so the pill doesn't
-  // walk up/down the screen as previews toggle.
+  ipcMain.on("openlive:mini", enterMini);
+  ipcMain.on("openlive:unmini", restoreMainWindow);
+  // The panel fits its content: its renderer measures the stacked previews + pill
+  // and asks for a height. Grow UPWARD — the bottom edge stays put.
   ipcMain.on("openlive:mini-size", (_e, h) => {
-    if (!mainWin || !mainWin.isAlwaysOnTop()) return;
+    if (!panelWin || panelWin.isDestroyed()) return;
     const area = miniDisplay().workArea;
-    // Fit the content snugly (down to ~a bare pill); don't force the full PILL_H so
-    // there's no empty strip above the composer.
     const height = Math.max(44, Math.min(area.height - 96, Math.round(h) || PILL_H));
-    const b = mainWin.getBounds();
+    const b = panelWin.getBounds();
     if (height === b.height) return;
     const bottom = b.y + b.height;
     const y = Math.max(area.y + 8, bottom - height);
-    mainWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
+    panelWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
   });
+  // State/command relay between the main renderer (voice pipeline) and the panel.
+  ipcMain.on("openlive:panel-state", (_e, s) => { if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send("openlive:panel-state", s); });
+  ipcMain.on("openlive:panel-cmd", (_e, c) => { if (mainWin) mainWin.webContents.send("openlive:panel-cmd", c); });
 }
 
 // ── custom window controls (frameless window → no native traffic lights) ─────
 function wireWindowIpc() {
+  // Launch-at-login (Settings → General). Invoke with a boolean to set; with
+  // undefined to just read the current state.
+  ipcMain.handle("openlive:login-item", (_e, v) => {
+    if (typeof v === "boolean") app.setLoginItemSettings({ openAtLogin: v });
+    return app.getLoginItemSettings().openAtLogin;
+  });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
   ipcMain.on("openlive:win-zoom", () => {
@@ -279,6 +407,11 @@ function wireBridgeIpc() {
     try {
       if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
       if (op === "clipboard_write") { clipboard.writeText(String(arg ?? "")); return "Copied it to the clipboard."; }
+      if (op === "pick_folder") {
+        const opts = { title: "Choose a project folder", properties: ["openDirectory", "createDirectory"] };
+        const r = await (mainWin ? dialog.showOpenDialog(mainWin, opts) : dialog.showOpenDialog(opts));
+        return r.canceled ? "" : (r.filePaths[0] ?? "");
+      }
       if (op === "open_url") {
         let u = String(arg ?? "").trim();
         if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
@@ -366,8 +499,10 @@ function checkForUpdatesNow() {
 
 async function boot() {
   buildMenu();
+  createTray();
   wirePermissions();
   wireMiniIpc();
+  wireNotifyIpc();
   wireWindowIpc();
   wireBridgeIpc();
   createSplash();
@@ -387,3 +522,4 @@ app.whenReady().then(boot);
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => { app.isQuitting = true; for (const c of children) { try { c.kill(); } catch { /* */ } } });
+app.on("will-quit", () => globalShortcut.unregisterAll());

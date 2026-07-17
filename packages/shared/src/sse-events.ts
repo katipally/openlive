@@ -3,8 +3,8 @@ import { z } from "zod";
 // The wire protocol between the agent service and the browser. One JSON object
 // per SSE `data:` line. In OpenLive these are wrapped by the live WS server
 // (`{t:"sse", event}`) and decoded into the chat store on the client. This is the
-// LIVE subset — no canvas / source / ask_user events (those lived in takt's main
-// app, which OpenLive drops).
+// LIVE subset — no canvas / source / ask_user events (those belonged to the full
+// chat app OpenLive was ported from, which it drops).
 
 export const sseEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text_delta"), text: z.string() }),

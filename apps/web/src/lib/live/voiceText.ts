@@ -71,8 +71,32 @@ export class SentenceChunker {
   private buf = "";      // text after the last completed sentence
   private ready = "";    // completed sentences not yet long enough to speak
   private started = false; // has the first speakable chunk of THIS turn gone out?
+  private inFence = false;  // inside a ``` code block — suppress it from speech
+  private btTail = "";      // held trailing backticks that may start a ``` split across deltas
+
+  // Drop fenced code blocks (```…```) from the SPOKEN stream — a code dump read
+  // aloud is symbol soup. Stateful because a fence spans many streamed deltas, and
+  // the ``` marker itself can split across two deltas (hence btTail). Inline code and
+  // other markdown are handled per-chunk by stripMarkdown.
+  private stripFences(t: string): string {
+    let s = this.btTail + t;
+    this.btTail = "";
+    // Hold back a trailing run of 1–2 backticks: it might be the start of a ```.
+    const m = /`+$/.exec(s);
+    if (m && m[0].length < 3) { this.btTail = m[0]; s = s.slice(0, s.length - m[0].length); }
+    let out = "";
+    while (true) {
+      const i = s.indexOf("```");
+      if (i === -1) { if (!this.inFence) out += s; break; }
+      if (!this.inFence) out += s.slice(0, i);
+      this.inFence = !this.inFence;
+      s = s.slice(i + 3);
+    }
+    return out;
+  }
+
   push(t: string): string[] {
-    this.buf += t;
+    this.buf += this.stripFences(t);
     const out: string[] = [];
     // Fast start — only when nothing is already held (`ready` empty) so we never
     // speak the opening ahead of an earlier short sentence waiting to merge.
@@ -111,5 +135,12 @@ export class SentenceChunker {
   }
   // flush() ends the turn (called on `done` and on barge-in) — reset `started`
   // so the next reply gets its own fast first chunk.
-  flush(): string { const s = (this.ready + this.buf).trim(); this.ready = ""; this.buf = ""; this.started = false; return s; }
+  flush(): string {
+    // Emit any held backtick tail only if we're not inside a fence (it was real text,
+    // not a fence marker). Reset all state so the next reply starts clean.
+    const tail = this.inFence ? "" : this.btTail;
+    const s = (this.ready + this.buf + tail).trim();
+    this.ready = ""; this.buf = ""; this.started = false; this.inFence = false; this.btTail = "";
+    return s;
+  }
 }

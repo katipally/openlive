@@ -70,7 +70,7 @@ export function SearchSelect({
               placeholder="Search models…"
               className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-faint" />
           </div>
-          <div className="takt-scroll max-h-64 overflow-y-auto py-1">
+          <div className="openlive-scroll max-h-64 overflow-y-auto py-1">
             {filtered.length === 0 && <div className="px-3 py-3 text-center text-[12.5px] text-faint">{emptyText}</div>}
             {filtered.map((o, i) => (
               <button key={o.value} type="button" onMouseEnter={() => setActive(i)} onClick={() => pick(o.value)}

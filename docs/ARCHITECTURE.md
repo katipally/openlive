@@ -4,31 +4,73 @@ How OpenLive fits together, and the few decisions that shape everything else.
 
 ## The one big idea: thick client, thin server
 
-The whole voice loop runs **on your machine, in the browser renderer**. The server
-is a thin proxy in front of whatever chat model you picked. No audio ever crosses
-the wire.
+The whole voice loop runs **on your machine, in the browser renderer**. The local
+agent server is a thin driver in front of the brain you picked — an external coding
+agent over ACP, or a chat-model provider. No audio ever crosses the wire.
 
 ```
-┌─────────────────────────── your machine ───────────────────────────┐
-│  renderer (apps/web)                          agent (services/agent)│
-│                                                                     │
-│  mic → VAD → STT → end-of-turn ─┐   /live WS   ┌─ LiveTurnRunner     │
-│  (Silero)(Whisper)(Smart-Turn)  ├── text ────▶ │   → model provider  │
-│                                 │   +frames    │   (BYO key)         │
-│  speaker ← TTS ← sentences ─────┘◀── reply ────┘   ↑ any provider    │
-│           (Kokoro)                  (SSE text)      (BYO key)         │
-│    ▲ camera / screen frames ────────┘                               │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────── your machine ────────────────────────────────┐
+│  renderer (apps/web)                        agent server (services/agent)    │
+│                                                                              │
+│  mic → VAD → STT → end-of-turn ─┐  /live WS  ┌─ LiveSession                  │
+│  (Silero)(Whisper)(Smart-Turn)  ├─ text ───▶ │   ├─ AcpAgent ── stdio ──▶ your coding agent
+│                                 │  +frames   │   │  (supervised)   (Claude Code / Codex / …)
+│  speaker ← TTS ← sentences ─────┘◀─ reply ───┘   └─ or: provider turn loop   │
+│           (Kokoro)                 (SSE text)         (BYO model key)        │
+│    ▲ camera / screen frames ────────┘                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The `/live` WebSocket carries only three things up: the **final user text** (already
-transcribed on-device), **JPEG camera/screen frames**, and a **cancel** signal for
-barge-in. It carries one thing down: the model's reply **text**, streamed as it
-generates. The browser speaks that text sentence by sentence as it arrives.
+The `/live` WebSocket carries text turns + JPEG frames up and streamed reply text
+down (plus permission asks, agent metadata, and control messages — see
+`packages/shared/src/live-events.ts`). The browser speaks the reply sentence by
+sentence as it arrives.
 
-Everything above the model — listening, transcribing, knowing when you stopped
-talking, speaking — is local. The only thing that leaves is the text turn, the same
-call any app would make to a model provider.
+## The agent registry (`packages/shared/src/agent-registry.ts`)
+
+The **single source of agent identity**. Every agent's id, label, brand mark, ACP
+adapter command, install/uninstall recipes, login/logout commands, session-store
+location + parser, and credential probe lives in one table. The server driver, the
+API routes, the History sidebar, and every selector read it — adding an agent is one
+entry, and the whole UI (including History discovery) picks it up automatically.
+Node-only helpers (credential probing, PATH widening, terminal launch) live in
+`@openlive/shared/node`.
+
+Two adapter versions are **pinned** on purpose (guarded by unit tests):
+`claude-agent-acp@0.59.0` (OpenLive relies on its `_meta.claudeCode.options`
+passthrough) and `hermes-agent[acp]==0.18.2`.
+
+## Driving a coding agent over ACP (`services/agent/src/agents/`)
+
+`AcpAgent` spawns the agent's ACP adapter as a child process and speaks JSON-RPC
+over stdio ("LSP for agents"). Design points:
+
+- **No faked capabilities.** OpenLive advertises no fs/terminal capabilities — a
+  voice app isn't an editor. The agent uses its own file access and asks permission
+  (via `session/request_permission`) before anything risky; the ask is spoken and
+  shown as chips, answerable by voice.
+- **Sessions belong to the agent.** For Claude, `_meta.claudeCode.options` rides
+  `session/new`/`session/load` with `persistSession: true` (sessions land in
+  `~/.claude/projects/<cwd-slug>/` where `claude --resume` finds them) and a
+  system-prompt append carrying the voice-call context. `CLAUDE_CODE_ENTRYPOINT=
+  claude-vscode` keeps them visible in the CLI's `/resume` picker. Other agents get
+  a first-turn preamble instead.
+- **Resume.** Reopening a conversation calls `session/load`; the replayed updates
+  rebuild the transcript. Resume failures fall back to a fresh session silently
+  (the original stays on disk and in History).
+- **Models / modes / options.** The agent reports its models, modes, and other
+  config options over ACP; the UI renders pickers generically and switches them
+  mid-session (`set_model` / `set_mode` / `set_option`).
+- **Supervision.** Every agent runs inside `AgentSupervisor`: per-turn watchdogs
+  (start / first-output / stall), restart-once-then-fail, and every failure ends as
+  a *spoken* one-liner + structured error — never a session stuck listening.
+- **Cleanup.** Adapters spawn in their own process group so dispose kills the whole
+  `npx → node → binary` tree.
+
+History also surfaces each agent's **own** on-disk sessions
+(`apps/web/src/app/api/history/agentSessions.ts` — Claude JSONL, Codex rollouts,
+Cursor meta, OpenCode/Hermes read-only sqlite), deduped against OpenLive's chats,
+so everything you did in the CLI shows up too.
 
 ## The voice loop (`apps/web/src/lib/live`)
 
@@ -38,79 +80,53 @@ One turn, end to end:
 2. **STT** (Whisper) transcribes speech to text as it streams.
 3. **End-of-turn** (Smart-Turn v3) decides you actually *finished*, not just paused.
 4. The final text (plus the freshest camera/screen frame) goes out over `/live`.
-5. The model reply streams back as text; **TTS** (Kokoro) voices it sentence by
-   sentence so speaking starts before the full answer exists.
+5. The reply streams back as text; **TTS** (Kokoro or Supertonic in the renderer,
+   or a cloned voice — see below) voices it sentence by sentence so speaking starts
+   before the full answer exists.
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
-   and the transcript keeps only what was actually spoken.
+   (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
 
-All four models run on **WebGPU via transformers.js**. They download once (~200 MB,
-cached) and the worker stays warm for the tab's life, so the second call skips the
-download *and* the shader recompile (`models.worker.ts` warms shaders on load).
+The renderer models run on **WebGPU via transformers.js**. They download once
+(roughly 200 MB with Kokoro, more with Supertonic or a bigger Whisper; cached)
+and the worker stays warm for the tab's life.
 
-## The model turn (`services/agent`)
+## Voice cloning (`services/agent/src/voice/`)
 
-`LiveSession` owns one WebSocket. `LiveTurnRunner` holds the growing `Message[]`
-and drives each turn through `streamProvider` in `packages/harness`, where three
-wire adapters cover every provider: **Anthropic** (`/messages` — Claude + MiniMax),
-**OpenAI Responses** (`/responses` — OpenAI + Ollama), and **OpenAI Chat**
-(`/chat/completions` — Google, xAI, DeepSeek, Groq, Mistral, and the rest). A
-provider is just a registry row (id, protocol, base URL, key), so adding one is a
-few lines. Reasoning is off by default for the snappiest voice; frames ride only
-the two most recent user turns for cost and latency. When a separate vision model
-is configured, a text-only live model still sees — the vision model describes the
-frames and its description rides the turn.
+Voice Studio does zero-shot cloning with **ZipVoice** (k2-fsa, Apache-2.0, 123M
+distilled int8) through the **sherpa-onnx Node addon**, running in the agent
+service on CPU — the one place in OpenLive with a native module, loaded lazily
+via `createRequire` so nothing changes for people who never use it. The reference
+recording rides every `generate()` call, so one engine instance serves every
+saved profile; `generateAsync` synthesizes on sherpa's native thread pool
+(measured ~0.22x realtime on an M-series CPU) and the engine unloads after five
+idle minutes. The model is a user-managed ~208 MB install under
+`data/models/zipvoice`, profiles are a wav + transcript under `data/voices`, and
+the renderer reaches it all through a same-origin `/api/voice` proxy — the
+cloned audio streams back as raw Float32 PCM into the same `AudioPlayer` /
+barge-in path as the on-device engines, with Kokoro as automatic fallback.
 
-**Warm-up.** On session open the runner fires a tiny prefill (`warm()`) to heat the
-prompt cache and the connection, then the agent sends `{status:"ready"}` so the UI
-can drop its "Warming up…" spinner. Cached providers get a genuinely fast first
-turn; MiniMax can't prompt-cache, so there it only warms the connection.
+## The built-in provider brain (`services/agent/src/live/turn-runner.ts`)
 
-## Talk first, delegate the tools
-
-The main voice agent **does all the talking** and never runs a web tool itself. When
-an answer needs the real world, it hands the task to a **worker subagent** and keeps
-the conversation flowing.
-
-```
-you ─▶ main agent ── "let me look that up." ─────────── spoken immediately
-                    └ delegate(task)
-                         worker subagent (own LLM loop, never spoken):
-                           web_search (Exa) · fetch_url        ← activity streams
-                           │  (>1.5s? a true progress line is    to the transcript
-                           │   spoken: "still searching for …")   as live chips
-                         findings ─┘
-       main agent ── speaks the answer, short ───────── the worker's context
-                                                         stays out of the main one
-```
-
-Why a subagent instead of tools on the main agent:
-
-- The multi-step tool grind (search → read → search again) stays in the worker's
-  context, so the **main conversation stays small and its non-tool turns stay fast**.
-- The worker's tool activity streams to the transcript as live chips and to the
-  subtitle ("Searching the web…"), so you *see* it work.
-- The worker speaks nothing; only its tight findings come back for the main agent
-  to relay in its own voice.
-
-**Web search** uses Exa's hosted MCP server (`mcp.exa.ai`), keyless on the free
-tier — same wiring opencode uses. Drop an Exa key in Settings (or `EXA_API_KEY`) to
-lift the rate limit. Other tools: `fetch_url` (with an SSRF guard), `look` (a crisp
-on-demand camera/screen frame), `remember` (a fact that persists across calls),
-`update_todos` (a live checklist), plus `clipboard`/`open_url` in the desktop app.
+Conversations with no agent bound run on a provider turn loop: three wire adapters
+in `packages/harness` (Anthropic `/messages`, OpenAI `/responses`, OpenAI
+`/chat/completions`) cover every provider; a provider is a registry row. The main
+voice agent does all the talking and delegates web work to a **worker subagent**
+(Exa search, `fetch_url`) whose grind stays out of the main context; other tools:
+`look`, `remember`, `update_todos`, clipboard/open-url via the desktop bridge.
 
 ## Packages
 
 ```
-packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), live model listing, effort
-packages/shared    the /live wire protocol + shared types
+packages/shared    agent registry + node helpers, /live wire protocol, shared types
+packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing, effort
 packages/db        JSON-file store: AES-256-GCM-encrypted keys, settings, conversations
 ```
 
 `packages/db` is deliberately JSON files, not SQLite — no native modules, so
 electron-builder packages the desktop app with no rebuild step.
 
-## The three deployments
+## Quality gates
 
-`main` is the desktop app (lowest latency: warm local servers, no cold start). Two
-branches trade latency for reach: `docker-websocket` (the same WebSocket app as one
-Docker image, self-host) and `serverless-sse` (one streaming turn per request, Vercel).
+`pnpm typecheck` (all packages) and `pnpm test` (vitest, colocated `*.test.ts`) run
+in CI on ubuntu + windows; the windows job also produces an unsigned installer to
+prove cross-platform builds stay green.

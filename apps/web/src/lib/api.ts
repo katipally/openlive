@@ -1,4 +1,4 @@
-import type { Provider, ChatSummary, ChatMessage } from "@openlive/shared";
+import type { Provider, ChatSummary, ChatMessage, HistoryWorkspace } from "@openlive/shared";
 
 export interface ModelInfo {
   id: string; display_name: string; created_at?: string;
@@ -12,7 +12,11 @@ export interface AppSettings {
   /** Optional dedicated vision model (own provider) for when the live model can't see. */
   visionProviderId?: string;
   visionModel?: string;
+  /** Working directory a bound coding agent runs in (its file-access scope). */
+  agentCwd?: string;
 }
+
+export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? res.statusText);
@@ -30,10 +34,17 @@ export const api = {
     fetch("/api/providers", { method: "POST", body: JSON.stringify({ kind, apiKey }) }).then(j<Provider>),
   models: (provider?: string) =>
     fetch(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`).then(j<ModelInfo[]>),
-  settings: () => fetch("/api/settings").then(j<AppSettings>),
-  updateSettings: (b: Partial<AppSettings>) =>
-    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings>),
+  settings: () => fetch("/api/settings").then(j<AppSettings & Record<string, string>>),
+  updateSettings: (b: Record<string, string>) =>
+    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>),
   chats: () => fetch("/api/chats").then(j<ChatSummary[]>),
+  history: () => fetch("/api/history").then(j<HistoryWorkspace[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE" }).then(j),
+  renameChat: (id: string, title: string) =>
+    fetch(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).then(j),
+  // Permanently delete a coding agent's OWN on-disk session (irreversible).
+  deleteExternalSession: (agentId: string, id: string) =>
+    fetch("/api/history/session", { method: "DELETE", body: JSON.stringify({ agentId, id }) }).then(j),
+  agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
 };

@@ -1,6 +1,6 @@
 {
   "name": "@openlive/db",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -11,10 +11,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openlive/shared": "workspace:*"
+    "@openlive/shared": "workspace:*",
+    "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/proper-lockfile": "^4.1.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

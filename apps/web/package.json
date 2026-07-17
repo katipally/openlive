@@ -1,15 +1,18 @@
 {
   "name": "@openlive/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_PUBLIC_LIVE_WS_URL=ws://localhost:${AGENT_PORT:-8787} next dev -p ${WEB_PORT:-3000}",
+    "predev": "node scripts/copy-voice-assets.mjs",
+    "dev": "node scripts/dev.mjs",
+    "prebuild": "node scripts/copy-voice-assets.mjs",
     "build": "next build",
     "start": "node server.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@huggingface/transformers": "^4.2.0",
     "@openlive/db": "workspace:*",
     "@openlive/harness": "workspace:*",
@@ -17,14 +20,16 @@
     "@ricky0123/vad-web": "^0.0.29",
     "@tanstack/react-query": "^5.101.2",
     "clsx": "^2.1.1",
+    "gsap": "^3.15.0",
     "kokoro-js": "^1.2.0",
     "lucide-react": "^0.469.0",
-    "motion": "^12.42.0",
     "next": "^16.2.9",
     "next-themes": "^0.4.6",
     "onnxruntime-web": "^1.22.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.6.0",
     "ws": "^8.18.0",
     "zustand": "^5.0.3"

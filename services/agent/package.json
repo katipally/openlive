@@ -1,6 +1,6 @@
 {
   "name": "@openlive/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,18 +9,25 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@hono/node-server": "^1.13.8",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openlive/db": "workspace:*",
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
     "hono": "^4.12.27",
+    "sherpa-onnx-node": "^1.13.4",
+    "tar": "^7.5.20",
+    "unbzip2-stream": "^1.4.3",
+    "undici": "^8.7.0",
     "ws": "^8.18.0",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/tar": "^7.0.87",
+    "@types/unbzip2-stream": "^1.4.3",
     "@types/ws": "^8.5.13",
     "tsx": "^4.22.4",
     "typescript": "^5.7.3"

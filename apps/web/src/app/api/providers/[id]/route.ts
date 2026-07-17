@@ -12,7 +12,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json().catch(() => ({}));
 
   if (body.clear) {
-    const provider = clearProviderKey(id);
+    const provider = await clearProviderKey(id);
     if (!provider) return NextResponse.json({ error: "not found" }, { status: 404 });
     return NextResponse.json(provider);
   }
@@ -20,7 +20,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const key = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   if (!key) return NextResponse.json({ error: "Paste an API key." }, { status: 400 });
 
-  const provider = updateProvider(id, { apiKey: key });
+  const provider = await updateProvider(id, { apiKey: key });
   if (!provider) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(provider);
 }

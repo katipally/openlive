@@ -1,9 +1,10 @@
 import type { ProviderInfo } from "./types"
 
 /**
- * The three supported providers. Claude and MiniMax both speak the Anthropic
- * wire protocol (MiniMax via its Anthropic-compat endpoint, with quirks);
- * OpenAI speaks the Responses API. `catalogId` maps to the models.dev key.
+ * The built-in providers (15 at last count — see BUILTIN_PROVIDERS below).
+ * Three wire dialects cover all of them: Anthropic /messages (Claude, and
+ * MiniMax via its Anthropic-compat endpoint, with quirks), OpenAI Responses,
+ * and OpenAI Chat Completions. `catalogId` maps to the models.dev key.
  */
 export interface BuiltinProvider extends ProviderInfo {
   catalogId?: string
