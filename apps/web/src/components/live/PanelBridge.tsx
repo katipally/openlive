@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
-import { openliveBridge, type PanelCmd, type PanelStateSnapshot } from "@/lib/live/panelBridge";
+import { openliveBridge, setPanelCmdHandler, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { useUi } from "@/lib/uiStore";
 import { savedMiniHotkey } from "@/lib/platform";
 
@@ -104,9 +104,10 @@ export function PanelBridge(props: PanelBridgeProps) {
     return () => clearInterval(t);
   }, []);
 
-  // Panel commands → the live session.
+  // Panel commands → the live session, via the module router (single listener;
+  // the router's fallback keeps expand/end working when this isn't mounted).
   useEffect(() => {
-    openliveBridge()?.onPanelCmd?.((c: PanelCmd) => {
+    setPanelCmdHandler((c) => {
       const q = p.current;
       switch (c.t) {
         case "mute": q.toggleMute(); break;
@@ -119,6 +120,7 @@ export function PanelBridge(props: PanelBridgeProps) {
         default: break;
       }
     });
+    return () => setPanelCmdHandler(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

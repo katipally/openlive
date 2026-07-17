@@ -14,6 +14,7 @@ import { useAppVersion } from "@/lib/useAppVersion";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
+import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
 
 export default function Home() {
   const appVersion = useAppVersion();
@@ -31,6 +32,17 @@ export default function Home() {
   // don't silently pull hundreds of MB on first launch).
   useEffect(() => {
     if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
+  }, []);
+
+  // Desktop: follow mini-mode changes made from OUTSIDE the renderer (tray menu).
+  // Without this the tray's "Mini mode" hid the window while the renderer still
+  // thought it was expanded — the pill's bridge never mounted and every button
+  // (end, expand, camera, screen) was dead. Also arm the panel-cmd fallback so
+  // expand/end restore the window even when no call is running.
+  useEffect(() => {
+    const api = (window as unknown as { openlive?: { onMinimized?: (cb: (v: boolean) => void) => void } }).openlive;
+    api?.onMinimized?.((v) => useUi.getState().setMinimized(v));
+    wirePanelCmdRouter(() => useUi.getState().setMinimized(false));
   }, []);
 
   const heroRef = useRef<HTMLDivElement>(null);

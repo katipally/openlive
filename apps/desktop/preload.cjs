@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld("openlive", {
   // System sleep/wake. "suspend" → pause the mic/VAD cleanly; "resume" → offer
   // reconnect. Same replace-on-subscribe rule as the other handlers.
   onPower: (cb) => { ipcRenderer.removeAllListeners("openlive:power"); ipcRenderer.on("openlive:power", (_e, s) => cb(s)); },
+  // Mini-mode state pushed by main (tray menu can enter/leave mini without the
+  // renderer's involvement — it must follow, or the pill goes dead).
+  onMinimized: (cb) => { ipcRenderer.removeAllListeners("openlive:minimized"); ipcRenderer.on("openlive:minimized", (_e, v) => cb(!!v)); },
   // The native menu (⌘,) asks the UI to open Settings. Single listener, same
   // replace-on-subscribe rule as the handlers below: the renderer re-subscribes on
   // every remount (and on every hot reload in dev), so a plain `.on` stacked a new

@@ -328,19 +328,26 @@ function registerMiniHotkey() {
 // worked. Recreating the window is the whole point of a tray icon, so they do.
 
 /** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
- *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
-function enterMini() {
+ *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu.
+ *  `fromRenderer` suppresses the state echo: the renderer already knows about
+ *  transitions IT started, and echoing them back closed a feedback loop with
+ *  React StrictMode's mount→unmount→remount (each echo flipped the store, each
+ *  flip re-fired mini/unmini → the panel window recreated in a tight loop). */
+function enterMini(fromRenderer = false) {
   // Mini mode runs the voice pipeline in the MAIN renderer and only hides its
   // window, so it needs that window to exist before there's anything to minimise.
   if (!mainWin) {
     createMainWindow();
-    mainWin.once("ready-to-show", enterMini);
+    mainWin.once("ready-to-show", () => enterMini(fromRenderer));
     return;
   }
   const apply = () => {
     if (!mainWin) return;
     createPanelWindow();
     mainWin.hide();
+    // TRAY path only: tell the renderer it's minimized, so its panel bridge
+    // mounts (otherwise every pill button is dead — no end/expand/camera).
+    if (!fromRenderer) mainWin.webContents.send("openlive:minimized", true);
     refreshTray();
   };
   // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
@@ -354,12 +361,15 @@ function enterMini() {
 
 /** Leave mini mode / bring the app forward. Shared by IPC, the tray menu, and
  *  notification clicks. */
-function restoreMainWindow() {
+function restoreMainWindow(fromRenderer = false) {
   globalShortcut.unregisterAll();
   if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
   panelWin = null;
   if (!mainWin) { createMainWindow(); return; } // its ready-to-show shows + refreshes
   if (mainWin.isMinimized()) mainWin.restore(); // show() alone leaves it in the Dock
+  // TRAY/notification path only — see enterMini for why renderer-initiated
+  // transitions must NOT be echoed back.
+  if (!fromRenderer) mainWin.webContents.send("openlive:minimized", false);
   mainWin.show();
   mainWin.focus();
   app.focus({ steal: true }); // tray clicks don't activate the app on macOS
@@ -421,8 +431,8 @@ function wireMiniIpc() {
     }
     return { ok: true, hotkey: miniHotkey };
   });
-  ipcMain.on("openlive:mini", enterMini);
-  ipcMain.on("openlive:unmini", restoreMainWindow);
+  ipcMain.on("openlive:mini", () => enterMini(true));
+  ipcMain.on("openlive:unmini", () => restoreMainWindow(true));
   // The panel fits its content: its renderer measures the stacked previews + pill
   // and asks for a height. Grow UPWARD — the bottom edge stays put.
   ipcMain.on("openlive:mini-size", (_e, h) => {
