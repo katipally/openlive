@@ -31,7 +31,7 @@ export const THINK_HINT = "Lower answers faster";
  *  silently override what the agent reports as its own current level. */
 export function ThinkNote() {
   return (
-    <p className="pt-1.5 text-[10.5px] leading-relaxed text-faint">
+    <p className="pt-1.5 text-micro leading-relaxed text-faint">
       You&apos;re on a call — every thinking token is silence before the first word. Keep this as low as the work allows.
     </p>
   );
@@ -61,7 +61,7 @@ export interface Opt {
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.09em] text-faint">{title}</h3>
+      <h3 className="text-micro font-semibold uppercase tracking-[0.09em] text-faint">{title}</h3>
       <div className="space-y-4">{children}</div>
     </section>
   );
@@ -74,10 +74,10 @@ export function Field({ label, hint, required, children }: {
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[12px] font-medium text-foreground/90">
+        <span className="text-label font-medium text-foreground/90">
           {label}{required && <span className="text-danger"> *</span>}
         </span>
-        {hint && <span className="shrink-0 text-[10.5px] leading-tight text-faint">{hint}</span>}
+        {hint && <span className="shrink-0 text-micro leading-tight text-faint">{hint}</span>}
       </div>
       {children}
     </div>
@@ -126,25 +126,25 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
           disabled ? "cursor-not-allowed opacity-55" : "hover:shadow-[var(--shadow-card)]",
         )}>
         {current?.icon && <span className="grid size-4 shrink-0 place-items-center">{current.icon}</span>}
-        <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", current ? "text-foreground" : "text-muted-foreground")}>
+        <span className={cn("min-w-0 flex-1 truncate text-label", current ? "text-foreground" : "text-muted-foreground")}>
           {current?.name ?? placeholder ?? "Select…"}
         </span>
-        {current?.starred && <span className="shrink-0 text-[11px] text-accent">✦</span>}
+        {current?.starred && <span className="shrink-0 text-caption text-accent">✦</span>}
         {!disabled && <ChevronDown className={cn("size-3.5 shrink-0 text-faint transition", open && "rotate-180")} />}
       </button>
 
       {open && (
         <div ref={menuRef} role="listbox" aria-label={ariaLabel}
           className="openlive-scroll absolute left-0 right-0 z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-[var(--shadow-pop)]">
-          {options.length === 0 && <p className="px-2.5 py-2 text-[12px] text-faint">Nothing to choose yet.</p>}
+          {options.length === 0 && <p className="px-2.5 py-2 text-label text-faint">Nothing to choose yet.</p>}
           {options.map((o) => (
             <button key={o.id} type="button" role="option" aria-selected={o.id === value}
               onClick={() => { onChange(o.id); setOpen(false); }}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-foreground/[0.06]">
               {o.icon && <span className="grid size-4 shrink-0 place-items-center">{o.icon}</span>}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12.5px] text-foreground">{o.name}{o.starred && <span className="text-accent"> ✦</span>}</span>
-                {o.detail && <span className="block truncate text-[10.5px] text-faint">{o.detail}</span>}
+                <span className="block truncate text-label text-foreground">{o.name}{o.starred && <span className="text-accent"> ✦</span>}</span>
+                {o.detail && <span className="block truncate text-micro text-faint">{o.detail}</span>}
               </span>
               {o.id === value && <Check className="size-3.5 shrink-0 text-success" />}
             </button>
@@ -207,12 +207,12 @@ export function Segmented({ value, options, onChange, ariaLabel, disabled }: {
             // panel. Growing from content width instead lets each segment take only
             // the room its own word needs.
             className={cn(
-              "relative z-10 flex min-w-0 grow basis-auto items-center justify-center gap-1 whitespace-nowrap rounded-[7px] px-1.5 py-1.5 text-[11.5px] font-medium transition-colors duration-150",
+              "relative z-10 flex min-w-0 grow basis-auto items-center justify-center gap-1 whitespace-nowrap rounded-[7px] px-1.5 py-1.5 text-caption font-medium transition-colors duration-150",
               on ? "text-background" : "text-muted-foreground hover:text-foreground",
             )}>
             {o.icon && <span className="grid size-3.5 shrink-0 place-items-center">{o.icon}</span>}
             <span className="truncate">{o.name}</span>
-            {o.starred && <span className={cn("shrink-0 text-[10px]", on ? "text-background/70" : "text-accent")}>✦</span>}
+            {o.starred && <span className={cn("shrink-0 text-micro", on ? "text-background/70" : "text-accent")}>✦</span>}
           </button>
         );
       })}
@@ -241,7 +241,7 @@ export function FactChips({ items }: { items: { label: string; tone?: "muted" | 
     <div className="flex flex-wrap gap-1">
       {items.map((f) => (
         <span key={f.label}
-          className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+          className={cn("rounded-md px-1.5 py-0.5 text-micro font-medium",
             f.tone === "warn" ? "bg-arc/10 text-arc" : "bg-foreground/[0.06] text-muted-foreground")}>
           {f.label}
         </span>

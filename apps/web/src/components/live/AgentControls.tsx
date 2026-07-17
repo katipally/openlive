@@ -96,14 +96,14 @@ export function AgentSelect() {
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
       <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-body text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
         {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <OpenLiveOrb size={16} />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
       {open && (
         <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           {options.map((o) => (
             <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); setOpen(false); }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-foreground/[0.06]">
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-foreground transition hover:bg-foreground/[0.06]">
               {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}
               <span className="flex-1">{o.label}</span>
               {o.id === boundAgent && <Check className="size-3.5 text-success" />}
@@ -145,12 +145,12 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
       <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
           <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" />
-          <p className="text-[13px] leading-relaxed text-foreground">{permission.question}</p>
+          <p className="text-body leading-relaxed text-foreground">{permission.question}</p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           {permission.options.map((o) => (
             <button key={o.id} onClick={() => answerPermission(o.id)}
-              className={cn("rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition",
+              className={cn("rounded-lg px-3 py-1.5 text-label font-medium transition",
                 o.id === "deny" || o.kind?.startsWith("reject")
                   ? "border border-border text-muted-foreground hover:text-foreground hover:border-border-heavy"
                   : "bg-foreground text-background hover:opacity-90")}>
@@ -158,7 +158,7 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
             </button>
           ))}
         </div>
-        <p className="text-center text-[11px] text-faint">
+        <p className="text-center text-caption text-faint">
           …or just say “yes” or “no”.
           {mmss && <span className={cn("tabular-nums", (left ?? 0) <= 30 && "text-danger")}> Auto-deny in {mmss}.</span>}
         </p>

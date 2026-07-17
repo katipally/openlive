@@ -56,7 +56,7 @@ export function SearchSelect({
   return (
     <div ref={rootRef} className="relative w-full max-w-md">
       <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
-        className={cn("flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-[13px] outline-none transition focus:border-border-heavy disabled:opacity-50",
+        className={cn("flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-body outline-none transition focus:border-border-heavy disabled:opacity-50",
           selected ? "text-foreground" : "text-faint")}>
         <span className="truncate">{selected ? selected.label : placeholder}{selected?.hint ? <span className="ml-1.5 text-muted-foreground">· {selected.hint}</span> : null}</span>
         <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
@@ -68,17 +68,17 @@ export function SearchSelect({
             <Search className="size-3.5 shrink-0 text-faint" />
             <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
               placeholder="Search models…"
-              className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-faint" />
+              className="w-full bg-transparent text-body text-foreground outline-none placeholder:text-faint" />
           </div>
           <div className="openlive-scroll max-h-64 overflow-y-auto py-1">
-            {filtered.length === 0 && <div className="px-3 py-3 text-center text-[12.5px] text-faint">{emptyText}</div>}
+            {filtered.length === 0 && <div className="px-3 py-3 text-center text-label text-faint">{emptyText}</div>}
             {filtered.map((o, i) => (
               <button key={o.value} type="button" onMouseEnter={() => setActive(i)} onClick={() => pick(o.value)}
-                className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] transition",
+                className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-body transition",
                   i === active ? "bg-foreground/[0.07]" : "hover:bg-foreground/[0.04]")}>
                 <span className={cn("grid size-4 shrink-0 place-items-center", o.value === value ? "text-accent" : "text-transparent")}><Check className="size-3.5" /></span>
                 <span className="truncate text-foreground">{o.label}</span>
-                {o.hint && <span className="ml-auto shrink-0 text-[11.5px] text-muted-foreground">{o.hint}</span>}
+                {o.hint && <span className="ml-auto shrink-0 text-caption text-muted-foreground">{o.hint}</span>}
               </button>
             ))}
           </div>

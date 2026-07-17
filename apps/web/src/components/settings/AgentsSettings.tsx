@@ -21,12 +21,12 @@ export function AgentsSettings() {
       <Section title="Coding agents"
         desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span> — OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History — its sessions stay on disk.</>}>
         <div className="flex flex-col gap-2.5">
-          {isLoading && <p className="text-[12px] text-muted-foreground">Checking…</p>}
+          {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
           {agents.map((a) => (
             <AgentRow key={a.id} a={a} />
           ))}
           <button onClick={() => refetch()} disabled={isFetching}
-            className="flex items-center gap-1.5 self-start text-[12px] text-muted-foreground transition hover:text-foreground disabled:opacity-50">
+            className="flex items-center gap-1.5 self-start text-label text-muted-foreground transition hover:text-foreground disabled:opacity-50">
             <RefreshCw className={isFetching ? "size-3.5 animate-spin" : "size-3.5"} /> Re-check
           </button>
         </div>
@@ -95,21 +95,21 @@ function AgentRow({ a }: { a: AgentStatus }) {
   const busy = !!run?.running;
   const running = run?.running ? run.action : null;
   const chip = statusChip(a);
-  const btn = "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition disabled:opacity-40";
+  const btn = "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-label font-medium transition disabled:opacity-40";
 
   return (
     <div className={cn("rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition", a.hidden && "opacity-60")}>
       <div className="flex items-start gap-3">
         <AgentIcon id={a.id as AgentId} className="mt-0.5 size-5 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <div className="flex items-center gap-2 text-body font-medium text-foreground">
             {a.label}
-            <span className={cn("flex items-center gap-1 text-[11.5px] font-normal", chip.cls)}>
+            <span className={cn("flex items-center gap-1 text-caption font-normal", chip.cls)}>
               {a.installed && a.credState === "ready" && <Check className="size-3.5" />}
               {chip.text}
             </span>
           </div>
-          <p className="mt-0.5 truncate font-mono text-[11.5px] text-faint">
+          <p className="mt-0.5 truncate font-mono text-caption text-faint">
             {a.version ? <>{a.version} · </> : null}
             {a.credState === "ready" && a.authDetail ? <>{a.authDetail} · </> : null}session store · {a.sessions}
           </p>
@@ -156,7 +156,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
                 {running === "uninstall" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} {confirmUn ? "Confirm?" : "Uninstall"}
               </button>
             )}
-            <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-[11.5px] text-muted-foreground" title={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"}>
+            <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-caption text-muted-foreground" title={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"}>
               {a.hidden ? "Hidden" : "Shown"}
               <button role="switch" aria-checked={!a.hidden} onClick={() => setHidden(!a.hidden)}
                 className={cn("relative h-5 w-9 rounded-full transition", a.hidden ? "bg-foreground/15" : "bg-accent")}>
@@ -168,17 +168,17 @@ function AgentRow({ a }: { a: AgentStatus }) {
       </div>
 
       {confirmUn && a.wizard && (
-        <p className="mt-2 text-[11.5px] text-danger">This deletes {a.sessions} — Hermes chat history and credentials included. There is no undo.</p>
+        <p className="mt-2 text-caption text-danger">This deletes {a.sessions} — Hermes chat history and credentials included. There is no undo.</p>
       )}
 
       {waiting && a.credState !== "ready" && (
-        <p className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+        <p className="mt-2 flex items-center gap-1.5 text-caption text-muted-foreground">
           <Loader2 className="size-3 animate-spin" /> Waiting for you to finish in the terminal — this updates by itself.
         </p>
       )}
 
       {run && (run.running || run.log) && (
-        <pre className="openlive-scroll mt-2.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>
+        <pre className="openlive-scroll mt-2.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-2.5 font-mono text-caption leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>
       )}
 
     </div>

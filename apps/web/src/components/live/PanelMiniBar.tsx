@@ -87,7 +87,7 @@ export function PanelMiniBar() {
       <div ref={contentRef} className="flex flex-col gap-2 p-2">
         {hint && (
           <div className="flex items-center gap-2 rounded-xl bg-card px-2.5 py-2 shadow-[var(--shadow-card)] animate-fade-up">
-            <span className="min-w-0 flex-1 text-[11.5px] leading-snug text-muted-foreground">The call keeps running here — your global shortcut toggles talking from any app.</span>
+            <span className="min-w-0 flex-1 text-caption leading-snug text-muted-foreground">The call keeps running here — your global shortcut toggles talking from any app.</span>
             <button onClick={dismissHint} aria-label="Dismiss"
               className="grid size-6 shrink-0 place-items-center rounded-full text-faint transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">×</button>
           </div>
@@ -105,11 +105,11 @@ export function PanelMiniBar() {
 
         {s.permission && (
           <div className="flex flex-col gap-1.5 rounded-xl border border-border bg-card px-2.5 py-2">
-            <span className="text-[12px] leading-snug">{s.permission.question}</span>
+            <span className="text-label leading-snug">{s.permission.question}</span>
             <span className="flex flex-wrap gap-1.5">
               {s.permission.options.map((o) => (
                 <button key={o.id} onClick={() => cmd({ t: "permission", optionId: o.id })}
-                  className="rounded-full border border-border px-2.5 py-1 text-[11.5px] text-muted-foreground transition hover:text-foreground [-webkit-app-region:no-drag]">
+                  className="rounded-full border border-border px-2.5 py-1 text-caption text-muted-foreground transition hover:text-foreground [-webkit-app-region:no-drag]">
                   {o.label}
                 </button>
               ))}
@@ -121,15 +121,15 @@ export function PanelMiniBar() {
           <Orb phase={s.phase} getLevels={getLevels} getBands={getBands} size={30} />
           {confirmEnd ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-[12.5px]">End call?</span>
+              <span className="min-w-0 flex-1 truncate text-label">End call?</span>
               <button onClick={() => setConfirmEnd(false)}
-                className="rounded-full px-3 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">Cancel</button>
+                className="rounded-full px-3 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">Cancel</button>
               <button onClick={() => cmd({ t: "end" })}
-                className="rounded-full bg-danger px-3 py-1.5 text-[12.5px] font-medium text-white transition hover:opacity-90 [-webkit-app-region:no-drag]">End</button>
+                className="rounded-full bg-danger px-3 py-1.5 text-label font-medium text-white transition hover:opacity-90 [-webkit-app-region:no-drag]">End</button>
             </>
           ) : (
             <>
-              <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
+              <span className={cn("min-w-0 flex-1 truncate text-label", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
               {s.holdUntil && (
                 <span className="[-webkit-app-region:no-drag]">
                   <HoldPill until={s.holdUntil} holdMs={s.holdMs} onSend={() => cmd({ t: "sendNow" })} compact />

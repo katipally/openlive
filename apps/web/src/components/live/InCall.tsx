@@ -146,8 +146,8 @@ export function InCall(props: InCallProps) {
           {!sharing && (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={220} />
-              <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-[20px] leading-snug tracking-tight">{words}</p>
-              <p className={cn("mt-1 text-[12px] uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
+              <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-title-lg leading-snug tracking-tight">{words}</p>
+              <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
               <div className="mt-3 min-h-[30px]"><HoldToSend sendNow={sendNow} /></div>
             </div>
           )}
@@ -155,7 +155,7 @@ export function InCall(props: InCallProps) {
           {cameraOn && <CameraPiP stream={cameraStream} />}
           {screenOn && <ScreenTile stream={screenStream} />}
 
-          {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
+          {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-label text-danger">{error}</p>}
 
           {!panelOpen && (
             <button onClick={() => setPanelOpen(true)} title="Show activity" aria-label="Show activity"
@@ -169,7 +169,7 @@ export function InCall(props: InCallProps) {
           {sharing && (
             <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[var(--shadow-pop)]">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={26} />
-              <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">
+              <span className="max-w-[260px] truncate text-label" aria-live="polite">
                 {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
               </span>
               <HoldToSend sendNow={sendNow} compact />
@@ -224,12 +224,12 @@ function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
       <div className="w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2.5 text-[13px] font-semibold">Keyboard shortcuts</p>
+        <p className="mb-2.5 text-body font-semibold">Keyboard shortcuts</p>
         <div className="flex flex-col gap-1.5">
           {rows.map(([key, what]) => (
-            <div key={key} className="flex items-center justify-between text-[12.5px]">
+            <div key={key} className="flex items-center justify-between text-label">
               <span className="text-muted-foreground">{what}</span>
-              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-foreground">{key}</kbd>
+              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-caption text-foreground">{key}</kbd>
             </div>
           ))}
         </div>
@@ -273,10 +273,10 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
       )}
       {open && (
         <div ref={menuRef} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
-          <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">{label}</div>
+          <div className="px-3 py-1.5 text-caption font-medium uppercase tracking-wide text-faint">{label}</div>
           {devices.map((d) => (
             <button key={d.id} onClick={() => { onPick(d.id); setOpen(false); }}
-              className={cn("block w-full truncate px-3 py-1.5 text-left text-[12.5px] transition hover:bg-foreground/[0.06]",
+              className={cn("block w-full truncate px-3 py-1.5 text-left text-label transition hover:bg-foreground/[0.06]",
                 d.id === activeId ? "text-foreground" : "text-muted-foreground")}>
               {d.id === activeId ? "✓ " : "   "}{d.label}
             </button>

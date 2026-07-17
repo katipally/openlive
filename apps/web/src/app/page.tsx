@@ -55,18 +55,18 @@ export default function Home() {
           <div className="flex flex-col items-center gap-6">
             <OpenLiveMark />
             <div className="space-y-2">
-              <h1 className="text-[32px] font-semibold tracking-tight">OpenLive</h1>
-              <p className="max-w-sm text-[14px] leading-relaxed text-muted-foreground">
+              <h1 className="text-display font-semibold tracking-tight">OpenLive</h1>
+              <p className="max-w-sm text-callout leading-relaxed text-muted-foreground">
                 Ears, eyes, and a voice for your AI.
               </p>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={startNew} data-tour="new"
-                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
                 <Plus className="size-5" /> New
               </button>
               <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"
-                className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-[14px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+                className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-callout text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
                 <MessageSquare className="size-4" /> Resume
               </button>
               <button onClick={openSettings} title="Settings" aria-label="Settings" data-tour="settings"
@@ -76,12 +76,12 @@ export default function Home() {
             </div>
             {/* Choose what a new conversation talks to — the built-in assistant or a
                 coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-            <div className="flex items-center gap-1.5 text-[12.5px] text-faint" data-tour="talk-to">
+            <div className="flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
               Talk to <AgentSelect />
             </div>
           </div>
 
-          <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-[11px] text-faint">
+          <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
             <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
               {appVersion ? `v${appVersion}` : "dev"}
             </a>

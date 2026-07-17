@@ -38,7 +38,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
   return (
     <div className={cn("rounded-lg bg-card/40 shadow-[var(--shadow-xs)]", call.status === "failed" && "outline outline-1 outline-destructive/30")}>
       <button onClick={() => hasBody && setOpen(!expanded)} disabled={!hasBody}
-        className={cn("flex w-full items-center gap-2 px-2.5 py-1.5 text-[12px] text-muted-foreground transition", hasBody && "hover:text-foreground")}>
+        className={cn("flex w-full items-center gap-2 px-2.5 py-1.5 text-label text-muted-foreground transition", hasBody && "hover:text-foreground")}>
         <StatusIcon status={call.status} waiting={!!permission} Icon={Icon} />
         <span className={cn("truncate", call.status === "failed" && "text-destructive")}>
           {permission ? "Awaiting approval — " : ""}{call.title}
@@ -47,7 +47,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
           <span role="link" tabIndex={0} title={`${loc.path} — ${isDesktop ? "click to reveal" : "click to copy"}`}
             onClick={(e) => { e.stopPropagation(); openLocation(loc.path); }}
             onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openLocation(loc.path); } }}
-            className="shrink-0 cursor-pointer truncate rounded bg-foreground/8 px-1.5 py-0.5 font-mono text-[10.5px] text-faint transition hover:bg-foreground/15 hover:text-foreground">
+            className="shrink-0 cursor-pointer truncate rounded bg-foreground/8 px-1.5 py-0.5 font-mono text-micro text-faint transition hover:bg-foreground/15 hover:text-foreground">
             {basename(loc.path)}{loc.line != null ? `:${loc.line}` : ""}
           </span>
         )}
@@ -59,7 +59,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
         <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
           {content.map((c, i) =>
             c.type === "text" ? (
-              <p key={i} className="whitespace-pre-wrap text-[12px] leading-relaxed text-muted-foreground">{c.text}</p>
+              <p key={i} className="whitespace-pre-wrap text-label leading-relaxed text-muted-foreground">{c.text}</p>
             ) : c.type === "diff" ? (
               <DiffView key={i} path={c.path} oldText={c.oldText} newText={c.newText} clipped={c.clipped} />
             ) : (
@@ -76,7 +76,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
           {permission.options.map((o) => (
             <button key={o.id} onClick={() => answerPermission(o.id)}
               className={cn(
-                "rounded-full px-2.5 py-1 text-[11.5px] font-medium transition",
+                "rounded-full px-2.5 py-1 text-caption font-medium transition",
                 o.id === "deny" || o.kind?.startsWith("reject")
                   ? "border border-border text-muted-foreground hover:bg-foreground/5"
                   : "bg-foreground text-background hover:opacity-90",
@@ -105,7 +105,7 @@ function StatusIcon({ status, waiting, Icon }: { status: ToolCallState["status"]
 function StatusLabel({ status }: { status: ToolCallState["status"] }) {
   const label = status === "failed" ? "failed" : status === "canceled" ? "canceled" : status === "rejected" ? "rejected" : null;
   if (!label) return null;
-  return <span className={cn("ml-auto shrink-0 text-[10.5px]", status === "failed" ? "text-destructive" : "text-faint")}>{label}</span>;
+  return <span className={cn("ml-auto shrink-0 text-micro", status === "failed" ? "text-destructive" : "text-faint")}>{label}</span>;
 }
 
 function RawDisclosure({ label, json }: { label: string; json: string }) {
@@ -113,10 +113,10 @@ function RawDisclosure({ label, json }: { label: string; json: string }) {
   const pretty = () => { try { return JSON.stringify(JSON.parse(json), null, 2); } catch { return json; } };
   return (
     <div>
-      <button onClick={() => setShow((v) => !v)} className="flex items-center gap-1 text-[11px] text-faint transition hover:text-foreground">
+      <button onClick={() => setShow((v) => !v)} className="flex items-center gap-1 text-caption text-faint transition hover:text-foreground">
         <ChevronRight className={cn("size-3 transition", show && "rotate-90")} />{label}
       </button>
-      {show && <pre className="openlive-scroll mt-1 max-h-48 overflow-auto rounded-lg bg-surface p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">{pretty()}</pre>}
+      {show && <pre className="openlive-scroll mt-1 max-h-48 overflow-auto rounded-lg bg-surface p-2 font-mono text-caption leading-relaxed text-muted-foreground">{pretty()}</pre>}
     </div>
   );
 }

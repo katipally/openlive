@@ -21,7 +21,7 @@ export function ElicitationPrompt() {
       <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
           <KeyRound className="mt-0.5 size-5 shrink-0 text-accent" />
-          <p className="text-[13px] leading-relaxed text-foreground">{elicitation.message}</p>
+          <p className="text-body leading-relaxed text-foreground">{elicitation.message}</p>
         </div>
         {elicitation.mode === "url"
           ? <UrlBody url={elicitation.url ?? ""} answer={answer} />
@@ -39,15 +39,15 @@ function UrlBody({ url, answer }: { url: string; answer: NonNullable<ReturnType<
   return (
     <>
       {url && (
-        <button onClick={reopen} className="flex items-center gap-1.5 self-start text-[12px] text-link-foreground underline underline-offset-2">
+        <button onClick={reopen} className="flex items-center gap-1.5 self-start text-label text-link-foreground underline underline-offset-2">
           <ExternalLink className="size-3.5" />Open the link again
         </button>
       )}
       <div className="flex justify-end gap-2">
-        <button onClick={() => answer("cancel")} className="rounded-lg border border-border px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Cancel</button>
-        <button onClick={() => answer("accept")} className="rounded-lg bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90">Done</button>
+        <button onClick={() => answer("cancel")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Cancel</button>
+        <button onClick={() => answer("accept")} className="rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition hover:opacity-90">Done</button>
       </div>
-      <p className="text-center text-[11px] text-faint">…or just say “done” or “cancel”.</p>
+      <p className="text-center text-caption text-faint">…or just say “done” or “cancel”.</p>
     </>
   );
 }
@@ -96,9 +96,9 @@ function FormBody({ schema, answer }: { schema: unknown; answer: NonNullable<Ret
         ))}
       </div>
       <div className="flex justify-end gap-2">
-        <button onClick={() => answer("decline")} className="rounded-lg border border-border px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Decline</button>
+        <button onClick={() => answer("decline")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Decline</button>
         <button onClick={submit} disabled={missing}
-          className={cn("rounded-lg bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition", missing ? "opacity-40" : "hover:opacity-90")}>
+          className={cn("rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition", missing ? "opacity-40" : "hover:opacity-90")}>
           Submit
         </button>
       </div>
@@ -111,12 +111,12 @@ function Field({ name, p, required, value, onChange }: {
 }) {
   const label = p.title || name;
   const opts = choices(p);
-  const input = "w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:border-border-heavy";
+  const input = "w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-body text-foreground outline-none focus:border-border-heavy";
 
   return (
-    <label className="flex flex-col gap-1 text-[12px] text-muted-foreground">
+    <label className="flex flex-col gap-1 text-label text-muted-foreground">
       <span>{label}{required && <span className="text-destructive"> *</span>}</span>
-      {p.description && <span className="text-[11px] text-faint">{p.description}</span>}
+      {p.description && <span className="text-caption text-faint">{p.description}</span>}
       {p.type === "boolean" ? (
         <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="size-4 self-start accent-foreground" />
       ) : p.type === "array" ? (
@@ -143,7 +143,7 @@ function MultiSelect({ items, value, onChange }: { items: { value: string; label
   return (
     <div className="flex flex-col gap-1">
       {items.map((o) => (
-        <label key={o.value} className="flex items-center gap-2 text-[12.5px] text-foreground">
+        <label key={o.value} className="flex items-center gap-2 text-label text-foreground">
           <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} className="size-3.5 accent-foreground" />
           {o.label}
         </label>

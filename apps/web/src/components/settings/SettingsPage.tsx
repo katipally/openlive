@@ -106,9 +106,9 @@ export function SettingsPage() {
           className={cn("grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}>
           <ArrowLeft className="size-5" />
         </button>
-        <span className="flex items-baseline gap-2 text-[15px] font-semibold">
+        <span className="flex items-baseline gap-2 text-title-sm font-semibold">
           Settings
-          {appVersion && <span className="text-[11px] font-normal text-muted-foreground">v{appVersion}</span>}
+          {appVersion && <span className="text-caption font-normal text-muted-foreground">v{appVersion}</span>}
         </span>
       </header>
 
@@ -126,8 +126,8 @@ export function SettingsPage() {
                   <s.icon className="size-4" />
                 </span>
                 <span className="min-w-0">
-                  <span className={cn("block text-[13px] font-medium", on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground")}>{s.label}</span>
-                  <span className="block truncate text-[11px] text-faint">{s.sub}</span>
+                  <span className={cn("block text-body font-medium", on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground")}>{s.label}</span>
+                  <span className="block truncate text-caption text-faint">{s.sub}</span>
                 </span>
               </button>
             );
@@ -138,8 +138,8 @@ export function SettingsPage() {
         <main className="openlive-scroll ol-set-pane min-h-0 flex-1 overflow-y-auto">
           <div className="ol-set-body mx-auto w-full max-w-2xl px-8 py-9">
             <div className="mb-6">
-              <h1 className="text-[20px] font-semibold tracking-tight text-foreground">{Active.label}</h1>
-              <p className="mt-1 text-[13px] text-muted-foreground">{Active.sub}</p>
+              <h1 className="text-title-lg font-semibold tracking-tight text-foreground">{Active.label}</h1>
+              <p className="mt-1 text-body text-muted-foreground">{Active.sub}</p>
             </div>
             <Active.Comp />
           </div>

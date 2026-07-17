@@ -19,7 +19,7 @@ function UsageChip() {
   const pct = usage.contextSize ? Math.min(100, Math.round((usage.contextTokens / usage.contextSize) * 100)) : null;
   return (
     <span title={pct != null ? `Context: ${k(usage.contextTokens)} of ${k(usage.contextSize!)} tokens used · cost so far` : "Context used this session · cost so far"}
-      className="flex items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] tabular-nums text-muted-foreground">
+      className="flex items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-caption tabular-nums text-muted-foreground">
       {pct != null && (
         <span className="relative h-1 w-8 overflow-hidden rounded-full bg-foreground/10">
           <span className={cn("absolute inset-y-0 left-0 rounded-full", pct >= 90 ? "bg-destructive" : "bg-accent")} style={{ width: `${pct}%` }} />
@@ -54,7 +54,7 @@ export function TopBar() {
         </button>
         <div className="flex items-center gap-2 px-2">
           <OpenLiveOrb size={26} />
-          <span className="text-[14px] font-semibold tracking-tight">OpenLive</span>
+          <span className="text-callout font-semibold tracking-tight">OpenLive</span>
         </div>
         <AgentSelect />
         <AgentBar />

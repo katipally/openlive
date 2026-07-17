@@ -44,10 +44,10 @@ export const DiffView = memo(function DiffView({ path, oldText, newText, clipped
   return (
     <div className="overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
       <button onClick={() => openLocation(path)} title={`${path} — ${isDesktop ? "click to reveal" : "click to copy"}`}
-        className="block w-full truncate border-b border-border/60 px-2.5 py-1 text-left font-mono text-[11px] text-muted-foreground transition hover:text-foreground">
+        className="block w-full truncate border-b border-border/60 px-2.5 py-1 text-left font-mono text-caption text-muted-foreground transition hover:text-foreground">
         {path}
       </button>
-      <pre className="openlive-scroll overflow-x-auto p-0 font-mono text-[11.5px] leading-relaxed">
+      <pre className="openlive-scroll overflow-x-auto p-0 font-mono text-caption leading-relaxed">
         {visible.map((r, i) => (
           <div key={i} className={cn(
             "flex min-w-max px-2.5",
@@ -62,7 +62,7 @@ export const DiffView = memo(function DiffView({ path, oldText, newText, clipped
       </pre>
       {(hidden > 0 || clipped) && (
         <button onClick={() => setShowAll((v) => !v)}
-          className="w-full border-t border-border/60 px-2.5 py-1 text-left text-[11px] text-link-foreground transition hover:bg-foreground/5">
+          className="w-full border-t border-border/60 px-2.5 py-1 text-left text-caption text-link-foreground transition hover:bg-foreground/5">
           {showAll ? "Show less" : `Show ${hidden} more lines${clipped ? " (diff was clipped)" : ""}`}
         </button>
       )}

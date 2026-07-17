@@ -18,7 +18,7 @@ export function Toasts() {
           {t.kind === "error"
             ? <AlertCircle className="size-4 shrink-0 text-danger" />
             : <Info className="size-4 shrink-0 text-accent" />}
-          <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-foreground">{t.text}</p>
+          <p className="min-w-0 flex-1 text-label leading-snug text-foreground">{t.text}</p>
           <button onClick={() => dismiss(t.id)} aria-label="Dismiss"
             className={cn("grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground")}>
             <X className="size-3.5" />

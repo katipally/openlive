@@ -10,17 +10,17 @@
     "start:dev": "cross-env ELECTRON_DEV=1 electron . --remote-debugging-port=9333",
     "pack:web": "node scripts/pack-web.cjs",
     "pack:agent": "node scripts/pack-agent.cjs",
-    "prebuild": "node scripts/pack-web.cjs && node scripts/pack-agent.cjs",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win"
+    "pack": "node scripts/pack-web.cjs && node scripts/pack-agent.cjs",
+    "build": "pnpm run pack && electron-builder",
+    "build:mac": "pnpm run pack && electron-builder --mac",
+    "build:win": "pnpm run pack && electron-builder --win"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "electron": "^43.1.1",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.28.1",
     "cross-env": "^10.0.0"
   }

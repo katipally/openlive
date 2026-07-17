@@ -122,7 +122,7 @@ export function HistorySidebar() {
       <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
       <aside ref={root} className="fixed bottom-3 left-3 top-3 z-[55] flex w-[300px] flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-[14px] font-semibold">History</span>
+          <span className="text-callout font-semibold">History</span>
           <button onClick={close} aria-label="Close history" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
         </header>
 
@@ -130,7 +130,7 @@ export function HistorySidebar() {
             field over the button (width-animated), Escape/empty-blur collapses. */}
         <div className="flex shrink-0 items-center gap-2 p-2 pb-1" data-tour="history-actions">
           <button onClick={newChat} tabIndex={searching ? -1 : 0}
-            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-[12.5px] font-medium text-accent-foreground transition-all duration-300 hover:opacity-90",
+            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-label font-medium text-accent-foreground transition-all duration-300 hover:opacity-90",
               searching ? "w-0 px-0 opacity-0" : "flex-1 px-3")}>
             <Plus className="size-4 shrink-0" /> New chat
           </button>
@@ -141,7 +141,7 @@ export function HistorySidebar() {
                 <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
                   onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearching(false); } }}
                   onBlur={() => { if (!query.trim()) setSearching(false); }}
-                  className="h-8 min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-faint" />
+                  className="h-8 min-w-0 flex-1 bg-transparent text-label text-foreground outline-none placeholder:text-faint" />
                 <button onClick={() => { setQuery(""); setSearching(false); }} aria-label="Close search"
                   className="grid size-5 shrink-0 place-items-center rounded text-faint transition hover:text-foreground"><X className="size-3" /></button>
               </>
@@ -155,17 +155,17 @@ export function HistorySidebar() {
         </div>
 
         <div className="openlive-scroll min-h-0 flex-1 overflow-y-auto p-2 pt-1">
-          {isLoading && <p className="px-2 py-4 text-[12.5px] text-faint">Loading…</p>}
+          {isLoading && <p className="px-2 py-4 text-label text-faint">Loading…</p>}
           {!isLoading && workspaces.length === 0 && (
             <div className="px-2 py-6 text-center">
-              <p className="text-[12.5px] text-muted-foreground">No conversations yet.</p>
-              <p className="mt-1 text-[11.5px] text-faint">Start one and it&apos;ll be filed here by project folder.</p>
+              <p className="text-label text-muted-foreground">No conversations yet.</p>
+              <p className="mt-1 text-caption text-faint">Start one and it&apos;ll be filed here by project folder.</p>
             </div>
           )}
 
           {results ? (
             <>
-              {results.length === 0 && <p className="px-2 py-4 text-[12.5px] text-faint">Nothing matches “{query.trim()}”.</p>}
+              {results.length === 0 && <p className="px-2 py-4 text-label text-faint">Nothing matches “{query.trim()}”.</p>}
               {results.map(({ chat, cwd }) => (
                 <ChatRow key={chat.id} c={chat} cwd={cwd} showWorkspace activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
               ))}
@@ -212,11 +212,11 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
 
   return (
     <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/ws">
-      <summary className="group/wsrow flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-foreground/[0.05] [&::-webkit-details-marker]:hidden">
+      <summary className="group/wsrow flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05] [&::-webkit-details-marker]:hidden">
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition group-open/ws:rotate-90" />
         <Folder className="size-3.5 shrink-0 text-accent/80" />
         <span className="min-w-0 flex-1 truncate" title={ws.cwd || "No folder"}>{label}</span>
-        <span className="text-[10.5px] font-normal text-faint">{chats.length}</span>
+        <span className="text-micro font-normal text-faint">{chats.length}</span>
         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s history"
           className="grid size-6 shrink-0 place-items-center rounded text-faint opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover/wsrow:opacity-100">
           <Trash2 className="size-3" />
@@ -265,7 +265,7 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
       <input autoFocus defaultValue={title} spellCheck={false}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") commit((e.target as HTMLInputElement).value); if (e.key === "Escape") setEditing(false); }}
-        className="my-0.5 w-full rounded-lg border border-border-heavy bg-surface px-2 py-1.5 text-[12.5px] text-foreground outline-none focus:border-accent" />
+        className="my-0.5 w-full rounded-lg border border-border-heavy bg-surface px-2 py-1.5 text-label text-foreground outline-none focus:border-accent" />
     );
   }
 
@@ -276,8 +276,8 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
           {c.agentId && isAgentId(c.agentId) ? <AgentIcon id={c.agentId} className="size-4" /> : <OpenLiveOrb size={15} />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] text-foreground">{title}</span>
-          <span className="block truncate text-[10.5px] text-faint">
+          <span className="block truncate text-label text-foreground">{title}</span>
+          <span className="block truncate text-micro text-faint">
             {showWorkspace ? <>{cwd ? basename(cwd) : "No folder"} · </> : null}
             {relTime(c.updatedAt)}{c.source === "external" && " · external"}
           </span>
@@ -308,15 +308,15 @@ function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/10 text-danger"><AlertTriangle className="size-5" /></span>
           <div className="min-w-0">
-            <h3 className="text-[14px] font-semibold text-foreground">{pending.title}</h3>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{pending.body}</p>
+            <h3 className="text-callout font-semibold text-foreground">{pending.title}</h3>
+            <p className="mt-1 text-label leading-relaxed text-muted-foreground">{pending.body}</p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onCancel} disabled={busy}
-            className="rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
+            className="rounded-lg border border-border px-3.5 py-2 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
           <button onClick={() => { setBusy(true); onConfirm(); }} disabled={busy}
-            className="rounded-lg bg-danger px-3.5 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
+            className="rounded-lg bg-danger px-3.5 py-2 text-label font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
         </div>
       </div>
     </div>

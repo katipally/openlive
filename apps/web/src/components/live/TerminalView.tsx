@@ -25,13 +25,13 @@ export const TerminalView = memo(function TerminalView({ terminalId, snapshotOut
 
   return (
     <div className="overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
-      {truncated && <div className="border-b border-border/60 px-2.5 py-1 text-[11px] text-faint">Earlier output truncated</div>}
-      <pre ref={pre} className="openlive-scroll max-h-64 overflow-auto whitespace-pre-wrap break-words p-2.5 font-mono text-[11.5px] leading-relaxed text-foreground">
+      {truncated && <div className="border-b border-border/60 px-2.5 py-1 text-caption text-faint">Earlier output truncated</div>}
+      <pre ref={pre} className="openlive-scroll max-h-64 overflow-auto whitespace-pre-wrap break-words p-2.5 font-mono text-caption leading-relaxed text-foreground">
         {output || (running ? "…" : "")}
       </pre>
       {exitCode != null && (
         <div className={cn(
-          "border-t border-border/60 px-2.5 py-1 text-[11px]",
+          "border-t border-border/60 px-2.5 py-1 text-caption",
           exitCode === 0 ? "text-success" : "text-destructive",
         )}>
           exited with code {exitCode}

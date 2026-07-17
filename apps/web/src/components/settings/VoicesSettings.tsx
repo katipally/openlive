@@ -115,28 +115,28 @@ function ModelCard({ model, onChange }: { model?: ModelState; onChange: () => vo
     toast("Cloning engine removed — disk space freed. Your saved profiles remain.");
   };
 
-  if (!model) return <p className="text-[12px] text-muted-foreground">Checking…</p>;
+  if (!model) return <p className="text-label text-muted-foreground">Checking…</p>;
   if (progress !== null || model.downloading) return (
     <div className="flex max-w-md flex-col gap-1.5">
       <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
         <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round((progress ?? 0) * 100)}%` }} />
       </div>
-      <p className="text-[11.5px] text-faint">Downloading… {Math.round((progress ?? 0) * 100)}% of {mb(model.downloadBytes)}</p>
+      <p className="text-caption text-faint">Downloading… {Math.round((progress ?? 0) * 100)}% of {mb(model.downloadBytes)}</p>
     </div>
   );
   return model.installed ? (
     <div className="flex items-center gap-3">
-      <span className="flex items-center gap-1.5 text-[12.5px] text-success"><Check className="size-3.5" /> Installed · {mb(model.diskBytes)} on disk</span>
-      <button onClick={remove} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+      <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Installed · {mb(model.diskBytes)} on disk</span>
+      <button onClick={remove} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
         <Trash2 className="size-3.5" /> Remove
       </button>
     </div>
   ) : (
     <div className="flex items-center gap-3">
-      <button onClick={download} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12.5px] font-medium text-accent-foreground transition hover:opacity-90">
+      <button onClick={download} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-label font-medium text-accent-foreground transition hover:opacity-90">
         <Download className="size-4" /> Download ({mb(model.downloadBytes)})
       </button>
-      <span className="text-[11.5px] text-faint">Removable anytime; profiles are tiny and kept separately.</span>
+      <span className="text-caption text-faint">Removable anytime; profiles are tiny and kept separately.</span>
     </div>
   );
 }
@@ -250,17 +250,17 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
       <div className="flex items-center gap-1.5">
         {SCRIPTS.map((s) => (
           <button key={s.id} onClick={() => setScriptId(s.id)}
-            className={cn("rounded-md px-2.5 py-1 text-[11.5px] font-medium transition",
+            className={cn("rounded-md px-2.5 py-1 text-caption font-medium transition",
               scriptId === s.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
             {s.label}
           </button>
         ))}
-        <span className="ml-auto text-[11px] text-faint">or just talk naturally</span>
+        <span className="ml-auto text-caption text-faint">or just talk naturally</span>
       </div>
-      <p className="rounded-lg bg-surface p-3 text-[13px] leading-relaxed text-foreground">{script.text}</p>
+      <p className="rounded-lg bg-surface p-3 text-body leading-relaxed text-foreground">{script.text}</p>
       <div className="flex items-center gap-3">
         <button onClick={recording ? stop : start}
-          className={cn("flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12.5px] font-medium transition",
+          className={cn("flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-label font-medium transition",
             recording ? "bg-danger text-white" : "bg-accent text-accent-foreground hover:opacity-90")}>
           {recording ? <Square className="size-4" /> : <Mic className="size-4" />}
           {recording ? "Stop" : "Start recording"}
@@ -272,13 +272,13 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
               <div className={cn("h-full rounded-full transition-[width] duration-200", seconds >= MIN_SEC ? "bg-success" : "bg-arc")} style={{ width: `${progressPct}%` }} />
               <div className="absolute inset-y-0 w-px bg-foreground/40" style={{ left: `${minPct}%` }} title={`${MIN_SEC}s minimum`} />
             </div>
-            <span className="w-16 text-right font-mono text-[11.5px] tabular-nums text-muted-foreground">{seconds.toFixed(0)}s / {MAX_SEC}s</span>
+            <span className="w-16 text-right font-mono text-caption tabular-nums text-muted-foreground">{seconds.toFixed(0)}s / {MAX_SEC}s</span>
             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/10" title="Input level">
               <div className="h-full rounded-full bg-accent transition-[width] duration-100" style={{ width: `${Math.round(level * 100)}%` }} />
             </div>
           </div>
         ) : (
-          <span className="text-[11.5px] text-faint">{MIN_SEC}–{MAX_SEC} seconds · quiet room, normal speaking distance</span>
+          <span className="text-caption text-faint">{MIN_SEC}–{MAX_SEC} seconds · quiet room, normal speaking distance</span>
         )}
       </div>
     </div>
@@ -288,27 +288,27 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-2.5">
-        <span className="text-[12px] text-muted-foreground">Listen back — {(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
+        <span className="text-label text-muted-foreground">Listen back — {(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
         <button onClick={() => { setTake(null); setTranscript(""); }}
-          className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
           <RotateCcw className="size-3.5" /> Re-record
         </button>
       </div>
       {takeUrl && <AudioBar src={takeUrl} />}
       <label className="flex flex-col gap-1">
-        <span className="text-[11.5px] text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript — fix anything Whisper misheard; cloning quality depends on it."}</span>
+        <span className="text-caption text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript — fix anything Whisper misheard; cloning quality depends on it."}</span>
         <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} placeholder="What you said, word for word"
-          className="w-full resize-y rounded-lg bg-surface p-2.5 text-[12.5px] leading-relaxed text-foreground outline-none placeholder:text-faint" />
+          className="w-full resize-y rounded-lg bg-surface p-2.5 text-label leading-relaxed text-foreground outline-none placeholder:text-faint" />
       </label>
       <div className="flex items-center gap-2">
         <input value={name} onChange={(e) => setName(e.target.value.slice(0, 60))} placeholder="Voice name (e.g. Me)"
-          className="h-9 flex-1 rounded-lg bg-surface px-2.5 text-[12.5px] text-foreground outline-none placeholder:text-faint" />
+          className="h-9 flex-1 rounded-lg bg-surface px-2.5 text-label text-foreground outline-none placeholder:text-faint" />
         <button onClick={save} disabled={!consent || !transcript.trim() || busy !== null}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[12.5px] font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-40">
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-label font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-40">
           {busy === "save" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Save voice
         </button>
       </div>
-      <label className="flex cursor-pointer items-start gap-2 text-[11.5px] leading-snug text-muted-foreground">
+      <label className="flex cursor-pointer items-start gap-2 text-caption leading-snug text-muted-foreground">
         <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5" />
         This is my own voice, or I have this person&apos;s permission. Cloned speech is generated on this device only.
       </label>
@@ -403,10 +403,10 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
       {profiles.length > 0 && (
         <input value={previewText} onChange={(e) => setPreviewText(e.target.value.slice(0, 200))}
           placeholder={`Preview text — try anything (default: “${DEFAULT_PREVIEW}”)`}
-          className="h-9 w-full rounded-lg bg-card px-3 text-[12.5px] text-foreground shadow-[var(--shadow-card)] outline-none placeholder:text-faint" />
+          className="h-9 w-full rounded-lg bg-card px-3 text-label text-foreground shadow-[var(--shadow-card)] outline-none placeholder:text-faint" />
       )}
 
-      {profiles.length === 0 && <p className="text-[12px] text-faint">No voices yet — record one above, or import a profile.</p>}
+      {profiles.length === 0 && <p className="text-label text-faint">No voices yet — record one above, or import a profile.</p>}
 
       {profiles.map((p) => (
         <div key={p.id} className={cn("flex flex-col gap-2 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition", p.id === activeId && "shadow-[inset_0_0_0_1.5px_var(--accent)]")}>
@@ -414,23 +414,23 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
             {renaming === p.id ? (
               <input autoFocus value={renameTo} onChange={(e) => setRenameTo(e.target.value.slice(0, 60))}
                 onBlur={() => void rename(p)} onKeyDown={(e) => { if (e.key === "Enter") void rename(p); if (e.key === "Escape") setRenaming(null); }}
-                className="h-7 flex-1 rounded-md bg-surface px-2 text-[13px] font-medium text-foreground outline-none" />
+                className="h-7 flex-1 rounded-md bg-surface px-2 text-body font-medium text-foreground outline-none" />
             ) : (
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+              <span className="min-w-0 flex-1 truncate text-body font-medium text-foreground">
                 {p.name}
-                {p.id === activeId && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">Speaking voice</span>}
+                {p.id === activeId && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent">Speaking voice</span>}
               </span>
             )}
-            <span className="shrink-0 text-[11px] text-faint">{p.seconds ? `${p.seconds.toFixed(0)}s · ` : ""}{new Date(p.createdAt).toLocaleDateString()}</span>
+            <span className="shrink-0 text-caption text-faint">{p.seconds ? `${p.seconds.toFixed(0)}s · ` : ""}{new Date(p.createdAt).toLocaleDateString()}</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={() => preview(p)} disabled={busy !== null}
-              className="flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-[12px] font-medium text-background transition hover:opacity-90 disabled:opacity-40">
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-label font-medium text-background transition hover:opacity-90 disabled:opacity-40">
               {busy === `preview:${p.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Preview
             </button>
             {p.id !== activeId && (
               <button onClick={() => useVoice(p.id)}
-                className="flex h-8 items-center gap-1.5 rounded-lg border border-transparent bg-accent px-2.5 text-[12px] font-medium text-accent-foreground transition hover:opacity-90">
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-transparent bg-accent px-2.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
                 <Volume2 className="size-3.5" /> Use this voice
               </button>
             )}
@@ -443,7 +443,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
           {clip?.id === p.id && (
             <div className="flex items-center gap-2">
               <AudioBar src={clip.url} autoPlay className="flex-1" />
-              <span className="shrink-0 text-[10.5px] text-faint">{clip.kind === "preview" ? "Preview" : "Original recording"}</span>
+              <span className="shrink-0 text-micro text-faint">{clip.kind === "preview" ? "Preview" : "Original recording"}</span>
             </div>
           )}
         </div>
@@ -453,7 +453,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
         <input ref={fileInput} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProfile(f); e.target.value = ""; }} />
         <button onClick={() => fileInput.current?.click()}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
           <Upload className="size-3.5" /> Import a voice file
         </button>
       </div>

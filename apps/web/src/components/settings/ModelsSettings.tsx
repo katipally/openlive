@@ -35,20 +35,20 @@ function ProviderKey({ kind }: { kind: string }) {
   const save = useMutation({ mutationFn: () => api.setProviderKey(kind, key.trim()), onSuccess: () => { setKey(""); refresh(); } });
   const remove = useMutation({ mutationFn: () => api.removeProviderKey(row!.id), onSuccess: refresh });
 
-  if (info?.keyless) return <p className="text-[12px] text-muted-foreground">No key needed — {info.name} is a local provider.</p>;
+  if (info?.keyless) return <p className="text-label text-muted-foreground">No key needed — {info.name} is a local provider.</p>;
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <div className="flex h-9 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-[12.5px] text-muted-foreground">
+        <div className="flex h-9 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-label text-muted-foreground">
           {row?.hasKey ? <><Check className="size-3.5 text-success" /> Key set · ••••{row.keyLast4}</> : "No key set"}
         </div>
         <input value={key} onChange={(e) => setKey(e.target.value)} type="password" name={`${kind}-api-key`}
           placeholder={`Paste ${info?.name ?? kind} key`} aria-label={`${info?.name ?? kind} API key`}
           onKeyDown={(e) => { if (e.key === "Enter" && key.trim()) save.mutate(); }}
-          className="h-9 flex-1 rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy" />
+          className="h-9 flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy" />
         <button onClick={() => save.mutate()} disabled={!key.trim() || save.isPending}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-[13px] font-medium text-background transition hover:opacity-90 disabled:opacity-30">
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-body font-medium text-background transition hover:opacity-90 disabled:opacity-30">
           {save.isSuccess ? <Check className="size-4" /> : <KeyRound className="size-4" />} Save
         </button>
         {row?.hasKey && (
@@ -58,7 +58,7 @@ function ProviderKey({ kind }: { kind: string }) {
           </button>
         )}
       </div>
-      {save.isError && <p className="text-[12px] text-destructive">{(save.error as Error).message}</p>}
+      {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
     </div>
   );
 }
@@ -67,7 +67,7 @@ function ModelBadges({ providerId, m }: { providerId: string; m?: ModelInfo }) {
   if (!m) return null;
   const vision = hasVision(providerId, m);
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
       {vision && <span className="inline-flex items-center gap-1 text-foreground"><Eye className="size-3.5" /> vision</span>}
       {m.reasoning
         ? <span className="inline-flex items-center gap-1 text-foreground"><Brain className="size-3.5" /> reasoning</span>
@@ -105,14 +105,14 @@ function VisionModelPicker() {
     <div className="flex flex-col gap-2.5">
       <select value={vProvider} aria-label="Vision provider"
         onChange={(e) => save.mutate({ visionProviderId: e.target.value, visionModel: "" })}
-        className="h-9 w-full rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy">
+        className="h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy">
         {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       <SearchSelect value={settings?.visionModel ?? ""} onChange={(id) => save.mutate({ visionModel: id })}
         options={options} placeholder={models.length ? "None — use the live model to see" : "Add a key to load models…"}
         disabled={!models.length} emptyText="No vision models here" />
       {settings?.visionModel
-        ? <button onClick={() => save.mutate({ visionModel: "" })} className="self-start text-[11.5px] text-muted-foreground hover:text-foreground">Clear — let the live model see</button>
+        ? <button onClick={() => save.mutate({ visionModel: "" })} className="self-start text-caption text-muted-foreground hover:text-foreground">Clear — let the live model see</button>
         : null}
     </div>
   );
@@ -161,7 +161,7 @@ export function ModelsSettings() {
         <div className="mb-3 inline-flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1">
           {PROVIDERS.map((p) => (
             <button key={p.id} onClick={() => saveSetting.mutate({ liveProviderId: p.id, liveModel: "" })}
-              className={cn("rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
+              className={cn("rounded-md px-3.5 py-1.5 text-body font-medium transition",
                 providerId === p.id ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
               {p.name}
             </button>
@@ -177,7 +177,7 @@ export function ModelsSettings() {
           disabled={!models.length} emptyText="No models match" />
         <ModelBadges providerId={providerId} m={model} />
         {liveBlind && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-arc/40 bg-arc-soft px-3 py-2.5 text-[12px] leading-relaxed text-foreground">
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-arc/40 bg-arc-soft px-3 py-2.5 text-label leading-relaxed text-foreground">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-arc" />
             <span>
               <b>{model?.display_name}</b> can’t see images — camera & screen won’t work with it.
@@ -190,11 +190,11 @@ export function ModelsSettings() {
       <details open={visionOpen} onToggle={(e) => setVisionOpen(e.currentTarget.open)} className="group border-b border-border pb-7 last:border-0 last:pb-0">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
           <div>
-            <h2 className="flex items-center gap-1.5 text-[14px] font-semibold text-foreground">
+            <h2 className="flex items-center gap-1.5 text-callout font-semibold text-foreground">
               <EyeOff className="size-3.5 text-muted-foreground" /> Vision model
-              <span className="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-normal text-muted-foreground">optional · advanced</span>
+              <span className="rounded bg-surface px-1.5 py-0.5 text-micro font-normal text-muted-foreground">optional · advanced</span>
             </h2>
-            <p className="mt-1 max-w-xl text-[12.5px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 max-w-xl text-label leading-relaxed text-muted-foreground">
               Leave off and the live model sees for itself. Pick one to route camera/screen through a
               different model — used <b className="text-foreground">only</b> for vision, even if the live model can already see.
             </p>
@@ -209,7 +209,7 @@ export function ModelsSettings() {
         <div className="inline-flex rounded-lg border border-border bg-card p-1">
           {efforts.map((e) => (
             <button key={e} onClick={() => saveSetting.mutate({ liveEffort: e })}
-              className={cn("rounded-md px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition",
+              className={cn("rounded-md px-3.5 py-1.5 text-label font-medium capitalize transition",
                 effort === e ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
               {e === "auto" ? "Auto ✦" : e}
             </button>

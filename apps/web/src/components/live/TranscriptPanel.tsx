@@ -54,7 +54,7 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
     <aside ref={asideRef} style={{ width }} className="ol-panel-in relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
-      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-[13px] font-semibold">
+      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-body font-semibold">
         Activity
         <div className="flex items-center">
           {msgs.length > 0 && (
@@ -73,13 +73,13 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
       {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
           anchoring fights content-visibility height estimates. */}
       <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
-        {empty && <p className="mt-8 text-center text-[12.5px] text-faint">Your conversation will appear here.</p>}
+        {empty && <p className="mt-8 text-center text-label text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
           <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />
         ))}
         {userPartial && userCaption && (
           <div className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl bg-accent/40 px-3 py-1.5 text-[13px] italic leading-relaxed text-foreground">{userCaption}</div>
+            <div className="max-w-[85%] rounded-2xl bg-accent/40 px-3 py-1.5 text-body italic leading-relaxed text-foreground">{userCaption}</div>
           </div>
         )}
       </div>
@@ -94,14 +94,14 @@ function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
   const done = todos.filter((t) => t.done).length;
   return (
     <div className="mx-4 mb-1 shrink-0 rounded-lg bg-card/40 px-2.5 py-2 shadow-[var(--shadow-xs)]">
-      <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+      <div className="flex items-center gap-2 text-caption font-medium text-muted-foreground">
         <ListTodo className="size-3.5 shrink-0 text-accent" />
         Plan
         <span className="ml-auto text-faint">{done}/{todos.length}</span>
       </div>
       <ul className="openlive-scroll mt-1.5 flex max-h-36 flex-col gap-1 overflow-y-auto">
         {todos.map((t, i) => (
-          <li key={i} className="flex items-start gap-2 text-[12px] leading-relaxed">
+          <li key={i} className="flex items-start gap-2 text-label leading-relaxed">
             <span className={cn(
               "mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border",
               t.done ? "border-accent bg-accent text-accent-foreground" : "border-border-heavy",
@@ -155,7 +155,7 @@ function CopyButton({ text, title, className }: { text: string; title: string; c
 // parsing is the most expensive thing in this panel — never re-parse unchanged text.
 const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   return (
-    <div className="ol-md min-w-0 text-[13px] leading-relaxed text-foreground">
+    <div className="ol-md min-w-0 text-body leading-relaxed text-foreground">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -163,13 +163,13 @@ const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
           code: ({ className, children }) => {
             const body = String(children ?? "");
             if (!body.includes("\n") && !className) {
-              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-[12px]">{body}</code>;
+              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-label">{body}</code>;
             }
             return (
               <span className="group/code relative my-1.5 block overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
                 <CopyButton text={body.replace(/\n$/, "")} title="Copy code"
                   className="absolute right-1.5 top-1.5 bg-card/80 opacity-0 backdrop-blur transition group-hover/code:opacity-100" />
-                <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-[12px] leading-relaxed">{body}</code>
+                <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-label leading-relaxed">{body}</code>
               </span>
             );
           },
@@ -190,7 +190,7 @@ const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; stream
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-[13px] leading-relaxed text-accent-foreground">{msg.text}</div>
+        <div className="max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-body leading-relaxed text-accent-foreground">{msg.text}</div>
       </div>
     );
   }
@@ -213,7 +213,7 @@ const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; stream
     // ol-cv: off-screen messages skip layout/paint — the panel stays smooth on
     // long transcripts without a virtualization library.
     <div className="ol-cv group/msg flex flex-col gap-2">
-      {streaming && segs.length === 0 && <span className="arc-shimmer text-[13px] font-medium">Thinking…</span>}
+      {streaming && segs.length === 0 && <span className="arc-shimmer text-body font-medium">Thinking…</span>}
       {segs.map((seg, i) =>
         seg.kind === "work"
           ? <WorkBlock key={i} parts={seg.parts} active={streaming && i === segs.length - 1} />
@@ -221,7 +221,7 @@ const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; stream
           // render it as plain text (spoken prose has no markdown by design) and
           // flip to markdown once the segment closes or the turn finishes.
           : streaming && i === segs.length - 1
-            ? <div key={i} className="min-w-0 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{seg.text}</div>
+            ? <div key={i} className="min-w-0 whitespace-pre-wrap text-body leading-relaxed text-foreground">{seg.text}</div>
             : <MarkdownText key={i} text={seg.text} />,
       )}
       {!streaming && fullText && (
@@ -253,7 +253,7 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
   return (
     <div className="rounded-lg bg-card/40 shadow-[var(--shadow-xs)]">
       <button onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition hover:text-foreground">
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-caption text-muted-foreground transition hover:text-foreground">
         {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
         {active ? (
           <span className="arc-shimmer truncate font-medium">{runningLabel}</span>
@@ -271,7 +271,7 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
         <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
           {parts.map((p, i) =>
             p.kind === "reasoning"
-              ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2.5 text-[12px] italic leading-relaxed text-muted-foreground">{p.text}</p>
+              ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2.5 text-label italic leading-relaxed text-muted-foreground">{p.text}</p>
               : p.kind === "tool" ? <ToolRow key={i} part={p} />
               : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}
@@ -286,12 +286,12 @@ function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
   const Icon = m.icon;
   const failed = part.done && part.detail === "error";
   return (
-    <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+    <div className="flex items-center gap-2 text-label text-muted-foreground">
       {!part.done ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
         : failed ? <AlertCircle className="size-3.5 shrink-0 text-destructive" />
         : <Icon className="size-3.5 shrink-0 text-faint" />}
       <span className={cn("shrink-0", failed && "text-destructive")}>{part.done ? m.label : `${m.active}…`}</span>
-      {failed && <span className="shrink-0 text-[10.5px] text-destructive">failed</span>}
+      {failed && <span className="shrink-0 text-micro text-destructive">failed</span>}
       {part.summary && <span className="truncate text-faint">· {part.summary}</span>}
     </div>
   );

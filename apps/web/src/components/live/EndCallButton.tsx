@@ -25,12 +25,12 @@ export function EndCallButton({ onEnd, size = "size-9", interactive }: { onEnd: 
     <div ref={ref} className="relative" {...(interactive ? { "data-interactive": true } : {})}>
       {open && (
         <div className="absolute bottom-full left-1/2 z-50 mb-2 w-44 -translate-x-1/2 rounded-xl border border-border bg-popover p-2 shadow-2xl">
-          <p className="px-1 pb-2 pt-0.5 text-center text-[12.5px] text-foreground">End call?</p>
+          <p className="px-1 pb-2 pt-0.5 text-center text-label text-foreground">End call?</p>
           <div className="flex gap-1.5">
             <button onClick={() => setOpen(false)}
-              className="flex-1 rounded-lg px-2 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-foreground/10">Cancel</button>
+              className="flex-1 rounded-lg px-2 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10">Cancel</button>
             <button onClick={() => { setOpen(false); onEnd(); }}
-              className="flex-1 rounded-lg bg-danger px-2 py-1.5 text-[12.5px] font-medium text-white transition hover:opacity-90">End</button>
+              className="flex-1 rounded-lg bg-danger px-2 py-1.5 text-label font-medium text-white transition hover:opacity-90">End</button>
           </div>
         </div>
       )}

@@ -25,10 +25,10 @@ export function HintChips({ className }: { className?: string }) {
         <div key={h.id}
           className="pointer-events-auto flex max-w-md items-center gap-2 rounded-full bg-card/90 py-1.5 pl-3 pr-1.5 shadow-[var(--shadow-card)] backdrop-blur animate-fade-up">
           {h.id.startsWith("err") ? <AlertCircle className="size-3.5 shrink-0 text-danger" /> : <Lightbulb className="size-3.5 shrink-0 text-accent" />}
-          <span className="min-w-0 truncate text-[12px] text-foreground">{h.text}</span>
+          <span className="min-w-0 truncate text-label text-foreground">{h.text}</span>
           {h.action && (
             <button onClick={h.action.run}
-              className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-accent-foreground transition hover:opacity-90">
+              className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-caption font-medium text-accent-foreground transition hover:opacity-90">
               {h.action.label}
             </button>
           )}

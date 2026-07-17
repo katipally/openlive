@@ -27,19 +27,19 @@ function PillMenu({ icon: Icon, label, title, items, current, onPick, footer }: 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
       <button onClick={() => setOpen((o) => !o)} title={title}
-        className="flex max-w-[180px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+        className="flex max-w-[180px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
         <Icon className="size-3.5 shrink-0" /> <span className="truncate">{label}</span> <ChevronDown className={cn("size-3 shrink-0 transition", open && "rotate-180")} />
       </button>
       {open && (
         <div className="absolute right-0 z-50 mt-1.5 w-64 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
-          <div className="px-3 pt-2 text-[10.5px] font-medium uppercase tracking-wide text-faint">{title}</div>
+          <div className="px-3 pt-2 text-micro font-medium uppercase tracking-wide text-faint">{title}</div>
           <div className="openlive-scroll max-h-64 overflow-y-auto py-1">
             {items.map((it) => (
               <button key={it.id} onClick={() => { onPick(it.id); setOpen(false); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-foreground/[0.06]">
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] text-foreground">{it.label}</span>
-                  {it.sub && <span className="block truncate font-mono text-[10.5px] text-faint">{it.sub}</span>}
+                  <span className="block truncate text-label text-foreground">{it.label}</span>
+                  {it.sub && <span className="block truncate font-mono text-micro text-faint">{it.sub}</span>}
                 </span>
                 {it.id === (current ?? "") && <Check className="size-3.5 shrink-0 text-success" />}
               </button>
@@ -79,7 +79,7 @@ export function AgentBar() {
       <PillMenu icon={Folder} title="Project folder" label={boundCwd ? basename(boundCwd) : "Pick folder"}
         items={folderItems} current={boundCwd} onPick={(id) => setConversationFolder(activeChatId, id)}
         footer={b && (
-          <button onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-foreground transition hover:bg-foreground/[0.06]">
+          <button onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-label text-foreground transition hover:bg-foreground/[0.06]">
             <FolderOpen className="size-4 text-accent" /> Browse…
           </button>
         )} />
@@ -93,7 +93,7 @@ export function AgentBar() {
       )}
       {agentMeta?.resumeAcrossRestart === false && (
         <span title="This session works live, but this agent can't reopen it in its own CLI after it closes (an agent limitation, not OpenLive)."
-          className="ml-0.5 shrink-0 rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+          className="ml-0.5 shrink-0 rounded-md bg-foreground/10 px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
           live only
         </span>
       )}

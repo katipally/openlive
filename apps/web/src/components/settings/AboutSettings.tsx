@@ -17,7 +17,7 @@ export function AboutSettings() {
         <div className="flex flex-col gap-2">
           {links.map((l) => (
             <a key={l.href} href={l.href} target="_blank" rel="noreferrer"
-              className="flex items-center gap-2.5 rounded-lg bg-card px-3 py-2.5 text-[12.5px] text-foreground shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-pop)]">
+              className="flex items-center gap-2.5 rounded-lg bg-card px-3 py-2.5 text-label text-foreground shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-pop)]">
               <l.icon className="size-4 text-muted-foreground" />
               <span className="flex-1">{l.label}</span>
               <ExternalLink className="size-3.5 text-faint" />
@@ -29,8 +29,8 @@ export function AboutSettings() {
       <div className="flex items-center gap-3 pt-1">
         <OpenLiveMark size={34} />
         <div>
-          <p className="text-[13px] font-semibold text-foreground">OpenLive {version && <span className="font-normal text-muted-foreground">v{version}</span>}</p>
-          <p className="text-[12px] text-muted-foreground">Ears, eyes, and a voice for your AI.</p>
+          <p className="text-body font-semibold text-foreground">OpenLive {version && <span className="font-normal text-muted-foreground">v{version}</span>}</p>
+          <p className="text-label text-muted-foreground">Ears, eyes, and a voice for your AI.</p>
         </div>
       </div>
     </div>

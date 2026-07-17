@@ -5,6 +5,9 @@ import { WindowControls } from "@/components/WindowControls";
 import { Toasts } from "@/components/Toasts";
 import "./globals.css";
 
+// Bundled at BUILD time by next/font (self-hosted, no runtime fetch): the same
+// Geist files ship inside the app, so type renders identically on macOS and
+// Windows — the layout's spacing was designed around Geist metrics.
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 

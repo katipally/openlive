@@ -105,44 +105,44 @@ export function Lobby(props: LobbyProps) {
 
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
-      <p className="text-[12px] font-medium text-muted-foreground">Downloading on-device AI…</p>
+      <p className="text-label font-medium text-muted-foreground">Downloading on-device AI…</p>
       <DownloadProgress pct={downloadPct} loaded={downloadLoaded} total={downloadTotal} models={downloadModels} />
     </div>
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-[14px] font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
         Download AI models
       </button>
-      <p className="max-w-[17rem] text-[11px] text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
+      <p className="max-w-[17rem] text-caption text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
       <button onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}
-        className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
+        className="rounded-full bg-accent px-10 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start — not as a confusing failure after. */}
       {agentGap && (
         <button onClick={() => useUi.getState().openSettingsTab("agents")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
           <Wrench className="size-3.5" />
           {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
         </button>
       )}
-      {!agentGap && needFolder && <p className="text-[11.5px] text-faint">Pick a project folder above to start.</p>}
+      {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
       {folderGap && (
-        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-[12px] text-danger">
+        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-label text-danger">
           That folder doesn&apos;t exist anymore — pick a different one.
         </p>
       )}
       {keyGap && provDef && (
         <button onClick={() => useUi.getState().openSettingsTab("models")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
           <Wrench className="size-3.5" /> No API key for {provDef.name} — add one in Settings
         </button>
       )}
-      {micGap && <p className="text-[11.5px] text-arc">No microphone detected — connect one so the call can hear you.</p>}
+      {micGap && <p className="text-caption text-arc">No microphone detected — connect one so the call can hear you.</p>}
     </div>
   );
 
@@ -158,10 +158,10 @@ export function Lobby(props: LobbyProps) {
         </button>
         <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
           <div className="space-y-1">
-            <h2 className="text-[22px] font-semibold tracking-tight">Talk with OpenLive</h2>
-            <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
+            <h2 className="text-title-lg font-semibold tracking-tight">Talk with OpenLive</h2>
+            <p className="max-w-sm text-body text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
             {cpu && (
-              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
+              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-caption text-arc">
                 Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
               </p>
             )}
@@ -182,7 +182,7 @@ export function Lobby(props: LobbyProps) {
           </div>
 
           {cta}
-          {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
+          {error && <p className="max-w-sm text-label text-danger">{error}</p>}
         </div>
       </main>
 
@@ -190,7 +190,7 @@ export function Lobby(props: LobbyProps) {
           so start→call reads as continuous) */}
       <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-[14px] font-semibold tracking-tight">Set up your call</span>
+          <span className="text-callout font-semibold tracking-tight">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
             <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
@@ -230,12 +230,12 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-[9.5px] font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
+        <p className="flex items-center gap-1.5 text-caption font-medium uppercase tracking-wide text-faint">
+          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-micro font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
         </p>
         {b && (
           <button onClick={browse} aria-label={`Choose a folder for ${name}`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium text-accent transition hover:bg-accent/10">
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium text-accent transition hover:bg-accent/10">
             <FolderOpen className="size-3.5" /> Browse…
           </button>
         )}
@@ -244,8 +244,8 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
       {cwd ? (
         <div className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 shadow-[var(--shadow-card)]">
           <Folder className="size-4 shrink-0 text-accent" />
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground" title={cwd}>{cwd}</span>
-          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-[11px] text-faint transition hover:text-foreground">change</button>
+          <span className="min-w-0 flex-1 truncate font-mono text-label text-foreground" title={cwd}>{cwd}</span>
+          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-caption text-faint transition hover:text-foreground">change</button>
         </div>
       ) : (
         <>
@@ -255,15 +255,15 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
                 <button key={f} onClick={() => setConversationFolder(chatId, f)} title={f}
                   className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-2 text-left shadow-[var(--shadow-xs)] transition hover:shadow-[var(--shadow-card)]">
                   <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{basename(f)}</span>
-                  <span className="max-w-[45%] shrink-0 truncate font-mono text-[10px] text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
+                  <span className="min-w-0 flex-1 truncate text-label text-foreground">{basename(f)}</span>
+                  <span className="max-w-[45%] shrink-0 truncate font-mono text-micro text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
                 </button>
               ))}
             </div>
           )}
           {!b && (
             <input placeholder="/path/to/your/project" spellCheck={false}
-              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-[12px] text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
+              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-label text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
               onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
           )}
         </>
@@ -292,7 +292,7 @@ function AgentSetup({ agent }: { agent: AgentId }) {
   // starts" — an empty section is a promise the panel can't keep yet.
   if (nothingYet) {
     return (
-      <p className={cn("flex items-start gap-2 text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
+      <p className={cn("flex items-start gap-2 text-caption leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
         {agentConnecting && <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />}
         {agentConnecting
           ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
@@ -304,7 +304,7 @@ function AgentSetup({ agent }: { agent: AgentId }) {
   return (
     <div className="space-y-6">
       {meta?.resumeAcrossRestart === false && (
-        <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-caption leading-relaxed text-muted-foreground">
           Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
         </p>
       )}

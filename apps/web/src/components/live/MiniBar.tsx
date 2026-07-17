@@ -91,15 +91,15 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
           <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={30} />
           {confirmEnd ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-[12.5px]">End call?</span>
+              <span className="min-w-0 flex-1 truncate text-label">End call?</span>
               <button onClick={() => setConfirmEnd(false)}
-                className={cn(noDrag, "rounded-full px-3 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-foreground/10")}>Cancel</button>
+                className={cn(noDrag, "rounded-full px-3 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10")}>Cancel</button>
               <button onClick={onEnd}
-                className={cn(noDrag, "rounded-full bg-danger px-3 py-1.5 text-[12.5px] font-medium text-white transition hover:opacity-90")}>End</button>
+                className={cn(noDrag, "rounded-full bg-danger px-3 py-1.5 text-label font-medium text-white transition hover:opacity-90")}>End</button>
             </>
           ) : (
             <>
-              <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
+              <span className={cn("min-w-0 flex-1 truncate text-label", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
               <span className={noDrag}><HoldToSend sendNow={sendNow} compact /></span>
               <MiniBtn on={!muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute} icon={muted ? MicOff : Mic} danger={muted} />
               <MiniBtn on={cameraOn} title={cameraOn ? "Camera off" : "Camera on"} onClick={() => void toggleCamera()} icon={cameraOn ? Video : VideoOff} />

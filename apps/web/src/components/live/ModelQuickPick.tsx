@@ -70,7 +70,7 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
           ]} />
         {facts.length > 0 && <div className="pt-1.5"><FactChips items={facts} /></div>}
         {blind && (
-          <p className="flex items-center gap-1 pt-1 text-[10.5px] text-arc">
+          <p className="flex items-center gap-1 pt-1 text-micro text-arc">
             <AlertCircle className="size-3 shrink-0" /> This model can&apos;t see — set a vision model in Settings.
           </p>
         )}
