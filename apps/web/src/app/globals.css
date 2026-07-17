@@ -61,6 +61,13 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 
+  /* Motion defaults — every bare transition utility (hovers, presses, colour
+     shifts) inherits these, so the whole app eases the same buttery way without
+     sprinkling per-element duration classes. Mirrors DUR/EASE in lib/gsap.ts.
+     Explicit duration/ease utilities still override per element. */
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+
   /* Bundled Geist (next/font embeds the files at build time — no runtime
      fetch): identical rendering on macOS and Windows. The system stack was
      tried and rejected — SF renders wider than the layout was designed for
@@ -103,10 +110,22 @@
   --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.09), 0 24px 48px -16px rgba(0, 0, 0, 0.24);
   --surface-raised: #f4f2ec;
 
-  /* Shared motion vocabulary (used by CSS keyframes and JS presets alike). */
+  /* Shared motion vocabulary — MIRRORS DUR/EASE in lib/gsap.ts; keep the two in
+     sync. Buttery: longer, smooth-settling, subtle overshoot on entrances. */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-fast: 150ms;
-  --dur-base: 220ms;
+  --ease-settle: cubic-bezier(0.34, 1.32, 0.64, 1); /* CSS ≈ GSAP back.out — a touch of overshoot */
+  --dur-fast: 220ms;
+  --dur-base: 340ms;
+  --dur-slow: 440ms;
+
+  /* Layering scale — ONE ladder so surfaces can't render in the wrong order.
+     Blocking modals (permission / elicitation) MUST sit above Settings, or a
+     mid-call approval opened while Settings is up renders behind it and auto-denies. */
+  --z-nav: 30;
+  --z-overlay: 50;   /* drawers, side panels, in-call popovers */
+  --z-settings: 60;  /* full-screen Settings overlay */
+  --z-modal: 70;     /* blocking modals — always above Settings */
+  --z-toast: 90;     /* transient toasts — above everything */
 }
 
 .dark {
@@ -164,6 +183,11 @@ body::before {
 }
 .dark body::before { opacity: 0.04; mix-blend-mode: overlay; }
 
+/* The chromeless mini pill (/mini) tags <html> with .mini — strip the root chrome
+   (paper grain, toasts) that would otherwise paint behind the floating pill. */
+html.mini body::before { content: none; }
+html.mini .ol-toasts { display: none; }
+
 /* ─── Desktop shell (frameless window) ──────────────────────────────────────
    The window has no native frame; drag it from any surface tagged .app-drag,
    while every interactive control inside opts out so only empty space moves it. */
@@ -220,7 +244,7 @@ body::before {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-up { animation: fade-up 240ms var(--ease-out-quart); }
+.animate-fade-up { animation: fade-up 320ms var(--ease-out-quart); }
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -233,7 +257,7 @@ body::before {
   from { opacity: 0; transform: translateX(14px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.ol-panel-in { animation: panel-in 320ms var(--ease-out-quart); }
+.ol-panel-in { animation: panel-in 420ms var(--ease-out-quart); }
 @media (prefers-reduced-motion: reduce) { .ol-panel-in { animation: none; } }
 
 /* Live stage entrance — a gentle fade + settle when a call becomes active */
@@ -241,8 +265,18 @@ body::before {
   from { opacity: 0; transform: scale(0.985) translateY(8px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
-.animate-live-in { animation: live-in 320ms var(--ease-out-quart); }
+.animate-live-in { animation: live-in 440ms var(--ease-out-quart); }
 @media (prefers-reduced-motion: reduce) { .animate-live-in { animation: none; } }
+
+/* Modal / sheet card entrance — a soft fade + scale-up with a touch of settle.
+   Pair with usePresence() on the backdrop (which fades) so the card pops while
+   the scrim fades in behind it. */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-modal-in { animation: modal-in var(--dur-base) var(--ease-settle); }
+@media (prefers-reduced-motion: reduce) { .animate-modal-in { animation: none; } }
 
 /* shimmer for the thinking / generating state — blue accent sweep */
 @keyframes arc-sweep {

@@ -122,7 +122,7 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
     <div className="flex w-full max-w-[18rem] items-center gap-2">
       <Mic className={cn("size-3.5 shrink-0", denied ? "text-danger" : "text-muted-foreground")} />
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
-        <div className="h-full rounded-full bg-success transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+        <div className="h-full rounded-full bg-success transition-[width] duration-100" style={{ width: `${Math.round(level * 100)}%` }} />
       </div>
       {denied && <span className="text-micro text-danger">mic blocked</span>}
     </div>

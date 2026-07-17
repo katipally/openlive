@@ -11,7 +11,7 @@ export function Toasts() {
   const dismiss = useToasts((s) => s.dismiss);
   if (!toasts.length) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[70] flex flex-col items-center gap-2 px-4">
+    <div className="ol-toasts pointer-events-none fixed inset-x-0 bottom-6 z-[var(--z-toast)] flex flex-col items-center gap-2 px-4">
       {toasts.map((t) => (
         <div key={t.id} role="status"
           className="pointer-events-auto flex max-w-md items-center gap-2.5 rounded-xl bg-card/95 px-3.5 py-2.5 shadow-2xl backdrop-blur animate-[fade-up_0.25s_ease-out]">

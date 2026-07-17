@@ -11,6 +11,9 @@ import { OpenLiveOrb } from "./OpenLiveOrb";
 import { usePersistedOpen, setDisclosure } from "@/lib/disclosure";
 import { useHistoryOverrides } from "@/lib/historyOverrides";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
+import { Disclosure } from "@/components/Disclosure";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -152,11 +155,11 @@ export function HistorySidebar() {
             field over the button (width-animated), Escape/empty-blur collapses. */}
         <div className="flex shrink-0 items-center gap-2 p-2 pb-1" data-tour="history-actions">
           <button onClick={newChat} tabIndex={searching ? -1 : 0}
-            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-label font-medium text-accent-foreground transition-all duration-300 hover:opacity-90",
+            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-label font-medium text-accent-foreground transition-[width,padding,opacity] duration-300 hover:opacity-90",
               searching ? "w-0 px-0 opacity-0" : "flex-1 px-3")}>
             <Plus className="size-4 shrink-0" /> New chat
           </button>
-          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-all duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
+          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-[width,padding] duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
             {searching ? (
               <>
                 <Search className="size-3.5 shrink-0 text-faint" />
@@ -224,7 +227,7 @@ export function HistorySidebar() {
         </div>
       </aside>
 
-      {pending && <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />}
+      <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />
 
       <SpotlightTour id="history" steps={[
         { target: "history-actions", title: "All your conversations", body: "Chats are filed by project folder — every agent's work on a project in one place. Start fresh here, or tap the magnifier to search chats and folders." },
@@ -257,23 +260,27 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
   });
 
   return (
-    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/ws ol-hist-node">
-      <summary className="group/wsrow flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05] [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition group-open/ws:rotate-90" />
+    <div className="group/ws ol-hist-node">
+      <div role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+        className="group/wsrow flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05]">
+        <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-90")} />
         <Folder className="size-3.5 shrink-0 text-accent/80" />
         <span className="min-w-0 flex-1 truncate" title={ws.cwd || "No folder"}>{label}</span>
         <span className="text-micro font-normal text-faint">{chats.length}</span>
-        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s sessions"
+        <button onClick={(e) => { e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s sessions"
           className="grid size-6 shrink-0 place-items-center rounded text-faint opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover/wsrow:opacity-100">
           <Trash2 className="size-3" />
         </button>
-      </summary>
-      <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
-        {chats.map((c) => (
-          <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
-        ))}
       </div>
-    </details>
+      <Disclosure open={open}>
+        <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
+          {chats.map((c) => (
+            <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
+          ))}
+        </div>
+      </Disclosure>
+    </div>
   );
 }
 
@@ -339,23 +346,30 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
   );
 }
 
-// Permission-gated confirm before any delete. Danger-styled; Escape / backdrop cancels.
-function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete; onCancel: () => void; onConfirm: () => void }) {
+// Permission-gated confirm before any delete. Danger-styled; Escape / backdrop
+// cancels. Real presence so it fades in/out instead of popping; z-modal so it sits
+// above the History drawer (and Settings, if that's somehow up).
+function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete | null; onCancel: () => void; onConfirm: () => void }) {
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const open = !!pending;
+  // Retain the last pending through the exit fade (it's null once cancelled/run).
+  const last = useRef(pending);
+  if (pending) last.current = pending;
+  const p = pending ?? last.current;
+  const mounted = usePresence(rootRef, open);
+  useEffect(() => { if (open) setBusy(false); }, [open]);
+  useFocusTrap(rootRef, mounted, onCancel);
+  if (!mounted || !p) return null;
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center p-6" role="dialog" aria-modal="true">
+    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
+      <div className="animate-modal-in relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/10 text-danger"><AlertTriangle className="size-5" /></span>
           <div className="min-w-0">
-            <h3 className="text-callout font-semibold text-foreground">{pending.title}</h3>
-            <p className="mt-1 text-label leading-relaxed text-muted-foreground">{pending.body}</p>
+            <h3 className="text-callout font-semibold text-foreground">{p.title}</h3>
+            <p className="mt-1 text-label leading-relaxed text-muted-foreground">{p.body}</p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

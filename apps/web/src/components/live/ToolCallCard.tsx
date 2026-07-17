@@ -8,6 +8,7 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { basename, bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import { Disclosure } from "@/components/Disclosure";
 import { DiffView } from "./DiffView";
 import { TerminalView } from "./TerminalView";
 
@@ -55,7 +56,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
         {hasBody && <ChevronRight className={cn("size-3.5 shrink-0 transition", expanded && "rotate-90")} />}
       </button>
 
-      {expanded && (
+      <Disclosure open={expanded}>
         <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
           {content.map((c, i) =>
             c.type === "text" ? (
@@ -68,7 +69,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
           )}
           {call.rawInputJson && <RawDisclosure label="Raw input" json={call.rawInputJson} />}
         </div>
-      )}
+      </Disclosure>
 
       {permission && answerPermission && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-2.5 py-2">
@@ -116,7 +117,9 @@ function RawDisclosure({ label, json }: { label: string; json: string }) {
       <button onClick={() => setShow((v) => !v)} className="flex items-center gap-1 text-caption text-faint transition hover:text-foreground">
         <ChevronRight className={cn("size-3 transition", show && "rotate-90")} />{label}
       </button>
-      {show && <pre className="openlive-scroll mt-1 max-h-48 overflow-auto rounded-lg bg-surface p-2 font-mono text-caption leading-relaxed text-muted-foreground">{pretty()}</pre>}
+      <Disclosure open={show}>
+        <pre className="openlive-scroll mt-1 max-h-48 overflow-auto rounded-lg bg-surface p-2 font-mono text-caption leading-relaxed text-muted-foreground">{pretty()}</pre>
+      </Disclosure>
     </div>
   );
 }

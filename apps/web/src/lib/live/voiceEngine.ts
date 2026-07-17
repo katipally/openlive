@@ -43,6 +43,7 @@ export class VoiceEngine {
   private phase: EnginePhase = "idle";
 
   private pending: Float32Array | null = null;   // held mid-thought utterance
+  private pendingText = "";                        // its transcript, already computed in onSpeechEnd — reused on auto-send instead of re-transcribing
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private curBuf: Float32Array[] = [];           // frames since speech start (for partials)
   private curLen = 0;
@@ -240,6 +241,7 @@ export class VoiceEngine {
       const done = modelComplete && !endsMidThought(text);
       if (!done && combined.length < 16000 * 20) {
         this.pending = combined;
+        this.pendingText = text;
         this.h.onPartial(text);
         this.scheduleHold();
         this.setPhase("idle");
@@ -278,14 +280,21 @@ export class VoiceEngine {
   /** Send the held mid-thought utterance NOW (hold timer fired, or the user tapped
    *  "send now" / hit Enter instead of waiting it out). */
   private flushPending() {
-    const p = this.pending; this.pending = null;
+    const p = this.pending; const cached = this.pendingText.trim();
+    this.pending = null; this.pendingText = "";
     this.clearHold();
     if (!p || this.phase !== "idle") return;
-    void stt(p).then((t) => {
+    const commit = (t: string) => {
       const text = t.trim();
       if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
-    }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
+    };
+    // The held audio was already transcribed in onSpeechEnd (that's how we knew it
+    // was mid-thought), so reuse that transcript instead of re-running STT here —
+    // the auto-send path was paying for a second transcription. Fall back to STT
+    // only if for some reason we don't have the cached text.
+    if (cached) commit(cached);
+    else void stt(p).then(commit).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
   }
   /** Public "send now": commit a held utterance without waiting for the hold timer. */
   commitPending() { if (this.pending && !this.ptt) this.flushPending(); }

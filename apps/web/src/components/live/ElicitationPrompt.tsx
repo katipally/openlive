@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ExternalLink, KeyRound } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { bridge, isDesktop } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 
@@ -11,14 +13,23 @@ import { cn } from "@/lib/cn";
 // mode: renders the ACP ElicitationSchema (flat, primitive-typed fields only:
 // string/enum, number, integer, boolean, multi-select array).
 export function ElicitationPrompt() {
-  const elicitation = useLiveStore((s) => s.elicitation);
+  const live = useLiveStore((s) => s.elicitation);
   const answer = useLiveStore((s) => s.answerElicitation);
-  if (!elicitation || !answer) return null;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const open = !!live && !!answer;
+  // Retain the last elicitation through the exit fade (it's null once answered).
+  const last = useRef(live);
+  if (live) last.current = live;
+  const elicitation = live ?? last.current;
+  const mounted = usePresence(rootRef, open);
+  useFocusTrap(rootRef, mounted);
+  if (!mounted || !elicitation || !answer) return null;
   return (
     // Centered modal, same ergonomics as the permission prompt: the agent is
-    // blocked on this input, so it owns the stage until answered.
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+    // blocked on this input, so it owns the stage until answered. z-modal keeps it
+    // above Settings if that's open mid-call.
+    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
+      <div className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
           <KeyRound className="mt-0.5 size-5 shrink-0 text-accent" />
           <p className="text-body leading-relaxed text-foreground">{elicitation.message}</p>

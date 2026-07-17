@@ -6,18 +6,19 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertCircle, Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { usePresence } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { kindMeta, toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
+import { Disclosure } from "@/components/Disclosure";
 import { ToolCallCard } from "./ToolCallCard";
 
 // The running conversation, beside the orb. Assistant turns render as they
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
 // by the spoken answer, filled word-by-word in lockstep with the VOICE (see
 // useLiveSession) so it always shows exactly what was said. Resizable + closable.
-export function TranscriptPanel({ chatId, width, onResize, onClose }: {
-  chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
+export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
+  open: boolean; chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
 }) {
   const msgs = useChat(chatId);
   const { userCaption, userPartial, todos } = useLiveStore(useShallow((s) => ({
@@ -26,12 +27,9 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
   const scroller = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
-  // Slide in from the right edge when opened (enter-only; close unmounts, which
-  // reads fine for a side panel — same rule as menus/usePopIn).
-  useGSAP(() => {
-    if (prefersReduced()) return;
-    gsap.fromTo(asideRef.current, { x: 24, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: DUR.base, ease: EASE.out });
-  }, { scope: asideRef });
+  // Slide in from the right edge on open, and slide back out on close — a real
+  // exit, no hard cut — before unmounting. usePresence owns mount + both tweens.
+  const mounted = usePresence(asideRef, open, { enter: { autoAlpha: 1, x: 0 }, exit: { autoAlpha: 0, x: 24 } });
 
   useEffect(() => {
     const el = scroller.current;
@@ -48,10 +46,11 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
     window.addEventListener("pointerup", up);
   };
 
+  if (!mounted) return null;
   const empty = msgs.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="ol-panel-in relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+    <aside ref={asideRef} style={{ width }} className="relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
       <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-body font-semibold">
@@ -267,7 +266,7 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
         )}
         <ChevronRight className={cn("ml-auto size-3.5 shrink-0 transition", expanded && "rotate-90")} />
       </button>
-      {expanded && (
+      <Disclosure open={expanded}>
         <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
           {parts.map((p, i) =>
             p.kind === "reasoning"
@@ -276,7 +275,7 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
               : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}
         </div>
-      )}
+      </Disclosure>
     </div>
   );
 });

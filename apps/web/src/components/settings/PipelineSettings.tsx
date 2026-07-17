@@ -66,7 +66,11 @@ function StageHead({ title, desc }: { title: string; desc: string }) {
 function ModelStatus() {
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
-  const cached = typeof window !== "undefined" && (modelsReady() || modelsCached());
+  // modelsCached() is now config-aware (matches the SELECTED size/engine), so a
+  // fresh size/engine correctly shows the download button instead of a false
+  // "Downloaded". (Don't fall back to modelsReady() — that's true for ANY loaded
+  // config and would re-introduce the "everything looks downloaded" bug.)
+  const cached = typeof window !== "undefined" && modelsCached();
   const download = async () => {
     setBusy(true);
     try { await loadModels((p) => setPct(p.pct)); } catch (e) { log.error("models", e); toast("Model download failed — check your connection and try again."); } finally { setBusy(false); }

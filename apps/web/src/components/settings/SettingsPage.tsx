@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Settings2, SlidersHorizontal, AudioWaveform, Mic, Bot, Info } from "lucide-react";
+import { X, Settings2, SlidersHorizontal, AudioWaveform, Mic, Bot, Info } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { GeneralSettings } from "./GeneralSettings";
@@ -95,21 +95,31 @@ export function SettingsPage() {
 
   if (!visible) return null;
   const Active = SECTIONS.find((s) => s.id === tab)!;
+  // Put the dismiss OPPOSITE the OS window controls so it never collides and lands
+  // where you'd expect: macOS/web have traffic-lights (or nothing) top-left → close
+  // top-right, matching the gear that opened Settings; Windows has min/max/close
+  // top-right → close top-left. Esc and ⌘[ close it too (focus trap + history).
+  const closeOnRight = !isDesktop || isMacDesktop;
+  const closeBtn = (
+    <button onClick={requestClose} aria-label="Close settings" title="Close (Esc)"
+      className={cn("grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}>
+      <X className="size-5" />
+    </button>
+  );
 
   return (
     <div ref={root} role="dialog" aria-modal="true" aria-label="Settings"
-      className="fixed inset-0 z-[60] flex flex-col bg-background text-left">
-      {/* header — drag region (frameless window) + back; clears the traffic lights */}
-      <header className={cn("relative flex h-14 shrink-0 items-center gap-3 pr-4",
-        isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
-        <button onClick={requestClose} aria-label="Back" title="Back"
-          className={cn("grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}>
-          <ArrowLeft className="size-5" />
-        </button>
+      className="fixed inset-0 z-[var(--z-settings)] flex flex-col bg-background text-left">
+      {/* header — drag region (frameless window). Dismiss placement is adaptive; see closeOnRight. */}
+      <header className={cn("relative flex h-14 shrink-0 items-center gap-3",
+        closeOnRight ? cn("justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4") : "pl-3 pr-[140px]",
+        isDesktop && "[-webkit-app-region:drag]")}>
+        {!closeOnRight && closeBtn}
         <span className="flex items-baseline gap-2 text-title-sm font-semibold">
           Settings
           {appVersion && <span className="text-caption font-normal text-muted-foreground">v{appVersion}</span>}
         </span>
+        {closeOnRight && closeBtn}
       </header>
 
       <div className="flex min-h-0 flex-1">

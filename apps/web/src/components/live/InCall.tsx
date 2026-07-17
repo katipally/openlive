@@ -17,7 +17,8 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { setPttEnabled } from "@/lib/live/usePtt";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { useMenuPresence } from "@/lib/usePopIn";
+import { useMenuPresence, usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { cn } from "@/lib/cn";
 
 const PHASE_LABEL: Record<LivePhase, string> = {
@@ -59,7 +60,7 @@ export function InCall(props: InCallProps) {
   // reduced-motion, which leaves the element at its final state).
   const { contextSafe } = useGSAP(() => {
     if (prefersReduced()) return;
-    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.snappy });
+    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.out });
   }, { scope: root });
 
   // Exit — a quick settle-down before teardown so ending never feels like a cut.
@@ -194,20 +195,23 @@ export function InCall(props: InCallProps) {
         </main>
 
         {/* transcript sidebar — resizable + collapsible */}
-        {panelOpen && <TranscriptPanel chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />}
+        <TranscriptPanel open={panelOpen} chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />
       </div>
 
       <SpotlightTour id="call" steps={[
         { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The keyboard button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
       ]} />
 
-      {sheetOpen && <ShortcutSheet pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />}
+      <ShortcutSheet open={sheetOpen} pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />
     </div>
   );
 }
 
 // The "?" cheat sheet — every in-call binding in one quiet card.
-function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: () => void }) {
+function ShortcutSheet({ open, pttEnabled, onClose }: { open: boolean; pttEnabled: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const mounted = usePresence(ref, open);
+  useFocusTrap(ref, mounted, onClose);
   const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
   const mod = mac ? "⌘" : "Ctrl";
   const rows: [string, string][] = [
@@ -221,9 +225,10 @@ function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: 
     ...(pttEnabled ? [["Space", "Push-to-talk (hold or tap)"], ["Enter", "Send a held thought now"]] as [string, string][] : []),
     ["?", "This cheat sheet"],
   ];
+  if (!mounted) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
-      <div className="w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
+    <div ref={ref} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
+      <div className="animate-modal-in w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
         <p className="mb-2.5 text-body font-semibold">Keyboard shortcuts</p>
         <div className="flex flex-col gap-1.5">
           {rows.map(([key, what]) => (

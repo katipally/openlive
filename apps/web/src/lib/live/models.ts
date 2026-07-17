@@ -54,7 +54,12 @@ const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
 const sttSize = () => (deviceTier() === "wasm" ? "tiny" : loadPipelineConfig().stt.whisperSize);
 const readyTag = () => `${deviceTier()}:${sttSize()}:${loadPipelineConfig().tts.engine}`;
 export function modelsCached(): boolean {
-  if (ready) return true;
+  // Must be config-AWARE: `ready` alone is true whenever ANY size/engine is loaded,
+  // which made the Pipeline UI claim every OTHER Whisper size / TTS engine was
+  // "Downloaded" after the first load — so its download button never appeared and
+  // the new weights only ever pulled silently on the next call. Gate on the loaded
+  // config matching the current one instead.
+  if (modelsMatchConfig()) return true;
   try {
     if (localStorage.getItem(READY_KEY) === readyTag()) return true;
     // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy

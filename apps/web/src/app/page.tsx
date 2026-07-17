@@ -73,12 +73,9 @@ export default function Home() {
       {!minimized && (
         <>
           {/* Frameless-window drag handle: a top strip clear of the window controls
-              (top-left) and the settings button (top-right). Desktop only (.desktop). */}
+              (top-left). Desktop only (.desktop). Settings lives in the hero CTA row
+              below — no duplicate corner gear. */}
           <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10" />
-          <button onClick={openSettings} aria-label="Settings"
-            className="absolute right-4 top-4 grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-            <Settings2 className="size-5" />
-          </button>
 
           <div ref={heroRef} className="flex flex-col items-center gap-6">
             <div className="ol-hero-mark"><OpenLiveMark /></div>
@@ -90,7 +87,7 @@ export default function Home() {
             </div>
             <div className="ol-hero-cta flex items-center gap-3">
               <button onClick={startNew} data-tour="new"
-                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
                 <Plus className="size-5" /> New
               </button>
               <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"

@@ -106,7 +106,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
               <MiniBtn on={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
               <MiniBtn on={false} title="Expand" onClick={() => setMinimized(false)} icon={Maximize2} />
               <button onClick={() => setConfirmEnd(true)} title="End call" aria-label="End call"
-                className={cn(noDrag, "grid size-8 place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-95")}>
+                className={cn(noDrag, "grid size-8 place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-[0.98]")}>
                 <PhoneOff className="size-4" />
               </button>
             </>

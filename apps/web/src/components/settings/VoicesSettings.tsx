@@ -66,7 +66,7 @@ export function VoicesSettings() {
       </Section>
 
       {model?.installed && (
-        <Section title="Create a voice" desc={`Record ${MIN_SEC}–${MAX_SEC} seconds in a quiet spot — read one of the scripts below or just talk. You'll hear it back before anything is saved.`}>
+        <Section title="Create a voice" desc={`Record ${MIN_SEC}–${MAX_SEC} seconds — read a script or just talk — or upload an existing clip. You'll hear it back before anything is saved.`}>
           <Recorder onSaved={refresh} />
         </Section>
       )}
@@ -154,8 +154,9 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   const [transcript, setTranscript] = useState("");
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
-  const [busy, setBusy] = useState<"transcribe" | "save" | null>(null);
+  const [busy, setBusy] = useState<"transcribe" | "save" | "decode" | null>(null);
   const rec = useRef<{ ctx: AudioContext; stream: MediaStream; node: ScriptProcessorNode; chunks: Float32Array[]; raf: number } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => { if (rec.current) stop(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -180,21 +181,44 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
     const sampleRate = r.ctx.sampleRate;
     void r.ctx.close();
     setRecording(false);
-    if (total / sampleRate < MIN_SEC) { toast(`Too short — record at least ${MIN_SEC} seconds.`); return; }
-    setTake({ samples, sampleRate });
-    // Auto-transcribe with the on-device Whisper (editable afterwards).
+    acceptTake(samples, sampleRate);
+  };
+
+  // A captured OR uploaded clip: enforce the length window, then auto-transcribe
+  // with the on-device Whisper (editable afterwards). Shared by record + upload.
+  const acceptTake = (samples: Float32Array, sampleRate: number) => {
+    if (samples.length / sampleRate < MIN_SEC) { setBusy(null); toast(`Too short — need at least ${MIN_SEC} seconds.`); return; }
+    const capped = samples.length / sampleRate > MAX_SEC ? samples.subarray(0, Math.floor(MAX_SEC * sampleRate)) : samples;
+    setTake({ samples: capped, sampleRate });
     void (async () => {
       setBusy("transcribe");
       try {
         if (!modelsReady()) await loadModels(() => {});
         const ratio = sampleRate / 16000; // Whisper expects 16 kHz — cheap linear resample
-        const out = new Float32Array(Math.floor(samples.length / ratio));
-        for (let i = 0; i < out.length; i++) out[i] = samples[Math.floor(i * ratio)]!;
+        const out = new Float32Array(Math.floor(capped.length / ratio));
+        for (let i = 0; i < out.length; i++) out[i] = capped[Math.floor(i * ratio)]!;
         const text = await stt(out);
         if (text.trim()) setTranscript(text.trim());
       } catch (e) { log.error("voice", "reference transcribe:", e); }
       finally { setBusy(null); }
     })();
+  };
+
+  // Clone from an existing recording: decode any browser-supported audio file to
+  // mono PCM and run it through the same listen-back → transcript → save flow.
+  const onFile = async (file: File) => {
+    setBusy("decode");
+    try {
+      const ctx = new AudioContext();
+      const audio = await ctx.decodeAudioData(await file.arrayBuffer());
+      void ctx.close();
+      const n = audio.length, ch = audio.numberOfChannels;
+      const data = Array.from({ length: ch }, (_, c) => audio.getChannelData(c));
+      const mono = new Float32Array(n);
+      for (let i = 0; i < n; i++) { let sum = 0; for (let c = 0; c < ch; c++) sum += data[c]![i]!; mono[i] = sum / ch; }
+      setTranscript(""); setName("");
+      acceptTake(mono, audio.sampleRate); // hands the busy state off to "transcribe"
+    } catch (e) { log.error("voice", "decode:", e); toast("Couldn't read that audio — try a WAV, MP3, or M4A file."); setBusy(null); }
   };
 
   const start = async () => {
@@ -280,6 +304,17 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
         ) : (
           <span className="text-caption text-faint">{MIN_SEC}–{MAX_SEC} seconds · quiet room, normal speaking distance</span>
         )}
+      </div>
+      {/* Or clone from an existing recording instead of the mic. */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2.5">
+        <input ref={fileInput} type="file" accept="audio/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ""; }} />
+        <button onClick={() => fileInput.current?.click()} disabled={recording || busy !== null}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">
+          {busy === "decode" ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+          {busy === "decode" ? "Reading…" : "Upload an audio file"}
+        </button>
+        <span className="text-caption text-faint">Have a clean {MIN_SEC}–{MAX_SEC}s clip already? WAV, MP3, or M4A.</span>
       </div>
     </div>
   );

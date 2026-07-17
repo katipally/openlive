@@ -140,7 +140,7 @@ export function PanelMiniBar() {
               <MiniBtn on={s.screenOn} title={s.screenOn ? "Stop sharing" : "Share screen"} onClick={() => cmd({ t: "screen" })} icon={s.screenOn ? ScreenShareOff : ScreenShare} />
               <MiniBtn on={false} title="Expand" onClick={() => cmd({ t: "expand" })} icon={Maximize2} />
               <button onClick={() => setConfirmEnd(true)} title="End call" aria-label="End call"
-                className="grid size-8 place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-95 [-webkit-app-region:no-drag]">
+                className="grid size-8 place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-[0.98] [-webkit-app-region:no-drag]">
                 <PhoneOff className="size-4" />
               </button>
             </>

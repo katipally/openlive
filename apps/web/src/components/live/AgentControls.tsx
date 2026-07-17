@@ -11,7 +11,8 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useUi } from "@/lib/uiStore";
-import { useMenuPresence } from "@/lib/usePopIn";
+import { useMenuPresence, usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Picker } from "./SetupControls";
 import { cn } from "@/lib/cn";
 
@@ -133,16 +134,25 @@ function useCountdown(expiresAt?: number): number | null {
  *  The question is also spoken; answer by tapping a chip OR saying yes/no. An
  *  unanswered ask auto-denies server-side — the countdown makes that visible. */
 export function PermissionPrompt({ answerPermission }: { answerPermission: (optionId: string) => void }) {
-  const permission = useLiveStore((s) => s.permission);
+  const live = useLiveStore((s) => s.permission);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const open = !!live;
+  // Retain the last ask through the exit fade (it's null the instant it's answered).
+  const last = useRef(live);
+  if (live) last.current = live;
+  const permission = live ?? last.current;
   const left = useCountdown(permission?.expiresAt);
-  if (!permission) return null;
+  const mounted = usePresence(rootRef, open);
+  useFocusTrap(rootRef, mounted);
+  if (!mounted || !permission) return null;
   const mmss = left != null ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : null;
   return (
     // A real centered modal: the agent is blocked on this answer, so it owns the
     // stage. Dim backdrop (no click-through — an approval needs an explicit
-    // answer), card centered in the main view.
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+    // answer), card centered in the main view. z-modal keeps it above Settings if
+    // that's open mid-call (else the ask renders behind it and auto-denies).
+    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
+      <div className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
           <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" />
           <p className="text-body leading-relaxed text-foreground">{permission.question}</p>

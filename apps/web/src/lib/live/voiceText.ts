@@ -53,6 +53,15 @@ export function stripMarkdown(s: string): string {
     // prompt forbids symbols — so any that remain after links/citations are junk.
     .replace(/[[\]][a-z0-9~!]{0,3}[[\]]/gi, " ")
     .replace(/[[\]]/g, "")
+    // Agents (esp. coding agents) narrate file paths, filenames and URLs — read
+    // aloud they're symbol soup ("src slash foo dot tsx", "h-t-t-p-s colon…"). Say
+    // them as plain words. The system prompt asks agents to avoid this; this is the
+    // backstop so a leak never reaches the voice. Conservative: paths need a "/…"
+    // shape and filenames a known code extension, so ordinary prose ("and/or",
+    // "24/7", "e.g.") is untouched.
+    .replace(/\bhttps?:\/\/\S+/gi, "a link")
+    .replace(/\/?(?:[\w.-]+\/)+[\w-]+\.\w{1,6}\b/g, "that file")
+    .replace(/\b[\w-]+\.(?:tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb)\b/gi, "that file")
     .replace(/\bin (?:the|this|your) (?:image|photo|picture|frame)\b/gi, "here")
     .replace(/\b(?:the|this|that|your) (?:image|photo|picture|frame)\b/gi, "this")
     .replace(/\s+/g, " ")

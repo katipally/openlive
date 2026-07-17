@@ -50,3 +50,43 @@ export function useMenuPresence(ref: RefObject<HTMLElement | null>) {
   const requestClose = () => setOpen(false);
   return { open, mounted, openMenu: () => setOpen(true), requestClose, toggle: () => (open ? requestClose() : setOpen(true)) } as const;
 }
+
+/** Presence for a surface whose open/closed state is owned EXTERNALLY (a store
+ *  flag or a prop — not an internal toggle like useMenuPresence). Renders while
+ *  `mounted`, plays an enter on open and a REAL exit on close before unmounting,
+ *  so modals and panels stop hard-cutting. Defaults to a plain fade; pass
+ *  enter/exit vars for a slide/scale (transforms only — layout-safe).
+ *
+ *    const mounted = usePresence(ref, open);
+ *    {mounted && <div ref={ref}>…</div>}
+ */
+export function usePresence(
+  ref: RefObject<HTMLElement | null>,
+  open: boolean,
+  opts: { enter?: gsap.TweenVars; exit?: gsap.TweenVars; dur?: number; ease?: string } = {},
+) {
+  const [mounted, setMounted] = useState(open);
+  const enter = opts.enter ?? { autoAlpha: 1 };
+  const exit = opts.exit ?? { autoAlpha: 0 };
+  useEffect(() => { if (open) setMounted(true); }, [open]);
+
+  // Enter through a real useGSAP context (reverts cleanly on unmount).
+  useGSAP(() => {
+    if (!open || !ref.current || prefersReduced()) return;
+    gsap.fromTo(ref.current, exit, { ...enter, duration: opts.dur ?? DUR.base, ease: opts.ease ?? EASE.settle });
+  }, { dependencies: [open, mounted] });
+
+  // Exit with plain gsap + a timer-driven unmount — same rationale as
+  // useMenuPresence: useGSAP's revert-on-dep-change kills the exit tween early.
+  useEffect(() => {
+    if (open || !mounted) return;
+    const el = ref.current;
+    if (!el || prefersReduced()) { setMounted(false); return; }
+    gsap.to(el, { ...exit, duration: DUR.fast, ease: EASE.soft, overwrite: "auto" });
+    const t = setTimeout(() => setMounted(false), DUR.fast * 1000 + 20);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mounted]);
+
+  return mounted;
+}

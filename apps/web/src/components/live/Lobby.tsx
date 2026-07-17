@@ -110,7 +110,7 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
         Download AI models
       </button>
       <p className="max-w-[17rem] text-caption text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
@@ -118,7 +118,7 @@ export function Lobby(props: LobbyProps) {
   ) : (
     <div className="flex flex-col items-center gap-2">
       <button onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}
-        className="rounded-full bg-accent px-10 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
+        className="rounded-full bg-accent px-10 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
