@@ -8,7 +8,9 @@ import { tmpdir } from "node:os";
 import { test } from "vitest";
 import { confine } from "./file-tools.ts";
 
-const root = "/home/u/proj";
+// Platform-portable fake root: /home/u/proj on POSIX, <drive>:\home\u\proj on
+// Windows — a hardcoded POSIX string made every startsWith comparison fail there.
+const root = path.resolve(path.sep, "home", "u", "proj");
 const inside = (rel: string) => assert.ok(confine(root, rel)?.startsWith(root), `should allow: ${rel}`);
 const blocked = (rel: string) => assert.strictEqual(confine(root, rel), null, `should block: ${rel}`);
 
