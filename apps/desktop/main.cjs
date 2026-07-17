@@ -188,7 +188,7 @@ function createSplash() {
   splashWin = new BrowserWindow({
     width: 420, height: 300, frame: false, resizable: false, movable: true,
     backgroundColor: DARK_BG, show: true, center: true, hasShadow: true,
-    webPreferences: { contextIsolation: true },
+    webPreferences: { contextIsolation: true, sandbox: true },
   });
   splashWin.loadFile(path.join(__dirname, "splash.html"), { query: { v: app.getVersion() } });
   splashWin.on("closed", () => { splashWin = null; });
@@ -203,9 +203,9 @@ function createMainWindow() {
     // Frameless + OPAQUE. We draw our own window controls (WindowControls.tsx) and
     // drag strip in CSS. NOT transparent: transparent windows take a slower macOS
     // compositing path that competes with the on-device WebGPU voice models (adds
-    // turn latency) and rendered as a black wall on some GPUs. Mini mode just shrinks
-    // THIS window to a pill (previews render inline — no separate windows). macOS
-    // rounds the frameless window natively (roundedCorners), so the pill reads round.
+    // turn latency) and rendered as a black wall on some GPUs. Mini mode hides this
+    // window (renderer keeps running the voice pipeline) and shows the separate
+    // panel window below. macOS rounds the frameless window natively (roundedCorners).
     frame: false,
     roundedCorners: true,
     backgroundColor: DARK_BG,
@@ -213,6 +213,10 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The renderer runs untrusted-adjacent content (model-authored HTML renders
+      // in-origin) — keep it in the Chromium sandbox. The preload only uses
+      // contextBridge/ipcRenderer, which are available in sandboxed preloads.
+      sandbox: true,
       // Mini mode HIDES this window while its renderer keeps running the whole voice
       // pipeline — throttled timers would wreck turn-taking (hold timers, TTS drain).
       backgroundThrottling: false,
@@ -277,7 +281,7 @@ function createPanelWindow() {
     // macOS: a "panel"-type window is non-activating — clicks land on its buttons
     // without pulling focus away from whatever app the user is working in.
     ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   panelWin.setAlwaysOnTop(true, "floating", 1);
   panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
