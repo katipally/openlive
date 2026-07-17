@@ -48,7 +48,7 @@ export function TopBar() {
       isWinDesktop ? "pr-[140px]" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
       <div className="flex items-center gap-1">
-        <button onClick={toggleHistory} title="History" aria-label="Toggle history"
+        <button onClick={toggleHistory} title="Sessions" aria-label="Toggle sessions"
           className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", noDrag)}>
           <PanelLeft className="size-4" />
         </button>

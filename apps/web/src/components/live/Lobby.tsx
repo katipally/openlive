@@ -152,7 +152,7 @@ export function Lobby(props: LobbyProps) {
       <main className="relative min-w-0 flex-1 overflow-y-auto">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
         <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-[84px]" : "left-4")} />
-        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="History" aria-label="History"
+        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="Sessions" aria-label="Sessions"
           className={cn("absolute top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]", isMacDesktop ? "left-[84px]" : "left-3")}>
           <PanelLeft className="size-4" />
         </button>
