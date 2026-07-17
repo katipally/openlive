@@ -259,6 +259,19 @@ body::before {
 /* Tabular figures for anything that counts: timers, token/cost meters, progress. */
 .tnum { font-variant-numeric: tabular-nums; }
 
+/* Native <select>, de-natived: keeps OS keyboard/a11y/popup semantics but drops
+   the platform chrome that clashed with the design (custom chevron, our tokens).
+   The chevron is currentColor-agnostic: one neutral glyph works on both themes. */
+.ol-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27%23888%27%20stroke-width=%272.5%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27m6%209%206%206%206-6%27/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: default;
+}
+
 /* Keyboard focus — accessible ring on interactive CONTROLS only. Text fields
    (composer, inputs) manage their own focus styling, so they're excluded to
    avoid a hard outline box around the input. Mouse clicks don't trigger it. */

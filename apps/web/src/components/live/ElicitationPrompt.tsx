@@ -122,7 +122,7 @@ function Field({ name, p, required, value, onChange }: {
       ) : p.type === "array" ? (
         <MultiSelect items={choices({ enum: p.items?.enum, oneOf: p.items?.oneOf })} value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />
       ) : opts.length ? (
-        <select value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={input}>
+        <select value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={cn("ol-select", input)}>
           <option value="" disabled>Choose…</option>
           {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>

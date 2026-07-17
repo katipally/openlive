@@ -105,7 +105,7 @@ function VisionModelPicker() {
     <div className="flex flex-col gap-2.5">
       <select value={vProvider} aria-label="Vision provider"
         onChange={(e) => save.mutate({ visionProviderId: e.target.value, visionModel: "" })}
-        className="h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy">
+        className="ol-select h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy">
         {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       <SearchSelect value={settings?.visionModel ?? ""} onChange={(id) => save.mutate({ visionModel: id })}

@@ -101,13 +101,28 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
   usePopIn(menuRef, open);
 
   // Close on outside click OR Escape — a menu you can only dismiss by picking
-  // something is a trap, especially when it covers the Start button.
+  // something is a trap, especially when it covers the Start button. Arrow keys
+  // walk the options (listbox convention); focus lands on the selection on open.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); ref.current?.querySelector("button")?.focus(); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); ref.current?.querySelector("button")?.focus(); return; }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      const opts = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? [])];
+      if (!opts.length) return;
+      e.preventDefault();
+      const i = opts.indexOf(document.activeElement as HTMLButtonElement);
+      const next = e.key === "Home" ? 0
+        : e.key === "End" ? opts.length - 1
+        : e.key === "ArrowDown" ? (i >= opts.length - 1 ? 0 : i + 1)
+        : (i <= 0 ? opts.length - 1 : i - 1);
+      opts[next]?.focus();
+    };
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
+    // Focus the current selection so arrows continue from it.
+    requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("[aria-selected=true]")?.focus());
     return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
   }, [open]);
 

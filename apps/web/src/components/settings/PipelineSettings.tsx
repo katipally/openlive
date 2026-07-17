@@ -37,7 +37,7 @@ function Slider({ label, value, min, max, step, fmt, onChange }: {
   );
 }
 
-const selectClass = "h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy";
+const selectClass = "ol-select h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy";
 
 // The built-in engine for a stage: named, described, badged "Default" (can't be
 // removed). Additional swappable engines slot in beside this later.
