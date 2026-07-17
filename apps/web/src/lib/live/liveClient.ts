@@ -54,7 +54,11 @@ export class LiveClient {
   private open() {
     const base = process.env.NEXT_PUBLIC_LIVE_WS_URL
       || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
-    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}`);
+    // Desktop connects straight to the agent (no proxy to inject the auth header),
+    // so the per-launch token rides as a query param. Empty everywhere else.
+    const tok = (window as { openlive?: { agentToken?: string } }).openlive?.agentToken;
+    const auth = tok ? `&token=${encodeURIComponent(tok)}` : "";
+    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.h.onOpen?.(); // sends the bind FIRST so a flushed turn lands on a bound agent

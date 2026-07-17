@@ -1,6 +1,14 @@
 import type { Server } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { LiveSession } from "./session.js";
+
+// Constant-time equality that also hides length differences.
+function secretMatches(given: string | undefined, expected: string): boolean {
+  const a = Buffer.from(given?.trim() ?? "");
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 // Attach the /live WebSocket to the agent's existing http.Server (the one
 // @hono/node-server's serve() returns), leaving every HTTP route untouched.
@@ -17,9 +25,12 @@ export function attachLiveWs(server: Server): WebSocketServer {
     let url: URL;
     try { url = new URL(req.url ?? "", "http://localhost"); } catch { socket.destroy(); return; }
     if (url.pathname !== "/live") { socket.destroy(); return; }
-    // Only the trusted web proxy (which holds the secret) may open a live socket.
-    if (AGENT_SECRET && (req.headers["x-openlive-secret"] as string)?.trim() !== AGENT_SECRET) {
-      return reject(socket, "401 Unauthorized", "bad or missing x-openlive-secret");
+    // Two trusted callers: the web proxy (holds the secret, sends the header)
+    // and the desktop renderer (browser WebSocket can't set headers → ?token=).
+    if (AGENT_SECRET
+      && !secretMatches(req.headers["x-openlive-secret"] as string | undefined, AGENT_SECRET)
+      && !secretMatches(url.searchParams.get("token") ?? undefined, AGENT_SECRET)) {
+      return reject(socket, "401 Unauthorized", "bad or missing secret/token");
     }
     const chatId = url.searchParams.get("chat") ?? "";
     console.log(`[agent] /live upgrade accepted — chat=${chatId || "(none)"}`);

@@ -154,6 +154,7 @@ export function useLiveSession(chatId: string) {
   const cwdHealTried = useRef(false); // one self-heal re-bind per session when the server lost the folder
   const tornDown = useRef(false);
   const onPageHide = useRef<() => void>(() => {});
+  const teardownRef = useRef<() => void>(() => {}); // for effects declared above teardown
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
   // `segText` = chunks of the CURRENT segment already voiced, `curChunk` = the one
   // revealing now, `revealRaf` = its frame. Tool activity is shown LIVE on tool_start
@@ -197,6 +198,27 @@ export function useLiveSession(chatId: string) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [chatId]);
 
+  // Desktop: scope the agent's reveal/open file ops to the bound project folder
+  // (main process refuses paths outside it).
+  useEffect(() => {
+    (window as unknown as { openlive?: { setWorkspace?: (d: string) => void } }).openlive?.setWorkspace?.(boundCwd || "");
+  }, [boundCwd]);
+
+  // Desktop: the machine going to sleep mid-call would strand a zombie pipeline
+  // (mic held, VAD stalled, TTS half-drained). End the call cleanly instead and
+  // tell the user why — the conversation itself persists server-side, so Start
+  // picks it right back up.
+  useEffect(() => {
+    const api = (window as unknown as { openlive?: { onPower?: (cb: (s: string) => void) => void } }).openlive;
+    api?.onPower?.((state) => {
+      if (state !== "suspend") return;
+      if (!useLiveStore.getState().active) return;
+      teardownRef.current();
+      set({ error: "Call paused while your machine slept — press Start to pick it back up." });
+    });
+    // replace-on-subscribe in the preload: no unsubscribe needed
+  }, [set]);
+
   // ── single teardown authority — releases EVERYTHING, always ───────────────
   const teardown = useCallback(() => {
     if (tornDown.current) return;
@@ -219,6 +241,7 @@ export function useLiveSession(chatId: string) {
     // Keep `error` so the user sees why it ended; start() clears it next time.
     set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null, terminals: {}, elicitation: null });
   }, [chatId, set]);
+  teardownRef.current = teardown;
 
   // Open the live socket + register every handler, binding this conversation's agent
   // the moment it connects. Shared by `prewarm` (pre-call: connect a bound agent to

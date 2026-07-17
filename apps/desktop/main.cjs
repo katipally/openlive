@@ -7,6 +7,8 @@ const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const crypto = require("node:crypto");
+const { powerMonitor } = require("electron");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -29,6 +31,13 @@ const WEB_PORT = Number(process.env.WEB_PORT) || (DEV ? 3000 : 47824);
 const WEB_HOST = "localhost";
 const WEB_URL = `http://${WEB_HOST}:${WEB_PORT}`;
 const DARK_BG = "#0b0b0c";
+
+// Per-launch auth token for the local agent. Loopback binding keeps remote
+// attackers out, but any LOCAL process could otherwise open ws://localhost:47823
+// and drive the agent. The token rides to the agent + web servers as
+// OPENLIVE_AGENT_SECRET (both already honor it) and to the renderer via argv.
+// Dev keeps the open no-secret path (servers come from `pnpm dev`).
+const AGENT_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
 
 let mainWin = null;
 let splashWin = null;
@@ -131,6 +140,7 @@ function startServers() {
     AGENT_HOST: "127.0.0.1",
     OPENLIVE_DATA_DIR: dataDir,
     WEB_PUBLIC_URL: WEB_URL,
+    OPENLIVE_AGENT_SECRET: AGENT_TOKEN,
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
   // AGENT_PORT: the /api/voice proxy forwards to the agent on localhost.
@@ -140,6 +150,7 @@ function startServers() {
     NODE_ENV: "production",
     OPENLIVE_DATA_DIR: dataDir,
     AGENT_PORT: String(AGENT_PORT),
+    OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
   });
 }
 
@@ -223,7 +234,12 @@ function createMainWindow() {
       // Hand the app version to the preload (app.* isn't reachable there). Released
       // builds show the tag version (CI stamps it); unpackaged dev builds get a
       // "-dev" suffix so it's obvious you're not on a release.
-      additionalArguments: [`--openlive-version=${app.isPackaged ? app.getVersion() : `${app.getVersion()}-dev`}`],
+      additionalArguments: [
+        `--openlive-version=${app.isPackaged ? app.getVersion() : `${app.getVersion()}-dev`}`,
+        // Only this window runs the voice pipeline / live socket; the mini panel
+        // is a display-only relay and never needs the token.
+        ...(AGENT_TOKEN ? [`--openlive-agent-token=${AGENT_TOKEN}`] : []),
+      ],
     },
   });
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
@@ -443,8 +459,31 @@ function wireWindowIpc() {
   });
 }
 
+// ── power events → renderer (pause the mic/VAD cleanly instead of waking up
+// with a stuck pipeline after the laptop slept mid-call) ──────────────────────
+function wirePowerEvents() {
+  const send = (state) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:power", state); };
+  powerMonitor.on("suspend", () => send("suspend"));
+  powerMonitor.on("lock-screen", () => send("suspend"));
+  powerMonitor.on("resume", () => send("resume"));
+  powerMonitor.on("unlock-screen", () => send("resume"));
+}
+
 // ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
+// The agent's reveal/open paths are model-driven — scope them to the bound
+// workspace (reported by the renderer on every bind) plus the app's own data.
+let workspaceDir = "";
+function pathAllowed(p) {
+  let real;
+  try { real = fs.realpathSync(path.resolve(String(p ?? ""))); } catch { return false; }
+  const roots = [workspaceDir, path.join(app.getPath("userData"), "data")].filter(Boolean);
+  return roots.some((root) => {
+    try { const r = fs.realpathSync(root); return real === r || real.startsWith(r + path.sep); } catch { return false; }
+  });
+}
+
 function wireBridgeIpc() {
+  ipcMain.on("openlive:workspace", (_e, dir) => { workspaceDir = String(dir ?? ""); });
   ipcMain.handle("openlive:bridge", async (_e, { op, arg }) => {
     try {
       if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
@@ -462,9 +501,13 @@ function wireBridgeIpc() {
         return `Opened ${u} in the browser.`;
       }
       // Tool-card file locations: reveal in Finder/Explorer, or open with the
-      // OS default app. Paths come from the agent's own tool calls.
-      if (op === "reveal_path") { shell.showItemInFolder(String(arg ?? "")); return "Revealed."; }
-      if (op === "open_path") { const err = await shell.openPath(String(arg ?? "")); return err || "Opened."; }
+      // OS default app. Paths come from the agent's (model-driven) tool calls —
+      // refuse anything outside the bound workspace / app data dir.
+      if (op === "reveal_path" || op === "open_path") {
+        if (!pathAllowed(arg)) return "That file is outside the current workspace, so I won't open it.";
+        if (op === "reveal_path") { shell.showItemInFolder(String(arg)); return "Revealed."; }
+        const err = await shell.openPath(String(arg)); return err || "Opened.";
+      }
       return "Unknown action.";
     } catch (e) { return `Couldn't do that: ${e?.message ?? e}`; }
   });
@@ -551,6 +594,7 @@ async function boot() {
   wireNotifyIpc();
   wireWindowIpc();
   wireBridgeIpc();
+  wirePowerEvents();
   createSplash();
   startServers();
   const ok = await waitForServers();

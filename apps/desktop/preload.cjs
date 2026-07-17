@@ -30,6 +30,15 @@ contextBridge.exposeInMainWorld("openlive", {
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).
   version: (process.argv.find((a) => a.startsWith("--openlive-version=")) || "").split("=")[1] || "",
+  // Per-launch auth token for the local agent WS (packaged builds only; empty in
+  // dev). liveClient appends it as ?token= — a bare browser WebSocket can't set
+  // headers, so the query param is the only channel.
+  agentToken: (process.argv.find((a) => a.startsWith("--openlive-agent-token=")) || "").split("=")[1] || "",
+  // The bound project folder — main scopes the agent's reveal/open file ops to it.
+  setWorkspace: (dir) => ipcRenderer.send("openlive:workspace", dir),
+  // System sleep/wake. "suspend" → pause the mic/VAD cleanly; "resume" → offer
+  // reconnect. Same replace-on-subscribe rule as the other handlers.
+  onPower: (cb) => { ipcRenderer.removeAllListeners("openlive:power"); ipcRenderer.on("openlive:power", (_e, s) => cb(s)); },
   // The native menu (⌘,) asks the UI to open Settings. Single listener, same
   // replace-on-subscribe rule as the handlers below: the renderer re-subscribes on
   // every remount (and on every hot reload in dev), so a plain `.on` stacked a new
