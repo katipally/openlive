@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff, Pointer } from "lucide-react";
 import { useLiveStore, type LivePhase } from "@/lib/live/liveStore";
+import { setPttEnabled } from "@/lib/live/usePtt";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { useUi } from "@/lib/uiStore";
 import { Orb } from "./Orb";
@@ -43,18 +44,20 @@ function MiniBtn({ on, title, onClick, icon: Icon, danger }: { on: boolean; titl
 // the SAME window — which grows upward to fit. The surface fills the whole window
 // (so there's never a dark gap), no border, and macOS rounds the frameless window.
 export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screenStream,
-  toggleMute, toggleCamera, toggleScreen, getLevels, getBands, onEnd, sendNow }: {
+  toggleMute, toggleCamera, toggleScreen, getLevels, getBands, onEnd, sendNow, pttUp }: {
   phase: LivePhase; muted: boolean; cameraOn: boolean; screenOn: boolean;
   cameraStream: MediaStream | null; screenStream: MediaStream | null;
   toggleMute: () => void; toggleCamera: () => void | Promise<void>; toggleScreen: () => void | Promise<void>;
   getLevels: () => { mic: number; agent: number }; getBands: () => { mic: number[]; agent: number[] }; onEnd: () => void;
-  sendNow: () => void;
+  sendNow: () => void; pttUp: () => void;
 }) {
   const setMinimized = useUi((s) => s.setMinimized);
-  const { userCaption, userPartial, agentCaption, toolStatus, warming, pttActive } = useLiveStore(useShallow((s) => ({
+  const { userCaption, userPartial, agentCaption, toolStatus, warming, pttActive, pttEnabled } = useLiveStore(useShallow((s) => ({
     userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption,
-    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive,
+    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, pttEnabled: s.pttEnabled,
   })));
+  // Same arm/disarm as the full control bar: releasing a held Space first.
+  const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };
   const [confirmEnd, setConfirmEnd] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -83,8 +86,9 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
   const cueOnly = !!cue && !(userPartial && userCaption) && !agentCaption;
 
   return (
-    <div className="fixed inset-0 flex flex-col justify-end bg-surface [-webkit-app-region:drag]">
-      <div ref={contentRef} className="flex flex-col gap-2 p-2">
+    <div className="fixed inset-0 flex flex-col justify-end [-webkit-app-region:drag]">
+      <div ref={contentRef} className="p-2.5">
+        <div className="flex flex-col gap-2 rounded-[20px] border border-border bg-surface p-2 shadow-[var(--shadow-pop)]">
         {screenOn && screenStream && <Tile stream={screenStream} kind="screen" />}
         {cameraOn && cameraStream && <Tile stream={cameraStream} kind="camera" />}
         <div className="flex items-center gap-2.5 px-1">
@@ -101,6 +105,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
             <>
               <span className={cn("min-w-0 flex-1 truncate text-label", cueOnly && "arc-shimmer font-medium")} aria-live="polite">{caption}</span>
               <span className={noDrag}><HoldToSend sendNow={sendNow} compact /></span>
+              <MiniBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk"} onClick={togglePtt} icon={Pointer} />
               <MiniBtn on={!muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute} icon={muted ? MicOff : Mic} danger={muted} />
               <MiniBtn on={cameraOn} title={cameraOn ? "Camera off" : "Camera on"} onClick={() => void toggleCamera()} icon={cameraOn ? Video : VideoOff} />
               <MiniBtn on={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
@@ -111,6 +116,7 @@ export function MiniBar({ phase, muted, cameraOn, screenOn, cameraStream, screen
               </button>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>

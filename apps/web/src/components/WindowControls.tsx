@@ -9,7 +9,7 @@ import { useUi } from "@/lib/uiStore";
 // build and while minimized (the mini overlay is transparent + click-through).
 // Also tags <html> with `.desktop` (and `.desktop-win` off-mac) so layout can
 // clear the right chrome on the right platform.
-type Bridge = { isDesktop?: boolean; platform?: string; winClose?: () => void; winMin?: () => void; winZoom?: () => void };
+type Bridge = { isDesktop?: boolean; platform?: string; winClose?: () => void; winMin?: () => void; winZoom?: () => void; winFullscreen?: () => void };
 const ol = (): Bridge | undefined => (typeof window !== "undefined" ? (window as unknown as { openlive?: Bridge }).openlive : undefined);
 
 export function WindowControls() {
@@ -31,7 +31,7 @@ export function WindowControls() {
     // Windows/Linux: flat right-aligned controls in the platform's order.
     const btn = "grid h-9 w-11 place-items-center text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]";
     return (
-      <div className="fixed right-0 top-0 z-[100] flex items-stretch">
+      <div className="fixed right-0 top-0 z-[100] flex items-stretch [-webkit-app-region:no-drag]">
         <button aria-label="Minimize window" title="Minimize" onClick={() => ol()?.winMin?.()} className={btn}>
           <svg viewBox="0 0 10 10" className="size-2.5"><path d="M0 5h10" stroke="currentColor" strokeWidth="1.2" /></svg>
         </button>
@@ -45,12 +45,19 @@ export function WindowControls() {
     );
   }
 
-  const dot = "size-3 rounded-full transition hover:brightness-125 active:brightness-90 [-webkit-app-region:no-drag]";
+  // macOS traffic lights. Each 12px dot is centered in a 20px grid button so the CLICK
+  // target is comfortable and the dots stay visually put (dot gap stays the ~8px macOS
+  // idiom). The old 12px targets sat over a full-width drag region, so near-miss clicks
+  // dragged the window instead of firing. Green toggles native fullscreen (⌥-click =
+  // zoom), matching modern macOS.
+  const hit = "group grid size-5 place-items-center [-webkit-app-region:no-drag]";
+  const dot = "size-3 rounded-full transition group-hover:brightness-125 group-active:brightness-90";
   return (
-    <div className="fixed left-4 top-[15px] z-[100] flex items-center gap-2">
-      <button aria-label="Close window" title="Close" onClick={() => ol()?.winClose?.()} className={`${dot} bg-[#ff5f57]`} />
-      <button aria-label="Minimize window" title="Minimize" onClick={() => ol()?.winMin?.()} className={`${dot} bg-[#febc2e]`} />
-      <button aria-label="Zoom window" title="Zoom" onClick={() => ol()?.winZoom?.()} className={`${dot} bg-[#28c840]`} />
+    <div className="fixed left-[9px] top-[11px] z-[100] flex items-center [-webkit-app-region:no-drag]">
+      <button aria-label="Close window" title="Close" onClick={() => ol()?.winClose?.()} className={hit}><span className={`${dot} bg-[#ff5f57]`} /></button>
+      <button aria-label="Minimize window" title="Minimize" onClick={() => ol()?.winMin?.()} className={hit}><span className={`${dot} bg-[#febc2e]`} /></button>
+      <button aria-label="Toggle fullscreen" title="Fullscreen (⌥-click to zoom)"
+        onClick={(e) => (e.altKey ? ol()?.winZoom?.() : ol()?.winFullscreen?.())} className={hit}><span className={`${dot} bg-[#28c840]`} /></button>
     </div>
   );
 }

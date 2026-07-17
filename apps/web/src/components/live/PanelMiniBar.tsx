@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, Maximize2, PhoneOff, Pointer } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { openliveBridge, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
@@ -18,7 +18,7 @@ const NO_BANDS = [0, 0, 0, 0, 0];
 const IDLE: PanelStateSnapshot = {
   phase: "idle", muted: false, cameraOn: false, screenOn: false,
   userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false,
-  pttActive: false, holdUntil: null, holdMs: 4000, permission: null,
+  pttActive: false, pttEnabled: false, holdUntil: null, holdMs: 4000, permission: null,
 };
 
 function MiniBtn({ on, title, onClick, icon: Icon, danger }: { on: boolean; title: string; onClick: () => void; icon: typeof Mic; danger?: boolean }) {
@@ -83,8 +83,11 @@ export function PanelMiniBar() {
   const getBands = () => bands.current;
 
   return (
-    <div className="fixed inset-0 flex flex-col justify-end bg-surface [-webkit-app-region:drag]">
-      <div ref={contentRef} className="flex flex-col gap-2 p-2">
+    // Transparent window (see main.cjs) → the content is a real rounded, floating
+    // panel with a gap around it for its shadow, not an edge-to-edge rectangle.
+    <div className="fixed inset-0 flex flex-col justify-end [-webkit-app-region:drag]">
+      <div ref={contentRef} className="p-2.5">
+        <div className="flex flex-col gap-2 rounded-[20px] border border-border bg-surface p-2 shadow-[var(--shadow-pop)]">
         {hint && (
           <div className="flex items-center gap-2 rounded-xl bg-card px-2.5 py-2 shadow-[var(--shadow-card)] animate-fade-up">
             <span className="min-w-0 flex-1 text-caption leading-snug text-muted-foreground">The call keeps running here — your global shortcut toggles talking from any app.</span>
@@ -135,6 +138,7 @@ export function PanelMiniBar() {
                   <HoldPill until={s.holdUntil} holdMs={s.holdMs} onSend={() => cmd({ t: "sendNow" })} compact />
                 </span>
               )}
+              <MiniBtn on={s.pttEnabled} title={s.pttEnabled ? "Push-to-talk on" : "Enable push-to-talk"} onClick={() => cmd({ t: "ptt" })} icon={Pointer} />
               <MiniBtn on={!s.muted} title={s.muted ? "Unmute" : "Mute"} onClick={() => cmd({ t: "mute" })} icon={s.muted ? MicOff : Mic} danger={s.muted} />
               <MiniBtn on={s.cameraOn} title={s.cameraOn ? "Camera off" : "Camera on"} onClick={() => cmd({ t: "camera" })} icon={s.cameraOn ? Video : VideoOff} />
               <MiniBtn on={s.screenOn} title={s.screenOn ? "Stop sharing" : "Share screen"} onClick={() => cmd({ t: "screen" })} icon={s.screenOn ? ScreenShareOff : ScreenShare} />
@@ -145,6 +149,7 @@ export function PanelMiniBar() {
               </button>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>

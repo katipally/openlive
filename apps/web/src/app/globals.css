@@ -184,7 +184,10 @@ body::before {
 .dark body::before { opacity: 0.04; mix-blend-mode: overlay; }
 
 /* The chromeless mini pill (/mini) tags <html> with .mini — strip the root chrome
-   (paper grain, toasts) that would otherwise paint behind the floating pill. */
+   (paper grain, toasts) that would otherwise paint behind the floating pill, and
+   make the page transparent so the pill floats as a real rounded panel over the
+   desktop (the panel BrowserWindow is transparent; the pill draws its own bg). */
+html.mini, html.mini body { background: transparent; }
 html.mini body::before { content: none; }
 html.mini .ol-toasts { display: none; }
 

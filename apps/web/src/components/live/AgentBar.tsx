@@ -55,46 +55,55 @@ function PillMenu({ icon: Icon, label, title, items, current, onPick, footer }: 
   );
 }
 
-/** Top-bar controls for the bound agent: project folder (with recents + Browse),
- *  and model / mode once the agent connects. Sits beside the agent selector so you
- *  see and change what you're working on at the top of the screen, mid-conversation. */
-export function AgentBar() {
+/** The bound agent's project folder (with recents + Browse). Split out of AgentBar
+ *  so the top bar can order it BEFORE the agent selector (Workspace → Agent → …). */
+export function WorkspacePill() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
+  if (!boundAgent || !activeChatId) return null;
+  const folderItems: Item[] = recentFolders().map((f) => ({ id: f, label: basename(f), sub: f }));
+  const b = bridge;
+  const browse = async () => { if (!b) return; const p = await b("pick_folder"); if (p) setConversationFolder(activeChatId, p); };
+  return (
+    <PillMenu icon={Folder} title="Project folder" label={boundCwd ? basename(boundCwd) : "Pick folder"}
+      items={folderItems} current={boundCwd} onPick={(id) => setConversationFolder(activeChatId, id)}
+      footer={b && (
+        <button onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-label text-foreground transition hover:bg-foreground/[0.06]">
+          <FolderOpen className="size-4 text-accent" /> Browse…
+        </button>
+      )} />
+  );
+}
+
+/** Top-bar controls for the bound agent: model / mode once the agent connects.
+ *  Sits beside the agent selector so you see and change what you're working on at
+ *  the top of the screen, mid-conversation. (Workspace is `WorkspacePill`, above.) */
+export function AgentBar() {
+  const activeChatId = useUi((s) => s.activeChatId);
+  const boundAgent = useLiveStore((s) => s.boundAgent);
   const liveMeta = useLiveStore((s) => s.agentMeta);
   if (!boundAgent || !activeChatId) return null;
   // Live meta when the agent has reported in; otherwise the per-agent cache (same
   // fallback the lobby uses) — so the model/mode chips don't blink out whenever a
   // reconnect/rebind clears the store before the agent re-reports.
   const agentMeta = liveMeta ?? cachedAgentMeta(boundAgent);
+  if (!agentMeta) return null;
 
-  const folderItems: Item[] = recentFolders().map((f) => ({ id: f, label: basename(f), sub: f }));
-  const b = bridge;
-  const browse = async () => { if (!b) return; const p = await b("pick_folder"); if (p) setConversationFolder(activeChatId, p); };
-
-  const model = agentMeta?.models.find((m) => m.id === agentMeta.currentModelId);
-  const mode = agentMeta?.modes.find((m) => m.id === agentMeta.currentModeId);
+  const model = agentMeta.models.find((m) => m.id === agentMeta.currentModelId);
+  const mode = agentMeta.modes.find((m) => m.id === agentMeta.currentModeId);
 
   return (
     <div className={cn("flex items-center gap-0.5", noDrag)}>
-      <span className="text-border">·</span>
-      <PillMenu icon={Folder} title="Project folder" label={boundCwd ? basename(boundCwd) : "Pick folder"}
-        items={folderItems} current={boundCwd} onPick={(id) => setConversationFolder(activeChatId, id)}
-        footer={b && (
-          <button onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-label text-foreground transition hover:bg-foreground/[0.06]">
-            <FolderOpen className="size-4 text-accent" /> Browse…
-          </button>
-        )} />
-      {agentMeta && agentMeta.models.length > 1 && (
+      {agentMeta.models.length > 1 && (
         <PillMenu icon={Cpu} title="Model" label={model?.name ?? "Model"} items={agentMeta.models.map((m) => ({ id: m.id, label: m.name }))}
           current={agentMeta.currentModelId} onPick={setConversationModel} />
       )}
-      {agentMeta && agentMeta.modes.length > 1 && (
+      {agentMeta.modes.length > 1 && (
         <PillMenu icon={SlidersHorizontal} title="Mode" label={mode?.name ?? "Mode"} items={agentMeta.modes.map((m) => ({ id: m.id, label: m.name }))}
           current={agentMeta.currentModeId} onPick={setConversationMode} />
       )}
-      {agentMeta?.resumeAcrossRestart === false && (
+      {agentMeta.resumeAcrossRestart === false && (
         <span title="This session works live, but this agent can't reopen it in its own CLI after it closes (an agent limitation, not OpenLive)."
           className="ml-0.5 shrink-0 rounded-md bg-foreground/10 px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
           live only

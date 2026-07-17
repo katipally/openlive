@@ -8,7 +8,7 @@ import type { Emit, OpenLiveTool } from "../tools.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
-import { narrationEnabled, wrapEmitWithNarration } from "./narrator.js";
+import { narrationEnabled, wrapEmitWithNarration, createCommentaryGate } from "./narrator.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { log } from "../log.js";
 
@@ -270,13 +270,19 @@ export class LiveSession {
       // Auto-title the conversation from the first thing the user says.
       if (!this.titled) { this.titled = true; await renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation").catch(() => {}); }
     }
+    // Clean, agent-agnostic speech for the whole turn:
+    //  • wrapEmitWithNarration — a short voiced status line for long tool runs (opt-out).
+    //  • createCommentaryGate — speak the opening line + final answer only; mid-work
+    //    commentary between tools goes to the (unspoken) reasoning channel. `flush()`
+    //    after the turn resolves voices the buffered final answer.
+    // Both wrap the SAME emit, so every agent (and the built-in brain) behaves alike.
+    const narrated = narrationEnabled(getSetting("narrateProgress")) ? wrapEmitWithNarration(emit, ac.signal) : emit;
+    const gate = createCommentaryGate(narrated, ac.signal);
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
-        // Spoken progress (on by default, opt-out): long tool runs get a short
-        // voiced one-liner. The built-in brain keeps its own worker narration.
-        const agentEmit = narrationEnabled(getSetting("narrateProgress")) ? wrapEmitWithNarration(emit, ac.signal) : emit;
-        await this.agent.runTurn({ text, frames }, agentEmit, ac.signal);
+        await this.agent.runTurn({ text, frames }, gate.emit, ac.signal);
+        await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
         // failed). NEVER answer with the built-in brain as if it were the agent —
@@ -289,7 +295,8 @@ export class LiveSession {
             : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
         });
       } else {
-        await this.runner.runTurn(text, frames, emit, ac.signal);
+        await this.runner.runTurn(text, frames, gate.emit, ac.signal);
+        await gate.flush();
       }
     } catch (e) {
       if (!ac.signal.aborted) {

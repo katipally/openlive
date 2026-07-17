@@ -75,13 +75,13 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           web mini = the in-page pill overlay. */}
       {active && minimized && isDesktop && (
         <PanelBridge toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
-          onEnd={end} sendNow={sendNow} answerPermission={answerPermission} getBands={getBands} />
+          onEnd={end} sendNow={sendNow} pttUp={pttUp} answerPermission={answerPermission} getBands={getBands} />
       )}
       {active && minimized && !isDesktop && (
         <MiniBar phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn}
           cameraStream={cameraStream} screenStream={screenStream}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
-          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
+          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} pttUp={pttUp} />
       )}
       {active && !minimized && (
         <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttUp={pttUp}

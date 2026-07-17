@@ -342,7 +342,7 @@ function createMainWindow() {
 // you're working in), floats above fullscreen apps, and lives on every Space.
 // State flows main-renderer → main process → panel; commands flow back the same
 // way (a MediaStream can't cross windows, so previews arrive as ~1 fps JPEGs).
-const PILL_W = 430, PILL_H = 56;
+const PILL_W = 430, PILL_H = 76;
 let panelWin = null;
 
 function miniDisplay() {
@@ -357,7 +357,10 @@ function createPanelWindow() {
     width: PILL_W, height: PILL_H,
     x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
     show: false, frame: false, resizable: false, skipTaskbar: true,
-    roundedCorners: true, backgroundColor: DARK_BG,
+    // Transparent so the renderer can draw a real rounded, floating pill (border +
+    // shadow + gaps around it) instead of an opaque rectangle. hasShadow off — the
+    // OS shadow would trace the rectangular window; the pill casts its own via CSS.
+    transparent: true, backgroundColor: "#00000000", hasShadow: false,
     // macOS: a "panel"-type window is non-activating — clicks land on its buttons
     // without pulling focus away from whatever app the user is working in.
     ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
@@ -530,6 +533,12 @@ function wireWindowIpc() {
   ipcMain.on("openlive:win-zoom", () => {
     if (!mainWin) return;
     if (mainWin.isMaximized()) mainWin.unmaximize(); else mainWin.maximize();
+  });
+  // Native fullscreen toggle — the macOS green button's default action (the app
+  // menu's View ▸ Toggle Full Screen / F11 / ⌃⌘F reach the same thing).
+  ipcMain.on("openlive:win-fullscreen", () => {
+    if (!mainWin) return;
+    mainWin.setFullScreen(!mainWin.isFullScreen());
   });
 }
 

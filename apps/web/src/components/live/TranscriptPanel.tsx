@@ -50,7 +50,7 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
   const empty = msgs.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+    <aside ref={asideRef} style={{ width }} className="relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
       <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-body font-semibold">
@@ -152,9 +152,9 @@ function CopyButton({ text, title, className }: { text: string; title: string; c
 // button, inline code, lists, links, tables via GFM). react-markdown builds
 // React elements, so model-authored text can't inject HTML. Memoized: markdown
 // parsing is the most expensive thing in this panel — never re-parse unchanged text.
-const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+const MarkdownText = memo(function MarkdownText({ text, muted }: { text: string; muted?: boolean }) {
   return (
-    <div className="ol-md min-w-0 text-body leading-relaxed text-foreground">
+    <div className={cn("ol-md min-w-0 leading-relaxed", muted ? "text-label text-muted-foreground" : "text-body text-foreground")}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -230,6 +230,41 @@ const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; stream
   );
 })
 
+// Past-tense summaries per tool-call kind, so a finished work block says what it
+// actually DID ("Read 14 files") instead of a generic "Worked it out".
+const KIND_PAST: Record<string, (n: number) => string> = {
+  read: (n) => `Read ${n} file${n === 1 ? "" : "s"}`,
+  edit: (n) => `Edited ${n} file${n === 1 ? "" : "s"}`,
+  delete: (n) => `Deleted ${n} file${n === 1 ? "" : "s"}`,
+  move: (n) => `Moved ${n} file${n === 1 ? "" : "s"}`,
+  search: (n) => `Searched ${n} time${n === 1 ? "" : "s"}`,
+  execute: (n) => `Ran ${n} command${n === 1 ? "" : "s"}`,
+  fetch: (n) => `Fetched ${n} page${n === 1 ? "" : "s"}`,
+  other: (n) => `Ran ${n} step${n === 1 ? "" : "s"}`,
+};
+// Built-in assistant tools have no ACP kind — bucket them into the same categories.
+function builtinKind(tool: string): string {
+  if (tool === "web_search") return "search";
+  if (tool === "fetch_url" || tool === "open_url") return "fetch";
+  if (tool === "look" || tool === "clipboard_read") return "read";
+  return "other";
+}
+type ToolPart = Extract<Part, { kind: "tool" } | { kind: "acp_tool" }>;
+/** Label a finished work block by its dominant action. `multiKind` → also show the
+ *  total step count, so the dominant-action count can't be mistaken for the total. */
+function summarizeWork(tools: ToolPart[]): { label: string; multiKind: boolean } {
+  const counts = new Map<string, number>();
+  for (const t of tools) {
+    const kind = t.kind === "acp_tool" ? t.call.kind : builtinKind(t.tool);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  if (counts.size === 0) return { label: "Worked on it", multiKind: false };
+  let top = "other", topN = 0;
+  for (const [k, n] of counts) if (n > topN) { top = k; topN = n; }
+  const fn = KIND_PAST[top] ?? ((n: number) => `Ran ${n} step${n === 1 ? "" : "s"}`);
+  return { label: fn(topN), multiKind: counts.size > 1 };
+}
+
 // A run of reasoning + tool calls — the message's "work". Expanded while active,
 // auto-collapses to a one-line summary once the answer starts.
 const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
@@ -248,29 +283,33 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
   const runningLabel = running?.kind === "tool" ? `${meta(running.tool).active}…`
     : running?.kind === "acp_tool" ? `${kindMeta(running.call.kind).active} — ${running.call.title}…` : "Thinking…";
   const hasReasoning = parts.some((p) => p.kind === "reasoning");
+  const summary = summarizeWork(tools);
 
   return (
     <div className="rounded-lg bg-card/40 shadow-[var(--shadow-xs)]">
       <button onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-caption text-muted-foreground transition hover:text-foreground">
-        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
+        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-caption text-muted-foreground transition hover:bg-foreground/[0.03] hover:text-foreground">
+        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-muted-foreground" />}
         {active ? (
           <span className="arc-shimmer truncate font-medium">{runningLabel}</span>
         ) : (
           <>
-            <span className="font-medium text-foreground/80">Worked it out</span>
-            {tools.length > 0 && <span className="text-faint">· {tools.length} step{tools.length === 1 ? "" : "s"}</span>}
+            <span className="font-medium text-foreground">{summary.label}</span>
+            {summary.multiKind && <span className="text-faint">· {tools.length} steps</span>}
             {failed > 0 && <span className="flex items-center gap-1 text-destructive"><AlertCircle className="size-3" />{failed} failed</span>}
             {hasReasoning && <span className="text-faint">· reasoned</span>}
           </>
         )}
-        <ChevronRight className={cn("ml-auto size-3.5 shrink-0 transition", expanded && "rotate-90")} />
+        <ChevronRight className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition", expanded && "rotate-90")} />
       </button>
       <Disclosure open={expanded}>
-        <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
+        <div className="flex flex-col gap-2 px-2.5 pb-2.5">
           {parts.map((p, i) =>
             p.kind === "reasoning"
-              ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2.5 text-label italic leading-relaxed text-muted-foreground">{p.text}</p>
+              // Reasoning is real markdown (headers/bold/lists) — render it, kept muted
+              // with a left rule so it stays secondary to the tool cards, but no longer
+              // shows literal `**asterisks**`.
+              ? <div key={i} className="border-l-2 border-border-heavy/60 pl-2.5"><MarkdownText text={p.text} muted /></div>
               : p.kind === "tool" ? <ToolRow key={i} part={p} />
               : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}

@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("openlive", {
   winClose: () => ipcRenderer.send("openlive:win-close"),
   winMin: () => ipcRenderer.send("openlive:win-min"),
   winZoom: () => ipcRenderer.send("openlive:win-zoom"),
+  winFullscreen: () => ipcRenderer.send("openlive:win-fullscreen"),
   // OS bridge for agent tools. op: "clipboard_read" | "clipboard_write" | "open_url".
   // Resolves to a short result string the agent speaks back.
   bridge: (op, arg) => ipcRenderer.invoke("openlive:bridge", { op, arg }),

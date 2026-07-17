@@ -6,7 +6,7 @@ import type { LivePhase, PendingPermission } from "./liveStore";
 export interface PanelStateSnapshot {
   phase: LivePhase; muted: boolean; cameraOn: boolean; screenOn: boolean;
   userCaption: string; userPartial: boolean; agentCaption: string;
-  toolStatus: string; warming: boolean; pttActive: boolean;
+  toolStatus: string; warming: boolean; pttActive: boolean; pttEnabled: boolean;
   holdUntil: number | null; holdMs: number;
   permission: PendingPermission | null;
 }
@@ -18,7 +18,7 @@ export type PanelPacket =
 
 export type PanelCmd =
   | { t: "mute" } | { t: "camera" } | { t: "screen" }
-  | { t: "end" } | { t: "expand" } | { t: "sendNow" }
+  | { t: "end" } | { t: "expand" } | { t: "sendNow" } | { t: "ptt" }
   | { t: "permission"; optionId: string };
 
 export interface PanelBridgeApi {

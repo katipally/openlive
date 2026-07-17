@@ -33,6 +33,10 @@ export const sseEventSchema = z.discriminatedUnion("type", [
     costUsd: z.number(),
   }),
   z.object({ type: z.literal("status"), text: z.string().nullable() }),
+  // Out-of-band spoken line: a short status/filler the CLIENT voices but that is
+  // NEVER persisted or shown in the transcript (long-work "still reading…" cues,
+  // spoken errors). foldBlock ignores it by design, so it can't contaminate the reply.
+  z.object({ type: z.literal("say"), text: z.string() }),
   z.object({ type: z.literal("done") }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);

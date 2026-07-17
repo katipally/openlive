@@ -3,7 +3,7 @@
 import { Settings2, Minimize2, PanelLeft } from "lucide-react";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { AgentSelect } from "./AgentControls";
-import { AgentBar } from "./AgentBar";
+import { AgentBar, WorkspacePill } from "./AgentBar";
 import { useUi } from "@/lib/uiStore";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { cn } from "@/lib/cn";
@@ -43,11 +43,15 @@ export function TopBar() {
   const toggleHistory = useUi((s) => s.toggleHistory);
 
   return (
-    <header className={cn("flex h-12 shrink-0 items-center justify-between",
+    // Three zones: [history + logo] · [centered agent cluster that grows outward] ·
+    // [settings + minimize]. The 1fr side columns keep the middle cluster centered
+    // (it expands symmetrically as more selectors appear); the empty side space is
+    // the window drag handle.
+    <header className={cn("grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center",
       isMacDesktop ? "pl-[84px]" : "pl-3",
       isWinDesktop ? "pr-[140px]" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 justify-self-start">
         <button onClick={toggleHistory} title="Sessions" aria-label="Toggle sessions"
           className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", noDrag)}>
           <PanelLeft className="size-4" />
@@ -56,11 +60,14 @@ export function TopBar() {
           <OpenLiveOrb size={26} />
           <span className="text-callout font-semibold tracking-tight">OpenLive</span>
         </div>
+      </div>
+      <div className={cn("flex items-center gap-1 justify-self-center", noDrag)}>
+        <WorkspacePill />
         <AgentSelect />
         <AgentBar />
-      </div>
-      <div className={cn("flex items-center gap-1", noDrag)}>
         <UsageChip />
+      </div>
+      <div className={cn("flex items-center gap-1 justify-self-end", noDrag)}>
         <button onClick={openSettings} title="Settings" aria-label="Settings"
           className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
         <button onClick={() => setMinimized(true)} title="Minimize to floating bar" aria-label="Minimize"

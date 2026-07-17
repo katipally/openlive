@@ -371,6 +371,9 @@ export function useLiveSession(chatId: string) {
         }
         // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
         if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
+        // Out-of-band spoken status/filler (long-work cues): voice it, never persist
+        // or reveal it in the transcript — it isn't part of the reply.
+        if (e.type === "say") { engine.current?.say(e.text); return; }
         // Prose text drives the VOICE only; the chat transcript is filled word-by-word
         // as each chunk is spoken (onAgentText), NOT from the generated stream (which
         // races ahead) — so an interrupt leaves the panel showing only what was said.
