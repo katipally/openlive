@@ -54,5 +54,8 @@ jobs:
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
 
+      # --publish never: this is a build-only smoke test. Without it,
+      # electron-builder's publish auto-detection demands a GH_TOKEN in
+      # pull_request runs and fails the job after a successful build.
       - name: Build Windows installer (unsigned)
-        run: pnpm --filter @openlive/desktop build:win
+        run: pnpm --filter @openlive/desktop exec electron-builder --win --publish never
