@@ -56,17 +56,19 @@ function AgentRow({ a }: { a: AgentStatus }) {
   const [waiting, setWaiting] = useState(false);
 
   // When a background action finishes, re-check installed/signed-in status.
-  // Terminal actions (sign-in, hermes' wizard) merely OPEN a terminal and return
-  // — the user finishes there. Keep polling so the row flips by itself.
+  // A terminal action (sign-in) merely OPENS a terminal and returns — the user
+  // finishes there, so keep polling and the row flips by itself. Detect that from
+  // the server's own success marker rather than guessing from the action: a
+  // headless install streams its result inline and is already DONE, so telling the
+  // user to go finish in a terminal would just be wrong.
   const wasRunning = useRef(false);
   useEffect(() => {
     if (wasRunning.current && !run?.running) {
       qc.invalidateQueries({ queryKey: ["agents"] });
-      const terminalAction = run?.action === "login" || (run?.action === "install" && a.wizard);
-      if (terminalAction && !run?.log.includes("⚠")) setWaiting(true);
+      if (run?.log.includes("Continues in the terminal window")) setWaiting(true);
     }
     wasRunning.current = !!run?.running;
-  }, [run?.running, run?.action, run?.log, a.wizard, qc]);
+  }, [run?.running, run?.log, qc]);
 
   // Poll every 3s while waiting; stop when the agent is ready or after 5 min.
   useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchInterval: 3000, enabled: waiting });

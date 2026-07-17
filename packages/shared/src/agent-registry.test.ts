@@ -26,8 +26,24 @@ test("the claude adapter PIN is intact (byte-identical)", () => {
   assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.59.0");
 });
 
-test("the hermes adapter PIN is intact", () => {
-  assert.equal(adapterCommand("hermes"), "uvx hermes-agent[acp]==0.18.2 hermes-acp");
+test("the hermes version PIN is intact", () => {
+  // hermes is `uv tool install`-ed, so the adapter is just its console script and
+  // the version pin lives in the install recipe — that's what keeps hermes from
+  // floating to whatever ships next.
+  assert.equal(adapterCommand("hermes"), "hermes-acp");
+  for (const shell of [AGENT_REGISTRY.hermes.install?.posixShell, AGENT_REGISTRY.hermes.install?.winShell]) {
+    assert.match(String(shell), /hermes-agent\[acp\]==0\.18\.2/);
+  }
+});
+
+test("install recipes actually install (a wizard is sign-in, not an install)", () => {
+  // Regression: hermes' Install used to run its setup wizard, so clicking Install
+  // on an uninstalled agent just asked you to sign in and installed nothing.
+  for (const a of AGENT_LIST) {
+    if (!a.install) continue;
+    assert.ok(a.install.npm || a.install.posixShell || a.install.winShell,
+      `${a.id}: Install must run a real install, not only an interactive flow`);
+  }
 });
 
 test("cred probes are well-formed (paths ~-relative, anyOf non-empty)", () => {

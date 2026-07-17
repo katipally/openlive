@@ -242,9 +242,13 @@ function createMainWindow() {
   mainWin.once("ready-to-show", () => {
     mainWin.show();
     if (splashWin) splashWin.close();
+    refreshTray();
     // DevTools available via View menu / Cmd+Opt+I — not auto-opened (it covered the UI).
   });
-  mainWin.on("closed", () => { mainWin = null; });
+  // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
+  // has to re-read this (its "Open OpenLive" is now the only way back).
+  mainWin.on("closed", () => { mainWin = null; refreshTray(); });
+  for (const ev of ["show", "hide"]) mainWin.on(ev, refreshTray);
 }
 
 // ── minimized (floating panel) mode ──────────────────────────────────────────
@@ -297,14 +301,27 @@ function registerMiniHotkey() {
   } catch { return false; }
 }
 
+// NOTE on `!mainWin`: closing the window does NOT quit on macOS (window-all-closed
+// only quits elsewhere) — the app stays alive in the tray with mainWin === null.
+// Both entry points below used to bail in that state, which left the tray icon a
+// dead stub: "Open OpenLive" and "Mini mode" silently did nothing and only Quit
+// worked. Recreating the window is the whole point of a tray icon, so they do.
+
 /** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
  *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
 function enterMini() {
-  if (!mainWin) return;
+  // Mini mode runs the voice pipeline in the MAIN renderer and only hides its
+  // window, so it needs that window to exist before there's anything to minimise.
+  if (!mainWin) {
+    createMainWindow();
+    mainWin.once("ready-to-show", enterMini);
+    return;
+  }
   const apply = () => {
     if (!mainWin) return;
     createPanelWindow();
     mainWin.hide();
+    refreshTray();
   };
   // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
   if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
@@ -321,7 +338,12 @@ function restoreMainWindow() {
   globalShortcut.unregisterAll();
   if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
   panelWin = null;
-  if (mainWin) { mainWin.show(); mainWin.focus(); }
+  if (!mainWin) { createMainWindow(); return; } // its ready-to-show shows + refreshes
+  if (mainWin.isMinimized()) mainWin.restore(); // show() alone leaves it in the Dock
+  mainWin.show();
+  mainWin.focus();
+  app.focus({ steal: true }); // tray clicks don't activate the app on macOS
+  refreshTray();
 }
 
 // ── menu-bar (tray) presence + notifications ─────────────────────────────────
@@ -332,13 +354,26 @@ function createTray() {
     const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
     tray = new Tray(img);
     tray.setToolTip("OpenLive");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open OpenLive", click: restoreMainWindow },
-      { label: "Mini mode", click: enterMini },
-      { type: "separator" },
-      { label: "Quit OpenLive", role: "quit" },
-    ]));
+    refreshTray();
   } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
+}
+
+/** Rebuild the tray menu against the CURRENT state. It used to be built once at
+ *  boot and then quietly lie — "Mini mode" looked identical whether you were in it
+ *  or not, so the one control that tells you where you are told you nothing. Mini
+ *  is a checkbox because it's a mode you're in or out of, not an action. */
+function refreshTray() {
+  if (!tray) return;
+  const mini = !!(panelWin && !panelWin.isDestroyed());
+  tray.setContextMenu(Menu.buildFromTemplate([
+    // Always enabled: `isVisible()` stays true for a window that's merely BEHIND
+    // another app, so gating on it would grey out the one control that brings
+    // OpenLive forward — the commonest reason to reach for the tray at all.
+    { label: "Open OpenLive", click: restoreMainWindow },
+    { label: "Mini mode", type: "checkbox", checked: mini, click: () => (mini ? restoreMainWindow() : enterMini()) },
+    { type: "separator" },
+    { label: "Quit OpenLive", role: "quit" },
+  ]));
 }
 
 function wireNotifyIpc() {
@@ -390,7 +425,10 @@ function wireWindowIpc() {
   // Launch-at-login (Settings → General). Invoke with a boolean to set; with
   // undefined to just read the current state.
   ipcMain.handle("openlive:login-item", (_e, v) => {
-    if (typeof v === "boolean") app.setLoginItemSettings({ openAtLogin: v });
+    // Rebuild the menu: the same switch lives in Settings → General AND the app
+    // menu, and the menu's checkbox is captured when it's built — flipping it here
+    // left the two disagreeing until the next launch.
+    if (typeof v === "boolean") { app.setLoginItemSettings({ openAtLogin: v }); buildMenu(); }
     return app.getLoginItemSettings().openAtLogin;
   });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });

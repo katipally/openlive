@@ -30,8 +30,11 @@ contextBridge.exposeInMainWorld("openlive", {
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).
   version: (process.argv.find((a) => a.startsWith("--openlive-version=")) || "").split("=")[1] || "",
-  // The native menu (⌘,) asks the UI to open Settings.
-  onOpenSettings: (cb) => ipcRenderer.on("openlive:open-settings", () => cb()),
+  // The native menu (⌘,) asks the UI to open Settings. Single listener, same
+  // replace-on-subscribe rule as the handlers below: the renderer re-subscribes on
+  // every remount (and on every hot reload in dev), so a plain `.on` stacked a new
+  // listener each time until Electron warned about a leak and ⌘, fired N times.
+  onOpenSettings: (cb) => { ipcRenderer.removeAllListeners("openlive:open-settings"); ipcRenderer.on("openlive:open-settings", () => cb()); },
   // Global push-to-talk toggle (mini mode's Alt+Space). Single listener: each call
   // replaces the previous callback so remounts don't stack stale handlers.
   onPttToggle: (cb) => { ipcRenderer.removeAllListeners("openlive:ptt-toggle"); ipcRenderer.on("openlive:ptt-toggle", () => cb()); },

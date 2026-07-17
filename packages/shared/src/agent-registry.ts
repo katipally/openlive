@@ -18,8 +18,11 @@ export type CredProbe =
 
 /** Shell recipes per action. `npm` means global npm install/uninstall of that
  *  package; `terminal` opens the user's terminal running an INTERACTIVE flow
- *  (e.g. hermes' setup wizard) instead of streaming a headless command. */
-export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string }
+ *  instead of streaming a headless command. NOTE: an install recipe must always
+ *  be able to actually INSTALL headlessly — an interactive-only "install" is a
+ *  sign-in wearing an Install button (see hermes' entry). `pinned` marks a recipe
+ *  that installs an exact version, so Update would be a no-op reinstall. */
+export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string; pinned?: boolean }
 
 export interface AgentDef {
   id: AgentId;
@@ -192,27 +195,38 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Hermes",
     brand: {},
     logoSrc: "/agents/hermes.svg",
-    // Hermes runs via uvx (no persistent binary). uv on PATH alone proves
-    // NOTHING about hermes — "installed" additionally requires ~/.hermes (the
-    // setup wizard creates it). Install therefore IS the interactive setup:
-    // it installs uv if missing, then walks provider selection, in a terminal.
-    adapter: { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
-    bins: ["uvx"],
-    installedProbe: { kind: "file", path: "~/.hermes" },
+    // Hermes ships as a Python tool, so `uv tool install` puts its console scripts
+    // (hermes, hermes-acp) on PATH like every other agent's CLI — install is a REAL
+    // headless install, and the bin's presence is real proof of it. (It used to run
+    // through `uvx`, which resolves the package per spawn and leaves nothing on
+    // PATH: `uvx` alone proved nothing, so "installed" needed the ~/.hermes probe,
+    // and Install had to BE the sign-in wizard — clicking Install just asked you to
+    // sign in without ever installing anything. Install and sign-in are now the two
+    // separate steps they are for every other agent.)
+    adapter: { command: "hermes-acp", args: [] },
+    bins: ["hermes-acp"],
     install: {
-      terminal: "command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
-      // Windows/PowerShell: install uv via its .ps1 script, then run the setup wizard.
-      winTerminal: "if (-not (Get-Command uvx -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+      pinned: true, // exact version → no Update button (it'd reinstall the same pin)
+      // uv first (hermes is a Python tool), then the pinned package. `--force` keeps
+      // it idempotent. Resolve uv by absolute path too: a uv installed a line
+      // earlier isn't on this shell's PATH yet.
+      posixShell:
+        "command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh; "
+        + '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool install --force \'hermes-agent[acp]==0.18.2\'',
+      winShell:
+        "if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; "
+        + "$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if (-not $uv) { $uv = \"$HOME\\.local\\bin\\uv.exe\" }; "
+        + "& $uv tool install --force 'hermes-agent[acp]==0.18.2'",
     },
-    // Uninstall = remove its footprint. Everything hermes owns (credentials,
-    // sessions, memories) lives under ~/.hermes; uvx caches the package itself,
-    // so there is nothing else to remove. Destructive — the UI double-confirms.
+    // Uninstall = remove the tool AND its footprint. Everything hermes owns
+    // (credentials, sessions, memories) lives under ~/.hermes. Destructive — the
+    // UI double-confirms.
     uninstall: {
-      posixShell: "rm -rf ~/.hermes",
-      winShell: 'if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
+      posixShell: '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool uninstall hermes-agent 2>/dev/null; rm -rf ~/.hermes',
+      winShell: '$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if ($uv) { & $uv tool uninstall hermes-agent }; if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
     },
-    login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
-    winLogin: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+    login: "hermes setup",
+    winLogin: "hermes setup",
     // No logout — its setup wizard manages credentials in ~/.hermes.
     wizard: true,
     sessionsDir: "~/.hermes",
@@ -224,7 +238,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // hermes-acp prints "No LLM provider configured" and exits 0.
     credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
     acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
-    startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
+    startHint: "Hermes has no model provider selected. Run `hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
   },
 };
 

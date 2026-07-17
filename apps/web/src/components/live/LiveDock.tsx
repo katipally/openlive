@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
 import { usePtt } from "@/lib/live/usePtt";
@@ -33,10 +34,20 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // Preload a resumed conversation's transcript from the saved store.
   useEffect(() => { api.messages(chatId).then((m) => chatStore.preload(chatId, m as never)).catch(() => {}); }, [chatId]);
   useEffect(() => () => stop(), [stop]);
+
+  // Only warm up an agent that can actually start. Prewarming an uninstalled or
+  // signed-out agent spawns a binary that isn't there and dumps its raw failure
+  // ("spawn hermes-acp ENOENT") into the lobby — next to the Start button already
+  // explaining the real problem. `undefined` while the probe is in flight means we
+  // hold off one tick rather than spawn on a guess.
+  const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!boundAgent });
+  const agentRow = boundAgent ? agentRows?.find((r) => r.id === boundAgent) : undefined;
+  const agentReady = !!agentRow?.installed && agentRow.credState !== "login_required";
+
   // Pre-call: connect a bound coding agent as soon as it has a project folder, so it
   // reports its models/modes into the lobby before the call starts (and Start is
   // instant). No-op for the built-in assistant or once already connected.
-  useEffect(() => { if (!active && boundAgent && boundCwd) prewarm(); }, [active, boundAgent, boundCwd, prewarm]);
+  useEffect(() => { if (!active && boundAgent && boundCwd && agentReady) prewarm(); }, [active, boundAgent, boundCwd, agentReady, prewarm]);
 
   const end = () => { setMinimized(false); stop(); onExit(); };
 

@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench } from "lucide-react";
+import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
@@ -10,6 +10,7 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
+import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT } from "./SetupControls";
 import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
@@ -189,7 +190,7 @@ export function Lobby(props: LobbyProps) {
           so start→call reads as continuous) */}
       <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-[13px] font-semibold">Set up your call</span>
+          <span className="text-[14px] font-semibold tracking-tight">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
             <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
@@ -198,10 +199,13 @@ export function Lobby(props: LobbyProps) {
           </div>
         </header>
         <div className="openlive-scroll flex-1 space-y-6 overflow-y-auto p-4">
-          <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Talk to</p>
+          <Section title="Talk to">
             <AgentQuickPick />
-          </div>
+          </Section>
+
+          {/* Everything below the rule is about the thing picked above. The rule is
+              what makes "who" vs "how" two groups instead of one long list. */}
+          <div className="h-px bg-border/60" />
 
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
@@ -268,67 +272,73 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   );
 }
 
-// Per-agent setup in the lobby sidebar: the REQUIRED project folder, and the agent's
-// model + mode. Models/modes come from the agent itself over ACP the moment it
-// connects (cached per-agent between calls) — so the selectors are always shown, and
-// sit disabled with a hint until that first connect populates them.
+// Per-agent setup in the lobby sidebar: the agent's model, mode, and whatever else
+// it exposes over ACP. Everything here is reported by the AGENT the moment it
+// connects (cached per-agent between calls), so a field only appears once the agent
+// says it exists — we never invent a control it can't honour. Short lists render as
+// chips and long ones as a picker (see SetupControls), which is what keeps this from
+// being the stack of identical dropdowns it used to be.
 function AgentSetup({ agent }: { agent: AgentId }) {
   const liveMeta = useLiveStore((s) => s.agentMeta);
   const agentConnecting = useLiveStore((s) => s.agentConnecting);
   const meta = liveMeta ?? cachedAgentMeta(agent);
-  const selectClass = "h-9 w-full rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy";
   const hasModels = !!meta && meta.models.length > 0;
   const hasModes = !!meta && meta.modes.length > 0;
-  const loadingLabel = agentConnecting ? `Connecting to ${agentLabel(agent)}…` : "Loads when the call starts";
+  const opts = (meta?.options ?? []).filter((o) => o.values.length > 0);
+  const nothingYet = !hasModels && !hasModes && opts.length === 0;
+
+  // Until the agent connects there is nothing real to show. One honest line beats
+  // a "How it runs" heading over three dropdowns stubbed with "Loads when the call
+  // starts" — an empty section is a promise the panel can't keep yet.
+  if (nothingYet) {
+    return (
+      <p className={cn("flex items-start gap-2 text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
+        {agentConnecting && <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />}
+        {agentConnecting
+          ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
+          : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
+      </p>
+    );
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {meta?.resumeAcrossRestart === false && (
         <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
         </p>
       )}
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Model</span>
-        {hasModels ? (
-          <select value={meta!.currentModelId ?? ""} onChange={(e) => setConversationModel(e.target.value)} className={selectClass}>
-            {meta!.models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        ) : (
-          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
+      <Section title="How it runs">
+        {hasModels && (
+          <Field label="Model">
+            <Picker ariaLabel="Model" value={meta!.currentModelId} onChange={setConversationModel}
+              options={meta!.models.map((m) => ({ id: m.id, name: m.name }))} />
+          </Field>
         )}
-      </label>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Mode</span>
-        {hasModes ? (
-          <select value={meta!.currentModeId ?? ""} onChange={(e) => setConversationMode(e.target.value)} className={selectClass}>
-            {meta!.modes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        ) : (
-          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
+        {hasModes && (
+          <Field label="Mode" hint="How much it asks first">
+            <AutoControl ariaLabel="Mode" value={meta!.currentModeId} onChange={setConversationMode}
+              options={meta!.modes.map((m) => ({ id: m.id, name: m.name }))} />
+          </Field>
         )}
-      </label>
 
-      {/* Other ACP config options the agent exposes — reasoning/thought level, model
-          config, … — rendered generically as their own dropdowns. */}
-      {(meta?.options ?? []).filter((o) => o.values.length > 0).map((o) => (
-        <label key={o.id} className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-faint">{optLabel(o.category, o.label)}</span>
-          <select value={o.currentId ?? ""} onChange={(e) => setConversationOption(o.id, e.target.value)} className={selectClass}>
-            {o.values.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-        </label>
-      ))}
-
-      {!hasModels && !hasModes && (meta?.options ?? []).length === 0 && (
-        <p className={cn("text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
-          {agentConnecting
-            ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
-            : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
-        </p>
-      )}
+        {/* Whatever else the agent exposes (reasoning/thought level, model config…).
+            Reasoning gets the same "keep it low" steer as the built-in brain: this
+            is a spoken call, and every extra thinking token is silence on the line. */}
+        {opts.map((o) => {
+          const thinking = o.category === "thought_level";
+          return (
+            <Field key={o.id} label={optLabel(o.category, o.label)} hint={thinking ? THINK_HINT : undefined}>
+              <AutoControl ariaLabel={optLabel(o.category, o.label)} value={o.currentId}
+                onChange={(v) => setConversationOption(o.id, v)}
+                options={o.values.map((v) => ({ id: v.id, name: v.name }))} />
+              {thinking && <ThinkNote />}
+            </Field>
+          );
+        })}
+      </Section>
     </div>
   );
 }

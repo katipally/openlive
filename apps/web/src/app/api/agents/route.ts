@@ -40,16 +40,15 @@ export async function GET() {
   const home = homedir();
   const rows = await Promise.all(AGENT_LIST.map(async (a) => {
     // Installed = runner binary on PATH, AND (where the binary alone proves
-    // nothing — hermes via uvx) the agent's own footprint exists.
+    // nothing) the agent's own footprint exists.
     const presentBins = await Promise.all(a.bins.map(async (b) => ((await present(b)) ? b : null)));
     const firstBin = presentBins.find(Boolean) ?? null;
     const installed = !!firstBin && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
     // Only probe credentials when actually installed — a leftover config file
     // from an old install shouldn't render as signed in.
     const credState: CredState = installed ? await evalCredProbe(a.credProbe) : "unknown";
-    // CLI version, shown in the row. Skipped for hermes — its runner bin is uvx,
-    // whose --version reports uv, not hermes.
-    const version = installed && firstBin && a.id !== "hermes" ? await binVersion(firstBin) : undefined;
+    // CLI version, shown in the row.
+    const version = installed && firstBin ? await binVersion(firstBin) : undefined;
     return {
       id: a.id, label: a.label,
       installed,
@@ -65,9 +64,10 @@ export async function GET() {
       canInstall: !!a.install,
       canUninstall: !!a.uninstall,
       canLogout: !!a.logout,
-      // Update = rerun the headless install recipe with @latest; terminal-wizard
-      // installs (hermes, pinned) manage their own version.
-      canUpdate: installed && !!a.install && !a.install.terminal,
+      // Update = rerun the headless install recipe with @latest. Not offered for
+      // interactive installs, nor version-pinned ones (hermes) where it would just
+      // reinstall the same pin.
+      canUpdate: installed && !!a.install && !a.install.terminal && !a.install.pinned,
       hidden: getSetting(`agentHidden:${a.id}`) === "1",
       sessions: a.sessionsDir, home,
     };

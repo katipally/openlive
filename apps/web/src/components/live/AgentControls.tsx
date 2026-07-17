@@ -12,6 +12,7 @@ import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useUi } from "@/lib/uiStore";
 import { usePopIn } from "@/lib/usePopIn";
+import { Picker } from "./SetupControls";
 import { cn } from "@/lib/cn";
 
 // Hydration-safe: false on the server + first client render (SSR markup matches),
@@ -38,21 +39,36 @@ function useVisibleOptions(boundAgent: AgentId | null) {
 
 export { agentLabel };
 
-/** Compact "Talk to" picker for the pre-call screen — choose the agent BEFORE
- *  starting (styled like the device selects). Same per-conversation bind. */
+/** "Talk to" picker for the pre-call panel — choose the agent BEFORE starting.
+ *  Same per-conversation bind, and the same brand-marked popover as the hero
+ *  selector, so the panel and the hero read as one control in two places.
+ *  Uninstalled/signed-out agents stay pickable (the Start CTA explains the gap
+ *  and links to Settings) but say so up front, rather than looking ready. */
 export function AgentQuickPick() {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const options = useVisibleOptions(boundAgent);
+  const { data: rows } = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  const gapOf = (id: AgentId | null): string | undefined => {
+    if (!id) return undefined;
+    const r = rows?.find((x) => x.id === id);
+    if (!r) return undefined;
+    if (!r.installed) return "Not installed";
+    if (r.credState === "login_required") return r.wizard ? "Setup incomplete" : "Sign in needed";
+    return undefined;
+  };
   return (
-    <label className="flex items-center gap-2 text-muted-foreground">
-      <span className="grid size-3.5 shrink-0 place-items-center">{boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={14} />}</span>
-      <select value={boundAgent ?? ""} aria-label="Talk to"
-        onChange={(e) => { if (activeChatId) setConversationBind(activeChatId, (e.target.value || null) as AgentId | null); }}
-        className="min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-[12px] text-foreground">
-        {options.map((o) => <option key={o.id ?? "chat"} value={o.id ?? ""}>{o.label}</option>)}
-      </select>
-    </label>
+    <Picker
+      ariaLabel="Talk to"
+      value={boundAgent ?? ""}
+      onChange={(id) => { if (activeChatId) setConversationBind(activeChatId, (id || null) as AgentId | null); }}
+      options={options.map((o) => ({
+        id: o.id ?? "",
+        name: o.label,
+        detail: gapOf(o.id),
+        icon: o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />,
+      }))}
+    />
   );
 }
 
