@@ -66,6 +66,13 @@ export function HistorySidebar() {
     gsap.fromTo(backdrop.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft });
   }, { scope: root, dependencies: [visible] });
 
+  // Workspace groups cascade in once the list is on screen — keyed on the data
+  // arriving (react-query), not just on open, so rows never pop in unanimated.
+  useGSAP(() => {
+    if (!visible || isLoading || prefersReduced()) return;
+    gsap.fromTo(".ol-hist-node", { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out, stagger: 0.025, overwrite: "auto", clearProps: "all" });
+  }, { scope: root, dependencies: [visible, isLoading] });
+
   const close = contextSafe(() => {
     const done = () => { setVisible(false); setOpen(false); };
     if (!root.current || prefersReduced()) { done(); return; }
@@ -211,7 +218,7 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
   });
 
   return (
-    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/ws">
+    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/ws ol-hist-node">
       <summary className="group/wsrow flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05] [&::-webkit-details-marker]:hidden">
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition group-open/ws:rotate-90" />
         <Folder className="size-3.5 shrink-0 text-accent/80" />

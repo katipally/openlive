@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
+import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
@@ -32,6 +33,21 @@ export default function Home() {
     if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
   }, []);
 
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  // Launch reveal — the one orchestrated hero moment: mark settles in, headline
+  // and tagline rise, CTAs stagger up, the talk-to line and footer fade last.
+  // Runs once per mount of the hero (not during calls; LiveDock covers it).
+  useGSAP(() => {
+    if (!heroRef.current || prefersReduced()) return;
+    gsap.timeline()
+      .fromTo(".ol-hero-mark", { autoAlpha: 0, scale: 0.86, y: 6 }, { autoAlpha: 1, scale: 1, y: 0, duration: DUR.enter, ease: EASE.emphasized })
+      .fromTo(".ol-hero-title", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: DUR.slow, ease: EASE.emphasized }, "-=0.28")
+      .fromTo(".ol-hero-tag", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: DUR.slow, ease: EASE.out }, "-=0.24")
+      .fromTo(".ol-hero-cta > *", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out, stagger: 0.06 }, "-=0.2")
+      .fromTo(".ol-hero-sub", { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft }, "-=0.1");
+  }, { scope: heroRef });
+
   const startNew = () => {
     newConversation();
     // Carry the hero's "Talk to" pick onto the freshly created conversation.
@@ -52,15 +68,15 @@ export default function Home() {
             <Settings2 className="size-5" />
           </button>
 
-          <div className="flex flex-col items-center gap-6">
-            <OpenLiveMark />
+          <div ref={heroRef} className="flex flex-col items-center gap-6">
+            <div className="ol-hero-mark"><OpenLiveMark /></div>
             <div className="space-y-2">
-              <h1 className="text-display font-semibold tracking-tight">OpenLive</h1>
-              <p className="max-w-sm text-callout leading-relaxed text-muted-foreground">
+              <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
+              <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
                 Ears, eyes, and a voice for your AI.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="ol-hero-cta flex items-center gap-3">
               <button onClick={startNew} data-tour="new"
                 className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
                 <Plus className="size-5" /> New
@@ -76,7 +92,7 @@ export default function Home() {
             </div>
             {/* Choose what a new conversation talks to — the built-in assistant or a
                 coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-            <div className="flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
+            <div className="ol-hero-sub flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
               Talk to <AgentSelect />
             </div>
           </div>
