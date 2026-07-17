@@ -7,6 +7,7 @@ const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const crypto = require("node:crypto");
 const { powerMonitor } = require("electron");
 
@@ -69,6 +70,89 @@ function wirePermissions() {
   }, { useSystemPicker: true });
 }
 
+// ── process-tree kill + port helpers (cross-platform) ────────────────────────
+const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+// Kill a child AND every descendant. POSIX: our children are spawned `detached`,
+// so each is its own process-group leader and a negative pid signals the whole
+// group (child + grandchildren). Windows has no groups → taskkill /T walks the tree.
+function killTree(pid, sig = "SIGTERM") {
+  if (!pid) return;
+  if (process.platform === "win32") { sh(`taskkill ${sig === "SIGKILL" ? "/F " : ""}/T /PID ${pid}`); return; }
+  try { process.kill(-pid, sig); } catch { try { process.kill(pid, sig); } catch { /* already gone */ } }
+}
+
+// Who (if anyone) is LISTENING on `port`, and is it one of ours? "Ours" = a process
+// running our own binary (prod servers run via ELECTRON_RUN_AS_NODE = our exe), so a
+// leftover is safe to kill; anything else is a foreign app we must not touch.
+function portHolder(port) {
+  const mine = path.basename(process.execPath).toLowerCase();
+  if (process.platform === "win32") {
+    for (const line of sh("netstat -ano -p tcp").split("\n")) {
+      const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
+      if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
+      const pid = Number(c[4]); if (!pid || pid === process.pid) continue;
+      const row = sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase();
+      return { pid, name: (row.split(",")[0] || "").replace(/"/g, "").trim(), ours: row.includes(mine) };
+    }
+    return null;
+  }
+  for (const p of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
+    const pid = Number(p); if (!pid || pid === process.pid) continue;
+    const comm = sh(`ps -p ${pid} -o comm=`).trim();
+    return { pid, name: path.basename(comm), ours: comm.toLowerCase().includes(mine) };
+  }
+  return null;
+}
+
+// True iff we can bind the loopback port right now (i.e. it's actually free).
+function portFree(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.once("listening", () => s.close(() => resolve(true)));
+    s.listen(port, "127.0.0.1");
+  });
+}
+
+// PIDs of the servers we spawned, persisted so the NEXT launch can reap them even
+// if this process was force-killed (Windows especially: children outlive the parent).
+const pidFile = () => path.join(app.getPath("userData"), "server-pids.json");
+function recordServerPids() {
+  try { fs.writeFileSync(pidFile(), JSON.stringify(children.map((c) => c.pid).filter(Boolean))); } catch { /* best-effort */ }
+}
+function reapRecordedPids() {
+  let pids = [];
+  try { pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return; }
+  for (const pid of pids) if (alive(pid)) { console.error(`[main] reaping stale server pid ${pid}`); killTree(pid, "SIGKILL"); }
+  try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
+}
+
+// Make both ports bindable before we spawn, or explain why we can't. Reap our own
+// recorded zombies first; then, for anything still holding a port, kill it if it's
+// ours and bail with ONE clear message if it's a foreign app (respawning can't fix
+// that — issue #6's "web service keeps crashing" loop was exactly this case).
+async function ensurePortsFree() {
+  reapRecordedPids();
+  for (const port of [AGENT_PORT, WEB_PORT]) {
+    const h = portHolder(port);
+    if (h && h.ours) { console.error(`[main] killing stale ${h.name} (pid ${h.pid}) on port ${port}`); killTree(h.pid, "SIGKILL"); }
+    // Poll briefly: a just-SIGKILLed zombie's socket takes a beat to be released by
+    // the kernel, and we don't want to mistake our own dying process for a foreign app.
+    let free = false;
+    for (let i = 0; i < 15 && !(free = await portFree(port)); i++) await new Promise((r) => setTimeout(r, 100));
+    if (!free) {
+      const who = portHolder(port);
+      dialog.showErrorBox("OpenLive can't start",
+        `Port ${port} is being used by another program${who?.name ? ` (${who.name})` : ""}. ` +
+        `Close it and relaunch OpenLive.`);
+      return false;
+    }
+  }
+  return true;
+}
+
 // ── server processes (prod only; in dev they're started by `pnpm dev`) ───────
 // If a server crashes while the app is running, respawn it (up to a few times in
 // a short window) so a transient failure doesn't leave a dead, useless window.
@@ -78,11 +162,22 @@ function spawnServer(name, scriptRel, env) {
   const child = spawn(process.execPath, [script], {
     env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: "inherit",
+    detached: process.platform !== "win32", // own process group → clean tree-kill on quit
+    windowsHide: true,
   });
   child.on("exit", (code) => {
     const i = children.indexOf(child); if (i >= 0) children.splice(i, 1);
+    recordServerPids();
     if (app.isQuitting || !code) return;
     console.error(`[${name}] exited with ${code}`);
+    // A dead server whose port is now held by a FOREIGN app can't be fixed by
+    // respawning — say so once instead of the 5×-crash loop.
+    const port = name === "agent" ? AGENT_PORT : WEB_PORT;
+    const h = portHolder(port);
+    if (h && !h.ours) {
+      dialog.showErrorBox("OpenLive can't start", `Port ${port} is being used by another program${h.name ? ` (${h.name})` : ""}. Close it and relaunch OpenLive.`);
+      return;
+    }
     const r = (restarts[name] ||= { count: 0, first: Date.now() });
     if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
     if (++r.count > 5) {
@@ -92,45 +187,13 @@ function spawnServer(name, scriptRel, env) {
     setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
   });
   children.push(child);
+  recordServerPids();
   return child;
 }
 
-// A crashed or force-killed run can leave the server children alive — Windows
-// especially, where children aren't tied to the parent's lifetime — still holding
-// 47823/47824. The next launch's servers then die with EADDRINUSE in a respawn
-// loop that ends at "The web service keeps crashing" (issue #6), and relaunching
-// never helps. We hold the single-instance lock, so any OTHER OpenLive process
-// listening on our ports is a zombie: kill it. Foreign processes are left alone.
-function freeStalePorts() {
-  const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
-  const mine = path.basename(process.execPath).toLowerCase(); // zombie children ran OUR binary (ELECTRON_RUN_AS_NODE)
-  for (const port of [AGENT_PORT, WEB_PORT]) {
-    if (process.platform === "win32") {
-      for (const line of sh("netstat -ano -p tcp").split("\n")) {
-        const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
-        if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
-        const pid = c[4];
-        if (!pid || pid === "0" || Number(pid) === process.pid) continue;
-        if (sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase().includes(mine)) {
-          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
-          sh(`taskkill /F /PID ${pid}`);
-        }
-      }
-    } else {
-      for (const pid of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
-        if (Number(pid) === process.pid) continue;
-        if (sh(`ps -p ${pid} -o comm=`).trim().toLowerCase().includes(mine)) {
-          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
-          sh(`kill -9 ${pid}`);
-        }
-      }
-    }
-  }
-}
-
-function startServers() {
-  if (DEV) return; // dev servers come from `pnpm dev`
-  freeStalePorts();
+async function startServers() {
+  if (DEV) return true; // dev servers come from `pnpm dev`
+  if (!(await ensurePortsFree())) return false;
   const dataDir = path.join(app.getPath("userData"), "data");
   // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
   // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN
@@ -152,6 +215,7 @@ function startServers() {
     AGENT_PORT: String(AGENT_PORT),
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
   });
+  return true;
 }
 
 // ── wait for the web server to answer before showing the window ──────────────
@@ -579,7 +643,7 @@ function initAutoUpdate() {
       type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
       message: `OpenLive ${version} is ready`, detail: "Restart to finish updating.",
     });
-    if (response === 0) { app.isQuitting = true; updater.quitAndInstall(); }
+    if (response === 0) { app.isQuitting = true; await killChildren(); updater.quitAndInstall(); }
   });
   updater.on("error", (e) => {
     console.error("[updater]", e?.message || e);
@@ -606,7 +670,7 @@ async function boot() {
   wireBridgeIpc();
   wirePowerEvents();
   createSplash();
-  startServers();
+  if (!(await startServers())) { app.quit(); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
   if (!ok) {
     dialog.showErrorBox("OpenLive couldn't start", `The local servers didn't come up. Try relaunching.`);
@@ -621,5 +685,28 @@ app.whenReady().then(boot);
 
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", () => { app.isQuitting = true; for (const c of children) { try { c.kill(); } catch { /* */ } } });
+
+// Tear the server children (and their whole trees) down cleanly on quit: SIGTERM the
+// groups, give them up to 2s to exit gracefully, then SIGKILL any survivor. Without
+// this a quit could strand the web/agent processes still holding 47823/47824 (the
+// leak that made the NEXT launch fail). Idempotent so the updater/quit paths can both
+// call it and re-entrant before-quit doesn't double-run.
+let cleanedUp = false;
+async function killChildren() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  const procs = children.splice(0);
+  for (const c of procs) killTree(c.pid, "SIGTERM");
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline && procs.some((c) => c.pid && alive(c.pid))) await new Promise((r) => setTimeout(r, 100));
+  for (const c of procs) if (c.pid && alive(c.pid)) killTree(c.pid, "SIGKILL");
+  try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
+}
+
+app.on("before-quit", (e) => {
+  app.isQuitting = true;
+  if (cleanedUp || DEV || children.length === 0) return; // nothing of ours to reap
+  e.preventDefault();               // hold the quit until the trees are gone…
+  killChildren().finally(() => app.quit()); // …then let it through (cleanedUp now short-circuits)
+});
 app.on("will-quit", () => globalShortcut.unregisterAll());
