@@ -42,6 +42,11 @@ mac:
     - target: zip
       arch: [universal]
   artifactName: ${productName}-${version}-mac.${ext}
+  # The agent bundle ships BOTH darwin sherpa-onnx platform packages (voice
+  # cloning; the addon picks by os.arch() at runtime), so those Mach-O files are
+  # identical across the two single-arch passes of the universal build. Declare
+  # them or electron-builder rejects the merge ("not covered by x64ArchFiles").
+  x64ArchFiles: "**/sherpa-onnx-darwin-*/**"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
