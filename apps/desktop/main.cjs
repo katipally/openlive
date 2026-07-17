@@ -3,7 +3,7 @@
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
 const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, globalShortcut } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -77,7 +77,7 @@ function spawnServer(name, scriptRel, env) {
     const r = (restarts[name] ||= { count: 0, first: Date.now() });
     if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
     if (++r.count > 5) {
-      dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Please relaunch the app.`);
+      dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Relaunch the app; if it keeps happening, check that nothing else is using ports ${AGENT_PORT} and ${WEB_PORT}, and please attach any console output to a GitHub issue.`);
       return;
     }
     setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
@@ -86,8 +86,42 @@ function spawnServer(name, scriptRel, env) {
   return child;
 }
 
+// A crashed or force-killed run can leave the server children alive — Windows
+// especially, where children aren't tied to the parent's lifetime — still holding
+// 47823/47824. The next launch's servers then die with EADDRINUSE in a respawn
+// loop that ends at "The web service keeps crashing" (issue #6), and relaunching
+// never helps. We hold the single-instance lock, so any OTHER OpenLive process
+// listening on our ports is a zombie: kill it. Foreign processes are left alone.
+function freeStalePorts() {
+  const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
+  const mine = path.basename(process.execPath).toLowerCase(); // zombie children ran OUR binary (ELECTRON_RUN_AS_NODE)
+  for (const port of [AGENT_PORT, WEB_PORT]) {
+    if (process.platform === "win32") {
+      for (const line of sh("netstat -ano -p tcp").split("\n")) {
+        const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
+        if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
+        const pid = c[4];
+        if (!pid || pid === "0" || Number(pid) === process.pid) continue;
+        if (sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase().includes(mine)) {
+          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
+          sh(`taskkill /F /PID ${pid}`);
+        }
+      }
+    } else {
+      for (const pid of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
+        if (Number(pid) === process.pid) continue;
+        if (sh(`ps -p ${pid} -o comm=`).trim().toLowerCase().includes(mine)) {
+          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
+          sh(`kill -9 ${pid}`);
+        }
+      }
+    }
+  }
+}
+
 function startServers() {
   if (DEV) return; // dev servers come from `pnpm dev`
+  freeStalePorts();
   const dataDir = path.join(app.getPath("userData"), "data");
   // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
   // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN

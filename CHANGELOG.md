@@ -7,6 +7,12 @@ Releases before 0.1.9 predate this file — see the
 ## [0.2.0] - 2026-07-16
 
 ### Fixed
+- **"The web service keeps crashing" on launch (#6).** A crashed or force-killed
+  run could leave the app's server processes alive (Windows especially), still
+  holding OpenLive's ports — every later launch then died in an EADDRINUSE
+  respawn loop that relaunching never fixed. The app now clears its own stale
+  server processes from those ports at startup (other apps' processes are left
+  alone), and the crash dialog says what to check if it ever still happens.
 - **The workspace you picked is now the workspace the agent gets.** A bind race
   on new conversations could silently strand the session with no agent and no
   folder while the top bar showed both (the server's boot-time bind restore could
