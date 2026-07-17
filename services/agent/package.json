@@ -19,6 +19,7 @@
     "sherpa-onnx-node": "^1.13.4",
     "tar": "^7.5.20",
     "unbzip2-stream": "^1.4.3",
+    "undici": "^8.7.0",
     "ws": "^8.18.0",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.1"
