@@ -4,6 +4,21 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.2] - 2026-07-17
+
+### Fixed
+- **Hermes works end to end.** OpenLive now detects Hermes installed via its
+  official installer (which only puts the `hermes` launcher on PATH), drives it
+  through `hermes acp`, and recognizes sign-in from any of its provider stores —
+  API keys in `.env`, a selected provider in `config.yaml`, or OAuth in
+  `auth.json`. Previously a fully configured Hermes showed as "not installed"
+  or "Setup incomplete".
+- **Install/Update/Uninstall for Hermes** use its official installer, and
+  uninstall cleans up the launcher too.
+- **Dev servers self-heal.** `pnpm dev` and `pnpm desktop:dev` now clear stale
+  dev servers from either stack before starting, so a leftover Next process no
+  longer blocks startup with "Another next dev server is already running".
+
 ## [0.2.1] - 2026-07-17
 
 ### Added
