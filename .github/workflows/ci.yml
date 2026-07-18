@@ -59,3 +59,33 @@ jobs:
       # pull_request runs and fails the job after a successful build.
       - name: Build Windows installer (unsigned)
         run: pnpm --filter @openlive/desktop exec electron-builder --win --publish never
+
+  # Linux parity smoke test: prove the repo installs, typechecks, tests, and
+  # produces an unsigned AppImage on ubuntu-latest — same shape as the Windows job.
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Pack web + agent
+        run: |
+          pnpm --filter @openlive/desktop pack:web
+          pnpm --filter @openlive/desktop pack:agent
+
+      - name: Build Linux AppImage (unsigned)
+        run: pnpm --filter @openlive/desktop exec electron-builder --linux --publish never

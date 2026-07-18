@@ -90,3 +90,16 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
+
+# ── Linux ─────────────────────────────────────────────────────────────────────
+# One AppImage (download → chmod +x → run) so users don't have to match a distro
+# package format. Unsigned, like every Linux AppImage. The linux-<arch> sherpa
+# package is shipped by pack-agent.cjs (its default branch). electron-builder
+# derives the icon set from the 1024×1024 build/icon.png automatically.
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: AudioVideo
+  artifactName: ${productName}-${version}-linux.${ext}
+  icon: build/icon.png

@@ -4,6 +4,14 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.5] - 2026-07-18
+
+### Added
+- **Linux support.** OpenLive now ships a Linux build (unsigned `.AppImage`,
+  64-bit) alongside macOS and Windows — download, `chmod +x`, run. The release
+  and CI pipelines build and smoke-test all three platforms on their native
+  runners.
+
 ## [0.2.4] - 2026-07-17
 
 ### Fixed

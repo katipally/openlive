@@ -19,7 +19,8 @@
     "desktop:dev": "cross-env AGENT_PORT=47823 WEB_PORT=47824 concurrently -k --kill-others -n web,agent,app -c cyan,magenta,green \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\" \"pnpm --filter @openlive/desktop start:dev\"",
     "desktop:build": "pnpm --filter @openlive/desktop build",
     "desktop:build:mac": "pnpm --filter @openlive/desktop build:mac",
-    "desktop:build:win": "pnpm --filter @openlive/desktop build:win"
+    "desktop:build:win": "pnpm --filter @openlive/desktop build:win",
+    "desktop:build:linux": "pnpm --filter @openlive/desktop build:linux"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
