@@ -4,6 +4,16 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.3] - 2026-07-17
+
+### Fixed
+- **Windows: "The web service keeps crashing" on launch.** The bundled web
+  server was assembled with symlinks that the Windows installer flattened
+  one-by-one, tearing packages apart — the server died on a missing module the
+  moment it started, on every install. The bundle is now assembled with no
+  symlinks at all (a flat, npm-style layout), which behaves identically on
+  every OS. (#6)
+
 ## [0.2.2] - 2026-07-17
 
 ### Fixed
