@@ -13,13 +13,15 @@ test("a start that never resolves rejects on the deadline instead of hanging for
   await assert.rejects(sup.start(new AbortController().signal), /didn't become ready/);
 });
 
-test("a crashed turn emits a spoken line + structured error and recycles ONCE", async () => {
+test("a crashed turn ends as a spoken recovery notice and recycles ONCE", async () => {
   let built = 0;
   const sup = new AgentSupervisor(() => { built++; return agent({ runTurn: async () => { throw new Error("boom"); } }) as any; }, noAsk);
   const { events, emit } = collect();
   await sup.runTurn({ text: "hi", frames: [] }, emit, new AbortController().signal);
-  assert.ok(events.some((e) => e.type === "text_delta"), "spoke, not dead air");
-  assert.ok(events.some((e) => e.type === "error" && /boom/.test(e.message)), "structured error");
+  // The recovery notice is an out-of-band error event (client speaks it via engine.say +
+  // shows a banner), never a text_delta concatenated into and persisted as the agent's reply.
+  assert.ok(events.some((e) => e.type === "error" && /restarted/i.test(e.message)), "spoken recovery, not dead air");
+  assert.equal(events.filter((e) => e.type === "text_delta").length, 0, "no ghost text in the reply");
   assert.equal(built, 2, "restart-once fired");
   await sup.runTurn({ text: "again", frames: [] }, emit, new AbortController().signal);
   assert.equal(built, 2, "restart budget already spent");

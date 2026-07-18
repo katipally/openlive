@@ -4,6 +4,45 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.1] - 2026-07-17
+
+### Added
+- **Chats and messages now persist in SQLite** (via `node:sqlite`), with a
+  one-time migration that moves any existing JSON history over on first launch.
+  Nothing to do; your past conversations carry across.
+
+### Changed
+- **Electron 33 to 43, with the renderer sandbox on.** The app runs on a current
+  Electron with the renderer sandboxed, closing the gap between the web content
+  and the OS.
+- **Security hardening.** The agent WebSocket now requires an auth token, agent
+  file operations are scoped to the selected workspace, and the pipeline pauses
+  when the machine sleeps instead of talking to itself in the dark.
+- **Typography on a strict scale.** An eight-step type scale on the bundled Geist
+  font, so headings, body, and labels line up instead of drifting.
+- **History is now Sessions.** The panel is renamed, filters by All or OpenLive,
+  and collapses in one action.
+- **Controls stop feeling like a web page.** Dropdowns are custom (no native OS
+  select), navigable by arrow keys as a proper listbox, and window chrome is no
+  longer text-selectable while content still is.
+- **Launch and history motion.** A hero reveal on launch and a staggered cascade
+  when the session list opens.
+- **Lighter render load.** Store subscriptions are narrowed so fewer components
+  re-render, and caption reveal is throttled to the word rate.
+
+### Fixed
+- **Screen share on recent macOS.** The system screen picker was cancelling the
+  request, so sharing did nothing. OpenLive now shares the primary screen
+  directly, which is reliable and skips the prompt.
+- **Mini mode from the tray was dead.** Entering mini mode from the tray left the
+  pill completely unresponsive; it works now.
+- **Port cleanup and respawn.** Stale ports on relaunch are cleared more
+  reliably.
+- **Agent elicitation and permission modals.** Answering an agent's prompt (its
+  elicitation and permission asks) now maps to the right option instead of
+  getting lost.
+- **Assorted ACP bugs** in the coding-agent bridge.
+
 ## [0.2.0] - 2026-07-16
 
 ### Fixed
@@ -130,4 +169,6 @@ Releases before 0.1.9 predate this file — see the
 - Snapshot model defaults refreshed to current IDs (e.g. DeepSeek V4, Grok 4.5),
   preferring fast vision-capable models for the voice + camera loop.
 
+[0.2.1]: https://github.com/katipally/openlive/releases/tag/v0.2.1
+[0.2.0]: https://github.com/katipally/openlive/releases/tag/v0.2.0
 [0.1.9]: https://github.com/katipally/openlive/releases/tag/v0.1.9

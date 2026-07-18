@@ -60,14 +60,17 @@ function wirePermissions() {
   });
   ses.setPermissionCheckHandler((_wc, permission) => permission === "media");
 
-  // Screen share: without a handler, getDisplayMedia() fails in Electron. Prefer
-  // the native OS picker (lets the user choose a screen/window); fall back to the
-  // primary screen so sharing always works.
+  // Screen share: without a handler, getDisplayMedia() fails in Electron. The native
+  // system picker (useSystemPicker) cancels the request on recent macOS, so share the
+  // primary screen directly — reliable, no picker prompt.
   ses.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ["screen", "window"] })
-      .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+      .then((sources) => {
+        const screenSrc = sources.find((s) => s.id.startsWith("screen:")) || sources[0];
+        callback(screenSrc ? { video: screenSrc } : {});
+      })
       .catch(() => callback({}));
-  }, { useSystemPicker: true });
+  });
 }
 
 // ── process-tree kill + port helpers (cross-platform) ────────────────────────

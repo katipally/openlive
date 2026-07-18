@@ -112,10 +112,10 @@ jobs:
 
           | Platform | Download |
           | --- | --- |
-          | 🍎 **macOS** (Apple Silicon + Intel) | [\`${TAG}\` — Mac (.dmg)](${BASE}/OpenLive-${TAG#v}-mac.dmg) |
-          | 🪟 **Windows** (64-bit) | [\`${TAG}\` — Windows (.exe)](${BASE}/OpenLive-${TAG#v}-windows.exe) |
+          | **macOS** (Apple Silicon + Intel) | [\`${TAG}\` Mac (.dmg)](${BASE}/OpenLive-${TAG#v}-mac.dmg) |
+          | **Windows** (64-bit) | [\`${TAG}\` Windows (.exe)](${BASE}/OpenLive-${TAG#v}-windows.exe) |
 
-          On first launch macOS may take a few seconds to verify the app — that's normal.
+          On first launch, macOS may take a few seconds to verify the app. That's normal.
           "
           if [ -n "$HIGHLIGHTS" ]; then
             NOTES="${NOTES}
