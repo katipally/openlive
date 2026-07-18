@@ -13,7 +13,8 @@
     "pack": "node scripts/pack-web.cjs && node scripts/pack-agent.cjs",
     "build": "pnpm run pack && electron-builder",
     "build:mac": "pnpm run pack && electron-builder --mac",
-    "build:win": "pnpm run pack && electron-builder --win"
+    "build:win": "pnpm run pack && electron-builder --win",
+    "build:linux": "pnpm run pack && electron-builder --linux"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
