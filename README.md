@@ -24,7 +24,7 @@ Gemini Live, and OpenAI Realtime.
 
 ## Demo
 
-https://github.com/user-attachments/assets/4ae3a2db-9846-45aa-932c-adf528f688c6
+https://github.com/user-attachments/assets/065775b0-0a4a-4adf-8fa7-bcf065e6337f
 
 ---
 
