@@ -25,7 +25,7 @@ import { log } from "../log.js";
 // NO fs/terminal capabilities: a voice app isn't an editor, so the agent uses its
 // own file access and asks us (via request_permission) before doing anything risky.
 //
-// Which adapter each agent uses (and the claude/hermes version PINS OpenLive relies
+// Which adapter each agent uses (and the claude version PIN OpenLive relies
 // on) lives in the shared AGENT_REGISTRY; overridable per-agent via the
 // `acpCommand:<id>` setting so an ecosystem package rename doesn't strand a user.
 

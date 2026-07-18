@@ -19,7 +19,14 @@ export function expandHome(p: string): string {
 export function widenedPath(): string {
   const home = homedir();
   const extra = process.platform === "win32"
-    ? [join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "npm"), join(home, ".local", "bin"), join(home, "bin")]
+    ? [
+        join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "npm"),
+        join(home, ".local", "bin"),
+        join(home, "bin"),
+        // hermes' Windows installer persists this to User PATH, which processes
+        // already running (like OpenLive) don't see until restart.
+        join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "hermes", "hermes-agent", "venv", "Scripts"),
+      ]
     : ["/usr/local/bin", "/opt/homebrew/bin", `${home}/.local/bin`, `${home}/bin`, `${home}/.npm-global/bin`, `${home}/.opencode/bin`];
   const cur = (process.env.PATH ?? "").split(delimiter);
   return [...cur, ...extra.filter((p) => !cur.includes(p))].join(delimiter);
@@ -49,6 +56,11 @@ export async function evalCredProbe(probe: CredProbe): Promise<CredState> {
         const under = obj[rule.anyNonEmptyArrayUnder];
         if (typeof under !== "object" || under === null) return "login_required";
         return Object.values(under).some((v) => Array.isArray(v) && v.length > 0) ? "ready" : "login_required";
+      }
+      case "fileMatch": {
+        const path = expandHome(probe.path);
+        if (!existsSync(path)) return "login_required";
+        return new RegExp(probe.pattern, "m").test(readFileSync(path, "utf8")) ? "ready" : "login_required";
       }
       case "keychain": {
         if (process.platform !== "darwin") return "unknown";

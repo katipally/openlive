@@ -26,13 +26,15 @@ test("the claude adapter PIN is intact (byte-identical)", () => {
   assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.59.0");
 });
 
-test("the hermes version PIN is intact", () => {
-  // hermes is `uv tool install`-ed, so the adapter is just its console script and
-  // the version pin lives in the install recipe — that's what keeps hermes from
-  // floating to whatever ships next.
-  assert.equal(adapterCommand("hermes"), "hermes-acp");
+test("hermes runs through its launcher, and Install uses the official installer", () => {
+  // Regression: the adapter/bins used to be `hermes-acp`, which the official
+  // installer (git clone + venv) never puts on PATH — hermes showed as "not
+  // installed" on a machine where it plainly was. The `hermes` launcher is the
+  // one thing every install method provides; `acp` is its ACP entry point.
+  assert.equal(adapterCommand("hermes"), "hermes acp");
+  assert.ok(AGENT_REGISTRY.hermes.bins.includes("hermes"));
   for (const shell of [AGENT_REGISTRY.hermes.install?.posixShell, AGENT_REGISTRY.hermes.install?.winShell]) {
-    assert.match(String(shell), /hermes-agent\[acp\]==0\.18\.2/);
+    assert.match(String(shell), /hermes-agent\.nousresearch\.com\/install\./);
   }
 });
 
@@ -46,13 +48,30 @@ test("install recipes actually install (a wizard is sign-in, not an install)", (
   }
 });
 
-test("cred probes are well-formed (paths ~-relative, anyOf non-empty)", () => {
+test("cred probes are well-formed (paths ~-relative, anyOf non-empty, patterns compile)", () => {
   const check = (p: (typeof AGENT_REGISTRY)["codex"]["credProbe"]): void => {
     if (p.kind === "anyOf") { assert.ok(p.probes.length > 0); p.probes.forEach(check); return; }
     if (p.kind === "keychain") { assert.ok(p.service.trim()); return; }
+    if (p.kind === "fileMatch") assert.doesNotThrow(() => new RegExp(p.pattern, "m"));
     assert.ok(p.path.startsWith("~"), `probe paths must be home-relative: ${p.path}`);
   };
   for (const a of AGENT_LIST) check(a.credProbe);
+});
+
+test("hermes cred patterns match real setups and reject pre-setup defaults", () => {
+  // Regression: probing only auth.json showed "Setup incomplete" on a machine
+  // where `hermes setup` had configured an API-key provider (key in ~/.hermes/.env,
+  // provider in config.yaml — auth.json is only written for OAuth providers).
+  const probes = AGENT_REGISTRY.hermes.credProbe;
+  assert.ok(probes.kind === "anyOf");
+  const [env, cfg] = probes.probes as unknown as [{ pattern: string }, { pattern: string }];
+  const envRe = new RegExp(env.pattern, "m");
+  assert.ok(envRe.test("FOO=bar\nMINIMAX_API_KEY=sk-abc123"));
+  assert.ok(!envRe.test("# MINIMAX_API_KEY=sk-abc123\nGOOGLE_API_KEY="));
+  const cfgRe = new RegExp(cfg.pattern, "m");
+  assert.ok(cfgRe.test("model:\n  default: MiniMax-M3\n  provider: minimax"));
+  assert.ok(cfgRe.test('model:\n  provider: "lmstudio"'));
+  assert.ok(!cfgRe.test('model:\n  provider: "auto"'));
 });
 
 test("only file-backed session stores are externally deletable", () => {

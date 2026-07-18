@@ -8,14 +8,14 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "predev": "node scripts/free-ports.mjs --sweep",
+    "predev": "node scripts/free-ports.mjs --sweep 3000 8787 47824 47823 9333",
     "dev": "concurrently -k --kill-others -n web,agent -c cyan,magenta \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\"",
     "stop": "node scripts/free-ports.mjs --sweep 47824 47823 9333 3000 8787",
     "build": "pnpm -r --filter @openlive/web build",
     "db:reset": "pnpm --filter @openlive/db reset",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "predesktop:dev": "node scripts/free-ports.mjs --sweep 47824 47823 9333",
+    "predesktop:dev": "node scripts/free-ports.mjs --sweep 47824 47823 9333 3000 8787",
     "desktop:dev": "cross-env AGENT_PORT=47823 WEB_PORT=47824 concurrently -k --kill-others -n web,agent,app -c cyan,magenta,green \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\" \"pnpm --filter @openlive/desktop start:dev\"",
     "desktop:build": "pnpm --filter @openlive/desktop build",
     "desktop:build:mac": "pnpm --filter @openlive/desktop build:mac",

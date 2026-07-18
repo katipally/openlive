@@ -64,10 +64,9 @@ export async function GET() {
       canInstall: !!a.install,
       canUninstall: !!a.uninstall,
       canLogout: !!a.logout,
-      // Update = rerun the headless install recipe with @latest. Not offered for
-      // interactive installs, nor version-pinned ones (hermes) where it would just
-      // reinstall the same pin.
-      canUpdate: installed && !!a.install && !a.install.terminal && !a.install.pinned,
+      // Update = rerun the headless install recipe (@latest for npm; the curl
+      // installers always fetch latest). Not offered for interactive installs.
+      canUpdate: installed && !!a.install && !a.install.terminal,
       hidden: getSetting(`agentHidden:${a.id}`) === "1",
       sessions: a.sessionsDir, home,
     };

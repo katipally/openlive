@@ -13,6 +13,7 @@ export type AgentId = (typeof AGENT_IDS)[number];
 export type CredProbe =
   | { kind: "file"; path: string }                      // "~"-relative; exists → signed in
   | { kind: "json"; path: string; rule: "nonEmptyObject" | { hasKey: string } | { anyNonEmptyArrayUnder: string } }
+  | { kind: "fileMatch"; path: string; pattern: string } // any line matches the regex (multiline) → signed in
   | { kind: "keychain"; service: string }               // macOS login keychain (exit code only — never reads the secret)
   | { kind: "anyOf"; probes: CredProbe[] };
 
@@ -20,9 +21,8 @@ export type CredProbe =
  *  package; `terminal` opens the user's terminal running an INTERACTIVE flow
  *  instead of streaming a headless command. NOTE: an install recipe must always
  *  be able to actually INSTALL headlessly — an interactive-only "install" is a
- *  sign-in wearing an Install button (see hermes' entry). `pinned` marks a recipe
- *  that installs an exact version, so Update would be a no-op reinstall. */
-export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string; pinned?: boolean }
+ *  sign-in wearing an Install button (see hermes' entry). */
+export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string }
 
 export interface AgentDef {
   id: AgentId;
@@ -54,8 +54,9 @@ export interface AgentDef {
   externalDeletable: boolean;
   credProbe: CredProbe;
   /** Extra "is it actually installed" probe ANDed with the PATH check — for
-   *  agents whose runner binary alone proves nothing (hermes runs via uvx, so
-   *  uv's presence ≠ hermes configured; its setup wizard creates ~/.hermes). */
+   *  agents whose runner binary alone proves nothing (e.g. an agent launched
+   *  through a shared runner like uvx, where the runner's presence proves
+   *  nothing about the agent itself). Currently unused. */
   installedProbe?: CredProbe;
   /** Sign-in IS the setup wizard (not a plain login): an aborted run can leave
    *  the agent half-configured, so the UI says "Setup incomplete"/"Finish
@@ -91,7 +92,6 @@ export interface AgentDef {
 // claude-agent-acp is PINNED: OpenLive relies on its `_meta.claudeCode.options`
 // passthrough (native session persistence + system-prompt append, verified
 // against 0.59.0) — an unpinned `npx -y` silently floats to whatever ships next.
-// hermes is pinned for the same float-protection reason.
 export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
   "claude-code": {
     id: "claude-code",
@@ -195,35 +195,34 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Hermes",
     brand: {},
     logoSrc: "/agents/hermes.svg",
-    // Hermes ships as a Python tool, so `uv tool install` puts its console scripts
-    // (hermes, hermes-acp) on PATH like every other agent's CLI — install is a REAL
-    // headless install, and the bin's presence is real proof of it. (It used to run
-    // through `uvx`, which resolves the package per spawn and leaves nothing on
-    // PATH: `uvx` alone proved nothing, so "installed" needed the ~/.hermes probe,
-    // and Install had to BE the sign-in wizard — clicking Install just asked you to
-    // sign in without ever installing anything. Install and sign-in are now the two
-    // separate steps they are for every other agent.)
-    adapter: { command: "hermes-acp", args: [] },
-    bins: ["hermes-acp"],
+    // Hermes' official installer (hermes-agent.nousresearch.com) git-clones into
+    // ~/.hermes/hermes-agent, builds a venv there, and puts ONE launcher on PATH:
+    // `hermes` (~/.local/bin on POSIX; %LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts
+    // on Windows, via User PATH). `hermes-acp` stays inside the venv — so the
+    // adapter and the installed-check both go through `hermes` (its `acp`
+    // subcommand is the documented ACP entry point). `hermes-acp` is kept in
+    // `bins` for uv-tool installs (`uv tool install 'hermes-agent[acp]'`), which
+    // put both console scripts on PATH.
+    adapter: { command: "hermes", args: ["acp"] },
+    bins: ["hermes", "hermes-acp"],
     install: {
-      pinned: true, // exact version → no Update button (it'd reinstall the same pin)
-      // uv first (hermes is a Python tool), then the pinned package. `--force` keeps
-      // it idempotent. Resolve uv by absolute path too: a uv installed a line
-      // earlier isn't on this shell's PATH yet.
-      posixShell:
-        "command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh; "
-        + '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool install --force \'hermes-agent[acp]==0.18.2\'',
+      // The official installer — the same one hermes' site documents. --skip-setup
+      // keeps it headless (sign-in stays the separate `hermes setup` step, like
+      // every other agent). Idempotent: rerunning it updates the git checkout, so
+      // Update = rerun (same pattern as cursor's curl install).
+      posixShell: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup",
       winShell:
-        "if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; "
-        + "$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if (-not $uv) { $uv = \"$HOME\\.local\\bin\\uv.exe\" }; "
-        + "& $uv tool install --force 'hermes-agent[acp]==0.18.2'",
+        '$s = Join-Path $env:TEMP "hermes-install.ps1"; irm https://hermes-agent.nousresearch.com/install.ps1 -OutFile $s; & $s -SkipSetup',
     },
-    // Uninstall = remove the tool AND its footprint. Everything hermes owns
-    // (credentials, sessions, memories) lives under ~/.hermes. Destructive — the
-    // UI double-confirms.
+    // Uninstall = remove the launcher, any legacy uv-tool install, AND the
+    // footprint. Everything hermes owns (code, credentials, sessions, memories)
+    // lives under ~/.hermes (%LOCALAPPDATA%\hermes on Windows). Destructive —
+    // the UI double-confirms.
     uninstall: {
-      posixShell: '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool uninstall hermes-agent 2>/dev/null; rm -rf ~/.hermes',
-      winShell: '$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if ($uv) { & $uv tool uninstall hermes-agent }; if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
+      posixShell: '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool uninstall hermes-agent 2>/dev/null; rm -f ~/.local/bin/hermes; rm -rf ~/.hermes',
+      winShell:
+        "$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if ($uv) { & $uv tool uninstall hermes-agent 2>$null }; "
+        + 'foreach ($d in @("$env:LOCALAPPDATA\\hermes", "$HOME\\.hermes")) { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }',
     },
     login: "hermes setup",
     winLogin: "hermes setup",
@@ -232,11 +231,23 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionsDir: "~/.hermes",
     sessionParser: "hermes-sqlite",
     externalDeletable: false,
-    // A credential in the pool is NOT enough — hermes refuses to start until an
-    // ACTIVE provider is selected (auth.json `providers` non-empty). Verified
-    // against a machine with a pooled copilot credential but providers:{} —
-    // hermes-acp prints "No LLM provider configured" and exits 0.
-    credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
+    // Hermes has THREE places a working provider can come from, and setup writes
+    // whichever fits the chosen provider (verified against hermes 0.18.2 source):
+    //   • ~/.hermes/.env      — API-key providers (MINIMAX_API_KEY=…, etc.)
+    //   • ~/.hermes/config.yaml — an explicitly selected provider (anything ≠ "auto",
+    //     which is the pre-setup default; covers keyless ones like lmstudio)
+    //   • ~/.hermes/auth.json — OAuth providers (Nous Portal, Codex)
+    // Probing only auth.json (the old probe) showed "Setup incomplete" on a fully
+    // configured API-key install. ponytail: a config.yaml provider without its key
+    // still reads as ready — hermes itself surfaces that error at session start.
+    credProbe: {
+      kind: "anyOf",
+      probes: [
+        { kind: "fileMatch", path: "~/.hermes/.env", pattern: "^[A-Z0-9_]*API_KEY=.+" },
+        { kind: "fileMatch", path: "~/.hermes/config.yaml", pattern: "^\\s*provider:\\s*[\"']?(?!auto\\b)[a-z]" },
+        { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
+      ],
+    },
     acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Hermes has no model provider selected. Run `hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
   },
