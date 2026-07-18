@@ -58,30 +58,48 @@ function copyDeref(src, dest, anc = new Set()) {
   }
 }
 
-// One flat node_modules: the union of the trace's direct deps (top level) and
-// pnpm's hoisted virtual store (.pnpm/node_modules holds the whole transitive
-// closure). Each entry deref-copies to a real dir; .pnpm itself is dropped.
+// One flat node_modules: every package in the traced closure deref-copied to a
+// real top-level dir; .pnpm itself is dropped. Collected from three places —
+// the trace's top level, pnpm's hoisted virtual store (.pnpm/node_modules), and
+// the .pnpm store payload dirs themselves (.pnpm/<pkg@ver>/node_modules/<name>).
+// The store payloads are the load-bearing source: they're REAL dirs on every
+// platform, while the links between them can arrive broken on Windows runners
+// (v0.2.3's Windows build silently lost react/react-dom/styled-jsx exactly that
+// way and shipped a server that crashed on require('react')).
 function flattenNodeModules() {
   const seen = new Map(); // "name" or "@scope/name" → source dir
+  const usable = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+  const addEntry = (id, src) => { if (!isSharp(id) && !seen.has(id) && usable(src)) seen.set(id, src); };
   const collect = (dir) => {
     if (!fs.existsSync(dir)) return;
     for (const name of fs.readdirSync(dir)) {
       if (name.startsWith(".") || isSharp(name)) continue;
       if (name.startsWith("@")) {
-        for (const sub of fs.readdirSync(path.join(dir, name))) {
-          const id = `${name}/${sub}`;
-          if (!isSharp(id) && !seen.has(id)) seen.set(id, path.join(dir, name, sub));
-        }
-      } else if (!seen.has(name)) seen.set(name, path.join(dir, name));
+        let subs = []; try { subs = fs.readdirSync(path.join(dir, name)); } catch { continue; }
+        for (const sub of subs) addEntry(`${name}/${sub}`, path.join(dir, name, sub));
+      } else addEntry(name, path.join(dir, name));
     }
   };
   collect(storeNM);
   collect(path.join(storeNM, ".pnpm", "node_modules"));
-  for (const [id, src] of seen) {
-    try { fs.realpathSync(src); } catch { continue; } // dangling link (pruned dep) → skip
-    copyDeref(src, path.join(distNM, id));
+  const store = path.join(storeNM, ".pnpm");
+  if (fs.existsSync(store)) {
+    for (const pkgDir of fs.readdirSync(store)) {
+      if (pkgDir === "node_modules" || pkgDir.startsWith(".") || isSharp(pkgDir)) continue;
+      collect(path.join(store, pkgDir, "node_modules"));
+    }
   }
-  console.log(`[pack-web] flattened ${seen.size} packages into node_modules`);
+  for (const [id, src] of seen) copyDeref(src, path.join(distNM, id));
+  console.log(`[pack-web] flattened: ${[...seen.keys()].sort().join(", ")}`);
+
+  // Fail LOUDLY if the server's hard runtime deps didn't make it — a silent gap
+  // here is exactly the "web service keeps crashing" Windows bug.
+  const required = ["next", "react", "react-dom", "styled-jsx", "@swc/helpers", "@next/env"];
+  const missing = required.filter((id) => !fs.existsSync(path.join(distNM, id, "package.json")));
+  if (missing.length) {
+    console.error(`[pack-web] ERROR: flat node_modules is missing: ${missing.join(", ")}`);
+    process.exit(1);
+  }
 }
 
 // Copy the web server tree, skipping its nested node_modules — everything

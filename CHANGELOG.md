@@ -4,6 +4,15 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [0.2.4] - 2026-07-17
+
+### Fixed
+- **Windows: the 0.2.3 crash fix didn't fully take.** On the Windows build
+  machine, some package links inside the build were broken and got silently
+  skipped, so the installer still shipped without React. The packaging now
+  reads package contents directly (no links involved) and refuses to build at
+  all if any required package is missing. (#6)
+
 ## [0.2.3] - 2026-07-17
 
 ### Fixed
