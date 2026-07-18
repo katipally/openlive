@@ -26,7 +26,9 @@ export function actionCommand(a: AgentDef, action: Action): { cmd: string; args:
   const recipe = action === "uninstall" ? a.uninstall : a.install;
   if (!recipe) return null;
   const terminalRecipe = (isWin && recipe.winTerminal) || recipe.terminal;
-  if (action === "update" && terminalRecipe) return null; // interactive installs (hermes) manage their own version
+  // Interactive installs manage their own version; a pinned recipe (hermes) would
+  // just reinstall the same pin. Mirrors `canUpdate` in the status route.
+  if (action === "update" && (terminalRecipe || recipe.pinned)) return null;
   // Interactive installs (hermes' setup wizard) run in the user's terminal.
   if (terminalRecipe) return { ...terminalCommand(terminalRecipe), terminal: true, display: terminalRecipe };
   if (recipe.npm) return { cmd: "npm", args: [action === "uninstall" ? "uninstall" : "install", "-g", action === "update" ? `${recipe.npm}@latest` : recipe.npm] };

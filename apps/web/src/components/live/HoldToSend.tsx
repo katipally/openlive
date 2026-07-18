@@ -31,7 +31,7 @@ export function HoldPill({ until, holdMs, onSend, compact }: { until: number; ho
   return (
     <button ref={ref} onClick={onSend} title="Send now (Enter)" aria-label="Send now"
       className={cn("pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-surface text-muted-foreground transition hover:text-foreground",
-        compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-[12px]")}>
+        compact ? "px-2 py-0.5 text-caption" : "px-3 py-1 text-label")}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
         <circle cx="8" cy="8" r={R} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="1.5" />
         <circle cx="8" cy="8" r={R} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"

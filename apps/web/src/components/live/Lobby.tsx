@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench } from "lucide-react";
+import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
@@ -10,6 +10,7 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
+import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT } from "./SetupControls";
 import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
@@ -104,44 +105,44 @@ export function Lobby(props: LobbyProps) {
 
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
-      <p className="text-[12px] font-medium text-muted-foreground">Downloading on-device AI…</p>
+      <p className="text-label font-medium text-muted-foreground">Downloading on-device AI…</p>
       <DownloadProgress pct={downloadPct} loaded={downloadLoaded} total={downloadTotal} models={downloadModels} />
     </div>
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-[14px] font-medium text-accent-foreground transition duration-150 hover:scale-[1.03] hover:opacity-90 active:scale-95">
+      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
         Download AI models
       </button>
-      <p className="max-w-[17rem] text-[11px] text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
+      <p className="max-w-[17rem] text-caption text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
       <button onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}
-        className="rounded-full bg-accent px-10 py-3 text-[15px] font-medium text-accent-foreground shadow-lg transition duration-150 enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
+        className="rounded-full bg-accent px-10 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40">
         Start
       </button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start — not as a confusing failure after. */}
       {agentGap && (
         <button onClick={() => useUi.getState().openSettingsTab("agents")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
           <Wrench className="size-3.5" />
           {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
         </button>
       )}
-      {!agentGap && needFolder && <p className="text-[11.5px] text-faint">Pick a project folder above to start.</p>}
+      {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
       {folderGap && (
-        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-[12px] text-danger">
+        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-label text-danger">
           That folder doesn&apos;t exist anymore — pick a different one.
         </p>
       )}
       {keyGap && provDef && (
         <button onClick={() => useUi.getState().openSettingsTab("models")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-[12px] font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
           <Wrench className="size-3.5" /> No API key for {provDef.name} — add one in Settings
         </button>
       )}
-      {micGap && <p className="text-[11.5px] text-arc">No microphone detected — connect one so the call can hear you.</p>}
+      {micGap && <p className="text-caption text-arc">No microphone detected — connect one so the call can hear you.</p>}
     </div>
   );
 
@@ -151,16 +152,16 @@ export function Lobby(props: LobbyProps) {
       <main className="relative min-w-0 flex-1 overflow-y-auto">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
         <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-[84px]" : "left-4")} />
-        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="History" aria-label="History"
+        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="Sessions" aria-label="Sessions"
           className={cn("absolute top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]", isMacDesktop ? "left-[84px]" : "left-3")}>
           <PanelLeft className="size-4" />
         </button>
         <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
           <div className="space-y-1">
-            <h2 className="text-[22px] font-semibold tracking-tight">Talk with OpenLive</h2>
-            <p className="max-w-sm text-[13px] text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
+            <h2 className="text-title-lg font-semibold tracking-tight">Talk with OpenLive</h2>
+            <p className="max-w-sm text-body text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
             {cpu && (
-              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-[11.5px] text-arc">
+              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-caption text-arc">
                 Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
               </p>
             )}
@@ -181,15 +182,15 @@ export function Lobby(props: LobbyProps) {
           </div>
 
           {cta}
-          {error && <p className="max-w-sm text-[12px] text-danger">{error}</p>}
+          {error && <p className="max-w-sm text-label text-danger">{error}</p>}
         </div>
       </main>
 
       {/* AI panel — a floating elevated card (same slot the in-call transcript uses,
           so start→call reads as continuous) */}
-      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-[13px] font-semibold">Set up your call</span>
+          <span className="text-callout font-semibold tracking-tight">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
             <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
               className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
@@ -198,10 +199,13 @@ export function Lobby(props: LobbyProps) {
           </div>
         </header>
         <div className="openlive-scroll flex-1 space-y-6 overflow-y-auto p-4">
-          <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">Talk to</p>
+          <Section title="Talk to">
             <AgentQuickPick />
-          </div>
+          </Section>
+
+          {/* Everything below the rule is about the thing picked above. The rule is
+              what makes "who" vs "how" two groups instead of one long list. */}
+          <div className="h-px bg-border/60" />
 
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
@@ -226,12 +230,12 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-[9.5px] font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
+        <p className="flex items-center gap-1.5 text-caption font-medium uppercase tracking-wide text-faint">
+          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-micro font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
         </p>
         {b && (
           <button onClick={browse} aria-label={`Choose a folder for ${name}`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium text-accent transition hover:bg-accent/10">
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium text-accent transition hover:bg-accent/10">
             <FolderOpen className="size-3.5" /> Browse…
           </button>
         )}
@@ -240,8 +244,8 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
       {cwd ? (
         <div className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 shadow-[var(--shadow-card)]">
           <Folder className="size-4 shrink-0 text-accent" />
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground" title={cwd}>{cwd}</span>
-          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-[11px] text-faint transition hover:text-foreground">change</button>
+          <span className="min-w-0 flex-1 truncate font-mono text-label text-foreground" title={cwd}>{cwd}</span>
+          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-caption text-faint transition hover:text-foreground">change</button>
         </div>
       ) : (
         <>
@@ -251,15 +255,15 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
                 <button key={f} onClick={() => setConversationFolder(chatId, f)} title={f}
                   className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-2 text-left shadow-[var(--shadow-xs)] transition hover:shadow-[var(--shadow-card)]">
                   <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{basename(f)}</span>
-                  <span className="max-w-[45%] shrink-0 truncate font-mono text-[10px] text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
+                  <span className="min-w-0 flex-1 truncate text-label text-foreground">{basename(f)}</span>
+                  <span className="max-w-[45%] shrink-0 truncate font-mono text-micro text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
                 </button>
               ))}
             </div>
           )}
           {!b && (
             <input placeholder="/path/to/your/project" spellCheck={false}
-              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-[12px] text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
+              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-label text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
               onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
           )}
         </>
@@ -268,67 +272,73 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   );
 }
 
-// Per-agent setup in the lobby sidebar: the REQUIRED project folder, and the agent's
-// model + mode. Models/modes come from the agent itself over ACP the moment it
-// connects (cached per-agent between calls) — so the selectors are always shown, and
-// sit disabled with a hint until that first connect populates them.
+// Per-agent setup in the lobby sidebar: the agent's model, mode, and whatever else
+// it exposes over ACP. Everything here is reported by the AGENT the moment it
+// connects (cached per-agent between calls), so a field only appears once the agent
+// says it exists — we never invent a control it can't honour. Short lists render as
+// chips and long ones as a picker (see SetupControls), which is what keeps this from
+// being the stack of identical dropdowns it used to be.
 function AgentSetup({ agent }: { agent: AgentId }) {
   const liveMeta = useLiveStore((s) => s.agentMeta);
   const agentConnecting = useLiveStore((s) => s.agentConnecting);
   const meta = liveMeta ?? cachedAgentMeta(agent);
-  const selectClass = "h-9 w-full rounded-lg border border-border bg-card px-3 text-[12.5px] text-foreground outline-none focus:border-border-heavy";
   const hasModels = !!meta && meta.models.length > 0;
   const hasModes = !!meta && meta.modes.length > 0;
-  const loadingLabel = agentConnecting ? `Connecting to ${agentLabel(agent)}…` : "Loads when the call starts";
+  const opts = (meta?.options ?? []).filter((o) => o.values.length > 0);
+  const nothingYet = !hasModels && !hasModes && opts.length === 0;
+
+  // Until the agent connects there is nothing real to show. One honest line beats
+  // a "How it runs" heading over three dropdowns stubbed with "Loads when the call
+  // starts" — an empty section is a promise the panel can't keep yet.
+  if (nothingYet) {
+    return (
+      <p className={cn("flex items-start gap-2 text-caption leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
+        {agentConnecting && <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />}
+        {agentConnecting
+          ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
+          : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
+      </p>
+    );
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {meta?.resumeAcrossRestart === false && (
-        <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-caption leading-relaxed text-muted-foreground">
           Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
         </p>
       )}
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Model</span>
-        {hasModels ? (
-          <select value={meta!.currentModelId ?? ""} onChange={(e) => setConversationModel(e.target.value)} className={selectClass}>
-            {meta!.models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        ) : (
-          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
+      <Section title="How it runs">
+        {hasModels && (
+          <Field label="Model">
+            <Picker ariaLabel="Model" value={meta!.currentModelId} onChange={setConversationModel}
+              options={meta!.models.map((m) => ({ id: m.id, name: m.name }))} />
+          </Field>
         )}
-      </label>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-faint">Mode</span>
-        {hasModes ? (
-          <select value={meta!.currentModeId ?? ""} onChange={(e) => setConversationMode(e.target.value)} className={selectClass}>
-            {meta!.modes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        ) : (
-          <select disabled className={cn(selectClass, "cursor-not-allowed text-muted-foreground opacity-60")}><option>{loadingLabel}</option></select>
+        {hasModes && (
+          <Field label="Mode" hint="How much it asks first">
+            <AutoControl ariaLabel="Mode" value={meta!.currentModeId} onChange={setConversationMode}
+              options={meta!.modes.map((m) => ({ id: m.id, name: m.name }))} />
+          </Field>
         )}
-      </label>
 
-      {/* Other ACP config options the agent exposes — reasoning/thought level, model
-          config, … — rendered generically as their own dropdowns. */}
-      {(meta?.options ?? []).filter((o) => o.values.length > 0).map((o) => (
-        <label key={o.id} className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-faint">{optLabel(o.category, o.label)}</span>
-          <select value={o.currentId ?? ""} onChange={(e) => setConversationOption(o.id, e.target.value)} className={selectClass}>
-            {o.values.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-        </label>
-      ))}
-
-      {!hasModels && !hasModes && (meta?.options ?? []).length === 0 && (
-        <p className={cn("text-[11.5px] leading-relaxed", agentConnecting ? "text-muted-foreground" : "text-faint")}>
-          {agentConnecting
-            ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
-            : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
-        </p>
-      )}
+        {/* Whatever else the agent exposes (reasoning/thought level, model config…).
+            Reasoning gets the same "keep it low" steer as the built-in brain: this
+            is a spoken call, and every extra thinking token is silence on the line. */}
+        {opts.map((o) => {
+          const thinking = o.category === "thought_level";
+          return (
+            <Field key={o.id} label={optLabel(o.category, o.label)} hint={thinking ? THINK_HINT : undefined}>
+              <AutoControl ariaLabel={optLabel(o.category, o.label)} value={o.currentId}
+                onChange={(v) => setConversationOption(o.id, v)}
+                options={o.values.map((v) => ({ id: v.id, name: v.name }))} />
+              {thinking && <ThinkNote />}
+            </Field>
+          );
+        })}
+      </Section>
     </div>
   );
 }

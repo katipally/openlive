@@ -55,7 +55,8 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: OpenLive listens to your microphone to hear you speak.
     NSCameraUsageDescription: OpenLive uses your camera so the assistant can see what you show it.
-    LSMinimumSystemVersion: "11.0"
+    # Electron 43 (Chromium) requires macOS 12+; Electron 44 will require 13+.
+    LSMinimumSystemVersion: "12.0"
 
 # Signing + notarization are fully env-driven, so nothing here needs toggling:
 #   - Signing: set CSC_LINK (base64 .p12 Developer ID Application cert) + CSC_KEY_PASSWORD.

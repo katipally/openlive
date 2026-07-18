@@ -54,7 +54,12 @@ const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
 const sttSize = () => (deviceTier() === "wasm" ? "tiny" : loadPipelineConfig().stt.whisperSize);
 const readyTag = () => `${deviceTier()}:${sttSize()}:${loadPipelineConfig().tts.engine}`;
 export function modelsCached(): boolean {
-  if (ready) return true;
+  // Must be config-AWARE: `ready` alone is true whenever ANY size/engine is loaded,
+  // which made the Pipeline UI claim every OTHER Whisper size / TTS engine was
+  // "Downloaded" after the first load — so its download button never appeared and
+  // the new weights only ever pulled silently on the next call. Gate on the loaded
+  // config matching the current one instead.
+  if (modelsMatchConfig()) return true;
   try {
     if (localStorage.getItem(READY_KEY) === readyTag()) return true;
     // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy
@@ -62,6 +67,27 @@ export function modelsCached(): boolean {
     const old = localStorage.getItem(OLD_READY_KEY);
     return !!old && old.startsWith(deviceTier());
   } catch { return false; }
+}
+
+// Remove a downloaded on-device model from the browser caches (frees the disk it
+// took). The warm worker is reset and the ready flag cleared so whatever's left
+// reloads — and the removed model re-downloads — the next time it's needed.
+// Kokoro/Whisper weights live in transformers.js's "transformers-cache"; Supertonic
+// (and Smart-Turn) in the app's "openlive-models-v1" — clear matching URLs from both.
+export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Promise<number> {
+  const needle = kind; // "whisper" / "kokoro" / "supertonic" each appear in their HF file URLs
+  let removed = 0;
+  for (const name of ["transformers-cache", "openlive-models-v1"]) {
+    try {
+      const cache = await caches.open(name);
+      for (const req of await cache.keys()) {
+        if (req.url.toLowerCase().includes(needle)) { await cache.delete(req); removed++; }
+      }
+    } catch { /* Cache API unavailable (private mode) */ }
+  }
+  resetWorker();
+  try { localStorage.removeItem(READY_KEY); } catch { /* private mode */ }
+  return removed;
 }
 
 let loading: Promise<void> | null = null;

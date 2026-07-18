@@ -1,6 +1,6 @@
 import { streamProvider, isReasoningModel, type Message, type Effort } from "@openlive/harness";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
-import { collectTurn } from "../turn.js";
+import { collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
 import { resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { runWorker } from "./worker.js";
@@ -23,20 +23,9 @@ async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[]
   return turn.text.trim();
 }
 
-/** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
-function safeParseArgs(s: string): any {
-  const t = (s ?? "").trim();
-  if (!t) return {};
-  try { return JSON.parse(t); } catch { return {}; }
-}
-
 // Lower than a text chat's step cap ON PURPOSE. Every tool round before the model
 // speaks is dead air in a live call, so cap the worst case tightly.
 const MAX_STEPS = 6;
-
-// Tools that don't belong in a spoken call. (None generic — `look` is added by the
-// session; blocking tools are simply not registered.)
-const LIVE_TOOL_DENY = new Set<string>([]);
 
 // A per-call LLM driver that keeps a growing Message[] across turns and injects the
 // camera frame(s) onto each user turn.
@@ -62,7 +51,7 @@ export class LiveTurnRunner {
     try { resolved = resolveLive(); } catch { return; }
     const { provider, model, apiKey } = resolved;
     if (!model || (!apiKey && !provider.keyless)) return;
-    const tools = [...buildOpenLiveTools({ emit: async () => {} }), ...this.extraTools].filter((t) => !LIVE_TOOL_DENY.has(t.name));
+    const tools = [...buildOpenLiveTools({ emit: async () => {} }), ...this.extraTools];
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
     try {
       // maxTokens:1 — we only want the prefill (cache write); the output is discarded.
@@ -118,8 +107,7 @@ export class LiveTurnRunner {
 
     // Build tools with THIS turn's emit + signal so their events are dropped by the
     // same epoch guard when a barge-in interrupts. `runWorker` powers `delegate`.
-    const tools = [...buildOpenLiveTools({ emit, signal, runWorker }), ...this.extraTools]
-      .filter((t) => !LIVE_TOOL_DENY.has(t.name));
+    const tools = [...buildOpenLiveTools({ emit, signal, runWorker }), ...this.extraTools];
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 
     // Live wants the SNAPPIEST conversation. Auto = thinking OFF for an instant

@@ -43,6 +43,7 @@ export class VoiceEngine {
   private phase: EnginePhase = "idle";
 
   private pending: Float32Array | null = null;   // held mid-thought utterance
+  private pendingText = "";                        // its transcript, already computed in onSpeechEnd — reused on auto-send instead of re-transcribing
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private curBuf: Float32Array[] = [];           // frames since speech start (for partials)
   private curLen = 0;
@@ -161,8 +162,16 @@ export class VoiceEngine {
     // user's voice is the only mic energy. ponytail: linear 2× scale; tune the
     // factor if speaker echo still self-triggers on some hardware.
     const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
-    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !this.h.holdBargeIn?.()) {
+    const holding = this.h.holdBargeIn?.();
+    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !holding) {
       this.bargeIn();
+    } else if (holding && echoSafe && (speaking || this.player.level() > 0)) {
+      // A permission/elicitation modal is open and the user is answering it — stop the
+      // agent's question audio LOCALLY so the mic captures a clean answer (no echo/
+      // talk-over), but NEVER send a cancel: barging would kill the very ask being
+      // answered (that's why holdBargeIn is set). The utterance still finalizes and
+      // routes to the modal.
+      this.hush();
     }
     this.clearHold();
     this.curBuf = []; this.curLen = 0;
@@ -230,7 +239,6 @@ export class VoiceEngine {
         useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
       const sttEndpointMs = performance.now() - perf0;
-      console.debug(`[live:perf] transcribe+turn ${Math.round(sttEndpointMs)}ms`);
       if (this.ptt) { this.pending = combined; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
@@ -241,6 +249,7 @@ export class VoiceEngine {
       const done = modelComplete && !endsMidThought(text);
       if (!done && combined.length < 16000 * 20) {
         this.pending = combined;
+        this.pendingText = text;
         this.h.onPartial(text);
         this.scheduleHold();
         this.setPhase("idle");
@@ -279,14 +288,21 @@ export class VoiceEngine {
   /** Send the held mid-thought utterance NOW (hold timer fired, or the user tapped
    *  "send now" / hit Enter instead of waiting it out). */
   private flushPending() {
-    const p = this.pending; this.pending = null;
+    const p = this.pending; const cached = this.pendingText.trim();
+    this.pending = null; this.pendingText = "";
     this.clearHold();
     if (!p || this.phase !== "idle") return;
-    void stt(p).then((t) => {
+    const commit = (t: string) => {
       const text = t.trim();
       if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
-    }).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
+    };
+    // The held audio was already transcribed in onSpeechEnd (that's how we knew it
+    // was mid-thought), so reuse that transcript instead of re-running STT here —
+    // the auto-send path was paying for a second transcription. Fall back to STT
+    // only if for some reason we don't have the cached text.
+    if (cached) commit(cached);
+    else void stt(p).then(commit).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
   }
   /** Public "send now": commit a held utterance without waiting for the hold timer. */
   commitPending() { if (this.pending && !this.ptt) this.flushPending(); }
@@ -362,7 +378,7 @@ export class VoiceEngine {
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {
         this.speakingStartAt = Date.now(); this.setPhase("speaking");
-        if (this.turnSentAt) { console.debug(`[live:perf] first audio ${Math.round(performance.now() - this.turnSentAt)}ms after user done`); this.turnSentAt = 0; perf.firstAudio(); }
+        if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
       }
       // Show the caption for THIS chunk when it actually starts playing (not now,
       // when it finished synthesizing — synth runs ahead of the voice), so the
@@ -390,11 +406,19 @@ export class VoiceEngine {
     if (t) this.enqueueSpeak(t, this.epoch, true /* out-of-band: voice it, don't persist it */);
   }
 
-  private bargeIn() {
+  // Stop the agent's LOCAL audio without telling the server (no cancel). Used to
+  // silence a modal's spoken question the instant the user answers it. Does NOT set
+  // acceptingReply=false: the turn CONTINUES after the modal answer, so its follow-up
+  // speech must still be voiced (that flag is barge-in only).
+  private hush() {
     this.epoch++;
-    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.player.flush(this.epoch);
     this.chunker.flush();
+  }
+
+  private bargeIn() {
+    this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
+    this.hush();
     this.h.onBargeIn(this.spokenText.trim());
   }
 

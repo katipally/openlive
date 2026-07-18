@@ -1,33 +1,35 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
+import { AlertCircle, Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { usePresence } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { toolMeta as meta } from "@/lib/live/toolMeta";
+import { kindMeta, toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
+import { Disclosure } from "@/components/Disclosure";
+import { ToolCallCard } from "./ToolCallCard";
 
 // The running conversation, beside the orb. Assistant turns render as they
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
 // by the spoken answer, filled word-by-word in lockstep with the VOICE (see
 // useLiveSession) so it always shows exactly what was said. Resizable + closable.
-export function TranscriptPanel({ chatId, width, onResize, onClose }: {
-  chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
+export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
+  open: boolean; chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
 }) {
   const msgs = useChat(chatId);
-  const { userCaption, userPartial, todos } = useLiveStore();
+  const { userCaption, userPartial, todos } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, todos: s.todos,
+  })));
   const scroller = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
-  // Slide in from the right edge when opened (enter-only; close unmounts, which
-  // reads fine for a side panel — same rule as menus/usePopIn).
-  useGSAP(() => {
-    if (prefersReduced()) return;
-    gsap.fromTo(asideRef.current, { x: 24, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: DUR.base, ease: EASE.out });
-  }, { scope: asideRef });
+  // Slide in from the right edge on open, and slide back out on close — a real
+  // exit, no hard cut — before unmounting. usePresence owns mount + both tweens.
+  const mounted = usePresence(asideRef, open, { enter: { autoAlpha: 1, x: 0 }, exit: { autoAlpha: 0, x: 24 } });
 
   useEffect(() => {
     const el = scroller.current;
@@ -44,13 +46,14 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
     window.addEventListener("pointerup", up);
   };
 
+  if (!mounted) return null;
   const empty = msgs.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="ol-panel-in relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+    <aside ref={asideRef} style={{ width }} className="relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
       <div onPointerDown={startResize} title="Drag to resize"
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
-      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-[13px] font-semibold">
+      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-body font-semibold">
         Activity
         <div className="flex items-center">
           {msgs.length > 0 && (
@@ -66,14 +69,16 @@ export function TranscriptPanel({ chatId, width, onResize, onClose }: {
         </div>
       </div>
       {todos.length > 0 && <PlanCard todos={todos} />}
-      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4">
-        {empty && <p className="mt-8 text-center text-[12.5px] text-faint">Your conversation will appear here.</p>}
+      {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
+          anchoring fights content-visibility height estimates. */}
+      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
+        {empty && <p className="mt-8 text-center text-label text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
           <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />
         ))}
         {userPartial && userCaption && (
           <div className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl bg-accent/40 px-3 py-1.5 text-[13px] italic leading-relaxed text-foreground">{userCaption}</div>
+            <div className="max-w-[85%] rounded-2xl bg-accent/40 px-3 py-1.5 text-body italic leading-relaxed text-foreground">{userCaption}</div>
           </div>
         )}
       </div>
@@ -88,14 +93,14 @@ function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
   const done = todos.filter((t) => t.done).length;
   return (
     <div className="mx-4 mb-1 shrink-0 rounded-lg bg-card/40 px-2.5 py-2 shadow-[var(--shadow-xs)]">
-      <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+      <div className="flex items-center gap-2 text-caption font-medium text-muted-foreground">
         <ListTodo className="size-3.5 shrink-0 text-accent" />
         Plan
         <span className="ml-auto text-faint">{done}/{todos.length}</span>
       </div>
       <ul className="openlive-scroll mt-1.5 flex max-h-36 flex-col gap-1 overflow-y-auto">
         {todos.map((t, i) => (
-          <li key={i} className="flex items-start gap-2 text-[12px] leading-relaxed">
+          <li key={i} className="flex items-start gap-2 text-label leading-relaxed">
             <span className={cn(
               "mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border",
               t.done ? "border-accent bg-accent text-accent-foreground" : "border-border-heavy",
@@ -117,8 +122,10 @@ function exportTranscript(msgs: ChatMsg[]) {
   for (const m of msgs) {
     if (m.role === "user") { lines.push(`**You:** ${m.text ?? ""}`, ""); continue; }
     const body = m.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("\n").trim();
-    const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" }> => p.kind === "tool");
-    if (tools.length) lines.push(tools.map((t) => `> _${meta(t.tool).label}${t.summary ? `: ${t.summary}` : ""}_`).join("\n"), "");
+    const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
+    if (tools.length) lines.push(tools.map((t) => t.kind === "tool"
+      ? `> _${meta(t.tool).label}${t.summary ? `: ${t.summary}` : ""}_`
+      : `> _${t.call.title}${t.call.status === "failed" ? " (failed)" : ""}_`).join("\n"), "");
     if (body) lines.push(`**Assistant:** ${body}`, "");
   }
   const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
@@ -143,10 +150,11 @@ function CopyButton({ text, title, className }: { text: string; title: string; c
 
 // Agent replies are markdown — render them as such (code blocks with a copy
 // button, inline code, lists, links, tables via GFM). react-markdown builds
-// React elements, so model-authored text can't inject HTML.
-function MarkdownText({ text }: { text: string }) {
+// React elements, so model-authored text can't inject HTML. Memoized: markdown
+// parsing is the most expensive thing in this panel — never re-parse unchanged text.
+const MarkdownText = memo(function MarkdownText({ text, muted }: { text: string; muted?: boolean }) {
   return (
-    <div className="ol-md min-w-0 text-[13px] leading-relaxed text-foreground">
+    <div className={cn("ol-md min-w-0 leading-relaxed", muted ? "text-label text-muted-foreground" : "text-body text-foreground")}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -154,13 +162,13 @@ function MarkdownText({ text }: { text: string }) {
           code: ({ className, children }) => {
             const body = String(children ?? "");
             if (!body.includes("\n") && !className) {
-              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-[12px]">{body}</code>;
+              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-label">{body}</code>;
             }
             return (
               <span className="group/code relative my-1.5 block overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
                 <CopyButton text={body.replace(/\n$/, "")} title="Copy code"
                   className="absolute right-1.5 top-1.5 bg-card/80 opacity-0 backdrop-blur transition group-hover/code:opacity-100" />
-                <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-[12px] leading-relaxed">{body}</code>
+                <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-label leading-relaxed">{body}</code>
               </span>
             );
           },
@@ -173,13 +181,15 @@ function MarkdownText({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
 
-function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
+// Memoized: during the word-by-word voice reveal only ONE message object changes
+// per frame (chatStore preserves identities), so the rest skip re-render.
+const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-[13px] leading-relaxed text-accent-foreground">{msg.text}</div>
+        <div className="ol-selectable max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-body leading-relaxed text-accent-foreground">{msg.text}</div>
       </div>
     );
   }
@@ -188,7 +198,7 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   type Seg = { kind: "work"; parts: Part[] } | { kind: "text"; text: string };
   const segs: Seg[] = [];
   for (const p of msg.parts) {
-    if (p.kind === "reasoning" || p.kind === "tool") {
+    if (p.kind === "reasoning" || p.kind === "tool" || p.kind === "acp_tool") {
       const last = segs[segs.length - 1];
       if (last?.kind === "work") last.parts.push(p);
       else segs.push({ kind: "work", parts: [p] });
@@ -199,68 +209,127 @@ function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
   const fullText = segs.filter((s) => s.kind === "text").map((s) => (s as { text: string }).text).join("\n").trim();
 
   return (
-    <div className="group/msg flex flex-col gap-2">
-      {streaming && segs.length === 0 && <span className="arc-shimmer text-[13px] font-medium">Thinking…</span>}
+    // ol-cv: off-screen messages skip layout/paint — the panel stays smooth on
+    // long transcripts without a virtualization library.
+    <div className="ol-cv group/msg flex flex-col gap-2">
+      {streaming && segs.length === 0 && <span className="arc-shimmer text-body font-medium">Thinking…</span>}
       {segs.map((seg, i) =>
         seg.kind === "work"
           ? <WorkBlock key={i} parts={seg.parts} active={streaming && i === segs.length - 1} />
-          : <MarkdownText key={i} text={seg.text} />,
+          // The trailing segment updates every frame while the voice reveals it —
+          // render it as plain text (spoken prose has no markdown by design) and
+          // flip to markdown once the segment closes or the turn finishes.
+          : streaming && i === segs.length - 1
+            ? <div key={i} className="min-w-0 whitespace-pre-wrap text-body leading-relaxed text-foreground">{seg.text}</div>
+            : <MarkdownText key={i} text={seg.text} />,
       )}
       {!streaming && fullText && (
         <CopyButton text={fullText} title="Copy message" className="-mt-1 self-start opacity-0 transition group-hover/msg:opacity-100" />
       )}
     </div>
   );
+})
+
+// Past-tense summaries per tool-call kind, so a finished work block says what it
+// actually DID ("Read 14 files") instead of a generic "Worked it out".
+const KIND_PAST: Record<string, (n: number) => string> = {
+  read: (n) => `Read ${n} file${n === 1 ? "" : "s"}`,
+  edit: (n) => `Edited ${n} file${n === 1 ? "" : "s"}`,
+  delete: (n) => `Deleted ${n} file${n === 1 ? "" : "s"}`,
+  move: (n) => `Moved ${n} file${n === 1 ? "" : "s"}`,
+  search: (n) => `Searched ${n} time${n === 1 ? "" : "s"}`,
+  execute: (n) => `Ran ${n} command${n === 1 ? "" : "s"}`,
+  fetch: (n) => `Fetched ${n} page${n === 1 ? "" : "s"}`,
+  other: (n) => `Ran ${n} step${n === 1 ? "" : "s"}`,
+};
+// Built-in assistant tools have no ACP kind — bucket them into the same categories.
+function builtinKind(tool: string): string {
+  if (tool === "web_search") return "search";
+  if (tool === "fetch_url" || tool === "open_url") return "fetch";
+  if (tool === "look" || tool === "clipboard_read") return "read";
+  return "other";
+}
+type ToolPart = Extract<Part, { kind: "tool" } | { kind: "acp_tool" }>;
+/** Label a finished work block by its dominant action. `multiKind` → also show the
+ *  total step count, so the dominant-action count can't be mistaken for the total. */
+function summarizeWork(tools: ToolPart[]): { label: string; multiKind: boolean } {
+  const counts = new Map<string, number>();
+  for (const t of tools) {
+    const kind = t.kind === "acp_tool" ? t.call.kind : builtinKind(t.tool);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  if (counts.size === 0) return { label: "Worked on it", multiKind: false };
+  let top = "other", topN = 0;
+  for (const [k, n] of counts) if (n > topN) { top = k; topN = n; }
+  const fn = KIND_PAST[top] ?? ((n: number) => `Ran ${n} step${n === 1 ? "" : "s"}`);
+  return { label: fn(topN), multiKind: counts.size > 1 };
 }
 
 // A run of reasoning + tool calls — the message's "work". Expanded while active,
 // auto-collapses to a one-line summary once the answer starts.
-function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
+const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
   const [open, setOpen] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => { if (wasActive.current && !active) setOpen(false); wasActive.current = active; }, [active]);
-  const expanded = open || active;
+  // A pending permission targeting one of these calls must stay visible even
+  // after the block auto-collapses — force it open while the ask is live.
+  const permTool = useLiveStore((s) => s.permission?.toolCallId);
+  const hasPendingAsk = !!permTool && parts.some((p) => p.kind === "acp_tool" && p.call.id === permTool);
+  const expanded = open || active || hasPendingAsk;
 
-  const tools = parts.filter((p): p is Extract<Part, { kind: "tool" }> => p.kind === "tool");
-  const running = tools.find((t) => !t.done);
+  const tools = parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
+  const failed = tools.filter((t) => (t.kind === "tool" ? t.detail === "error" : t.call.status === "failed")).length;
+  const running = tools.find((t) => (t.kind === "tool" ? !t.done : t.call.status === "pending" || t.call.status === "in_progress"));
+  const runningLabel = running?.kind === "tool" ? `${meta(running.tool).active}…`
+    : running?.kind === "acp_tool" ? `${kindMeta(running.call.kind).active} — ${running.call.title}…` : "Thinking…";
   const hasReasoning = parts.some((p) => p.kind === "reasoning");
+  const summary = summarizeWork(tools);
 
   return (
     <div className="rounded-lg bg-card/40 shadow-[var(--shadow-xs)]">
       <button onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition hover:text-foreground">
-        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-faint" />}
+        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-caption text-muted-foreground transition hover:bg-foreground/[0.03] hover:text-foreground">
+        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-muted-foreground" />}
         {active ? (
-          <span className="arc-shimmer font-medium">{running ? `${meta(running.tool).active}…` : "Thinking…"}</span>
+          <span className="arc-shimmer truncate font-medium">{runningLabel}</span>
         ) : (
           <>
-            <span className="font-medium text-foreground/80">Worked it out</span>
-            {tools.length > 0 && <span className="text-faint">· {tools.length} step{tools.length === 1 ? "" : "s"}</span>}
+            <span className="font-medium text-foreground">{summary.label}</span>
+            {summary.multiKind && <span className="text-faint">· {tools.length} steps</span>}
+            {failed > 0 && <span className="flex items-center gap-1 text-destructive"><AlertCircle className="size-3" />{failed} failed</span>}
             {hasReasoning && <span className="text-faint">· reasoned</span>}
           </>
         )}
-        <ChevronRight className={cn("ml-auto size-3.5 shrink-0 transition", expanded && "rotate-90")} />
+        <ChevronRight className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition", expanded && "rotate-90")} />
       </button>
-      {expanded && (
-        <div className="flex flex-col gap-1.5 px-2.5 pb-2.5">
+      <Disclosure open={expanded}>
+        <div className="flex flex-col gap-2 px-2.5 pb-2.5">
           {parts.map((p, i) =>
             p.kind === "reasoning"
-              ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2.5 text-[12px] italic leading-relaxed text-muted-foreground">{p.text}</p>
-              : p.kind === "tool" ? <ToolRow key={i} part={p} /> : null,
+              // Reasoning is real markdown (headers/bold/lists) — render it, kept muted
+              // with a left rule so it stays secondary to the tool cards, but no longer
+              // shows literal `**asterisks**`.
+              ? <div key={i} className="border-l-2 border-border-heavy/60 pl-2.5"><MarkdownText text={p.text} muted /></div>
+              : p.kind === "tool" ? <ToolRow key={i} part={p} />
+              : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}
         </div>
-      )}
+      </Disclosure>
     </div>
   );
-}
+});
 
 function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
   const m = meta(part.tool);
   const Icon = m.icon;
+  const failed = part.done && part.detail === "error";
   return (
-    <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-      {part.done ? <Icon className="size-3.5 shrink-0 text-faint" /> : <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />}
-      <span className="shrink-0">{part.done ? m.label : `${m.active}…`}</span>
+    <div className="flex items-center gap-2 text-label text-muted-foreground">
+      {!part.done ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
+        : failed ? <AlertCircle className="size-3.5 shrink-0 text-destructive" />
+        : <Icon className="size-3.5 shrink-0 text-faint" />}
+      <span className={cn("shrink-0", failed && "text-destructive")}>{part.done ? m.label : `${m.active}…`}</span>
+      {failed && <span className="shrink-0 text-micro text-destructive">failed</span>}
       {part.summary && <span className="truncate text-faint">· {part.summary}</span>}
     </div>
   );

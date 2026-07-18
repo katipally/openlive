@@ -76,7 +76,7 @@ export function AudioBar({ src, autoPlay, className }: { src: string; autoPlay?:
       <input type="range" aria-label="Seek" min={0} max={dur || 0} step={0.01} value={Math.min(time, dur || 0)}
         onChange={(e) => seek(Number(e.target.value))}
         className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-foreground" />
-      <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground">{fmt(time)} / {fmt(dur)}</span>
+      <span className="shrink-0 font-mono text-micro tabular-nums text-muted-foreground">{fmt(time)} / {fmt(dur)}</span>
     </div>
   );
 }

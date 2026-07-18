@@ -52,7 +52,7 @@ export function CameraPiP({ stream }: { stream: MediaStream | null }) {
   return (
     <div ref={boxRef} onPointerDown={onDrag} data-interactive
       style={{ left: pos.x < 0 ? undefined : pos.x, top: pos.y < 0 ? undefined : pos.y, width: size, height: size * 0.75, right: pos.x < 0 ? 16 : undefined, bottom: pos.y < 0 ? 96 : undefined, opacity: pos.x < 0 ? 0 : 1 }}
-      className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-2xl border border-border/60 bg-black shadow-2xl shadow-black/40 active:cursor-grabbing">
+      className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-2xl border border-border/60 bg-black shadow-2xl shadow-black/40 transition-opacity duration-300 active:cursor-grabbing">
       {stream
         ? <video ref={vidRef} autoPlay muted playsInline className="h-full w-full object-cover" />
         : <div className="grid h-full place-items-center text-muted-foreground"><Video className="size-6" /></div>}

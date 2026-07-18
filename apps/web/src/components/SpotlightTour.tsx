@@ -136,11 +136,11 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
         style={{ left, top }}>
         {arrowOnCard && <div className={cn("absolute size-3 rotate-45 bg-card", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
         <div className="flex items-start justify-between gap-2">
-          <h2 className="text-[14.5px] font-semibold tracking-tight text-foreground">{s.title}</h2>
+          <h2 className="text-callout font-semibold tracking-tight text-foreground">{s.title}</h2>
           <button onClick={close} aria-label="Skip the tour"
             className="-mr-1 -mt-1 grid size-7 shrink-0 place-items-center rounded-lg text-faint transition hover:bg-foreground/10 hover:text-foreground"><X className="size-3.5" /></button>
         </div>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{s.body}</p>
+        <p className="mt-1 text-label leading-relaxed text-muted-foreground">{s.body}</p>
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             {steps.map((_, i) => (
@@ -149,9 +149,9 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
             ))}
           </div>
           <div className="flex items-center gap-1.5">
-            {!last && steps.length > 1 && <button onClick={close} className="rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition hover:text-foreground">Skip</button>}
+            {!last && steps.length > 1 && <button onClick={close} className="rounded-lg px-2.5 py-1.5 text-label font-medium text-muted-foreground transition hover:text-foreground">Skip</button>}
             <button onClick={() => (last ? close() : setStep(step + 1))}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:opacity-90">
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
               {last ? "Done" : "Next"} {!last && <ArrowRight className="size-3.5" />}
             </button>
           </div>

@@ -7,6 +7,9 @@ const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
+const crypto = require("node:crypto");
+const { powerMonitor } = require("electron");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -30,6 +33,13 @@ const WEB_HOST = "localhost";
 const WEB_URL = `http://${WEB_HOST}:${WEB_PORT}`;
 const DARK_BG = "#0b0b0c";
 
+// Per-launch auth token for the local agent. Loopback binding keeps remote
+// attackers out, but any LOCAL process could otherwise open ws://localhost:47823
+// and drive the agent. The token rides to the agent + web servers as
+// OPENLIVE_AGENT_SECRET (both already honor it) and to the renderer via argv.
+// Dev keeps the open no-secret path (servers come from `pnpm dev`).
+const AGENT_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
+
 let mainWin = null;
 let splashWin = null;
 const children = [];
@@ -50,14 +60,100 @@ function wirePermissions() {
   });
   ses.setPermissionCheckHandler((_wc, permission) => permission === "media");
 
-  // Screen share: without a handler, getDisplayMedia() fails in Electron. Prefer
-  // the native OS picker (lets the user choose a screen/window); fall back to the
-  // primary screen so sharing always works.
+  // Screen share: without a handler, getDisplayMedia() fails in Electron. The native
+  // system picker (useSystemPicker) cancels the request on recent macOS, so share the
+  // primary screen directly — reliable, no picker prompt.
   ses.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ["screen", "window"] })
-      .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+      .then((sources) => {
+        const screenSrc = sources.find((s) => s.id.startsWith("screen:")) || sources[0];
+        callback(screenSrc ? { video: screenSrc } : {});
+      })
       .catch(() => callback({}));
-  }, { useSystemPicker: true });
+  });
+}
+
+// ── process-tree kill + port helpers (cross-platform) ────────────────────────
+const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+// Kill a child AND every descendant. POSIX: our children are spawned `detached`,
+// so each is its own process-group leader and a negative pid signals the whole
+// group (child + grandchildren). Windows has no groups → taskkill /T walks the tree.
+function killTree(pid, sig = "SIGTERM") {
+  if (!pid) return;
+  if (process.platform === "win32") { sh(`taskkill ${sig === "SIGKILL" ? "/F " : ""}/T /PID ${pid}`); return; }
+  try { process.kill(-pid, sig); } catch { try { process.kill(pid, sig); } catch { /* already gone */ } }
+}
+
+// Who (if anyone) is LISTENING on `port`, and is it one of ours? "Ours" = a process
+// running our own binary (prod servers run via ELECTRON_RUN_AS_NODE = our exe), so a
+// leftover is safe to kill; anything else is a foreign app we must not touch.
+function portHolder(port) {
+  const mine = path.basename(process.execPath).toLowerCase();
+  if (process.platform === "win32") {
+    for (const line of sh("netstat -ano -p tcp").split("\n")) {
+      const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
+      if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
+      const pid = Number(c[4]); if (!pid || pid === process.pid) continue;
+      const row = sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase();
+      return { pid, name: (row.split(",")[0] || "").replace(/"/g, "").trim(), ours: row.includes(mine) };
+    }
+    return null;
+  }
+  for (const p of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
+    const pid = Number(p); if (!pid || pid === process.pid) continue;
+    const comm = sh(`ps -p ${pid} -o comm=`).trim();
+    return { pid, name: path.basename(comm), ours: comm.toLowerCase().includes(mine) };
+  }
+  return null;
+}
+
+// True iff we can bind the loopback port right now (i.e. it's actually free).
+function portFree(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.once("listening", () => s.close(() => resolve(true)));
+    s.listen(port, "127.0.0.1");
+  });
+}
+
+// PIDs of the servers we spawned, persisted so the NEXT launch can reap them even
+// if this process was force-killed (Windows especially: children outlive the parent).
+const pidFile = () => path.join(app.getPath("userData"), "server-pids.json");
+function recordServerPids() {
+  try { fs.writeFileSync(pidFile(), JSON.stringify(children.map((c) => c.pid).filter(Boolean))); } catch { /* best-effort */ }
+}
+function reapRecordedPids() {
+  let pids = [];
+  try { pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return; }
+  for (const pid of pids) if (alive(pid)) { console.error(`[main] reaping stale server pid ${pid}`); killTree(pid, "SIGKILL"); }
+  try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
+}
+
+// Make both ports bindable before we spawn, or explain why we can't. Reap our own
+// recorded zombies first; then, for anything still holding a port, kill it if it's
+// ours and bail with ONE clear message if it's a foreign app (respawning can't fix
+// that — issue #6's "web service keeps crashing" loop was exactly this case).
+async function ensurePortsFree() {
+  reapRecordedPids();
+  for (const port of [AGENT_PORT, WEB_PORT]) {
+    const h = portHolder(port);
+    if (h && h.ours) { console.error(`[main] killing stale ${h.name} (pid ${h.pid}) on port ${port}`); killTree(h.pid, "SIGKILL"); }
+    // Poll briefly: a just-SIGKILLed zombie's socket takes a beat to be released by
+    // the kernel, and we don't want to mistake our own dying process for a foreign app.
+    let free = false;
+    for (let i = 0; i < 15 && !(free = await portFree(port)); i++) await new Promise((r) => setTimeout(r, 100));
+    if (!free) {
+      const who = portHolder(port);
+      dialog.showErrorBox("OpenLive can't start",
+        `Port ${port} is being used by another program${who?.name ? ` (${who.name})` : ""}. ` +
+        `Close it and relaunch OpenLive.`);
+      return false;
+    }
+  }
+  return true;
 }
 
 // ── server processes (prod only; in dev they're started by `pnpm dev`) ───────
@@ -69,11 +165,22 @@ function spawnServer(name, scriptRel, env) {
   const child = spawn(process.execPath, [script], {
     env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: "inherit",
+    detached: process.platform !== "win32", // own process group → clean tree-kill on quit
+    windowsHide: true,
   });
   child.on("exit", (code) => {
     const i = children.indexOf(child); if (i >= 0) children.splice(i, 1);
+    recordServerPids();
     if (app.isQuitting || !code) return;
     console.error(`[${name}] exited with ${code}`);
+    // A dead server whose port is now held by a FOREIGN app can't be fixed by
+    // respawning — say so once instead of the 5×-crash loop.
+    const port = name === "agent" ? AGENT_PORT : WEB_PORT;
+    const h = portHolder(port);
+    if (h && !h.ours) {
+      dialog.showErrorBox("OpenLive can't start", `Port ${port} is being used by another program${h.name ? ` (${h.name})` : ""}. Close it and relaunch OpenLive.`);
+      return;
+    }
     const r = (restarts[name] ||= { count: 0, first: Date.now() });
     if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
     if (++r.count > 5) {
@@ -83,45 +190,13 @@ function spawnServer(name, scriptRel, env) {
     setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
   });
   children.push(child);
+  recordServerPids();
   return child;
 }
 
-// A crashed or force-killed run can leave the server children alive — Windows
-// especially, where children aren't tied to the parent's lifetime — still holding
-// 47823/47824. The next launch's servers then die with EADDRINUSE in a respawn
-// loop that ends at "The web service keeps crashing" (issue #6), and relaunching
-// never helps. We hold the single-instance lock, so any OTHER OpenLive process
-// listening on our ports is a zombie: kill it. Foreign processes are left alone.
-function freeStalePorts() {
-  const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }); } catch { return ""; } };
-  const mine = path.basename(process.execPath).toLowerCase(); // zombie children ran OUR binary (ELECTRON_RUN_AS_NODE)
-  for (const port of [AGENT_PORT, WEB_PORT]) {
-    if (process.platform === "win32") {
-      for (const line of sh("netstat -ano -p tcp").split("\n")) {
-        const c = line.trim().split(/\s+/); // proto | local | foreign | state | pid
-        if (c.length < 5 || c[3] !== "LISTENING" || !c[1].endsWith(`:${port}`)) continue;
-        const pid = c[4];
-        if (!pid || pid === "0" || Number(pid) === process.pid) continue;
-        if (sh(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`).toLowerCase().includes(mine)) {
-          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
-          sh(`taskkill /F /PID ${pid}`);
-        }
-      }
-    } else {
-      for (const pid of sh(`lsof -ti tcp:${port} -sTCP:LISTEN`).split("\n").filter(Boolean)) {
-        if (Number(pid) === process.pid) continue;
-        if (sh(`ps -p ${pid} -o comm=`).trim().toLowerCase().includes(mine)) {
-          console.error(`[main] killing stale ${mine} (pid ${pid}) holding port ${port}`);
-          sh(`kill -9 ${pid}`);
-        }
-      }
-    }
-  }
-}
-
-function startServers() {
-  if (DEV) return; // dev servers come from `pnpm dev`
-  freeStalePorts();
+async function startServers() {
+  if (DEV) return true; // dev servers come from `pnpm dev`
+  if (!(await ensurePortsFree())) return false;
   const dataDir = path.join(app.getPath("userData"), "data");
   // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
   // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN
@@ -131,6 +206,7 @@ function startServers() {
     AGENT_HOST: "127.0.0.1",
     OPENLIVE_DATA_DIR: dataDir,
     WEB_PUBLIC_URL: WEB_URL,
+    OPENLIVE_AGENT_SECRET: AGENT_TOKEN,
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
   // AGENT_PORT: the /api/voice proxy forwards to the agent on localhost.
@@ -140,7 +216,9 @@ function startServers() {
     NODE_ENV: "production",
     OPENLIVE_DATA_DIR: dataDir,
     AGENT_PORT: String(AGENT_PORT),
+    OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
   });
+  return true;
 }
 
 // ── wait for the web server to answer before showing the window ──────────────
@@ -188,7 +266,7 @@ function createSplash() {
   splashWin = new BrowserWindow({
     width: 420, height: 300, frame: false, resizable: false, movable: true,
     backgroundColor: DARK_BG, show: true, center: true, hasShadow: true,
-    webPreferences: { contextIsolation: true },
+    webPreferences: { contextIsolation: true, sandbox: true },
   });
   splashWin.loadFile(path.join(__dirname, "splash.html"), { query: { v: app.getVersion() } });
   splashWin.on("closed", () => { splashWin = null; });
@@ -203,9 +281,9 @@ function createMainWindow() {
     // Frameless + OPAQUE. We draw our own window controls (WindowControls.tsx) and
     // drag strip in CSS. NOT transparent: transparent windows take a slower macOS
     // compositing path that competes with the on-device WebGPU voice models (adds
-    // turn latency) and rendered as a black wall on some GPUs. Mini mode just shrinks
-    // THIS window to a pill (previews render inline — no separate windows). macOS
-    // rounds the frameless window natively (roundedCorners), so the pill reads round.
+    // turn latency) and rendered as a black wall on some GPUs. Mini mode hides this
+    // window (renderer keeps running the voice pipeline) and shows the separate
+    // panel window below. macOS rounds the frameless window natively (roundedCorners).
     frame: false,
     roundedCorners: true,
     backgroundColor: DARK_BG,
@@ -213,13 +291,22 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The renderer runs untrusted-adjacent content (model-authored HTML renders
+      // in-origin) — keep it in the Chromium sandbox. The preload only uses
+      // contextBridge/ipcRenderer, which are available in sandboxed preloads.
+      sandbox: true,
       // Mini mode HIDES this window while its renderer keeps running the whole voice
       // pipeline — throttled timers would wreck turn-taking (hold timers, TTS drain).
       backgroundThrottling: false,
       // Hand the app version to the preload (app.* isn't reachable there). Released
       // builds show the tag version (CI stamps it); unpackaged dev builds get a
       // "-dev" suffix so it's obvious you're not on a release.
-      additionalArguments: [`--openlive-version=${app.isPackaged ? app.getVersion() : `${app.getVersion()}-dev`}`],
+      additionalArguments: [
+        `--openlive-version=${app.isPackaged ? app.getVersion() : `${app.getVersion()}-dev`}`,
+        // Only this window runs the voice pipeline / live socket; the mini panel
+        // is a display-only relay and never needs the token.
+        ...(AGENT_TOKEN ? [`--openlive-agent-token=${AGENT_TOKEN}`] : []),
+      ],
     },
   });
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
@@ -242,9 +329,13 @@ function createMainWindow() {
   mainWin.once("ready-to-show", () => {
     mainWin.show();
     if (splashWin) splashWin.close();
+    refreshTray();
     // DevTools available via View menu / Cmd+Opt+I — not auto-opened (it covered the UI).
   });
-  mainWin.on("closed", () => { mainWin = null; });
+  // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
+  // has to re-read this (its "Open OpenLive" is now the only way back).
+  mainWin.on("closed", () => { mainWin = null; refreshTray(); });
+  for (const ev of ["show", "hide"]) mainWin.on(ev, refreshTray);
 }
 
 // ── minimized (floating panel) mode ──────────────────────────────────────────
@@ -254,7 +345,7 @@ function createMainWindow() {
 // you're working in), floats above fullscreen apps, and lives on every Space.
 // State flows main-renderer → main process → panel; commands flow back the same
 // way (a MediaStream can't cross windows, so previews arrive as ~1 fps JPEGs).
-const PILL_W = 430, PILL_H = 56;
+const PILL_W = 430, PILL_H = 76;
 let panelWin = null;
 
 function miniDisplay() {
@@ -269,11 +360,14 @@ function createPanelWindow() {
     width: PILL_W, height: PILL_H,
     x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
     show: false, frame: false, resizable: false, skipTaskbar: true,
-    roundedCorners: true, backgroundColor: DARK_BG,
+    // Transparent so the renderer can draw a real rounded, floating pill (border +
+    // shadow + gaps around it) instead of an opaque rectangle. hasShadow off — the
+    // OS shadow would trace the rectangular window; the pill casts its own via CSS.
+    transparent: true, backgroundColor: "#00000000", hasShadow: false,
     // macOS: a "panel"-type window is non-activating — clicks land on its buttons
     // without pulling focus away from whatever app the user is working in.
     ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   panelWin.setAlwaysOnTop(true, "floating", 1);
   panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
@@ -297,14 +391,34 @@ function registerMiniHotkey() {
   } catch { return false; }
 }
 
+// NOTE on `!mainWin`: closing the window does NOT quit on macOS (window-all-closed
+// only quits elsewhere) — the app stays alive in the tray with mainWin === null.
+// Both entry points below used to bail in that state, which left the tray icon a
+// dead stub: "Open OpenLive" and "Mini mode" silently did nothing and only Quit
+// worked. Recreating the window is the whole point of a tray icon, so they do.
+
 /** Enter mini mode: spawn the always-on-top panel, hide the main window, arm the
- *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu. */
-function enterMini() {
-  if (!mainWin) return;
+ *  global talk hotkey. Shared by the minimize button (IPC) and the tray menu.
+ *  `fromRenderer` suppresses the state echo: the renderer already knows about
+ *  transitions IT started, and echoing them back closed a feedback loop with
+ *  React StrictMode's mount→unmount→remount (each echo flipped the store, each
+ *  flip re-fired mini/unmini → the panel window recreated in a tight loop). */
+function enterMini(fromRenderer = false) {
+  // Mini mode runs the voice pipeline in the MAIN renderer and only hides its
+  // window, so it needs that window to exist before there's anything to minimise.
+  if (!mainWin) {
+    createMainWindow();
+    mainWin.once("ready-to-show", () => enterMini(fromRenderer));
+    return;
+  }
   const apply = () => {
     if (!mainWin) return;
     createPanelWindow();
     mainWin.hide();
+    // TRAY path only: tell the renderer it's minimized, so its panel bridge
+    // mounts (otherwise every pill button is dead — no end/expand/camera).
+    if (!fromRenderer) mainWin.webContents.send("openlive:minimized", true);
+    refreshTray();
   };
   // Leaving fullscreen first: hiding a fullscreen window strands an empty Space.
   if (mainWin.isFullScreen() || mainWin.isSimpleFullScreen()) {
@@ -317,11 +431,19 @@ function enterMini() {
 
 /** Leave mini mode / bring the app forward. Shared by IPC, the tray menu, and
  *  notification clicks. */
-function restoreMainWindow() {
+function restoreMainWindow(fromRenderer = false) {
   globalShortcut.unregisterAll();
   if (panelWin && !panelWin.isDestroyed()) panelWin.destroy();
   panelWin = null;
-  if (mainWin) { mainWin.show(); mainWin.focus(); }
+  if (!mainWin) { createMainWindow(); return; } // its ready-to-show shows + refreshes
+  if (mainWin.isMinimized()) mainWin.restore(); // show() alone leaves it in the Dock
+  // TRAY/notification path only — see enterMini for why renderer-initiated
+  // transitions must NOT be echoed back.
+  if (!fromRenderer) mainWin.webContents.send("openlive:minimized", false);
+  mainWin.show();
+  mainWin.focus();
+  app.focus({ steal: true }); // tray clicks don't activate the app on macOS
+  refreshTray();
 }
 
 // ── menu-bar (tray) presence + notifications ─────────────────────────────────
@@ -332,13 +454,26 @@ function createTray() {
     const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
     tray = new Tray(img);
     tray.setToolTip("OpenLive");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open OpenLive", click: restoreMainWindow },
-      { label: "Mini mode", click: enterMini },
-      { type: "separator" },
-      { label: "Quit OpenLive", role: "quit" },
-    ]));
+    refreshTray();
   } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
+}
+
+/** Rebuild the tray menu against the CURRENT state. It used to be built once at
+ *  boot and then quietly lie — "Mini mode" looked identical whether you were in it
+ *  or not, so the one control that tells you where you are told you nothing. Mini
+ *  is a checkbox because it's a mode you're in or out of, not an action. */
+function refreshTray() {
+  if (!tray) return;
+  const mini = !!(panelWin && !panelWin.isDestroyed());
+  tray.setContextMenu(Menu.buildFromTemplate([
+    // Always enabled: `isVisible()` stays true for a window that's merely BEHIND
+    // another app, so gating on it would grey out the one control that brings
+    // OpenLive forward — the commonest reason to reach for the tray at all.
+    { label: "Open OpenLive", click: restoreMainWindow },
+    { label: "Mini mode", type: "checkbox", checked: mini, click: () => (mini ? restoreMainWindow() : enterMini()) },
+    { type: "separator" },
+    { label: "Quit OpenLive", role: "quit" },
+  ]));
 }
 
 function wireNotifyIpc() {
@@ -366,8 +501,8 @@ function wireMiniIpc() {
     }
     return { ok: true, hotkey: miniHotkey };
   });
-  ipcMain.on("openlive:mini", enterMini);
-  ipcMain.on("openlive:unmini", restoreMainWindow);
+  ipcMain.on("openlive:mini", () => enterMini(true));
+  ipcMain.on("openlive:unmini", () => restoreMainWindow(true));
   // The panel fits its content: its renderer measures the stacked previews + pill
   // and asks for a height. Grow UPWARD — the bottom edge stays put.
   ipcMain.on("openlive:mini-size", (_e, h) => {
@@ -390,7 +525,10 @@ function wireWindowIpc() {
   // Launch-at-login (Settings → General). Invoke with a boolean to set; with
   // undefined to just read the current state.
   ipcMain.handle("openlive:login-item", (_e, v) => {
-    if (typeof v === "boolean") app.setLoginItemSettings({ openAtLogin: v });
+    // Rebuild the menu: the same switch lives in Settings → General AND the app
+    // menu, and the menu's checkbox is captured when it's built — flipping it here
+    // left the two disagreeing until the next launch.
+    if (typeof v === "boolean") { app.setLoginItemSettings({ openAtLogin: v }); buildMenu(); }
     return app.getLoginItemSettings().openAtLogin;
   });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
@@ -399,10 +537,39 @@ function wireWindowIpc() {
     if (!mainWin) return;
     if (mainWin.isMaximized()) mainWin.unmaximize(); else mainWin.maximize();
   });
+  // Native fullscreen toggle — the macOS green button's default action (the app
+  // menu's View ▸ Toggle Full Screen / F11 / ⌃⌘F reach the same thing).
+  ipcMain.on("openlive:win-fullscreen", () => {
+    if (!mainWin) return;
+    mainWin.setFullScreen(!mainWin.isFullScreen());
+  });
+}
+
+// ── power events → renderer (pause the mic/VAD cleanly instead of waking up
+// with a stuck pipeline after the laptop slept mid-call) ──────────────────────
+function wirePowerEvents() {
+  const send = (state) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:power", state); };
+  powerMonitor.on("suspend", () => send("suspend"));
+  powerMonitor.on("lock-screen", () => send("suspend"));
+  powerMonitor.on("resume", () => send("resume"));
+  powerMonitor.on("unlock-screen", () => send("resume"));
 }
 
 // ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
+// The agent's reveal/open paths are model-driven — scope them to the bound
+// workspace (reported by the renderer on every bind) plus the app's own data.
+let workspaceDir = "";
+function pathAllowed(p) {
+  let real;
+  try { real = fs.realpathSync(path.resolve(String(p ?? ""))); } catch { return false; }
+  const roots = [workspaceDir, path.join(app.getPath("userData"), "data")].filter(Boolean);
+  return roots.some((root) => {
+    try { const r = fs.realpathSync(root); return real === r || real.startsWith(r + path.sep); } catch { return false; }
+  });
+}
+
 function wireBridgeIpc() {
+  ipcMain.on("openlive:workspace", (_e, dir) => { workspaceDir = String(dir ?? ""); });
   ipcMain.handle("openlive:bridge", async (_e, { op, arg }) => {
     try {
       if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
@@ -418,6 +585,14 @@ function wireBridgeIpc() {
         try { new URL(u); } catch { return `"${arg}" isn't a valid URL.`; }
         await shell.openExternal(u);
         return `Opened ${u} in the browser.`;
+      }
+      // Tool-card file locations: reveal in Finder/Explorer, or open with the
+      // OS default app. Paths come from the agent's (model-driven) tool calls —
+      // refuse anything outside the bound workspace / app data dir.
+      if (op === "reveal_path" || op === "open_path") {
+        if (!pathAllowed(arg)) return "That file is outside the current workspace, so I won't open it.";
+        if (op === "reveal_path") { shell.showItemInFolder(String(arg)); return "Revealed."; }
+        const err = await shell.openPath(String(arg)); return err || "Opened.";
       }
       return "Unknown action.";
     } catch (e) { return `Couldn't do that: ${e?.message ?? e}`; }
@@ -480,7 +655,7 @@ function initAutoUpdate() {
       type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
       message: `OpenLive ${version} is ready`, detail: "Restart to finish updating.",
     });
-    if (response === 0) { app.isQuitting = true; updater.quitAndInstall(); }
+    if (response === 0) { app.isQuitting = true; await killChildren(); updater.quitAndInstall(); }
   });
   updater.on("error", (e) => {
     console.error("[updater]", e?.message || e);
@@ -505,8 +680,9 @@ async function boot() {
   wireNotifyIpc();
   wireWindowIpc();
   wireBridgeIpc();
+  wirePowerEvents();
   createSplash();
-  startServers();
+  if (!(await startServers())) { app.quit(); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
   if (!ok) {
     dialog.showErrorBox("OpenLive couldn't start", `The local servers didn't come up. Try relaunching.`);
@@ -521,5 +697,28 @@ app.whenReady().then(boot);
 
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", () => { app.isQuitting = true; for (const c of children) { try { c.kill(); } catch { /* */ } } });
+
+// Tear the server children (and their whole trees) down cleanly on quit: SIGTERM the
+// groups, give them up to 2s to exit gracefully, then SIGKILL any survivor. Without
+// this a quit could strand the web/agent processes still holding 47823/47824 (the
+// leak that made the NEXT launch fail). Idempotent so the updater/quit paths can both
+// call it and re-entrant before-quit doesn't double-run.
+let cleanedUp = false;
+async function killChildren() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  const procs = children.splice(0);
+  for (const c of procs) killTree(c.pid, "SIGTERM");
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline && procs.some((c) => c.pid && alive(c.pid))) await new Promise((r) => setTimeout(r, 100));
+  for (const c of procs) if (c.pid && alive(c.pid)) killTree(c.pid, "SIGKILL");
+  try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
+}
+
+app.on("before-quit", (e) => {
+  app.isQuitting = true;
+  if (cleanedUp || DEV || children.length === 0) return; // nothing of ours to reap
+  e.preventDefault();               // hold the quit until the trees are gone…
+  killChildren().finally(() => app.quit()); // …then let it through (cleanedUp now short-circuits)
+});
 app.on("will-quit", () => globalShortcut.unregisterAll());

@@ -18,8 +18,11 @@ export type CredProbe =
 
 /** Shell recipes per action. `npm` means global npm install/uninstall of that
  *  package; `terminal` opens the user's terminal running an INTERACTIVE flow
- *  (e.g. hermes' setup wizard) instead of streaming a headless command. */
-export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string }
+ *  instead of streaming a headless command. NOTE: an install recipe must always
+ *  be able to actually INSTALL headlessly — an interactive-only "install" is a
+ *  sign-in wearing an Install button (see hermes' entry). `pinned` marks a recipe
+ *  that installs an exact version, so Update would be a no-op reinstall. */
+export interface InstallRecipe { npm?: string; posixShell?: string; winShell?: string; terminal?: string; winTerminal?: string; pinned?: boolean }
 
 export interface AgentDef {
   id: AgentId;
@@ -60,6 +63,27 @@ export interface AgentDef {
   wizard?: boolean;
   /** Actionable one-liner when the agent dies before the ACP handshake. */
   startHint: string;
+  /** Per-agent ACP plumbing quirks — each agent plugged per its own spec, not
+   *  generically. Read by the ACP driver (acp-agent.ts); pure data. */
+  acp: {
+    /** Sessions survive the agent process (loadSession after a restart works).
+     *  Cursor advertises loadSession but its sessions die with the process. */
+    resumeAcrossRestart: boolean;
+    /** Where the voice-call preamble goes: Claude's adapter takes a system-prompt
+     *  append via `_meta.claudeCode.options`; everyone else gets it prepended to
+     *  the first user message. */
+    preamble: "systemPrompt" | "firstMessage";
+    /** MCP passthrough policy for session/new + session/load. "native" = the
+     *  agent reads the project's .mcp.json itself (passing it again would
+     *  double-register); "passthrough" = we read .mcp.json and pass it. */
+    mcp: "native" | "passthrough";
+    /** Advertise client-hosted terminals to this agent. */
+    terminal: boolean;
+    /** Extra env for the adapter process (e.g. Claude's entrypoint marker that
+     *  files sessions where `claude --resume` finds them — verified 2026-07-15
+     *  against claude 2.1.198 / adapter 0.59.0). */
+    env?: Record<string, string>;
+  };
 }
 
 // Facts verified 2026-07-16 against each tool's CLI on this machine (auth
@@ -90,6 +114,13 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
         { kind: "file", path: "~/.claude/.credentials.json" },    // Linux/Windows
       ],
     },
+    acp: {
+      resumeAcrossRestart: true,
+      preamble: "systemPrompt",
+      mcp: "native", // claude reads the project's .mcp.json itself
+      terminal: true,
+      env: { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" },
+    },
     startHint: "Make sure Claude Code is installed and signed in (run `claude`).",
   },
   "codex": {
@@ -107,6 +138,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "codex-rollout",
     externalDeletable: true,
     credProbe: { kind: "file", path: "~/.codex/auth.json" },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Make sure `codex` is installed and signed in (run `codex`).",
   },
   "cursor": {
@@ -132,6 +164,9 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "cursor-meta",
     externalDeletable: true,
     credProbe: { kind: "json", path: "~/.cursor/cli-config.json", rule: { hasKey: "authInfo" } },
+    // resumeAcrossRestart false: advertises loadSession but sessions die with
+    // the process (upstream "Session not found" after restart).
+    acp: { resumeAcrossRestart: false, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Its CLI may be outdated (needs ACP support) or signed out — update Cursor, then run `agent login`.",
   },
   "opencode": {
@@ -152,6 +187,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "opencode-sqlite",
     externalDeletable: false,
     credProbe: { kind: "json", path: "~/.local/share/opencode/auth.json", rule: "nonEmptyObject" },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Make sure OpenCode is installed (opencode.ai) and signed in — run `opencode` in a terminal once.",
   },
   "hermes": {
@@ -159,27 +195,38 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Hermes",
     brand: {},
     logoSrc: "/agents/hermes.svg",
-    // Hermes runs via uvx (no persistent binary). uv on PATH alone proves
-    // NOTHING about hermes — "installed" additionally requires ~/.hermes (the
-    // setup wizard creates it). Install therefore IS the interactive setup:
-    // it installs uv if missing, then walks provider selection, in a terminal.
-    adapter: { command: "uvx", args: ["hermes-agent[acp]==0.18.2", "hermes-acp"] },
-    bins: ["uvx"],
-    installedProbe: { kind: "file", path: "~/.hermes" },
+    // Hermes ships as a Python tool, so `uv tool install` puts its console scripts
+    // (hermes, hermes-acp) on PATH like every other agent's CLI — install is a REAL
+    // headless install, and the bin's presence is real proof of it. (It used to run
+    // through `uvx`, which resolves the package per spawn and leaves nothing on
+    // PATH: `uvx` alone proved nothing, so "installed" needed the ~/.hermes probe,
+    // and Install had to BE the sign-in wizard — clicking Install just asked you to
+    // sign in without ever installing anything. Install and sign-in are now the two
+    // separate steps they are for every other agent.)
+    adapter: { command: "hermes-acp", args: [] },
+    bins: ["hermes-acp"],
     install: {
-      terminal: "command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
-      // Windows/PowerShell: install uv via its .ps1 script, then run the setup wizard.
-      winTerminal: "if (-not (Get-Command uvx -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+      pinned: true, // exact version → no Update button (it'd reinstall the same pin)
+      // uv first (hermes is a Python tool), then the pinned package. `--force` keeps
+      // it idempotent. Resolve uv by absolute path too: a uv installed a line
+      // earlier isn't on this shell's PATH yet.
+      posixShell:
+        "command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh; "
+        + '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool install --force \'hermes-agent[acp]==0.18.2\'',
+      winShell:
+        "if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { irm https://astral.sh/uv/install.ps1 | iex }; "
+        + "$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if (-not $uv) { $uv = \"$HOME\\.local\\bin\\uv.exe\" }; "
+        + "& $uv tool install --force 'hermes-agent[acp]==0.18.2'",
     },
-    // Uninstall = remove its footprint. Everything hermes owns (credentials,
-    // sessions, memories) lives under ~/.hermes; uvx caches the package itself,
-    // so there is nothing else to remove. Destructive — the UI double-confirms.
+    // Uninstall = remove the tool AND its footprint. Everything hermes owns
+    // (credentials, sessions, memories) lives under ~/.hermes. Destructive — the
+    // UI double-confirms.
     uninstall: {
-      posixShell: "rm -rf ~/.hermes",
-      winShell: 'if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
+      posixShell: '"$(command -v uv || echo "$HOME/.local/bin/uv")" tool uninstall hermes-agent 2>/dev/null; rm -rf ~/.hermes',
+      winShell: '$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; if ($uv) { & $uv tool uninstall hermes-agent }; if (Test-Path "$HOME\\.hermes") { Remove-Item -Recurse -Force "$HOME\\.hermes" }',
     },
-    login: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
-    winLogin: "uvx 'hermes-agent[acp]==0.18.2' hermes setup",
+    login: "hermes setup",
+    winLogin: "hermes setup",
     // No logout — its setup wizard manages credentials in ~/.hermes.
     wizard: true,
     sessionsDir: "~/.hermes",
@@ -190,7 +237,8 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // against a machine with a pooled copilot credential but providers:{} —
     // hermes-acp prints "No LLM provider configured" and exits 0.
     credProbe: { kind: "json", path: "~/.hermes/auth.json", rule: { hasKey: "providers" } },
-    startHint: "Hermes has no model provider selected. Run `uvx 'hermes-agent[acp]==0.18.2' hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    startHint: "Hermes has no model provider selected. Run `hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
   },
 };
 

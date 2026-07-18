@@ -19,7 +19,7 @@ const THEMES = [
 ] as const;
 
 const segWrap = "inline-flex rounded-lg bg-card p-1 shadow-[var(--shadow-card)]";
-const segBtn = (on: boolean) => cn("flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-[12.5px] font-medium transition",
+const segBtn = (on: boolean) => cn("flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-label font-medium transition",
   on ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground");
 
 function ThemePicker() {
@@ -51,7 +51,7 @@ function LoginItemToggle() {
   if (on === null) return null;
   const flip = () => { const next = !on; setOn(next); void desk().loginItem?.(next); };
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-foreground">
+    <label className="flex cursor-pointer select-none items-center gap-2.5 text-label text-foreground">
       <button role="switch" aria-checked={on} onClick={flip}
         className={cn("relative h-5 w-9 rounded-full transition", on ? "bg-accent" : "bg-foreground/15")}>
         <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", on ? "left-[18px]" : "left-0.5")} />
@@ -84,11 +84,11 @@ function MiniHotkeyField() {
   return (
     <div className="flex items-center gap-2">
       <button onClick={() => setRecording(true)} onKeyDown={onKey} onBlur={() => setRecording(false)}
-        className={cn("flex h-9 items-center gap-2 rounded-lg px-3 font-mono text-[12.5px] transition",
+        className={cn("flex h-9 items-center gap-2 rounded-lg px-3 font-mono text-label transition",
           recording ? "bg-accent/10 text-accent shadow-[inset_0_0_0_1.5px_var(--accent)]" : "bg-card text-foreground shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]")}>
         <Keyboard className="size-4" /> {recording ? "Press a shortcut…" : hotkey}
       </button>
-      <span className="text-[11px] text-faint">Toggles talking from any app while in mini mode.</span>
+      <span className="text-caption text-faint">Toggles talking from any app while in mini mode.</span>
     </div>
   );
 }
@@ -112,7 +112,7 @@ function SpeakingSpeed() {
   const set = (v: number) => setCfg(savePipelineConfig({ ...cfg, tts: { ...cfg.tts, speed: v } }));
   return (
     <label className="flex max-w-md flex-col gap-1.5">
-      <span className="flex items-center justify-between text-[12.5px] text-foreground">Speaking speed<span className="tabular-nums text-muted-foreground">{cfg.tts.speed.toFixed(2)}×</span></span>
+      <span className="flex items-center justify-between text-label text-foreground">Speaking speed<span className="tabular-nums text-muted-foreground">{cfg.tts.speed.toFixed(2)}×</span></span>
       <input type="range" min={0.5} max={2} step={0.05} value={cfg.tts.speed} onChange={(e) => set(Number(e.target.value))}
         className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-foreground" />
     </label>
@@ -124,17 +124,19 @@ function SpeakingSpeed() {
 function NarrateToggle() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const on = (data as Record<string, string> | undefined)?.narrateProgress === "1";
-  const flip = () => void api.updateSettings({ narrateProgress: on ? "" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
+  // On unless explicitly "0" — mirrors narrationEnabled() on the server, so the
+  // switch always shows what the session will actually do.
+  const on = (data as Record<string, string> | undefined)?.narrateProgress !== "0";
+  const flip = () => void api.updateSettings({ narrateProgress: on ? "0" : "1" }).then(() => qc.invalidateQueries({ queryKey: ["settings"] }));
   return (
     <label className="flex cursor-pointer select-none items-start gap-2.5">
       <button role="switch" aria-checked={on} onClick={flip}
         className={cn("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition", on ? "bg-accent" : "bg-foreground/15")}>
         <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", on ? "left-[18px]" : "left-0.5")} />
       </button>
-      <span className="text-[12.5px] leading-snug text-foreground">
+      <span className="text-label leading-snug text-foreground">
         Narrate agent progress
-        <span className="block text-[11px] text-faint">While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4 — …&rdquo;). At most a few short lines a turn.</span>
+        <span className="block text-caption text-faint">While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4 — …&rdquo;). At most a few short lines a turn.</span>
       </span>
     </label>
   );
@@ -162,8 +164,8 @@ function CustomInstructions() {
     <div className="flex w-full max-w-xl flex-col gap-1.5">
       <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4}
         placeholder={'e.g. "Keep answers to one sentence unless I ask for detail. Call me Yash. Casual tone."'}
-        className="w-full resize-y rounded-lg bg-card p-3 text-[13px] leading-relaxed text-foreground shadow-[var(--shadow-card)] outline-none transition placeholder:text-faint focus:shadow-[var(--shadow-pop)]" />
-      <div className="flex items-center justify-between text-[11px] text-faint">
+        className="w-full resize-y rounded-lg bg-card p-3 text-body leading-relaxed text-foreground shadow-[var(--shadow-card)] outline-none transition placeholder:text-faint focus:shadow-[var(--shadow-pop)]" />
+      <div className="flex items-center justify-between text-caption text-faint">
         <span>Applies from the next call — to the built-in assistant and every coding agent.</span>
         <span>{saved ? "Saved" : `${value.length}/2000`}</span>
       </div>

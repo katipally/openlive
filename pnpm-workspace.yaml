@@ -12,6 +12,8 @@ overrides:
 allowBuilds:
   electron: true
   electron-builder: true
+  # Squirrel.Windows binary fetcher — unused (we ship NSIS), skip its build script.
+  electron-winstaller: false
   esbuild: true
   onnxruntime-node: true
   protobufjs: true

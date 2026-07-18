@@ -5,7 +5,7 @@ import { AcpAgent } from "./acp-agent.js";
 import { AgentSupervisor } from "./supervisor.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
 
-export type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
+export type { Agent, AgentId, AgentMeta, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
 export { PERMISSION_CANCELLED } from "./types.js";
 
 /** Callbacks a live session wires into a bound agent (streamed meta, recovered
@@ -13,7 +13,15 @@ export { PERMISSION_CANCELLED } from "./types.js";
 export interface BoundHooks {
   onMeta?: (meta: AgentMeta) => void;
   onReplay?: (messages: ReplayMessage[]) => void;
+  /** Relay an elicitation (login URL / input form) to the user; resolves with
+   *  the user's action. `elicitationId` keys the agent's own completion signal. */
+  askElicitation?: (req: ElicitationAsk) => Promise<ElicitationAnswer>;
+  /** The agent says a URL elicitation finished on its own (OAuth landed) —
+   *  settle the pending ask as accepted. */
+  completeElicitation?: (elicitationId: string) => void;
 }
+export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string };
+export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
 
 /** Which agent a conversation is bound to (null = the built-in provider brain). */
 export function boundAgent(chatId: string): AgentId | null {
@@ -58,5 +66,7 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     cwd: agentCwd(chatId),
     onMeta: hooks.onMeta,
     onReplay: hooks.onReplay,
+    askElicitation: hooks.askElicitation,
+    completeElicitation: hooks.completeElicitation,
   }), askPermission, { startMs: 60_000 });
 }

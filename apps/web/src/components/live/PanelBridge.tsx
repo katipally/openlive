@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { setPttEnabled } from "@/lib/live/usePtt";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
-import { openliveBridge, type PanelCmd, type PanelStateSnapshot } from "@/lib/live/panelBridge";
+import { openliveBridge, setPanelCmdHandler, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { useUi } from "@/lib/uiStore";
 import { savedMiniHotkey } from "@/lib/platform";
 
@@ -42,6 +43,7 @@ export interface PanelBridgeProps {
   toggleScreen: () => void | Promise<void>;
   onEnd: () => void;
   sendNow: () => void;
+  pttUp: () => void;
   answerPermission: (optionId: string) => void;
   getBands: () => { mic: number[]; agent: number[] };
 }
@@ -68,7 +70,7 @@ export function PanelBridge(props: PanelBridgeProps) {
       const snap: PanelStateSnapshot = {
         phase: s.phase, muted: s.muted, cameraOn: s.cameraOn, screenOn: s.screenOn,
         userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption,
-        toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive,
+        toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, pttEnabled: s.pttEnabled,
         holdUntil: s.holdUntil, holdMs: loadPipelineConfig().turn.holdMs, permission: s.permission,
       };
       openliveBridge()?.panelState?.({ k: "s", s: snap });
@@ -104,9 +106,10 @@ export function PanelBridge(props: PanelBridgeProps) {
     return () => clearInterval(t);
   }, []);
 
-  // Panel commands → the live session.
+  // Panel commands → the live session, via the module router (single listener;
+  // the router's fallback keeps expand/end working when this isn't mounted).
   useEffect(() => {
-    openliveBridge()?.onPanelCmd?.((c: PanelCmd) => {
+    setPanelCmdHandler((c) => {
       const q = p.current;
       switch (c.t) {
         case "mute": q.toggleMute(); break;
@@ -115,10 +118,12 @@ export function PanelBridge(props: PanelBridgeProps) {
         case "end": q.onEnd(); break;
         case "expand": setMinimized(false); break;
         case "sendNow": q.sendNow(); break;
+        case "ptt": { const st = useLiveStore.getState(); if (st.pttEnabled && st.pttActive) q.pttUp(); setPttEnabled(!st.pttEnabled); break; }
         case "permission": q.answerPermission(c.optionId); break;
         default: break;
       }
     });
+    return () => setPanelCmdHandler(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

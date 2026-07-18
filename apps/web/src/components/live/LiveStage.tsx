@@ -19,7 +19,7 @@ export function DownloadProgress({ pct, loaded, total, models }: { pct: number; 
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
         <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(pct * 100)}%` }} />
       </div>
-      <p className="text-center text-[11px] text-muted-foreground">
+      <p className="text-center text-caption text-muted-foreground">
         {Math.round(pct * 100)}%{total ? ` · ${mb(loaded)} / ${mb(total)} MB` : ""} · one-time, then instant
       </p>
       {models.length > 0 && (
@@ -27,8 +27,8 @@ export function DownloadProgress({ pct, loaded, total, models }: { pct: number; 
           {models.map((m) => {
             const done = m.total > 0 && m.loaded >= m.total;
             return (
-              <li key={m.key} className="flex items-center gap-2 text-[11px]">
-                <span className={cn("grid size-3.5 shrink-0 place-items-center rounded-full text-[8px]", done ? "bg-accent text-accent-foreground" : "border border-border text-transparent")}>✓</span>
+              <li key={m.key} className="flex items-center gap-2 text-caption">
+                <span className={cn("grid size-3.5 shrink-0 place-items-center rounded-full text-micro", done ? "bg-accent text-accent-foreground" : "border border-border text-transparent")}>✓</span>
                 <span className="text-foreground">{m.name}</span>
                 <span className="text-faint">· {MODEL_ROLE[m.key]}</span>
                 <span className="ml-auto tabular-nums text-muted-foreground">{m.total ? `${mb(m.loaded)}/${mb(m.total)}` : "…"}</span>
@@ -42,12 +42,12 @@ export function DownloadProgress({ pct, loaded, total, models }: { pct: number; 
 }
 
 export function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: typeof Mic; opts: DeviceOpt[]; value?: string; onChange: (id: string) => void }) {
-  if (!opts.length) return <p className="text-[12px] text-faint">No device found</p>;
+  if (!opts.length) return <p className="text-label text-faint">No device found</p>;
   return (
     <label className="flex items-center gap-2 text-muted-foreground">
       <Icon className="size-3.5 shrink-0" />
       <select value={value ?? opts[0]?.id ?? ""} onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-[12px] text-foreground">
+        className="ol-select min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-label text-foreground">
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select>
     </label>
@@ -79,7 +79,7 @@ export function CameraPreview({ camId, onGranted }: { camId?: string; onGranted:
       {state !== "on" && (
         <div className="absolute inset-0 grid place-items-center gap-1 text-center">
           <VideoOff className="size-6 text-muted-foreground" />
-          <p className="text-[11px] text-muted-foreground">{state === "denied" ? "Camera off or blocked" : "Starting camera…"}</p>
+          <p className="text-caption text-muted-foreground">{state === "denied" ? "Camera off or blocked" : "Starting camera…"}</p>
         </div>
       )}
     </div>
@@ -122,9 +122,9 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
     <div className="flex w-full max-w-[18rem] items-center gap-2">
       <Mic className={cn("size-3.5 shrink-0", denied ? "text-danger" : "text-muted-foreground")} />
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
-        <div className="h-full rounded-full bg-success transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+        <div className="h-full rounded-full bg-success transition-[width] duration-100" style={{ width: `${Math.round(level * 100)}%` }} />
       </div>
-      {denied && <span className="text-[10px] text-danger">mic blocked</span>}
+      {denied && <span className="text-micro text-danger">mic blocked</span>}
     </div>
   );
 }

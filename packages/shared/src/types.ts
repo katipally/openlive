@@ -59,7 +59,12 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+import type { ToolCallState } from "./tool-call";
+
 export type MessageBlock =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool"; id?: string; tool: string; summary?: string; detail?: string; status: "running" | "done" };
+  | { type: "tool"; id?: string; tool: string; summary?: string; detail?: string; status: "running" | "done" }
+  // Rich ACP tool call (coding agents) — the final merged state, with terminal
+  // output snapshotted in at persist time so old transcripts are self-contained.
+  | { type: "acp_tool"; call: ToolCallState };

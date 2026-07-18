@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen, Keyboard } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen, Pointer } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
@@ -16,7 +17,8 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { setPttEnabled } from "@/lib/live/usePtt";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { usePopIn } from "@/lib/usePopIn";
+import { useMenuPresence, usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { cn } from "@/lib/cn";
 
 const PHASE_LABEL: Record<LivePhase, string> = {
@@ -40,7 +42,13 @@ export interface InCallProps {
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
     toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, pttUp } = props;
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore();
+  // Narrow selector: captions re-render this component by design (it displays
+  // them), but download/todos/usage/terminals/permission changes should not.
+  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption, agentCaptionMs: s.agentCaptionMs,
+    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, pttEnabled: s.pttEnabled,
+    mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId,
+  })));
   // Arm/disarm push-to-talk. Disarming while Space is held first ends the hold
   // cleanly (the engine owns the held audio), then drops the armed flag.
   const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };
@@ -52,7 +60,7 @@ export function InCall(props: InCallProps) {
   // reduced-motion, which leaves the element at its final state).
   const { contextSafe } = useGSAP(() => {
     if (prefersReduced()) return;
-    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.snappy });
+    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.out });
   }, { scope: root });
 
   // Exit — a quick settle-down before teardown so ending never feels like a cut.
@@ -88,10 +96,15 @@ export function InCall(props: InCallProps) {
     return () => cancelAnimationFrame(raf);
   }, [agentCaption, agentCaptionMs]);
 
+  // While a permission/elicitation modal is open, the user's speech is that modal's
+  // answer — it's shown INSIDE the modal (ModalVoiceInput), so don't also echo the
+  // interim caption here behind it ("taking my answer in the back").
+  const modalOpen = useLiveStore((s) => !!s.permission || !!s.elicitation);
+
   // Just the WORDS — what you're saying (interim) or what the agent is saying. The
   // live state is shown ONCE, by the status label below (no duplicate "Listening").
   const words = userPartial && userCaption
-    ? <span className="italic text-muted-foreground">{userCaption}</span>
+    ? (modalOpen ? null : <span className="italic text-muted-foreground">{userCaption}</span>)
     : agentCaption
       ? <span className="font-medium text-foreground">{agentWindow || agentCaption}</span>
       : null;
@@ -139,8 +152,8 @@ export function InCall(props: InCallProps) {
           {!sharing && (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={220} />
-              <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-[20px] leading-snug tracking-tight">{words}</p>
-              <p className={cn("mt-1 text-[12px] uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
+              <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-title-lg leading-snug tracking-tight">{words}</p>
+              <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
               <div className="mt-3 min-h-[30px]"><HoldToSend sendNow={sendNow} /></div>
             </div>
           )}
@@ -148,7 +161,7 @@ export function InCall(props: InCallProps) {
           {cameraOn && <CameraPiP stream={cameraStream} />}
           {screenOn && <ScreenTile stream={screenStream} />}
 
-          {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-[12.5px] text-danger">{error}</p>}
+          {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-label text-danger">{error}</p>}
 
           {!panelOpen && (
             <button onClick={() => setPanelOpen(true)} title="Show activity" aria-label="Show activity"
@@ -162,7 +175,7 @@ export function InCall(props: InCallProps) {
           {sharing && (
             <div className="absolute bottom-[88px] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 shadow-[var(--shadow-pop)]">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={26} />
-              <span className="max-w-[260px] truncate text-[12.5px]" aria-live="polite">
+              <span className="max-w-[260px] truncate text-label" aria-live="polite">
                 {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
               </span>
               <HoldToSend sendNow={sendNow} compact />
@@ -174,7 +187,7 @@ export function InCall(props: InCallProps) {
 
           {/* control bar — a stable width regardless of sharing */}
           <div data-tour="controls" className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[var(--shadow-pop)]">
-            <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Keyboard} />
+            <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Pointer} />
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} label="Microphone" />
             <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} title={cameraOn ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}
@@ -187,20 +200,23 @@ export function InCall(props: InCallProps) {
         </main>
 
         {/* transcript sidebar — resizable + collapsible */}
-        {panelOpen && <TranscriptPanel chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />}
+        <TranscriptPanel open={panelOpen} chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />
       </div>
 
       <SpotlightTour id="call" steps={[
-        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The keyboard button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
+        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The pointer button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
       ]} />
 
-      {sheetOpen && <ShortcutSheet pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />}
+      <ShortcutSheet open={sheetOpen} pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />
     </div>
   );
 }
 
 // The "?" cheat sheet — every in-call binding in one quiet card.
-function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: () => void }) {
+function ShortcutSheet({ open, pttEnabled, onClose }: { open: boolean; pttEnabled: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const mounted = usePresence(ref, open);
+  useFocusTrap(ref, mounted, onClose);
   const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
   const mod = mac ? "⌘" : "Ctrl";
   const rows: [string, string][] = [
@@ -214,15 +230,16 @@ function ShortcutSheet({ pttEnabled, onClose }: { pttEnabled: boolean; onClose: 
     ...(pttEnabled ? [["Space", "Push-to-talk (hold or tap)"], ["Enter", "Send a held thought now"]] as [string, string][] : []),
     ["?", "This cheat sheet"],
   ];
+  if (!mounted) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
-      <div className="w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2.5 text-[13px] font-semibold">Keyboard shortcuts</p>
+    <div ref={ref} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
+      <div className="animate-modal-in w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
+        <p className="mb-2.5 text-body font-semibold">Keyboard shortcuts</p>
         <div className="flex flex-col gap-1.5">
           {rows.map(([key, what]) => (
-            <div key={key} className="flex items-center justify-between text-[12.5px]">
+            <div key={key} className="flex items-center justify-between text-label">
               <span className="text-muted-foreground">{what}</span>
-              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-foreground">{key}</kbd>
+              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-caption text-foreground">{key}</kbd>
             </div>
           ))}
         </div>
@@ -245,31 +262,31 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
   on: boolean; icon: typeof Mic; title: string; onClick: () => void; danger?: boolean;
   devices: DeviceOpt[]; activeId?: string; onPick: (id: string) => void; label: string;
 }) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  usePopIn(menuRef, open);
+  const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   return (
     <div ref={ref} className="relative flex items-center">
       <IconBtn on={on} title={title} onClick={onClick} icon={icon} danger={danger} />
       {devices.length > 0 && (
-        <button onClick={() => setOpen((o) => !o)} aria-label={`Choose ${label}`}
+        <button onClick={toggle} aria-label={`Choose ${label}`}
           className="-ml-1 grid size-5 place-items-center rounded-full text-faint transition hover:text-foreground">
           <ChevronUp className={cn("size-3.5 transition", open && "rotate-180")} />
         </button>
       )}
-      {open && (
+      {mounted && (
         <div ref={menuRef} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
-          <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">{label}</div>
+          <div className="px-3 py-1.5 text-caption font-medium uppercase tracking-wide text-faint">{label}</div>
           {devices.map((d) => (
-            <button key={d.id} onClick={() => { onPick(d.id); setOpen(false); }}
-              className={cn("block w-full truncate px-3 py-1.5 text-left text-[12.5px] transition hover:bg-foreground/[0.06]",
+            <button key={d.id} onClick={() => { onPick(d.id); requestClose(); }}
+              className={cn("block w-full truncate px-3 py-1.5 text-left text-label transition hover:bg-foreground/[0.06]",
                 d.id === activeId ? "text-foreground" : "text-muted-foreground")}>
               {d.id === activeId ? "✓ " : "   "}{d.label}
             </button>

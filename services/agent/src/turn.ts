@@ -3,6 +3,14 @@ import type { SseEvent } from "@openlive/shared";
 
 export type Emit = (e: SseEvent) => Promise<void> | void;
 
+/** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function safeParseArgs(s: string): any {
+  const t = (s ?? "").trim();
+  if (!t) return {};
+  try { return JSON.parse(t); } catch { return {}; }
+}
+
 export interface Turn {
   text: string;
   reasoning: string;

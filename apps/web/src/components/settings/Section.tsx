@@ -3,8 +3,8 @@
 export function Section({ title, desc, children }: { title: string; desc: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="pb-8 last:pb-0">
-      <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 max-w-xl text-[12.5px] leading-relaxed text-muted-foreground">{desc}</p>
+      <h2 className="text-callout font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 max-w-xl text-label leading-relaxed text-muted-foreground">{desc}</p>
       <div className="mt-3.5">{children}</div>
     </section>
   );

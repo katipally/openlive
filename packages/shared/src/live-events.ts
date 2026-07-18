@@ -33,7 +33,13 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // approve/deny chips; the answer comes back as permission_response.
   // expiresAt (epoch ms): when the server auto-denies an unanswered ask — drives
   // the client's visible countdown + spoken reminder.
-  z.object({ t: z.literal("permission"), reqId: z.string(), question: z.string(), options: z.array(z.object({ id: z.string(), label: z.string() })), expiresAt: z.number().optional() }),
+  // `kind` (ACP option kind) drives voice yes/no mapping + button styling;
+  // `toolCallId` interleaves the ask on that tool's card in the activity panel.
+  z.object({
+    t: z.literal("permission"), reqId: z.string(), question: z.string(),
+    options: z.array(z.object({ id: z.string(), label: z.string(), kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]).optional() })),
+    expiresAt: z.number().optional(), toolCallId: z.string().optional(),
+  }),
   // A permission ask is no longer awaiting the user (answered, auto-denied, or the
   // turn was cancelled) — the client dismisses its chip so a later utterance isn't
   // mis-read as a yes/no answer.
@@ -56,6 +62,15 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
     // (Claude yes, Cursor no, Codex best-effort) — drives an honest UI badge.
     resumeAcrossRestart: z.boolean().default(true),
   }),
+  // An agent elicitation: a login/OAuth URL to open (mode "url") or an input
+  // form to fill (mode "form", `schema` is the ACP ElicitationSchema — flat,
+  // primitive-typed). Answered with elicitation_response; `elicitation_resolved`
+  // dismisses the card (answered elsewhere, agent-side completion, or timeout).
+  z.object({
+    t: z.literal("elicitation"), reqId: z.string(), mode: z.enum(["url", "form"]),
+    message: z.string(), url: z.string().optional(), schema: z.unknown().optional(), expiresAt: z.number().optional(),
+  }),
+  z.object({ t: z.literal("elicitation_resolved"), reqId: z.string() }),
   // A session/load replay just finished and its turns were persisted — the client
   // should refetch this chat's messages so the recovered transcript shows.
   z.object({ t: z.literal("reload_history") }),
@@ -64,6 +79,11 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // the client can reconcile its optimistic chips — a folder shown in the top bar
   // that the session never received is exactly the bug this closes.
   z.object({ t: z.literal("bound_state"), agentId: z.enum(AGENT_IDS).nullable(), cwd: z.string(), agentActive: z.boolean() }),
+  // A raced spoken answer: the user answered a permission/elicitation before its
+  // modal event reached the client, so the client sent it as a user_text. The server
+  // (the authority on what's pending) bounces it back here to be routed to the open
+  // modal instead of leaking to the agent as a new prompt.
+  z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
@@ -103,6 +123,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("bind"), agentId: AGENT_ID.nullable(), cwd: z.string().optional(), resumeSessionId: z.string().optional() }),
   // The user's answer to a permission request (chip tap or a spoken yes/no).
   z.object({ t: z.literal("permission_response"), reqId: z.string(), optionId: z.string() }),
+  // The user's answer to an elicitation (form submit / "done" / cancel).
+  z.object({ t: z.literal("elicitation_response"), reqId: z.string(), action: z.enum(["accept", "decline", "cancel"]), content: z.record(z.unknown()).optional() }),
   // Switch the bound agent's model / mode mid-session (ACP set_model / set_mode).
   z.object({ t: z.literal("set_model"), modelId: z.string() }),
   z.object({ t: z.literal("set_mode"), modeId: z.string() }),

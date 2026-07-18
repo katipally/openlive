@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, ChevronRight, Folder, Plus, Pencil, Trash2, AlertTriangle, Search } from "lucide-react";
+import { X, ChevronRight, ChevronsDownUp, Folder, Plus, Pencil, Trash2, AlertTriangle, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { setConversationBind, setConversationFolder, setConversationResume } from "@/lib/live/useLiveSession";
 import { AgentIcon } from "./live/AgentIcon";
 import { OpenLiveOrb } from "./OpenLiveOrb";
-import { usePersistedOpen } from "@/lib/disclosure";
+import { usePersistedOpen, setDisclosure } from "@/lib/disclosure";
 import { useHistoryOverrides } from "@/lib/historyOverrides";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { usePresence } from "@/lib/usePopIn";
+import { useFocusTrap } from "@/lib/useFocusTrap";
+import { Disclosure } from "@/components/Disclosure";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -54,8 +57,23 @@ export function HistorySidebar() {
   const [pending, setPending] = useState<PendingDelete | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  // "all" = every session, including ones the agents' own CLIs created;
+  // "openlive" = only sessions started from OpenLive — hides external sessions
+  // AND any workspace left with nothing (folders that were never connected here).
+  const [filter, setFilter] = useState<"all" | "openlive">(() =>
+    typeof window !== "undefined" && localStorage.getItem("ol-sessions-filter") === "openlive" ? "openlive" : "all");
+  useEffect(() => { localStorage.setItem("ol-sessions-filter", filter); }, [filter]);
   const qc = useQueryClient();
-  const { data: workspaces = [], isLoading } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
+  const { data: allWorkspaces = [], isLoading } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
+  // Apply the filter BEFORE anything renders or searches, so counts, search
+  // results, and collapse-all all agree on what exists.
+  const workspaces = useMemo(() => {
+    if (filter === "all") return allWorkspaces;
+    return allWorkspaces
+      .map((ws) => ({ ...ws, chats: ws.chats.filter((c) => c.source !== "external") }))
+      .filter((ws) => ws.chats.length > 0);
+  }, [allWorkspaces, filter]);
+  const collapseAll = () => { for (const ws of workspaces) setDisclosure(`hist:ws:${ws.cwd || "none"}`, false); };
   const overrides = useHistoryOverrides((st) => st.titles);
 
   useEffect(() => { if (open) setVisible(true); else { setQuery(""); setSearching(false); } }, [open]);
@@ -65,6 +83,13 @@ export function HistorySidebar() {
     gsap.fromTo(root.current, { xPercent: -100, autoAlpha: 0.6 }, { xPercent: 0, autoAlpha: 1, duration: DUR.slow, ease: EASE.out });
     gsap.fromTo(backdrop.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft });
   }, { scope: root, dependencies: [visible] });
+
+  // Workspace groups cascade in once the list is on screen — keyed on the data
+  // arriving (react-query), not just on open, so rows never pop in unanimated.
+  useGSAP(() => {
+    if (!visible || isLoading || prefersReduced()) return;
+    gsap.fromTo(".ol-hist-node", { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out, stagger: 0.025, overwrite: "auto", clearProps: "all" });
+  }, { scope: root, dependencies: [visible, isLoading] });
 
   const close = contextSafe(() => {
     const done = () => { setVisible(false); setOpen(false); };
@@ -120,28 +145,28 @@ export function HistorySidebar() {
   return (
     <>
       <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
-      <aside ref={root} className="fixed bottom-3 left-3 top-3 z-[55] flex w-[300px] flex-col overflow-hidden rounded-2xl bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+      <aside ref={root} className="fixed bottom-3 left-3 top-3 z-[55] flex w-[300px] flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-[14px] font-semibold">History</span>
-          <button onClick={close} aria-label="Close history" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
+          <span className="text-callout font-semibold">Sessions</span>
+          <button onClick={close} aria-label="Close sessions" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
         </header>
 
         {/* New Chat + search share one row — tapping the magnifier expands the
             field over the button (width-animated), Escape/empty-blur collapses. */}
         <div className="flex shrink-0 items-center gap-2 p-2 pb-1" data-tour="history-actions">
           <button onClick={newChat} tabIndex={searching ? -1 : 0}
-            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-[12.5px] font-medium text-accent-foreground transition-all duration-300 hover:opacity-90",
+            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-label font-medium text-accent-foreground transition-[width,padding,opacity] duration-300 hover:opacity-90",
               searching ? "w-0 px-0 opacity-0" : "flex-1 px-3")}>
             <Plus className="size-4 shrink-0" /> New chat
           </button>
-          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-all duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
+          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-[width,padding] duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
             {searching ? (
               <>
                 <Search className="size-3.5 shrink-0 text-faint" />
                 <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
                   onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearching(false); } }}
                   onBlur={() => { if (!query.trim()) setSearching(false); }}
-                  className="h-8 min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-faint" />
+                  className="h-8 min-w-0 flex-1 bg-transparent text-label text-foreground outline-none placeholder:text-faint" />
                 <button onClick={() => { setQuery(""); setSearching(false); }} aria-label="Close search"
                   className="grid size-5 shrink-0 place-items-center rounded text-faint transition hover:text-foreground"><X className="size-3" /></button>
               </>
@@ -154,18 +179,42 @@ export function HistorySidebar() {
           </div>
         </div>
 
+        {/* Filter row: what's listed (All ↔ OpenLive-only) + collapse-all. The
+            segmented control shows WHERE you are; tooltips explain each choice. */}
+        <div className="flex shrink-0 items-center gap-2 px-2 pb-1.5">
+          <div role="group" aria-label="Which sessions to show"
+            className="flex h-7 flex-1 items-center gap-0.5 rounded-lg bg-surface p-0.5">
+            <button onClick={() => setFilter("all")} aria-pressed={filter === "all"}
+              title="Every session for these folders — including ones created in the agents' own CLIs"
+              className={cn("h-6 flex-1 rounded-md text-caption font-medium transition-colors",
+                filter === "all" ? "bg-elevated text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground")}>
+              All
+            </button>
+            <button onClick={() => setFilter("openlive")} aria-pressed={filter === "openlive"}
+              title="Only sessions started from OpenLive — hides agent-CLI sessions and folders with none"
+              className={cn("h-6 flex-1 rounded-md text-caption font-medium transition-colors",
+                filter === "openlive" ? "bg-elevated text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground")}>
+              OpenLive
+            </button>
+          </div>
+          <button onClick={collapseAll} title="Collapse all folders" aria-label="Collapse all folders"
+            className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
+            <ChevronsDownUp className="size-3.5" />
+          </button>
+        </div>
+
         <div className="openlive-scroll min-h-0 flex-1 overflow-y-auto p-2 pt-1">
-          {isLoading && <p className="px-2 py-4 text-[12.5px] text-faint">Loading…</p>}
+          {isLoading && <p className="px-2 py-4 text-label text-faint">Loading…</p>}
           {!isLoading && workspaces.length === 0 && (
             <div className="px-2 py-6 text-center">
-              <p className="text-[12.5px] text-muted-foreground">No conversations yet.</p>
-              <p className="mt-1 text-[11.5px] text-faint">Start one and it&apos;ll be filed here by project folder.</p>
+              <p className="text-label text-muted-foreground">{filter === "openlive" ? "No OpenLive sessions yet." : "No sessions yet."}</p>
+              <p className="mt-1 text-caption text-faint">{filter === "openlive" ? "Sessions you start here will appear — switch to All to see agent-CLI ones." : "Start one and it'll be filed here by project folder."}</p>
             </div>
           )}
 
           {results ? (
             <>
-              {results.length === 0 && <p className="px-2 py-4 text-[12.5px] text-faint">Nothing matches “{query.trim()}”.</p>}
+              {results.length === 0 && <p className="px-2 py-4 text-label text-faint">Nothing matches “{query.trim()}”.</p>}
               {results.map(({ chat, cwd }) => (
                 <ChatRow key={chat.id} c={chat} cwd={cwd} showWorkspace activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
               ))}
@@ -178,7 +227,7 @@ export function HistorySidebar() {
         </div>
       </aside>
 
-      {pending && <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />}
+      <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />
 
       <SpotlightTour id="history" steps={[
         { target: "history-actions", title: "All your conversations", body: "Chats are filed by project folder — every agent's work on a project in one place. Start fresh here, or tap the magnifier to search chats and folders." },
@@ -200,7 +249,7 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
   const deletable = chats.filter((s) => s.source !== "external" || canDeleteExternal(s.agentId));
   const hasExternal = deletable.some((s) => s.source === "external");
   const deleteWorkspace = () => requestDelete({
-    title: "Delete this workspace’s history?",
+    title: "Delete this workspace’s sessions?",
     body: `Removes ${deletable.length} conversation${deletable.length === 1 ? "" : "s"} under “${label}”.${hasExternal ? " External agent sessions are deleted from disk — that can’t be undone." : ""}${deletable.length < chats.length ? ` ${chats.length - deletable.length} agent-managed session${chats.length - deletable.length === 1 ? "" : "s"} stay (manage those in the agent).` : ""}`,
     run: async () => {
       for (const s of deletable) {
@@ -211,23 +260,27 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
   });
 
   return (
-    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/ws">
-      <summary className="group/wsrow flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-foreground/[0.05] [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition group-open/ws:rotate-90" />
+    <div className="group/ws ol-hist-node">
+      <div role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+        className="group/wsrow flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05]">
+        <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-90")} />
         <Folder className="size-3.5 shrink-0 text-accent/80" />
         <span className="min-w-0 flex-1 truncate" title={ws.cwd || "No folder"}>{label}</span>
-        <span className="text-[10.5px] font-normal text-faint">{chats.length}</span>
-        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s history"
+        <span className="text-micro font-normal text-faint">{chats.length}</span>
+        <button onClick={(e) => { e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s sessions"
           className="grid size-6 shrink-0 place-items-center rounded text-faint opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover/wsrow:opacity-100">
           <Trash2 className="size-3" />
         </button>
-      </summary>
-      <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
-        {chats.map((c) => (
-          <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
-        ))}
       </div>
-    </details>
+      <Disclosure open={open}>
+        <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
+          {chats.map((c) => (
+            <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
+          ))}
+        </div>
+      </Disclosure>
+    </div>
   );
 }
 
@@ -265,7 +318,7 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
       <input autoFocus defaultValue={title} spellCheck={false}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") commit((e.target as HTMLInputElement).value); if (e.key === "Escape") setEditing(false); }}
-        className="my-0.5 w-full rounded-lg border border-border-heavy bg-surface px-2 py-1.5 text-[12.5px] text-foreground outline-none focus:border-accent" />
+        className="my-0.5 w-full rounded-lg border border-border-heavy bg-surface px-2 py-1.5 text-label text-foreground outline-none focus:border-accent" />
     );
   }
 
@@ -276,8 +329,8 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
           {c.agentId && isAgentId(c.agentId) ? <AgentIcon id={c.agentId} className="size-4" /> : <OpenLiveOrb size={15} />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] text-foreground">{title}</span>
-          <span className="block truncate text-[10.5px] text-faint">
+          <span className="block truncate text-label text-foreground">{title}</span>
+          <span className="block truncate text-micro text-faint">
             {showWorkspace ? <>{cwd ? basename(cwd) : "No folder"} · </> : null}
             {relTime(c.updatedAt)}{c.source === "external" && " · external"}
           </span>
@@ -293,30 +346,37 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
   );
 }
 
-// Permission-gated confirm before any delete. Danger-styled; Escape / backdrop cancels.
-function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete; onCancel: () => void; onConfirm: () => void }) {
+// Permission-gated confirm before any delete. Danger-styled; Escape / backdrop
+// cancels. Real presence so it fades in/out instead of popping; z-modal so it sits
+// above the History drawer (and Settings, if that's somehow up).
+function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete | null; onCancel: () => void; onConfirm: () => void }) {
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const open = !!pending;
+  // Retain the last pending through the exit fade (it's null once cancelled/run).
+  const last = useRef(pending);
+  if (pending) last.current = pending;
+  const p = pending ?? last.current;
+  const mounted = usePresence(rootRef, open);
+  useEffect(() => { if (open) setBusy(false); }, [open]);
+  useFocusTrap(rootRef, mounted, onCancel);
+  if (!mounted || !p) return null;
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center p-6" role="dialog" aria-modal="true">
+    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
+      <div className="animate-modal-in relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/10 text-danger"><AlertTriangle className="size-5" /></span>
           <div className="min-w-0">
-            <h3 className="text-[14px] font-semibold text-foreground">{pending.title}</h3>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{pending.body}</p>
+            <h3 className="text-callout font-semibold text-foreground">{p.title}</h3>
+            <p className="mt-1 text-label leading-relaxed text-muted-foreground">{p.body}</p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onCancel} disabled={busy}
-            className="rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
+            className="rounded-lg border border-border px-3.5 py-2 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
           <button onClick={() => { setBusy(true); onConfirm(); }} disabled={busy}
-            className="rounded-lg bg-danger px-3.5 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
+            className="rounded-lg bg-danger px-3.5 py-2 text-label font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
         </div>
       </div>
     </div>

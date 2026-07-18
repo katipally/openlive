@@ -37,6 +37,17 @@ test("stripMarkdown: symbols gone, citations gone, photo-narration scrubbed", ()
   assert.equal(stripMarkdown("Yeah, I'm here.[e[ [e["), "Yeah, I'm here.");
 });
 
+test("stripMarkdown: file paths, filenames and URLs become plain words (not read as symbols)", () => {
+  assert.equal(stripMarkdown("I updated src/components/Foo.tsx for you"), "I updated that file for you");
+  assert.equal(stripMarkdown("saved to app/main.py"), "saved to that file");
+  assert.equal(stripMarkdown("open config.json now"), "open that file now");
+  assert.equal(stripMarkdown("see https://example.com/docs for more"), "see a link for more");
+  // Ordinary prose with slashes/dots is NOT mistaken for a path.
+  assert.equal(stripMarkdown("it's either and/or both"), "it's either and/or both");
+  assert.equal(stripMarkdown("open 24/7 tomorrow"), "open 24/7 tomorrow");
+  assert.equal(stripMarkdown("e.g. the third one"), "e.g. the third one");
+});
+
 test("SentenceChunker: full sentences emit; tiny trailing fragments merge, never alone", () => {
   const c = new SentenceChunker();
   const long = "This is a full first sentence that clears the length bar easily.";
