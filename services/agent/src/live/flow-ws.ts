@@ -7,7 +7,7 @@ import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { serveFlowMcp } from "../flow/mcp.js";
 import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
-import { agentCwd, PERMISSION_CANCELLED, type Agent, type PermissionAskOption } from "../agents/index.js";
+import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type PermissionAskOption } from "../agents/index.js";
 import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
@@ -278,7 +278,7 @@ export class FlowLiveSession {
     });
     const wire = this.mcp.wire;
     const agent = new AgentSupervisor(
-      (ask) => new AcpAgent(agentId, ask, { cwd: agentCwd("flow"), mcpServers: [wire] }),
+      (ask) => new AcpAgent(agentId, ask, { cwd: flowAgentCwd(), mcpServers: [wire] }),
       (question, options, toolCallId) => this.ask(question, this.ac?.signal ?? signal, options, toolCallId).then((id) => id || PERMISSION_CANCELLED),
       { startMs: 60_000 },
     );
