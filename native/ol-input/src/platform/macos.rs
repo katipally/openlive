@@ -91,7 +91,7 @@ extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
-    fn CFRelease(cf: *const c_void);
+    pub fn CFRelease(cf: *const c_void);
     fn CFDictionaryCreate(
         allocator: *const c_void,
         keys: *const *const c_void,
@@ -210,7 +210,7 @@ pub fn resolve_paste_keycode() -> Option<u16> {
     }
 }
 
-fn event_source() -> Option<objc2_core_foundation::CFRetained<CGEventSource>> {
+pub fn event_source() -> Option<objc2_core_foundation::CFRetained<CGEventSource>> {
     CGEventSource::new(CGEventSourceStateID::HIDSystemState)
 }
 
@@ -313,7 +313,7 @@ fn media_type_audio() -> *mut AnyObject {
 }
 
 /// 0 not determined, 1 restricted, 2 denied, 3 authorized.
-pub fn microphone_status() -> i32 {
+pub fn microphone_status() -> isize {
     unsafe { msg_send![class!(AVCaptureDevice), authorizationStatusForMediaType: media_type_audio()] }
 }
 

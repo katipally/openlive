@@ -8,7 +8,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_CONTROL,
 };
 
-fn key_input(vk: u16, scan: u16, flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS) -> INPUT {
+pub(crate) fn key_input(vk: u16, scan: u16, flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
@@ -23,7 +23,7 @@ fn key_input(vk: u16, scan: u16, flags: windows::Win32::UI::Input::KeyboardAndMo
     }
 }
 
-fn send(inputs: &[INPUT]) -> Result<(), String> {
+pub(crate) fn send(inputs: &[INPUT]) -> Result<(), String> {
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent as usize == inputs.len() {
         Ok(())
@@ -82,7 +82,7 @@ pub fn request_accessibility() -> bool {
 
 /// Windows gates the microphone at capture time through its privacy settings
 /// and exposes no synchronous probe, so the capture attempt is the probe.
-pub fn microphone_status() -> i32 {
+pub fn microphone_status() -> isize {
     3
 }
 

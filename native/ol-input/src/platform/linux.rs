@@ -189,7 +189,7 @@ pub fn request_accessibility() -> bool {
 
 /// PipeWire and PulseAudio grant microphone access at the session level, so
 /// there is nothing to probe: the capture attempt is the probe.
-pub fn microphone_status() -> i32 {
+pub fn microphone_status() -> isize {
     3
 }
 
