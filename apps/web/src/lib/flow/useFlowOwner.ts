@@ -62,7 +62,7 @@ export function useFlowOwner(): void {
     const patch = (p: Partial<FlowSnapshot>) => { snap.current = { ...snap.current, ...p }; publish(); };
     const setPhase = (phase: FlowPhase, detail = "") => {
       if (snap.current.phase === phase && snap.current.detail === detail) return;
-      patch({ phase, detail, since: Date.now() });
+      patch({ phase, detail });
     };
 
     const summon = () => {
@@ -74,9 +74,12 @@ export function useFlowOwner(): void {
       if (!summoned.current) return;
       summoned.current = false;
       api.dismiss();
-      snap.current = { ...IDLE_FLOW, binding: snap.current.binding, speakerOverride: override.current, failure: snap.current.failure };
+      snap.current = { ...IDLE_FLOW, binding: snap.current.binding, failure: snap.current.failure };
       publish();
       teardownMic();
+      // The coordinator holds the binding in Processing until the pipeline says
+      // it is finished; without this the next press is swallowed as a busy press.
+      void api.processingFinished();
     };
     const dismissSoon = () => {
       if (dismissTimer.current) clearTimeout(dismissTimer.current);
@@ -180,8 +183,11 @@ export function useFlowOwner(): void {
       const quiet = rules ? decideQuiet(signals, rules, override.current) : "";
       patch({ quiet, speaking: !quiet, transcript: "", reply: "", inserting: null });
       await ensureEngine();
-      if (usesPtt()) engine.current?.beginPtt();
-      else engine.current?.setMuted(false);
+      // The microphone never opened, so the coordinator must not sit in
+      // Capturing waiting for speech that cannot arrive.
+      if (!engine.current) { void api.startFailed(); setPhase("error"); return; }
+      if (usesPtt()) engine.current.beginPtt();
+      else engine.current.setMuted(false);
     };
 
     const onStop = async () => {
@@ -313,7 +319,7 @@ export function useFlowOwner(): void {
           // The manual override wins in both directions and is remembered for the
           // session, so one tap is never undone by the next heuristic.
           override.current = !snap.current.speaking;
-          patch({ speakerOverride: override.current, speaking: override.current, quiet: override.current ? "" : "off" });
+          patch({ speaking: override.current, quiet: override.current ? "" : "off" });
           return;
         }
         case "flowFix": {
