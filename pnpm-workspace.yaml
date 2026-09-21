@@ -1,4 +1,5 @@
 packages:
+  - "native/*"
   - "packages/*"
   - "apps/*"
   - "services/*"
