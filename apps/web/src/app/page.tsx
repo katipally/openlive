@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
-import { useUi } from "@/lib/uiStore";
+import { restoreMode, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
@@ -15,6 +15,8 @@ import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
+import { ModeSwitch } from "@/components/flow/ModeSwitch";
+import { FlowShell } from "@/components/flow/FlowShell";
 
 export default function Home() {
   const appVersion = useAppVersion();
@@ -25,6 +27,11 @@ export default function Home() {
   const activeChatId = useUi((s) => s.activeChatId);
   const newConversation = useUi((s) => s.newConversation);
   const minimized = useUi((s) => s.minimized);
+  const mode = useUi((s) => s.mode);
+
+  // The saved mode, applied after mount: this store is evaluated during SSR too,
+  // so seeding it from localStorage there would be a hydration mismatch.
+  useEffect(restoreMode, []);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
   // opening Live doesn't stall on "Preparing…". Only when the weights are already
@@ -68,6 +75,18 @@ export default function Home() {
     setLiveOpen(true);
   };
 
+  // Flow swaps the whole window rather than sharing the lobby's centred layout.
+  // Its key is armed by the owner renderer either way, so this only changes what
+  // is on screen. A call in progress keeps Chat up: you cannot switch mid-call.
+  if (!minimized && mode === "flow" && !liveOpen) {
+    return (
+      <main className="relative z-10 flex min-h-dvh flex-col text-left">
+        <FlowShell />
+        <SettingsPage />
+      </main>
+    );
+  }
+
   return (
     <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
       {!minimized && (
@@ -76,6 +95,8 @@ export default function Home() {
               (top-left). Desktop only (.desktop). Settings lives in the hero CTA row
               below — no duplicate corner gear. */}
           <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10" />
+
+          {!liveOpen && <ModeSwitch className="fixed left-1/2 top-3 z-[var(--z-nav)] -translate-x-1/2" />}
 
           <div ref={heroRef} className="flex flex-col items-center gap-6">
             <div className="ol-hero-mark"><OpenLiveMark /></div>

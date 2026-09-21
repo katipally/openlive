@@ -9,8 +9,25 @@ export type Guarded<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export interface FlowPermissions { accessibility: boolean; microphone: string; screenRecording: boolean }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
-/** The addon's own report. Absent on a build that predates Block 4. */
-export interface CapabilityReport { hook: boolean; capture: boolean; selection: boolean; windowControl: boolean; elevatedWindowInjection: boolean; session?: string }
+/** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent on
+ *  a build that predates Block 4. */
+export interface CapabilityReport {
+  hook: boolean;
+  injection: string;
+  capture: boolean;
+  captureBackend: string;
+  ocr: boolean;
+  ocrEngine: string;
+  selection: boolean;
+  selectionBackend: string;
+  windowControl: boolean;
+  elevatedWindowInjection: boolean;
+  secureInput: boolean;
+  /** "x11" | "wayland" on Linux, absent elsewhere. */
+  session?: string;
+  /** Which external tools were found. Linux only. */
+  tools: string[];
+}
 export interface FlowCapabilities {
   platform: string;
   wayland: boolean;
