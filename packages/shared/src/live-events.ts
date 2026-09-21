@@ -72,8 +72,11 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Flow adds three ops on the same handshake: `flow_insert` (arg is
   // `{"id","chunk"}`) pushes the next chunk of a streaming insertion, `flow_insert_end`
   // (arg is the call id) closes it, and `flow_context` reads the foreground window
-  // metadata back as JSON. Chat never sends them.
-  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url", "flow_insert", "flow_insert_end", "flow_context"]), arg: z.string().optional() }),
+  // metadata back as JSON. `flow_device` carries one perception or control call
+  // into the ol-input addon (arg is `{"fn","args"}`, the reply is `{"value"}` or
+  // `{"error"}`), so the agent service never needs the addon in its own process.
+  // Chat never sends them.
+  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url", "flow_insert", "flow_insert_end", "flow_context", "flow_device"]), arg: z.string().optional() }),
   // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
   // something (run a command, edit files). The client speaks the question and shows
   // approve/deny chips; the answer comes back as permission_response.
