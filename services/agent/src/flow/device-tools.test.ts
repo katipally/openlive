@@ -150,6 +150,26 @@ describe("honest degradation", () => {
     expect(actions).toHaveLength(0);
   });
 
+  it("reads the window in front on every control call, and caches the rest", async () => {
+    let elevatedWindowInjection = true;
+    let probes = 0;
+    const { tools, actions } = build({
+      capabilities: async () => { probes++; return { ...CAPS, elevatedWindowInjection }; },
+    });
+    await byName(tools, "screenshot").execute({}, ctx);
+    await byName(tools, "screenshot").execute({}, ctx);
+    expect(probes).toBe(1);
+
+    // The user focuses an elevated window: the clicks would be dropped.
+    elevatedWindowInjection = false;
+    await expect(byName(tools, "click").execute({ x: 1, y: 1 }, ctx)).rejects.toThrow(/elevated/);
+    expect(actions).toHaveLength(0);
+
+    // And they leave it again, well inside the cache window.
+    elevatedWindowInjection = true;
+    await byName(tools, "click").execute({ x: 1, y: 1 }, ctx);
+    expect(actions).toHaveLength(1);
+  });
 
   it("refuses rather than returning a black camera frame", async () => {
     const { tools } = build({ cameraFrame: async () => null });

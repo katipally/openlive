@@ -22,7 +22,7 @@ const image = (data: string): ImagePart => ({ type: "image", data, mime: "image/
 
 /** Settle time before the automatic screenshot: long enough for a menu to paint, short enough to keep a turn conversational. */
 const DEFAULT_SCREENSHOT_DELAY_MS = 150;
-/** A capability report is a machine fact, not a per-call one. */
+/** How long the machine-wide half of a capability report stays true. */
 const CAPABILITY_TTL_MS = 30_000;
 const SHELL_OUTPUT_CAP = 4_000;
 
@@ -67,12 +67,16 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
   let lastShot: ShotGeometry | null = null;
   let caps: { at: number; report: CapabilityReport } | null = null;
 
-  const capabilities = async (): Promise<CapabilityReport> => {
-    if (caps && Date.now() - caps.at < CAPABILITY_TTL_MS) return caps.report;
+  /** `elevatedWindowInjection` is a fact about the window in FRONT, which the
+   *  user can change between two sentences, so a control call reads it now. */
+  const freshCapabilities = async (): Promise<CapabilityReport> => {
     const report = await device.capabilities();
     caps = { at: Date.now(), report };
     return report;
   };
+
+  const capabilities = async (): Promise<CapabilityReport> =>
+    (caps && Date.now() - caps.at < CAPABILITY_TTL_MS ? caps.report : freshCapabilities());
 
   const capture = async (target: { displayId?: number; windowId?: number }) => {
     requireCapture(await capabilities());
@@ -193,7 +197,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     tier: spec.tier,
     risk: spec.risk,
     async execute(args: Record<string, any>) {
-      requireControl(await capabilities());
+      requireControl(await freshCapabilities());
       const action = await spec.build(args, toScreen);
       await device.control(action);
       const summary = spec.summary(args);
