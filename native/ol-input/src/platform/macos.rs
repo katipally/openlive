@@ -290,8 +290,8 @@ pub fn request_accessibility() -> bool {
             &key,
             &kCFBooleanTrue,
             1,
-            &kCFTypeDictionaryKeyCallBacks as *const _ as *const c_void,
-            &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
+            &kCFTypeDictionaryKeyCallBacks as *const _,
+            &kCFTypeDictionaryValueCallBacks as *const _,
         );
         let trusted = AXIsProcessTrustedWithOptions(options);
         CFRelease(key);
