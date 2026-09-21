@@ -86,15 +86,19 @@ pub struct SecureInputStatus {
 #[napi(object)]
 pub struct PermissionStatus {
     pub accessibility: bool,
+    pub post_events: bool,
     pub microphone: String,
     pub screen_recording: bool,
 }
 
 /// Idempotent. Resolving the keyboard layout needs the main thread, and this
-/// is the only place that is guaranteed to be on it.
+/// is the only place that is guaranteed to be on it. Asking to post events is
+/// the same kind of setup and belongs to the same explicit call: onboarding
+/// drives it, and nothing else may make macOS put a prompt on screen.
 #[napi]
-pub fn initialize_injector() {
+pub fn initialize_injector() -> bool {
     inject::refresh_layout();
+    perms::request_post_events()
 }
 
 /// Idempotent: a second call keeps the running hook and its callback.
@@ -205,8 +209,15 @@ fn method(name: Option<String>) -> Result<Method> {
     }
 }
 
+/// Both insertion paths go out as posted events, so both refuse up front when
+/// the machine would drop them rather than report characters nobody received.
+fn guard_injection() -> Result<()> {
+    platform::desktop::current::guard_injection().map_err(err)
+}
+
 #[napi]
 pub fn insert_text(text: String, insertion_method: Option<String>) -> Result<()> {
+    guard_injection()?;
     inject::refresh_layout();
     inject::insert(&text, method(insertion_method)?).map_err(err)
 }
@@ -215,6 +226,7 @@ pub fn insert_text(text: String, insertion_method: Option<String>) -> Result<()>
 /// flight coalesce into the next one.
 #[napi]
 pub fn begin_insertion(insertion_method: Option<String>) -> Result<u32> {
+    guard_injection()?;
     inject::refresh_layout();
     let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
     locked(sessions())?.insert(id, Session::begin(method(insertion_method)?));
@@ -282,6 +294,7 @@ pub fn permission_status() -> PermissionStatus {
     let status = perms::status();
     PermissionStatus {
         accessibility: status.accessibility,
+        post_events: status.post_events,
         microphone: status.microphone.to_string(),
         screen_recording: status.screen_recording,
     }
@@ -290,6 +303,13 @@ pub fn permission_status() -> PermissionStatus {
 #[napi]
 pub fn request_accessibility() -> bool {
     perms::request_accessibility()
+}
+
+/// Shows the post-event prompt. Separate from Accessibility, and like it,
+/// reached only from onboarding: nothing on a hot path may make macOS ask.
+#[napi]
+pub fn request_post_events() -> bool {
+    perms::request_post_events()
 }
 
 #[napi]
@@ -379,6 +399,7 @@ pub struct TextBoxInfo {
 #[napi(object)]
 pub struct CapabilityReport {
     pub hook: bool,
+    pub post_events: bool,
     pub injection: String,
     pub capture: bool,
     pub capture_backend: String,
@@ -663,6 +684,7 @@ pub fn capabilities() -> CapabilityReport {
     let found = capabilities::probe();
     CapabilityReport {
         hook: found.hook,
+        post_events: found.post_events,
         injection: found.injection.into(),
         capture: found.capture,
         capture_backend: found.capture_backend.into(),

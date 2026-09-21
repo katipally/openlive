@@ -483,11 +483,22 @@ pub fn selected_text() -> Option<String> {
     text
 }
 
-/// macOS has no equivalent of Windows' elevated-window block: an app with the
-/// accessibility grant can inject anywhere.
+/// macOS has no equivalent of Windows' elevated-window block: an app allowed to
+/// post events can inject anywhere. Whether it is allowed is a separate grant
+/// from Accessibility, and a process without it has every event it posts
+/// dropped in silence, so it is checked here rather than discovered by the user.
 pub fn guard_injection() -> Result<(), String> {
-    Ok(())
+    if crate::platform::macos::post_events_ok() {
+        return Ok(());
+    }
+    Err(NO_POST_EVENTS.into())
 }
+
+const NO_POST_EVENTS: &str =
+    "macOS is not letting OpenLive send keystrokes or clicks, so anything it \
+     types or clicks is thrown away before it reaches an app: open System \
+     Settings > Privacy & Security > Accessibility, switch OpenLive off and \
+     back on (add it if it is not listed), then restart OpenLive";
 
 pub fn elevated_injection_ok() -> bool {
     true

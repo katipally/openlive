@@ -96,6 +96,7 @@ function install(getTarget) {
   ipcMain.handle("openlive:flow-request", guard((what) => {
     const api = load();
     if (what === "accessibility") return api.requestAccessibility();
+    if (what === "postEvents") return api.requestPostEvents();
     if (what === "microphone") return api.requestMicrophone();
     if (what === "screen") return api.requestScreenRecording();
     throw new Error(`unknown permission "${what}"`);

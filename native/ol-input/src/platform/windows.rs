@@ -80,6 +80,17 @@ pub fn request_accessibility() -> bool {
     true
 }
 
+/// Windows has no per-process grant for synthetic input. What it does have is
+/// UIPI, which drops input sent to a more privileged window; that is a fact
+/// about the window in front, and `guard_injection` reads it there.
+pub fn post_events_ok() -> bool {
+    true
+}
+
+pub fn request_post_events() -> bool {
+    true
+}
+
 /// Windows gates the microphone at capture time through its privacy settings
 /// and exposes no synchronous probe, so the capture attempt is the probe.
 pub fn microphone_status() -> isize {

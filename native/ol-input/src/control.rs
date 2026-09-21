@@ -35,6 +35,7 @@ impl Button {
 }
 
 pub fn move_to(point: ScreenPoint) -> Result<(), String> {
+    platform::guard_injection()?;
     platform::mouse_move(point)
 }
 

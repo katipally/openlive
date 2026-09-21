@@ -21,6 +21,10 @@ export interface SecureInputStatus {
 
 export interface PermissionStatus {
   accessibility: boolean;
+  /** Whether this process may post keystrokes and clicks. A separate grant
+   *  from accessibility: a process can read the AX tree and still have every
+   *  event it posts silently discarded. */
+  postEvents: boolean;
   /** "granted" | "denied" | "undetermined" | "restricted" */
   microphone: string;
   screenRecording: boolean;
@@ -29,8 +33,10 @@ export interface PermissionStatus {
 export type Activation = "toggle" | "pushToTalk" | "holdOrToggle";
 export type InsertionMethod = "paste" | "type";
 
-/** Idempotent. Resolves the keyboard layout; no permission prompt. */
-export function initializeInjector(): void;
+/** Idempotent. Resolves the keyboard layout and asks for post-event access,
+ *  which prompts on macOS, so onboarding is the only caller.
+ *  Returns whether this process may now post events. */
+export function initializeInjector(): boolean;
 /** Idempotent. Installs the global hook, which is what asks for Accessibility. */
 export function initializeHook(onEffect: (effect: HookEffect) => void): void;
 /** Drops the hook and ends every open insertion session. */
@@ -62,6 +68,8 @@ export function bindingRecordingRefusal(): string | null;
 
 export function permissionStatus(): PermissionStatus;
 export function requestAccessibility(): boolean;
+/** Shows the post-event prompt. Onboarding only. */
+export function requestPostEvents(): boolean;
 export function requestMicrophone(): string;
 export function requestScreenRecording(): boolean;
 
@@ -138,6 +146,8 @@ export interface TextBoxInfo {
 
 export interface CapabilityReport {
   hook: boolean;
+  /** False when everything this process types or clicks is discarded by the OS. */
+  postEvents: boolean;
   injection: InsertionMethod;
   capture: boolean;
   captureBackend: string;
