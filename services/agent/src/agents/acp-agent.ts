@@ -96,6 +96,15 @@ export class AcpAgent implements Agent {
   private sentPreamble = false;   // the voice+vision context is sent once per session
   private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], resumeAcrossRestart: true };
   private modelConfigId: string | null = null; // the ACP config option id for model selection
+  // A message chunk the agent does not attribute to any message is a session
+  // notice, not the reply. Codex announces its skill budget that way before
+  // every turn, and it was being spoken aloud and saved as if it had said it.
+  // Learned rather than assumed: an agent that never stamps a message id must
+  // not lose its reply, so unstamped text is held only while it is unknown
+  // whether this agent stamps, and flushed at the end of the turn if it never did.
+  private stampsMessages = false;
+  private neverStamps = false;
+  private unstamped: string[] = [];
   private replaying = false;      // inside a session/load: fold updates into the replay buffer
   private replay: ReplayMessage[] = []; // prior turns recovered from session/load replay
   private turnTools = new Map<string, ToolCallState>(); // this turn's tool calls, by id (cleared per turn)
@@ -375,9 +384,20 @@ export class AcpAgent implements Agent {
         const emit = this.turnEmit;
         if (!emit) return;
         switch (u.sessionUpdate) {
-          case "agent_message_chunk":
-            if (u.content.type === "text") await emit({ type: "text_delta", text: u.content.text });
+          case "agent_message_chunk": {
+            if (u.content.type !== "text") return;
+            const messageId = (u as { messageId?: string }).messageId;
+            if (messageId) {
+              this.stampsMessages = true;
+              this.unstamped.length = 0; // whatever came before this message was not part of it
+              await emit({ type: "text_delta", text: u.content.text });
+              return;
+            }
+            if (this.stampsMessages) return; // a notice from an agent that stamps its replies
+            if (this.neverStamps) { await emit({ type: "text_delta", text: u.content.text }); return; }
+            this.unstamped.push(u.content.text);
             return;
+          }
           case "agent_thought_chunk":
             if (u.content.type === "text") await emit({ type: "reasoning_delta", text: u.content.text });
             return;
@@ -629,6 +649,12 @@ export class AcpAgent implements Agent {
         throw e; // transport failure / agent died → let the supervisor recycle it
       }
     } finally {
+      // Nothing in this turn was stamped, so this agent does not stamp at all and
+      // the held text was its reply. Say so once and stream it from now on.
+      if (this.unstamped.length) {
+        const held = this.unstamped.splice(0).join("");
+        if (!this.stampsMessages) { this.neverStamps = true; await emit({ type: "text_delta", text: held }); }
+      }
       signal.removeEventListener("abort", onAbort);
       if (this.turnEmit === emit) this.turnEmit = null;
       this.turnTools.clear(); // per-turn state — never accumulates across turns
