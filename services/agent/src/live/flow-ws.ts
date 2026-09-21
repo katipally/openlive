@@ -132,6 +132,7 @@ export class FlowLiveSession {
     const cfg = readFlowConfig();
     const approve = voiceApprove({
       tiers: cfg.risk,
+      perTool: cfg.toolRisk,
       timeoutMs: ASK_TIMEOUT_MS,
       ask: (question, signal) => this.askPermission(question, signal),
     });
