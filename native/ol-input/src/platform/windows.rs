@@ -96,6 +96,13 @@ pub fn request_screen_recording() -> bool {
     true
 }
 
+/// Windows exposes this only through per-application capture state in the
+/// registry, which is stale often enough to be wrong. `None` rather than a
+/// guess: a wrong answer here silences the user's assistant.
+pub fn microphone_in_use() -> Option<bool> {
+    None
+}
+
 pub fn secure_input_active() -> bool {
     false
 }

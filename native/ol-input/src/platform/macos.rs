@@ -337,6 +337,64 @@ pub fn request_screen_recording() -> bool {
     CGRequestScreenCaptureAccess()
 }
 
+/// CoreAudio, for "is another process holding the microphone".
+///
+/// `kAudioDevicePropertyDeviceIsRunningSomewhere` is the only cheap answer the
+/// OS gives: it is true while ANY process has the device running, and it will
+/// not say which. That is enough for auto-quiet, which only has to know that
+/// the microphone is busy, and the caller excludes its own capture.
+#[repr(C)]
+struct AudioObjectPropertyAddress {
+    selector: u32,
+    scope: u32,
+    element: u32,
+}
+
+#[link(name = "CoreAudio", kind = "framework")]
+extern "C" {
+    fn AudioObjectGetPropertyData(
+        object: u32,
+        address: *const AudioObjectPropertyAddress,
+        qualifier_size: u32,
+        qualifier: *const c_void,
+        data_size: *mut u32,
+        data: *mut c_void,
+    ) -> i32;
+}
+
+const AUDIO_SYSTEM_OBJECT: u32 = 1;
+const PROPERTY_SCOPE_GLOBAL: u32 = u32::from_be_bytes(*b"glob");
+const DEFAULT_INPUT_DEVICE: u32 = u32::from_be_bytes(*b"dIn ");
+const DEVICE_IS_RUNNING_SOMEWHERE: u32 = u32::from_be_bytes(*b"gone");
+
+fn audio_property<T: Default>(object: u32, selector: u32) -> Option<T> {
+    let address = AudioObjectPropertyAddress { selector, scope: PROPERTY_SCOPE_GLOBAL, element: 0 };
+    let mut value = T::default();
+    let mut size = std::mem::size_of::<T>() as u32;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            object,
+            &address,
+            0,
+            ptr::null(),
+            &mut size,
+            &mut value as *mut T as *mut c_void,
+        )
+    };
+    (status == 0 && size as usize == std::mem::size_of::<T>()).then_some(value)
+}
+
+/// `None` when the device cannot be read at all, which must never be taken
+/// for "nothing is using it".
+pub fn microphone_in_use() -> Option<bool> {
+    let device: u32 = audio_property(AUDIO_SYSTEM_OBJECT, DEFAULT_INPUT_DEVICE)?;
+    if device == 0 {
+        return None; // no input device on this machine
+    }
+    let running: u32 = audio_property(device, DEVICE_IS_RUNNING_SOMEWHERE)?;
+    Some(running != 0)
+}
+
 pub fn secure_input_active() -> bool {
     unsafe { IsSecureEventInputEnabled() }
 }
