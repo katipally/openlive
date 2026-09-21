@@ -48,7 +48,7 @@ const config: NextConfig = {
   // build and (b) just bloats the bundle here.
   images: { unoptimized: true },
   // Transpile our workspace TS packages; keep native deps out of the bundle.
-  transpilePackages: ["@openlive/db", "@openlive/shared", "@openlive/harness"],
+  transpilePackages: ["@openlive/db", "@openlive/shared", "@openlive/harness", "@openlive/flow-store"],
   // Pin the workspace root so file tracing is deterministic in the monorepo.
   turbopack: { root: join(import.meta.dirname, "..", "..") },
   outputFileTracingRoot: join(import.meta.dirname, "..", ".."),

@@ -57,6 +57,9 @@ importers:
       '@openlive/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@openlive/flow-store':
+        specifier: workspace:*
+        version: link:../../packages/flow-store
       '@openlive/harness':
         specifier: workspace:*
         version: link:../../packages/harness
@@ -133,6 +136,8 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  native/ol-input: {}
 
   packages/db:
     dependencies:
