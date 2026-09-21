@@ -33,7 +33,9 @@ export interface FlowConfig {
     clipboardQuietMs: number;
     clipboardTimeoutMs: number;
   };
-  brain: { kind: BrainKind; providerId: string; model: string; agentId: string };
+  /** `model` is the OpenLive-brain model; `agentModel` is the coding agent's
+   *  own, which only that agent can name, so it is kept apart. */
+  brain: { kind: BrainKind; providerId: string; model: string; agentId: string; agentModel: string };
   voice: {
     speakReplies: boolean;
     bargeIn: boolean;
@@ -59,7 +61,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   activation: "hold_or_toggle",
   holdThresholdMs: 250,
   insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 100, clipboardQuietMs: 200, clipboardTimeoutMs: 8000 },
-  brain: { kind: "openlive", providerId: "", model: "", agentId: "" },
+  brain: { kind: "openlive", providerId: "", model: "", agentId: "", agentModel: "" },
   voice: {
     speakReplies: true,
     bargeIn: true,
@@ -126,6 +128,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       providerId: str(brain.providerId, d.brain.providerId),
       model: str(brain.model, d.brain.model),
       agentId: str(brain.agentId, d.brain.agentId),
+      agentModel: str(brain.agentModel, d.brain.agentModel),
     },
     voice: {
       ...voice,
