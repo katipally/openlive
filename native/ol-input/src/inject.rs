@@ -183,6 +183,18 @@ mod tests {
     use crate::clipboard;
     use std::time::{Duration, Instant};
 
+    /// Closing a session joins its typing thread, so the session has to be able
+    /// to travel to a worker: on the Electron main thread that join is the UI,
+    /// the tray and every window frozen until the last character is typed.
+    #[test]
+    fn a_session_can_be_closed_off_the_thread_that_opened_it() {
+        let session = Session::begin(Method::Type);
+        std::thread::spawn(move || session.end())
+            .join()
+            .expect("the closing thread panicked")
+            .expect("the session did not close");
+    }
+
     #[test]
     fn empty_text_is_not_an_injection() {
         assert!(insert("", Method::Type).is_ok());

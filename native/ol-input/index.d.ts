@@ -52,7 +52,8 @@ export function notifyStartFailed(): void;
 export function insertText(text: string, insertionMethod?: InsertionMethod): void;
 export function beginInsertion(insertionMethod?: InsertionMethod): number;
 export function pushInsertion(session: number, chunk: string): void;
-export function endInsertion(session: number): void;
+/** Resolves once everything pushed into the session has been typed. */
+export function endInsertion(session: number): Promise<void>;
 
 /** Poll at 1Hz from the main thread. */
 export function secureInputStatus(): SecureInputStatus;

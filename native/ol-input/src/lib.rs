@@ -230,12 +230,33 @@ pub fn push_insertion(session: u32, chunk: String) -> Result<()> {
     open.push(&chunk).map_err(err)
 }
 
+/// Closing a session waits for everything pushed into it to be typed, which
+/// with the typing method and a long reply is seconds of keystrokes, so it
+/// waits on libuv's pool and not on the thread the whole UI lives on.
+pub struct EndInsertionTask(Option<Session>);
+
+impl napi::Task for EndInsertionTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match self.0.take() {
+            Some(session) => session.end().map_err(err),
+            None => Ok(()),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
 #[napi]
-pub fn end_insertion(session: u32) -> Result<()> {
+pub fn end_insertion(session: u32) -> Result<AsyncTask<EndInsertionTask>> {
     let open = locked(sessions())?
         .remove(&session)
         .ok_or_else(|| err(format!("insertion session {session} is not open")))?;
-    open.end().map_err(err)
+    Ok(AsyncTask::new(EndInsertionTask(Some(open))))
 }
 
 /// Poll this at 1Hz from the main thread: macOS never reports a secure-input
