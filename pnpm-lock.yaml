@@ -26,6 +26,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@openlive/flow-store':
+        specifier: workspace:*
+        version: link:../../packages/flow-store
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
@@ -153,6 +156,22 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/flow-store:
+    dependencies:
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      '@types/proper-lockfile':
+        specifier: ^4.1.4
+        version: 4.1.4
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/harness:
     devDependencies:
       '@types/node':
@@ -186,6 +205,9 @@ importers:
       '@openlive/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@openlive/flow-store':
+        specifier: workspace:*
+        version: link:../../packages/flow-store
       '@openlive/harness':
         specifier: workspace:*
         version: link:../../packages/harness
@@ -1137,6 +1159,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
