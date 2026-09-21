@@ -122,98 +122,106 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
   const budget = run.budget ?? DEFAULT_BUDGET;
   const specs = toolSpecs(tools);
   let anchor: { index: number; tokens: number } | null = null;
+  // The calls of the turn in flight. Any insertion they opened is closed on the
+  // way out, whichever way the run ends.
+  let open: FlowToolCall[] = [];
 
-  for (;;) {
-    if (signal.aborted) { yield { type: "error", message: "Cancelled.", aborted: true }; yield { type: "done", reason: "aborted" }; return; }
+  try {
+    for (;;) {
+      if (signal.aborted) { yield { type: "error", message: "Cancelled.", aborted: true }; yield { type: "done", reason: "aborted" }; return; }
 
-    for (const m of run.pollSteering?.() ?? []) messages.push(m);
+      for (const m of run.pollSteering?.() ?? []) messages.push(m);
 
-    const context = (await run.context?.capture(signal)) ?? null;
-    if (context) yield { type: "context", context };
+      const context = (await run.context?.capture(signal)) ?? null;
+      if (context) yield { type: "context", context };
 
-    // Dropping messages moves every index after them, and the anchor is an index.
-    const trimmed = trimImages(messages);
-    if (trimmed) { messages.splice(0, messages.length, ...trimmed); anchor = null; }
+      // Dropping messages moves every index after them, and the anchor is an index.
+      const trimmed = trimImages(messages);
+      if (trimmed) { messages.splice(0, messages.length, ...trimmed); anchor = null; }
 
-    const compacted = compact(messages, budget, anchor);
-    if (compacted) { messages.splice(0, messages.length, ...compacted); anchor = null; }
+      const compacted = compact(messages, budget, anchor);
+      if (compacted) { messages.splice(0, messages.length, ...compacted); anchor = null; }
 
-    const systemPrompt = [await run.getSystemPrompt(), formatContext(context)].filter(Boolean).join("\n\n");
+      const systemPrompt = [await run.getSystemPrompt(), formatContext(context)].filter(Boolean).join("\n\n");
 
-    let text = "";
-    const calls: FlowToolCall[] = [];
-    let usage: Usage | undefined;
-    let stop: "stop" | "tools" | "length" = "stop";
-    let failure: { message: string; aborted: boolean } | null = null;
+      let text = "";
+      const calls: FlowToolCall[] = [];
+      open = calls;
+      let usage: Usage | undefined;
+      let stop: "stop" | "tools" | "length" = "stop";
+      let failure: { message: string; aborted: boolean } | null = null;
 
-    for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs }, signal)) {
-      if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
-      if (ev.type === "tool_start") { calls.push({ id: ev.id, name: ev.name, args: {} }); yield { type: "tool_start", id: ev.id, name: ev.name }; continue; }
-      if (ev.type === "tool_args_delta") {
-        yield { type: "tool_args_delta", id: ev.id, argsPartial: ev.argsPartial };
-        // The insertion sink is forward-only, so handing it the growing text is
-        // safe to do before the call is even finished being written.
-        const call = calls.find((c) => c.id === ev.id);
-        if (call?.name === "insert_text" && typeof ev.argsPartial.text === "string") await run.insert.commit(ev.id, ev.argsPartial.text);
-        continue;
-      }
-      if (ev.type === "tool_end") {
-        const call = calls.find((c) => c.id === ev.id);
-        if (call) call.args = ev.args; else calls.push({ id: ev.id, name: ev.name, args: ev.args });
-        yield { type: "tool_call", id: ev.id, name: ev.name, args: ev.args };
-        continue;
-      }
-      if (ev.type === "turn_done") { stop = ev.stop; usage = ev.usage; continue; }
-      failure = { message: ev.message, aborted: ev.aborted };
-    }
-
-    // Whatever the model managed to say before the cut is part of the
-    // conversation: barge-in must not erase the half of the answer the user heard.
-    const assistant = assistantMessage(text, calls);
-    if (text || calls.length) messages.push(assistant);
-    if (usage) anchor = { index: messages.length - 1, tokens: usage.input + usage.output };
-
-    if (failure || signal.aborted) {
-      const aborted = failure?.aborted || signal.aborted;
-      yield { type: "error", message: failure?.message ?? "Cancelled.", aborted };
-      yield { type: "done", reason: aborted ? "aborted" : "error" };
-      return;
-    }
-
-    yield { type: "turn_end", stop, usage };
-
-    if (!calls.length) {
-      await raceAbort(Promise.resolve(run.onTurnEnd?.(assistant)), signal);
-      yield { type: "done", reason: "no_tools" };
-      return;
-    }
-
-    let terminate = true;
-    if (stop === "length") {
-      for (const c of calls) {
-        messages.push({ role: "tool", callId: c.id, name: c.name, result: TRUNCATED, isError: true });
-        yield { type: "tool_result", id: c.id, name: c.name, content: [{ type: "text", text: TRUNCATED }], isError: true, details: { error: TRUNCATED } };
-      }
-      terminate = false;
-    } else {
-      const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel });
-      for (;;) {
-        const next = await running.next();
-        if (next.done) {
-          for (const r of next.value) {
-            const images = r.content.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
-            messages.push({ role: "tool", callId: r.id, name: r.name, result: asText(r.content), isError: r.isError, images: images.length ? images : undefined });
-            if (!r.terminate) terminate = false;
-          }
-          break;
+      for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs }, signal)) {
+        if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
+        if (ev.type === "tool_start") { calls.push({ id: ev.id, name: ev.name, args: {} }); yield { type: "tool_start", id: ev.id, name: ev.name }; continue; }
+        if (ev.type === "tool_args_delta") {
+          yield { type: "tool_args_delta", id: ev.id, argsPartial: ev.argsPartial };
+          // The insertion sink is forward-only, so handing it the growing text is
+          // safe to do before the call is even finished being written.
+          const call = calls.find((c) => c.id === ev.id);
+          if (call?.name === "insert_text" && typeof ev.argsPartial.text === "string") await run.insert.commit(ev.id, ev.argsPartial.text);
+          continue;
         }
-        const r = next.value;
-        yield { type: "tool_result", id: r.id, name: r.name, content: r.content, isError: r.isError, details: r.details };
+        if (ev.type === "tool_end") {
+          const call = calls.find((c) => c.id === ev.id);
+          if (call) call.args = ev.args; else calls.push({ id: ev.id, name: ev.name, args: ev.args });
+          yield { type: "tool_call", id: ev.id, name: ev.name, args: ev.args };
+          continue;
+        }
+        if (ev.type === "turn_done") { stop = ev.stop; usage = ev.usage; continue; }
+        failure = { message: ev.message, aborted: ev.aborted };
       }
-    }
 
-    await raceAbort(Promise.resolve(run.onTurnEnd?.(assistant)), signal);
-    if (terminate) { yield { type: "done", reason: "terminate" }; return; }
-    if (await run.shouldStop?.()) { yield { type: "done", reason: "host_stop" }; return; }
+      // Whatever the model managed to say before the cut is part of the
+      // conversation: barge-in must not erase the half of the answer the user heard.
+      const assistant = assistantMessage(text, calls);
+      if (text || calls.length) messages.push(assistant);
+      if (usage) anchor = { index: messages.length - 1, tokens: usage.input + usage.output };
+
+      if (failure || signal.aborted) {
+        const aborted = failure?.aborted || signal.aborted;
+        yield { type: "error", message: failure?.message ?? "Cancelled.", aborted };
+        yield { type: "done", reason: aborted ? "aborted" : "error" };
+        return;
+      }
+
+      yield { type: "turn_end", stop, usage };
+
+      if (!calls.length) {
+        await raceAbort(Promise.resolve(run.onTurnEnd?.(assistant)), signal);
+        yield { type: "done", reason: "no_tools" };
+        return;
+      }
+
+      let terminate = true;
+      if (stop === "length") {
+        for (const c of calls) {
+          messages.push({ role: "tool", callId: c.id, name: c.name, result: TRUNCATED, isError: true });
+          yield { type: "tool_result", id: c.id, name: c.name, content: [{ type: "text", text: TRUNCATED }], isError: true, details: { error: TRUNCATED } };
+        }
+        terminate = false;
+      } else {
+        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel });
+        for (;;) {
+          const next = await running.next();
+          if (next.done) {
+            for (const r of next.value) {
+              const images = r.content.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
+              messages.push({ role: "tool", callId: r.id, name: r.name, result: asText(r.content), isError: r.isError, images: images.length ? images : undefined });
+              if (!r.terminate) terminate = false;
+            }
+            break;
+          }
+          const r = next.value;
+          yield { type: "tool_result", id: r.id, name: r.name, content: r.content, isError: r.isError, details: r.details };
+        }
+      }
+
+      await raceAbort(Promise.resolve(run.onTurnEnd?.(assistant)), signal);
+      if (terminate) { yield { type: "done", reason: "terminate" }; return; }
+      if (await run.shouldStop?.()) { yield { type: "done", reason: "host_stop" }; return; }
+    }
+  } finally {
+    for (const c of open) if (c.name === "insert_text") await run.insert.end(c.id);
   }
 }
