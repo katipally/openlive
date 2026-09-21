@@ -42,18 +42,13 @@ export interface FlowSnapshot {
   inserting: { text: string; app: string } | null;
   /** Whether this turn is being spoken. The manual override has already won here. */
   speaking: boolean;
-  /** null follows the heuristics; true / false is the user's own choice. */
-  speakerOverride: boolean | null;
   quiet: QuietReason;
   /** 0..1 while the voice models are still loading, else null. */
   warming: number | null;
-  /** When the current phase began, for the pill's elapsed timer. */
-  since: number;
   failure: FlowFailure | null;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {
   phase: "idle", binding: "", transcript: "", partial: false, reply: "", detail: "",
-  inserting: null, speaking: true, speakerOverride: null, quiet: "", warming: null,
-  since: 0, failure: null,
+  inserting: null, speaking: true, quiet: "", warming: null, failure: null,
 };

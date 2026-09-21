@@ -78,7 +78,7 @@ export function FlowPill() {
     gsap.timeline()
       .fromTo(cardRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.out }, 0)
       .fromTo(cardRef.current, { scale: 0.92, y: 10 }, { scale: 1, y: 0, duration: DUR.enter, ease: EASE.snappy }, 0);
-  }, { scope: scopeRef, dependencies: [s.phase === "idle" && !s.failure] });
+  }, { scope: scopeRef, dependencies: [s.phase !== "idle"] });
 
   // The pill measures itself; the main process keeps the bottom edge put, so it
   // grows upward however long the transcript gets.
