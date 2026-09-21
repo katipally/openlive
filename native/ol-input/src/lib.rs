@@ -347,7 +347,8 @@ pub struct WindowSummary {
 pub struct TextBoxInfo {
     pub text: String,
     pub confidence: f64,
-    /// Screen coordinates, so this is clickable as it stands.
+    /// Coordinates in the image this text was read from, the same space a
+    /// point picked out of the pixels is in. Click it through `shotToScreen`.
     pub x: f64,
     pub y: f64,
     pub width: f64,

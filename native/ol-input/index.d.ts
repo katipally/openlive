@@ -128,7 +128,7 @@ export interface WindowSummary {
 export interface TextBoxInfo {
   text: string;
   confidence: number;
-  /** Screen coordinates, so this is clickable as it stands. */
+  /** Coordinates in the image the text was read from, as `shotToScreen` takes them. */
   x: number;
   y: number;
   width: number;

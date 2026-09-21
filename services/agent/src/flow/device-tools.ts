@@ -1,17 +1,21 @@
 import type {
   CapabilityReport, ControlAction, DevicePort, MouseButton, ScreenPoint, ShotGeometry, WindowSummary,
 } from "./device.js";
-import { shotPoint } from "./device.js";
+import { screenPoint, shotPoint } from "./device.js";
 import type { ImagePart, Risk, TextPart, Tool, ToolResult } from "./types.js";
 import type { RiskTier } from "@openlive/flow-store";
 
 // Perception and control, as one flat action set over the device seam.
 //
-// Two rules hold the whole file together. A coordinate the model sends is in the
-// image the model was shown, and only `shotToScreen` turns it into something a
-// control call may touch. And every action that changes the screen returns the
-// new screen, so the brain never has to ask for a screenshot it was always
-// going to need.
+// Three rules hold the whole file together. Every coordinate the model is shown
+// or sends for pointing at the screen is in the image it was shown, OCR boxes
+// included, and only `shotToScreen` turns one into something a control call may
+// touch. Window geometry is the one exception and is declared as such: it is
+// desktop coordinates in and out, straight from the window server and straight
+// back to it, because a window's size in screenshot pixels would mean nothing to
+// the platform that has to apply it. And every action that changes the screen
+// returns the new screen, so the brain never has to ask for a screenshot it was
+// always going to need.
 
 const text = (t: string): TextPart => ({ type: "text", text: t });
 const image = (data: string): ImagePart => ({ type: "image", data, mime: "image/png" });
@@ -117,7 +121,10 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
       parameters: obj({ display_id: { type: "integer", description: "Which display. Omit for the one in front." }, window_id: { type: "integer", description: "Capture just this window instead." } }, []),
       tier: "read",
       risk: "safe",
-      promptGuidelines: ["Take a screenshot before clicking anything, and use the coordinates of the image you were given."],
+      promptGuidelines: [
+        "Take a screenshot before clicking anything, and use the coordinates of the image you were given: everything you point at, including the positions read_screen_text gives you, is in that image's space.",
+        "Window positions and sizes are the one exception. They are desktop coordinates, they only ever go back to the window tools, and they are never a place to click.",
+      ],
       async execute(args: { display_id?: number; window_id?: number }) {
         const { png, shot } = await capture({ displayId: args.display_id, windowId: args.window_id });
         return screenshotResult(png, shot, "Here is the screen.");
@@ -125,7 +132,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "read_screen_text",
-      description: "Read the text on screen with OCR, with where each piece of text sits. Cheaper to reason over than a picture when you are looking for a word.",
+      description: "Read the text on screen with OCR, with where each piece of text sits in the screenshot it was read from. Those coordinates are the ones click takes.",
       parameters: obj({ display_id: { type: "integer" }, window_id: { type: "integer" } }, []),
       tier: "read",
       risk: "safe",
@@ -136,12 +143,12 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
         const boxes = await device.recognizeText(png, shot);
         if (!boxes.length) return { content: [text("No text was recognised on screen.")], details: { boxes } };
         const lines = boxes.map((b) => `${b.text} (${Math.round(b.x)}, ${Math.round(b.y)})`).join("\n");
-        return { content: [text(`Text on screen, with its screen position:\n${lines}`)], details: { boxes } };
+        return { content: [text(`Text on screen, positioned in the ${shot.width} by ${shot.height} screenshot it was read from:\n${lines}`)], details: { boxes } };
       },
     },
     {
       name: "list_windows",
-      description: "Every open window: the app, the window title when the system will say it, and its position and size.",
+      description: "Every open window: the app, the window title when the system will say it, and its position and size in desktop coordinates. Those are not screenshot coordinates: to click something in a window, take a screenshot.",
       parameters: obj({}, []),
       tier: "read",
       risk: "safe",
@@ -153,7 +160,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "get_window",
-      description: "Details of one window, or of the window in front when you do not name one.",
+      description: "Details of one window, or of the window in front when you do not name one. Its position and size are desktop coordinates, not screenshot coordinates.",
       parameters: obj({ window_id: { type: "integer", description: "Omit for the window in front." } }, []),
       tier: "read",
       risk: "safe",
@@ -227,6 +234,10 @@ interface ControlSpec {
 const XY = {
   x: { type: "integer", description: "Horizontal position in the screenshot you were given" },
   y: { type: "integer", description: "Vertical position in the screenshot you were given" },
+};
+const WINDOW_XY = {
+  x: { type: "integer", description: "Horizontal desktop position, as list_windows reports it" },
+  y: { type: "integer", description: "Vertical desktop position, as list_windows reports it" },
 };
 const BUTTON = { button: { type: "string", enum: ["left", "right", "middle"], description: "Defaults to left" } };
 const button = (a: { button?: MouseButton }): MouseButton => a.button ?? "left";
@@ -306,13 +317,13 @@ const CONTROL_ACTIONS: ControlSpec[] = [
     summary: (a) => `Brought window ${a.window_id} to the front.`,
   },
   {
-    name: "window_move", description: "Move a window to a screen position.",
-    properties: { window_id: { type: "integer" }, ...XY }, required: ["window_id", "x", "y"], tier: "control", risk: "confirm",
-    build: async (a, to) => ({ kind: "window_move", windowId: a.window_id, point: await to(a.x, a.y) }),
+    name: "window_move", description: "Move a window to a desktop position, in the coordinates list_windows reports.",
+    properties: { window_id: { type: "integer" }, ...WINDOW_XY }, required: ["window_id", "x", "y"], tier: "control", risk: "confirm",
+    build: async (a) => ({ kind: "window_move", windowId: a.window_id, point: screenPoint(a.x, a.y) }),
     summary: (a) => `Moved window ${a.window_id} to ${at(a)}.`,
   },
   {
-    name: "window_resize", description: "Resize a window.",
+    name: "window_resize", description: "Resize a window, in the same desktop coordinates list_windows reports.",
     properties: { window_id: { type: "integer" }, width: { type: "integer" }, height: { type: "integer" } },
     required: ["window_id", "width", "height"], tier: "control", risk: "confirm",
     build: async (a) => ({ kind: "window_resize", windowId: a.window_id, width: a.width, height: a.height }),

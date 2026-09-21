@@ -9,10 +9,15 @@
  * to apply them.
  */
 export interface ShotPoint { space: "shot"; x: number; y: number }
-/** A coordinate the control calls accept. Only `shotToScreen` produces one. */
+/**
+ * A coordinate the control calls accept. `shotToScreen` produces one from a
+ * point in an image; window geometry is already in this space, produced by the
+ * window server and given straight back to it.
+ */
 export interface ScreenPoint { space: "screen"; x: number; y: number }
 
 export const shotPoint = (x: number, y: number): ShotPoint => ({ space: "shot", x, y });
+export const screenPoint = (x: number, y: number): ScreenPoint => ({ space: "screen", x, y });
 
 /** Mirrors the native struct. It travels with the image it describes. */
 export interface ShotGeometry {
@@ -32,6 +37,8 @@ export interface DisplayInfo {
   width: number; height: number; scale: number; primary: boolean;
 }
 
+/** `x`, `y`, `width` and `height` are desktop coordinates: what the window
+ *  server reports and what it takes back, never screenshot pixels. */
 export interface WindowSummary {
   id: number; appName: string; appId?: string;
   /** Withheld without screen recording on macOS. Optional everywhere. */
@@ -40,6 +47,7 @@ export interface WindowSummary {
   displayId?: number; minimized: boolean;
 }
 
+/** Positioned in the image it was read from, exactly like a point the model picks out of a screenshot. */
 export interface TextBoxInfo { text: string; confidence: number; x: number; y: number; width: number; height: number }
 
 export interface CapabilityReport {
