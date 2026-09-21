@@ -55,7 +55,9 @@ export function triggerExternal(id: string, pressed: boolean): void;
 export function notifyProcessingFinished(): void;
 export function notifyStartFailed(): void;
 
-export function insertText(text: string, insertionMethod?: InsertionMethod): void;
+/** Resolves once the text has landed, and rejects when it did not. Runs off
+ *  the main thread: the paste receipt arrives on the main thread's run loop. */
+export function insertText(text: string, insertionMethod?: InsertionMethod): Promise<void>;
 export function beginInsertion(insertionMethod?: InsertionMethod): number;
 export function pushInsertion(session: number, chunk: string): void;
 /** Resolves once everything pushed into the session has been typed. */
