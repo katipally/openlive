@@ -491,14 +491,27 @@ pub fn guard_injection() -> Result<(), String> {
     if crate::platform::macos::post_events_ok() {
         return Ok(());
     }
-    Err(NO_POST_EVENTS.into())
+    // Whether the accessibility tree is readable separates the two cases: a
+    // grant that was never given, and one that is listed but no longer
+    // honoured, which is what a rebuilt development build gets.
+    Err(if crate::platform::macos::accessibility_ok() {
+        STALE_GRANT
+    } else {
+        NOT_GRANTED
+    }
+    .into())
 }
 
-const NO_POST_EVENTS: &str =
-    "macOS is not letting OpenLive send keystrokes or clicks, so anything it \
-     types or clicks is thrown away before it reaches an app: open System \
-     Settings > Privacy & Security > Accessibility, switch OpenLive off and \
-     back on (add it if it is not listed), then restart OpenLive";
+const NOT_GRANTED: &str =
+    "OpenLive is not allowed to control this computer, so anything it types or \
+     clicks is thrown away before it reaches an app: turn OpenLive on in System \
+     Settings > Privacy & Security > Accessibility";
+
+const STALE_GRANT: &str =
+    "macOS lists OpenLive under Accessibility but still refuses to let it send \
+     keystrokes and clicks, which is what happens to a build that was replaced \
+     after it was allowed: remove OpenLive from System Settings > Privacy & \
+     Security > Accessibility, add it again, and restart it";
 
 pub fn elevated_injection_ok() -> bool {
     true
