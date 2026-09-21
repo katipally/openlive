@@ -12,7 +12,8 @@ export type FlowFailureCode =
   | "wayland"
   | "offline"
   | "models_missing"
-  | "hook_failed";
+  | "hook_failed"
+  | "listen_timeout";
 
 export interface FlowFailure {
   code: FlowFailureCode;
