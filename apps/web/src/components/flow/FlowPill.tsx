@@ -6,6 +6,7 @@ import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
 import { quietLabel } from "@/lib/flow/quiet";
+import { bindingLabel } from "@/lib/flow/binding";
 import { IDLE_FLOW, type FlowSnapshot } from "@/lib/flow/types";
 import { duration } from "@/lib/flow/format";
 import type { PendingPermission } from "@/lib/live/liveStore";
@@ -177,7 +178,7 @@ export function FlowPill() {
               {s.phase === "idle" && s.binding && (
                 <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1">
                   <span className="size-1.5 rounded-full bg-accent" />
-                  <span className="font-mono text-caption text-muted-foreground">{s.binding}</span>
+                  <span className="font-mono text-caption text-muted-foreground">{bindingLabel(s.binding)}</span>
                 </span>
               )}
               <button onClick={() => cmd({ t: "flowSpeaker" })} title={quietLabel(s.quiet) || "Speaking out loud"}
