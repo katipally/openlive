@@ -49,9 +49,19 @@ function requireCapture(caps: CapabilityReport): void {
     : `no capture backend (${caps.captureBackend || "none"}).`);
 }
 
-function requireControl(caps: CapabilityReport): void {
+/** The actions that reach other apps as posted keyboard and mouse events.
+ *  Opening an app, a URL or a window goes through the window server instead,
+ *  and refusing those for want of a post-event grant would be its own lie. */
+const POSTED_INPUT = new Set<ControlAction["kind"]>([
+  "move", "click", "mouse_down", "mouse_up", "drag", "scroll", "type", "keypress",
+]);
+
+function requireControl(caps: CapabilityReport, posted: boolean): void {
   if (!caps.elevatedWindowInjection) {
     refuse("Input", "the window in front is running elevated, so synthetic input would be dropped without any sign of it. Ask the user to click there themselves.");
+  }
+  if (posted && caps.postEvents === false) {
+    refuse("Input", "this machine is discarding every keystroke and click OpenLive sends, so the action would do nothing at all. The user has to grant OpenLive permission to control the computer, and restart it, before clicking and typing work.");
   }
 }
 
@@ -197,8 +207,8 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     tier: spec.tier,
     risk: spec.risk,
     async execute(args: Record<string, any>) {
-      requireControl(await freshCapabilities());
       const action = await spec.build(args, toScreen);
+      requireControl(await freshCapabilities(), POSTED_INPUT.has(action.kind));
       await device.control(action);
       const summary = spec.summary(args);
       return { content: [text(summary)], details: { action: summary } };

@@ -8,7 +8,7 @@ import type { Approve, ClipboardPort, InsertionSink, Tool } from "./types.js";
 
 const SHOT: ShotGeometry = { originX: 0, originY: 0, scale: 1, width: 1024, height: 768 };
 const CAPS: CapabilityReport = {
-  hook: true, injection: "paste", capture: true, captureBackend: "test", ocr: true, ocrEngine: "test",
+  hook: true, postEvents: true, injection: "paste", capture: true, captureBackend: "test", ocr: true, ocrEngine: "test",
   selection: true, selectionBackend: "test", windowControl: true, elevatedWindowInjection: true,
   secureInput: false, tools: [],
 };

@@ -4,7 +4,7 @@ import type { CapabilityReport, ControlAction, DevicePort, ShotGeometry, ShotPoi
 import type { Tool, ToolCtx } from "./types.js";
 
 const CAPS: CapabilityReport = {
-  hook: true, injection: "paste", capture: true, captureBackend: "screencapturekit",
+  hook: true, postEvents: true, injection: "paste", capture: true, captureBackend: "screencapturekit",
   ocr: true, ocrEngine: "vision", selection: true, selectionBackend: "ax",
   windowControl: true, elevatedWindowInjection: true, secureInput: false, tools: [],
 };
@@ -148,6 +148,19 @@ describe("honest degradation", () => {
     const { tools, actions } = build({ caps: { elevatedWindowInjection: false } });
     await expect(byName(tools, "type").execute({ text: "hi" }, ctx)).rejects.toThrow(/elevated/);
     expect(actions).toHaveLength(0);
+  });
+
+  it("refuses to click when the machine is discarding posted events", async () => {
+    const { tools, actions } = build({ caps: { postEvents: false } });
+    await byName(tools, "screenshot").execute({}, ctx);
+    await expect(byName(tools, "click").execute({ x: 1, y: 1 }, ctx)).rejects.toThrow(/discarding every keystroke and click/);
+    expect(actions).toHaveLength(0);
+  });
+
+  it("still opens an app without post-event access, because that is not posted input", async () => {
+    const { tools, actions } = build({ caps: { postEvents: false } });
+    await byName(tools, "open_app").execute({ name: "Notes" }, ctx);
+    expect(actions).toHaveLength(1);
   });
 
   it("reads the window in front on every control call, and caches the rest", async () => {
