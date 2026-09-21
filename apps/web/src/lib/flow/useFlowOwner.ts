@@ -51,6 +51,8 @@ export function useFlowOwner(): void {
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
   const insertion = useRef<{ id: string; session: number } | null>(null);
+  /** The app the turn's metadata named, so the inserting card can say where the text is going. */
+  const targetApp = useRef("");
 
   useEffect(() => {
     const api = flowBridge();
@@ -182,6 +184,7 @@ export function useFlowOwner(): void {
       const rules = settings.current ? asRules(settings.current) : null;
       const quiet = rules ? decideQuiet(signals, rules, override.current) : "";
       patch({ quiet, speaking: !quiet, transcript: "", reply: "", inserting: null });
+      targetApp.current = "";
       await ensureEngine();
       // The microphone never opened, so the coordinator must not sit in
       // Capturing waiting for speech that cannot arrive.
@@ -191,7 +194,7 @@ export function useFlowOwner(): void {
     };
 
     const onStop = async () => {
-      if (!engine.current) return;
+      if (!engine.current) { dismissSoon(); return; }
       if (usesPtt()) await engine.current.endPtt();
       else { engine.current.commitPending(); engine.current.setMuted(true); }
       if (!turnActive.current && snap.current.phase === "listening") dismissSoon();
@@ -227,14 +230,16 @@ export function useFlowOwner(): void {
         case "tool_start":
           return setPhase("acting", toolMeta(e.name).active);
         case "tool_args_delta": {
+          // The partial arguments carry the whole text written so far, so this is
+          // the one place the card's text comes from: the chunks on the insertion
+          // bridge are the same words a second time.
           const text = e.argsPartial?.text;
-          if (typeof text === "string") patch({ inserting: { text, app: snap.current.inserting?.app ?? "" } });
+          if (typeof text === "string") patch({ inserting: { text, app: targetApp.current } });
           return;
         }
         case "context":
-          // The app is only known once the desktop has read it, so the inserting
-          // card learns its destination mid-flight rather than guessing.
-          return patch({ inserting: snap.current.inserting ? { ...snap.current.inserting, app: e.context.app ?? "" } : null });
+          targetApp.current = e.context.app ?? "";
+          return;
         case "tool_result":
           return setPhase(snap.current.speaking ? "speaking" : "thinking");
         case "error":
@@ -267,7 +272,6 @@ export function useFlowOwner(): void {
             if (session < 0) return reply("insertion unavailable");
             insertion.current = { id, session };
           }
-          patch({ inserting: { text: (snap.current.inserting?.text ?? "") + chunk, app: snap.current.inserting?.app ?? "" } });
           await api.insertPush(insertion.current.session, chunk);
           return reply("ok");
         }
@@ -302,7 +306,11 @@ export function useFlowOwner(): void {
     };
     const answerByVoice = (text: string) => {
       const verdict = classifyYesNo(text);
-      if (!verdict) { engine.current?.say("Say yes to allow, or no to cancel."); return; }
+      if (!verdict) {
+        if (snap.current.speaking) engine.current?.say("Say yes to allow, or no to cancel.");
+        else setPhase("confirming", "Say yes to allow, or no to cancel.");
+        return;
+      }
       answer(verdict === "allow" ? "allow" : "deny");
     };
 
