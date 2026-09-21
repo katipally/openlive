@@ -52,6 +52,8 @@ export interface TextBoxInfo { text: string; confidence: number; x: number; y: n
 
 export interface CapabilityReport {
   hook: boolean;
+  /** False when everything this process types or clicks is discarded by the OS. */
+  postEvents: boolean;
   injection: "paste" | "type";
   capture: boolean;
   captureBackend: string;
