@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { LiveSession } from "./session.js";
+import { FlowLiveSession } from "./flow-ws.js";
 
 // Constant-time equality that also hides length differences.
 function secretMatches(given: string | undefined, expected: string): boolean {
@@ -33,8 +34,13 @@ export function attachLiveWs(server: Server): WebSocketServer {
       return reject(socket, "401 Unauthorized", "bad or missing secret/token");
     }
     const chatId = url.searchParams.get("chat") ?? "";
-    console.log(`[agent] /live upgrade accepted — chat=${chatId || "(none)"}`);
+    // Flow's pill runtime lives in its own renderer, so it opens its own
+    // connection to this same endpoint. Same schemas, same permission protocol,
+    // nothing about a chat session changes.
+    const flow = url.searchParams.get("flow") === "1";
+    console.log(`[agent] /live upgrade accepted — ${flow ? "flow" : `chat=${chatId || "(none)"}`}`);
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (flow) { new FlowLiveSession(ws); return; }
       void new LiveSession(ws, chatId).start();
     });
   });
