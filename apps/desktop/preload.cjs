@@ -81,6 +81,16 @@ contextBridge.exposeInMainWorld("openlive", {
     secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),
     recordingRefusal: () => ipcRenderer.invoke("openlive:flow-recording-refusal"),
     hookError: () => ipcRenderer.invoke("openlive:flow-hook-error"),
+    // What the user is looking at, whether this is a moment to speak out loud, and
+    // what this platform can honestly do. Same { ok, value } shape as above.
+    context: () => ipcRenderer.invoke("openlive:flow-context"),
+    signals: () => ipcRenderer.invoke("openlive:flow-signals"),
+    capabilities: () => ipcRenderer.invoke("openlive:flow-capabilities"),
+    // The pill: summoned next to the cursor, dismissed when the turn is over, and
+    // self-sizing (it measures its own content and grows upward).
+    summon: () => ipcRenderer.send("openlive:flow-summon"),
+    dismiss: () => ipcRenderer.send("openlive:flow-dismiss"),
+    size: (h) => ipcRenderer.send("openlive:flow-size", h),
     // Single listener each, same replace-on-subscribe rule as the handlers above.
     onEffect: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-effect"); ipcRenderer.on("openlive:flow-effect", (_e, effect) => cb(effect)); },
     onSecureInput: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-secure-input"); ipcRenderer.on("openlive:flow-secure-input", (_e, s) => cb(s)); },

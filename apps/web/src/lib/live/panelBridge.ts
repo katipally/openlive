@@ -1,4 +1,5 @@
 import type { LivePhase, PendingPermission } from "./liveStore";
+import type { FlowFailureCode, FlowSnapshot } from "@/lib/flow/types";
 
 // Wire shape between the hidden main renderer (voice pipeline) and the desktop
 // mini PANEL window, relayed through the Electron main process. A MediaStream
@@ -9,7 +10,17 @@ export interface PanelStateSnapshot {
   toolStatus: string; warming: boolean; pttActive: boolean; pttEnabled: boolean;
   holdUntil: number | null; holdMs: number;
   permission: PendingPermission | null;
+  /** Present only on the Flow pill's packets. Flow has no call, no camera and no
+   *  screen share, so it carries its own state rather than pretending to have one. */
+  flow?: FlowSnapshot;
 }
+
+/** The fields a Flow packet has no opinion about. Spread, then add `flow`. */
+export const NO_CALL: PanelStateSnapshot = {
+  phase: "idle", muted: false, cameraOn: false, screenOn: false,
+  userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false,
+  pttActive: false, pttEnabled: false, holdUntil: null, holdMs: 0, permission: null,
+};
 
 export type PanelPacket =
   | { k: "s"; s: PanelStateSnapshot }                    // store state (on change)
@@ -19,7 +30,11 @@ export type PanelPacket =
 export type PanelCmd =
   | { t: "mute" } | { t: "camera" } | { t: "screen" }
   | { t: "end" } | { t: "expand" } | { t: "sendNow" } | { t: "ptt" }
-  | { t: "permission"; optionId: string };
+  | { t: "permission"; optionId: string }
+  // Flow. `flowSpeaker` is the manual auto-quiet override, which wins in both
+  // directions and is remembered for the session; `flowFix` is the one action a
+  // failure state offers.
+  | { t: "flowCancel" } | { t: "flowSpeaker" } | { t: "flowFix"; code: FlowFailureCode };
 
 export interface PanelBridgeApi {
   mini?: () => void;
