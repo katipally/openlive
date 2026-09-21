@@ -11,6 +11,7 @@ const net = require("node:net");
 const crypto = require("node:crypto");
 const os = require("node:os");
 const { powerMonitor } = require("electron");
+const flowInput = require("./flow-input.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -729,6 +730,7 @@ async function boot() {
   wireWindowIpc();
   wireBridgeIpc();
   wirePowerEvents();
+  flowInput.install(() => (mainWin && !mainWin.isDestroyed() ? mainWin.webContents : null));
   createSplash();
   if (!(await startServers())) { app.quit(); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
