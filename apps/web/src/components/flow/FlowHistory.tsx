@@ -8,7 +8,7 @@ import { flowBridge } from "@/lib/flow/bridge";
 import { clock, dayLabel, duration, latency, stamp } from "@/lib/flow/format";
 import {
   assetUrl, deleteFlowSession, sessionLine, useFlowSession, useFlowSessions,
-  type FlowSessionEntry, type FlowSessionSummary,
+  type FlowSessionDetail, type FlowSessionEntry, type FlowSessionSummary,
 } from "@/lib/flow/sessions";
 
 // Everything Flow has said and done, and everything it was told. The list is a
@@ -50,7 +50,7 @@ export function FlowHistory({ sessionId, onSelect }: { sessionId: string | null;
         {error && <Note>Flow&rsquo;s history could not be read.</Note>}
         {!error && isLoading && <Note>Looking&hellip;</Note>}
         {!error && !isLoading && !sessions.length && (
-          <Note>{query ? `Nothing matching &ldquo;${query}&rdquo;.` : "Nothing yet. Hold your key anywhere and say something."}</Note>
+          <Note>{query ? `Nothing matching “${query}”.` : "Nothing yet. Hold your key anywhere and say something."}</Note>
         )}
         <Rows sessions={sessions} onSelect={onSelect} />
         {more && (
@@ -148,7 +148,7 @@ function Transcript({ id, onBack }: { id: string; onBack: () => void }) {
             <X className="size-4" />
           </button>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <h1 className="text-title font-semibold">&ldquo;{sessionLine({ title: str(data?.header?.title), id, createdAt: first, updatedAt: last, state: "archived" })}&rdquo;</h1>
+            <h1 className="text-title font-semibold">&ldquo;{headline(data)}&rdquo;</h1>
             <p className="text-caption text-muted-foreground">
               {[dayLabel(first), clock(first), app ? `${str((app.context as { app?: string }).app)} was in front` : "", `${entries.length} events`]
                 .filter(Boolean).join(" · ")}
@@ -224,6 +224,16 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
       <dd className="min-w-0 flex-1 break-words text-body">{children}</dd>
     </div>
   );
+}
+
+/** What a session is called: its own title, else the first thing that was said.
+ *  Derived here rather than taken from the listing, so a transcript opened by
+ *  URL still leads with the sentence instead of with "Flow session". */
+function headline(data: FlowSessionDetail | undefined): string {
+  const given = str(data?.header?.title).trim();
+  if (given) return given;
+  const said = (data?.entries ?? []).find((e) => e.type === "message" && e.role === "user" && str(e.text).trim());
+  return str(said?.text).trim() || "Flow session";
 }
 
 /** One line of the plain-text copy, so a pasted transcript reads like the screen. */

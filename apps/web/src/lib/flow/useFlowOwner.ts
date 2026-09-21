@@ -487,7 +487,11 @@ export function useFlowOwner(): void {
     let armErrors = 0;
     const armWatch = setInterval(() => {
       if (armed.current || disarmed.current || armErrors >= ARM_WATCH_MAX_ERRORS) return;
-      void arm().then(() => { armErrors = 0; }, () => { armErrors++; });
+      void api.permissions().then((r) => {
+        if (!r.ok) { armErrors++; return; }
+        armErrors = 0;
+        if (r.value.accessibility) return arm().then(refreshHealth);
+      });
     }, ARM_WATCH_MS);
 
     // Settings written in the main window reach the runtime here. Without this
