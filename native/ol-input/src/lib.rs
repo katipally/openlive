@@ -281,3 +281,368 @@ pub fn request_screen_recording() -> bool {
     perms::request_screen_recording()
 }
 
+
+#[napi(object)]
+pub struct DisplayInfo {
+    pub id: u32,
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+/// The geometry a captured image is in. It travels with the image so a point
+/// the model picks out of the pixels can be turned back into a screen
+/// coordinate by `shotToScreen`, and never by the caller's own arithmetic.
+#[napi(object)]
+pub struct ShotGeometry {
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub scale: f64,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[napi(object)]
+pub struct CaptureResult {
+    pub png: Buffer,
+    pub shot: ShotGeometry,
+}
+
+#[napi(object)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[napi(object)]
+pub struct WindowSummary {
+    pub id: u32,
+    pub app_name: String,
+    pub app_id: Option<String>,
+    /// Absent when the platform withholds it, never an empty string.
+    pub title: Option<String>,
+    pub pid: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub display_id: Option<u32>,
+    pub minimized: bool,
+}
+
+#[napi(object)]
+pub struct TextBoxInfo {
+    pub text: String,
+    pub confidence: f64,
+    /// Screen coordinates, so this is clickable as it stands.
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[napi(object)]
+pub struct CapabilityReport {
+    pub hook: bool,
+    pub injection: String,
+    pub capture: bool,
+    pub capture_backend: String,
+    pub ocr: bool,
+    pub ocr_engine: String,
+    pub selection: bool,
+    pub selection_backend: String,
+    pub window_control: bool,
+    pub elevated_window_injection: bool,
+    pub secure_input: bool,
+    pub session: Option<String>,
+    pub tools: Vec<String>,
+}
+
+impl From<coords::Shot> for ShotGeometry {
+    fn from(shot: coords::Shot) -> Self {
+        ShotGeometry {
+            origin_x: shot.origin.x,
+            origin_y: shot.origin.y,
+            scale: shot.scale,
+            width: shot.width,
+            height: shot.height,
+        }
+    }
+}
+
+impl From<&ShotGeometry> for coords::Shot {
+    fn from(geometry: &ShotGeometry) -> Self {
+        coords::Shot::new(
+            coords::ScreenPoint::new(geometry.origin_x, geometry.origin_y),
+            geometry.scale,
+            geometry.width,
+            geometry.height,
+        )
+    }
+}
+
+impl From<window::WindowInfo> for WindowSummary {
+    fn from(window: window::WindowInfo) -> Self {
+        WindowSummary {
+            id: window.id,
+            app_name: window.app_name,
+            app_id: window.app_id,
+            title: window.title,
+            pid: window.pid,
+            x: window.origin.x,
+            y: window.origin.y,
+            width: window.width,
+            height: window.height,
+            display_id: window.display_id,
+            minimized: window.minimized,
+        }
+    }
+}
+
+fn screen(point: &Point) -> coords::ScreenPoint {
+    coords::ScreenPoint::new(point.x, point.y)
+}
+
+enum Subject {
+    Display(u32),
+    Window(u32),
+    Region(coords::ScreenPoint, f64, f64),
+}
+
+/// Capture runs on libuv's pool, never on the Electron main thread, for the
+/// same reason the hook owns its own thread: a full-screen grab is tens of
+/// milliseconds and the main thread is where the UI lives.
+pub struct CaptureTask(Subject);
+
+impl napi::Task for CaptureTask {
+    type Output = capture::Capture;
+    type JsValue = CaptureResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match self.0 {
+            Subject::Display(id) => capture::display(id),
+            Subject::Window(id) => capture::window(id),
+            Subject::Region(origin, width, height) => capture::region(origin, width, height),
+        }
+        .map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(CaptureResult { png: output.png.into(), shot: output.shot.into() })
+    }
+}
+
+pub struct OcrTask {
+    png: Vec<u8>,
+    shot: coords::Shot,
+}
+
+impl napi::Task for OcrTask {
+    type Output = Vec<ocr::TextBox>;
+    type JsValue = Vec<TextBoxInfo>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        ocr::read(&self.png, self.shot).map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output
+            .into_iter()
+            .map(|found| TextBoxInfo {
+                text: found.text,
+                confidence: f64::from(found.confidence),
+                x: found.origin.x,
+                y: found.origin.y,
+                width: found.width,
+                height: found.height,
+            })
+            .collect())
+    }
+}
+
+#[napi]
+pub fn displays() -> Result<Vec<DisplayInfo>> {
+    Ok(capture::displays()
+        .map_err(err)?
+        .into_iter()
+        .map(|display| DisplayInfo {
+            id: display.id,
+            name: display.name,
+            x: display.origin.x,
+            y: display.origin.y,
+            width: display.width,
+            height: display.height,
+            scale: display.scale,
+            primary: display.primary,
+        })
+        .collect())
+}
+
+#[napi]
+pub fn capture_display(display_id: u32) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Display(display_id)))
+}
+
+#[napi]
+pub fn capture_window(window_id: u32) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Window(window_id)))
+}
+
+#[napi]
+pub fn capture_region(origin: Point, width: f64, height: f64) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Region(screen(&origin), width, height)))
+}
+
+/// The only way from a pixel in a captured image to a coordinate the control
+/// calls accept. Everything they take is already screen space.
+#[napi]
+pub fn shot_to_screen(shot: ShotGeometry, x: f64, y: f64) -> Point {
+    let point = coords::Shot::from(&shot).to_screen(coords::ShotPoint::new(x, y));
+    Point { x: point.x, y: point.y }
+}
+
+#[napi]
+pub fn recognize_text(png: Buffer, shot: ShotGeometry) -> AsyncTask<OcrTask> {
+    AsyncTask::new(OcrTask { png: png.to_vec(), shot: coords::Shot::from(&shot) })
+}
+
+#[napi]
+pub fn foreground_window() -> Result<Option<WindowSummary>> {
+    Ok(window::foreground().map_err(err)?.map(WindowSummary::from))
+}
+
+#[napi]
+pub fn window_list() -> Result<Vec<WindowSummary>> {
+    Ok(window::list().map_err(err)?.into_iter().map(WindowSummary::from).collect())
+}
+
+#[napi]
+pub fn activate_window(window_id: u32) -> Result<()> {
+    window::activate(window_id).map_err(err)
+}
+
+#[napi]
+pub fn move_window(window_id: u32, origin: Point) -> Result<()> {
+    window::move_to(window_id, screen(&origin)).map_err(err)
+}
+
+#[napi]
+pub fn resize_window(window_id: u32, width: f64, height: f64) -> Result<()> {
+    window::resize(window_id, width, height).map_err(err)
+}
+
+#[napi]
+pub fn minimize_window(window_id: u32) -> Result<()> {
+    window::minimize(window_id).map_err(err)
+}
+
+#[napi]
+pub fn close_window(window_id: u32) -> Result<()> {
+    window::close(window_id).map_err(err)
+}
+
+#[napi]
+pub fn open_app(name: String) -> Result<()> {
+    window::open_app(&name).map_err(err)
+}
+
+#[napi]
+pub fn open_url(url: String) -> Result<()> {
+    window::open_url(&url).map_err(err)
+}
+
+/// Null when the app or the platform will not say, which is not the same as
+/// an empty selection.
+#[napi]
+pub fn selected_text() -> Option<String> {
+    window::selection()
+}
+
+fn button(name: Option<String>) -> Result<control::Button> {
+    match name {
+        None => Ok(control::Button::Left),
+        Some(name) => control::Button::parse(&name).map_err(err),
+    }
+}
+
+#[napi]
+pub fn move_mouse(point: Point) -> Result<()> {
+    control::move_to(screen(&point)).map_err(err)
+}
+
+#[napi]
+pub fn click(point: Point, mouse_button: Option<String>, count: Option<u32>) -> Result<()> {
+    control::click(screen(&point), button(mouse_button)?, count.unwrap_or(1)).map_err(err)
+}
+
+#[napi]
+pub fn double_click(point: Point) -> Result<()> {
+    control::click(screen(&point), control::Button::Left, 2).map_err(err)
+}
+
+#[napi]
+pub fn right_click(point: Point) -> Result<()> {
+    control::click(screen(&point), control::Button::Right, 1).map_err(err)
+}
+
+#[napi]
+pub fn mouse_down(point: Point, mouse_button: Option<String>) -> Result<()> {
+    control::mouse_down(screen(&point), button(mouse_button)?).map_err(err)
+}
+
+#[napi]
+pub fn mouse_up(point: Point, mouse_button: Option<String>) -> Result<()> {
+    control::mouse_up(screen(&point), button(mouse_button)?).map_err(err)
+}
+
+/// The whole path, not just its ends: a drag that teleports is ignored by
+/// every canvas and most drop targets.
+#[napi]
+pub fn drag(path: Vec<Point>, mouse_button: Option<String>) -> Result<()> {
+    let path: Vec<coords::ScreenPoint> = path.iter().map(screen).collect();
+    control::drag(&path, button(mouse_button)?).map_err(err)
+}
+
+#[napi]
+pub fn scroll(point: Point, horizontal: i32, vertical: i32) -> Result<()> {
+    control::scroll(screen(&point), horizontal, vertical).map_err(err)
+}
+
+#[napi]
+pub fn type_text(text: String) -> Result<()> {
+    inject::refresh_layout();
+    control::type_text(&text).map_err(err)
+}
+
+/// A chord, as `["ctrl", "c"]`. The modifiers stay down across the key.
+#[napi]
+pub fn keypress(keys: Vec<String>) -> Result<()> {
+    inject::refresh_layout();
+    control::keypress(&keys).map_err(err)
+}
+
+/// What this machine can do right now. Cheap: only the parts that cannot
+/// change while the app runs are cached.
+#[napi]
+pub fn capabilities() -> CapabilityReport {
+    let found = capabilities::probe();
+    CapabilityReport {
+        hook: found.hook,
+        injection: found.injection.into(),
+        capture: found.capture,
+        capture_backend: found.capture_backend.into(),
+        ocr: found.ocr,
+        ocr_engine: found.ocr_engine.into(),
+        selection: found.selection,
+        selection_backend: found.selection_backend.into(),
+        window_control: found.window_control,
+        elevated_window_injection: found.elevated_window_injection,
+        secure_input: found.secure_input,
+        session: found.session.map(str::to_string),
+        tools: found.tools,
+    }
+}
