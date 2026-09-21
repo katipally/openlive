@@ -24,6 +24,14 @@ const CAP: Duration = Duration::from_secs(8);
 /// clipboard comes back fast instead of after the full cap.
 const FAILED_CAP: Duration = Duration::from_millis(600);
 const POLL: Duration = Duration::from_millis(20);
+/// Finer than `POLL`: this one is on the insertion's own path, so the cost of
+/// a granted, working paste is however long the app takes plus one of these.
+const RECEIPT_POLL: Duration = Duration::from_millis(4);
+
+/// Whether this platform publishes lazily and can therefore tell whether the
+/// text was taken. Linux sets the clipboard outright, so a paste there has no
+/// receipt and nothing may claim one.
+pub const PROMISES: bool = cfg!(any(target_os = "macos", target_os = "windows"));
 
 /// Set by the platform's lazy provider when a consumer pulls the data.
 #[derive(Default)]
@@ -83,6 +91,23 @@ pub fn begin(text: &str) -> Result<PasteTx, String> {
 }
 
 impl PasteTx {
+    /// Whether anything actually pulled the text. The promise is only read
+    /// when an app really pastes, so this is direct evidence that the
+    /// keystroke landed, which is the one thing posting an event cannot tell
+    /// you. An app pastes within a frame or two of the chord; waiting longer
+    /// than that only delays saying so.
+    pub fn was_read(&self, within: Duration) -> bool {
+        loop {
+            if self.receipt.last_read().is_some() {
+                return true;
+            }
+            if self.started.elapsed() >= within {
+                return false;
+            }
+            thread::sleep(RECEIPT_POLL);
+        }
+    }
+
     /// Restores on a background thread. Called on both paths: a failed
     /// injection must put the user's clipboard back just as reliably as a
     /// successful one.

@@ -215,11 +215,32 @@ fn guard_injection() -> Result<()> {
     platform::desktop::current::guard_injection().map_err(err)
 }
 
+/// The paste receipt is delivered to the main thread's run loop, so an
+/// insertion that waited for it there would be waiting for itself. It runs on
+/// libuv's pool for the same reason `end_insertion` does.
+pub struct InsertTask(String, Method);
+
+impl napi::Task for InsertTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        inject::insert(&self.0, self.1).map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
 #[napi]
-pub fn insert_text(text: String, insertion_method: Option<String>) -> Result<()> {
+pub fn insert_text(
+    text: String,
+    insertion_method: Option<String>,
+) -> Result<AsyncTask<InsertTask>> {
     guard_injection()?;
     inject::refresh_layout();
-    inject::insert(&text, method(insertion_method)?).map_err(err)
+    Ok(AsyncTask::new(InsertTask(text, method(insertion_method)?)))
 }
 
 /// Opens a streamed insertion. Chunks pushed while a paste is still in

@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crate::paste_tx;
 use crate::platform::current as platform;
@@ -68,6 +69,15 @@ fn send_paste_chord() -> Result<(), String> {
     return platform::send_paste_chord();
 }
 
+/// A paste that is going to happen has happened within a frame or two of the
+/// chord. Past that, the app is not pasting, and saying so beats reporting
+/// text the user never received.
+const RECEIPT_WAIT: Duration = Duration::from_millis(500);
+
+const NOT_TAKEN: &str =
+    "the paste keystroke went out but the app never took the text, so nothing \
+     was inserted: click into the place the text should go and try again";
+
 pub fn insert(text: &str, method: Method) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
@@ -77,10 +87,16 @@ pub fn insert(text: &str, method: Method) -> Result<(), String> {
         Method::Paste => {
             let tx = paste_tx::begin(text)?;
             let result = send_paste_chord();
+            let taken = result.is_ok() && tx.was_read(RECEIPT_WAIT);
             // Unconditional: a failed chord leaves the user's clipboard just
             // as hijacked as a successful one.
             tx.finish(result.is_ok());
-            result
+            result?;
+            if taken || !paste_tx::PROMISES {
+                Ok(())
+            } else {
+                Err(NOT_TAKEN.into())
+            }
         }
     }
 }
