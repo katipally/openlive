@@ -189,5 +189,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // turn on the same socket can never abort each other. `spoken` is what the
   // on-device TTS actually voiced before the cut, so only that is persisted.
   z.object({ t: z.literal("flow_cancel"), spoken: z.string().optional() }),
+  // Continue an archived Flow session: the next utterance appends to that file
+  // and the brain is given the turns it already holds, instead of starting over.
+  z.object({ t: z.literal("flow_resume"), sessionId: z.string() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

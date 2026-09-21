@@ -140,6 +140,8 @@ export class LiveClient {
   flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}) }); }
   /** Barge-in on a Flow turn. `spoken` is what the voice actually got through. */
   flowCancel(spoken?: string) { this.sendJson({ t: "flow_cancel", ...(spoken ? { spoken } : {}) }); }
+  /** Continue an archived Flow session on the next utterance. */
+  flowResume(sessionId: string) { this.sendJson({ t: "flow_resume", sessionId }); }
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }

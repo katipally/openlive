@@ -1,11 +1,16 @@
-import { desktopPlatform } from "@/lib/platform";
-
 // The addon's binding vocabulary, on both sides of the capture field: a browser
 // KeyboardEvent becomes the `+`-joined canonical string the addon parses, and
 // that string becomes the keycap the person reads. The addon stays the authority
 // on whether a binding is valid; this only speaks its language.
 
-const MAC = () => desktopPlatform === "darwin" || (!desktopPlatform && typeof navigator !== "undefined" && /Mac/i.test(navigator.platform));
+/** Read here rather than imported, so this module stays free of app wiring and
+ *  its round-trip stays testable on its own. */
+function isMac(): boolean {
+  if (typeof window === "undefined") return false;
+  const platform = (window as { openlive?: { platform?: string } }).openlive?.platform;
+  if (platform) return platform === "darwin";
+  return /Mac/i.test(navigator?.platform ?? "");
+}
 
 /** `KeyboardEvent.code` for the modifiers, in the order the addon formats them. */
 const MODIFIER_CODES: Record<string, string> = {
@@ -66,7 +71,7 @@ const sideless = (name: string) => `${name.split("_")[0]}_${name.endsWith("_righ
 /** The binding, written the way it is printed on the keyboard. */
 export function bindingLabel(binding: string): string {
   if (!binding.trim()) return "Not set";
-  const mac = MAC();
+  const mac = isMac();
   return binding
     .split("+")
     .map((part) => {

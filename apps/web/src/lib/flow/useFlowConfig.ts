@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FlowConfig } from "@openlive/flow-store";
+import { flowBridge } from "./bridge";
 
 // Flow's settings, as every Flow screen reads and writes them. One query key, so
 // a switch flipped on one screen is already true on the next.
@@ -34,7 +35,13 @@ export function useFlowConfig() {
     },
     // The server's parse is the authority: it clamps, defaults and refuses, so
     // the screen shows what was actually written rather than what was asked for.
-    onSuccess: (reply) => qc.setQueryData(KEY, reply),
+    onSuccess: (reply) => {
+      qc.setQueryData(KEY, reply);
+      // The runtime lives in another renderer and reads this file itself. Telling
+      // it is what makes a rebind, a new hold threshold or a changed quiet rule
+      // take effect now rather than at the next launch.
+      flowBridge()?.settingsChanged?.();
+    },
   });
 
   return {

@@ -54,6 +54,9 @@ export interface FlowBridge {
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): void;
+  /** Flow's settings were written, so the runtime should re-read them. */
+  settingsChanged?(): void;
+  onSettingsChanged?(cb: () => void): void;
   /** The tray's quick disarm, and a subscription to it. */
   setArmed(armed: boolean): void;
   onArmed(cb: (armed: boolean) => void): void;

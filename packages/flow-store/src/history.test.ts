@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { listAssets, listSessions, loadSession, searchSessions } from "./history";
+import { deleteSession, listAssets, listSessions, loadSession, searchSessions, sessionPath } from "./history";
 import { FlowSession } from "./session";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -65,4 +65,21 @@ test("a live session reports as active", async () => {
   const s = await FlowSession.open({ title: "live" });
   expect(listSessions(1)[0]!.state).toBe("active");
   await s.archive();
+});
+
+test("a session can be found by id and removed with everything captured for it", async () => {
+  const s = await FlowSession.open({ meta: { mode: "flow" } });
+  await s.append("message", { role: "user", text: "delete me" });
+  s.writeAsset("screen.png", Buffer.from("not really a png"));
+  await s.archive();
+
+  expect(sessionPath(s.id)).toBe(s.path);
+  expect(sessionPath("no-such-session")).toBe("");
+  expect(listAssets(s.id).map((a) => a.name)).toEqual(["screen.png"]);
+
+  expect(deleteSession(s.id)).toBe(true);
+  expect(sessionPath(s.id)).toBe("");
+  expect(listAssets(s.id)).toEqual([]);
+  expect(loadSession(s.id)).toBeNull();
+  expect(deleteSession(s.id)).toBe(false); // deleting what is already gone is not an error
 });

@@ -362,8 +362,11 @@ function createMainWindow() {
     mainWin = null;
     // Flow's owner and pill are hidden, but a hidden window still counts for
     // window-all-closed — so off macOS they have to go with the last real
-    // window or the app would stay alive with nothing on screen.
-    if (process.platform !== "darwin") closeFlowWindows();
+    // window or the app would stay alive with nothing on screen. Mini mode is
+    // the exception: the app is deliberately still running behind the pill, so
+    // taking Flow down with the main window killed the hotkey with no sign of it.
+    const inMini = !!(panelWin && !panelWin.isDestroyed());
+    if (process.platform !== "darwin" && !inMini) closeFlowWindows();
     refreshTray();
   });
   for (const ev of ["show", "hide"]) mainWin.on(ev, refreshTray);
@@ -511,6 +514,9 @@ function wireFlowIpc() {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-resume-session", String(id || ""));
   });
   ipcMain.on("openlive:flow-armed", (_e, v) => setFlowArmed(v));
+  ipcMain.on("openlive:flow-settings-changed", () => {
+    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-settings-changed");
+  });
 }
 
 /** The quick disarm, from the tray or from the Flow window. One state, told to
