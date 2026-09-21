@@ -15,7 +15,7 @@ import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput
 import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
 import { killTree } from "./proc.js";
-import { readProjectMcpServers } from "./mcp-config.js";
+import { readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -68,6 +68,10 @@ export interface AcpOpts {
   onReplay?: (messages: ReplayMessage[]) => void; // prior turns recovered from session/load
   askElicitation?: (req: { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string }) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }>;
   completeElicitation?: (elicitationId: string) => void; // URL elicitation finished agent-side
+  // Servers OpenLive hosts itself, handed to the agent whatever it does with the
+  // project's own .mcp.json. Flow publishes its tool set here so a coding-agent
+  // brain gets exactly the tools the built-in brain has.
+  mcpServers?: McpServerWire[];
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -215,7 +219,12 @@ export class AcpAgent implements Agent {
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
     // MCP passthrough: the project's own .mcp.json rides along for agents that
     // don't read it themselves ("native" agents would double-register).
-    const mcpServers = quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : [];
+    // Hosted servers ride along for every agent: they are not in the project's
+    // file, so a native-MCP agent cannot double-register them.
+    const mcpServers = [
+      ...(this.opts.mcpServers ?? []),
+      ...(quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : []),
+    ];
 
     let resumed = false;
     // Resume the chat's own prior session when the agent can. A failure here is
