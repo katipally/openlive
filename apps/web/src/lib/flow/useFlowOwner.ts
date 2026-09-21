@@ -29,6 +29,11 @@ const CAMERA_TRIES = 20;
 const CAMERA_WAIT_MS = 100;
 // macOS never calls back when a permission is granted, so an unarmed runtime asks.
 const ARM_WATCH_MS = 1000;
+// Listening has a ceiling. A key-up the OS never delivered, or a microphone that
+// opens and then yields nothing, would otherwise leave the pill saying "keep
+// holding" with a running clock until the next trigger happened to arrive. Far
+// past any real hold, so a genuine long turn is never cut short.
+const MAX_LISTEN_MS = 120_000;
 const ARM_WATCH_MAX_ERRORS = 5;
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
@@ -66,6 +71,7 @@ export function useFlowOwner(): void {
   const armed = useRef(false);
   const armedFor = useRef("");
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
   const insertion = useRef<{ id: string; session: number } | null>(null);
@@ -81,8 +87,34 @@ export function useFlowOwner(): void {
     const publish = () => panel.panelState?.({ k: "s", s: { ...NO_CALL, permission: permission.current, flow: snap.current } });
     const patch = (p: Partial<FlowSnapshot>) => { snap.current = { ...snap.current, ...p }; publish(); };
     const setPhase = (phase: FlowPhase, detail = "") => {
+      if (snap.current.phase !== phase) {
+        if (phase === "listening") armListenWatchdog();
+        else stopListenWatchdog();
+      }
       if (snap.current.phase === phase && snap.current.detail === detail) return;
       patch({ phase, detail });
+    };
+
+    const stopListenWatchdog = () => {
+      if (!listenTimer.current) return;
+      clearTimeout(listenTimer.current);
+      listenTimer.current = null;
+    };
+    const armListenWatchdog = () => {
+      stopListenWatchdog();
+      listenTimer.current = setTimeout(() => {
+        listenTimer.current = null;
+        if (snap.current.phase !== "listening") return;
+        patch({
+          failure: {
+            code: "listen_timeout",
+            title: "I stopped listening",
+            detail: "Nothing came through for two minutes, so the microphone was closed. Hold your key and say it again.",
+            actionLabel: "Try again",
+          },
+        });
+        failTurn("");
+      }, MAX_LISTEN_MS);
     };
 
     const summon = () => {
@@ -93,6 +125,7 @@ export function useFlowOwner(): void {
     const dismiss = () => {
       if (!summoned.current) return;
       summoned.current = false;
+      stopListenWatchdog();
       api.dismiss();
       // The pill is gone, so whatever was running is over. Clearing this BEFORE
       // teardownMic is what lets the microphone actually close: it declines to
@@ -525,6 +558,7 @@ export function useFlowOwner(): void {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", online);
       if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      stopListenWatchdog();
       turnActive.current = false;
       teardownMic();
       void api.unregister(BINDING_ID);
