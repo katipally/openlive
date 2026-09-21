@@ -129,7 +129,7 @@ function capabilities() {
   const wayland = report
     ? report.session === "wayland"
     : process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
-  return { platform: process.platform, wayland, permissions, secureInput, hookError, report };
+  return { platform: process.platform, wayland, permissions, secureInput, hookError, report, armed: flowInput.isArmed() };
 }
 
 // Same { ok, value } shape as the rest of the flow namespace, so a caller never

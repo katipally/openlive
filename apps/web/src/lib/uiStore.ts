@@ -21,6 +21,23 @@ interface UiState {
   newConversation: () => void;        // fresh id
   minimized: boolean;
   setMinimized: (v: boolean) => void;
+  /** Which half of the app the window is showing. Flow's hotkey is armed in both. */
+  mode: AppMode;
+  setMode: (m: AppMode) => void;
+}
+
+export type AppMode = "chat" | "flow";
+
+const MODE_KEY = "openlive-mode";
+
+/** The saved mode, or "chat". Read on mount rather than at module load: this
+ *  store is evaluated during SSR too, and seeding it from localStorage there is
+ *  a hydration mismatch waiting to happen. */
+export function restoreMode(): void {
+  try {
+    const saved = localStorage.getItem(MODE_KEY);
+    if (saved === "flow" || saved === "chat") useUi.setState({ mode: saved });
+  } catch { /* private mode */ }
 }
 
 export const useUi = create<UiState>((set) => ({
@@ -39,4 +56,9 @@ export const useUi = create<UiState>((set) => ({
   newConversation: () => set({ activeChatId: newId() }),
   minimized: false,
   setMinimized: (v) => set({ minimized: v }),
+  mode: "chat",
+  setMode: (mode) => {
+    set({ mode });
+    try { localStorage.setItem(MODE_KEY, mode); } catch { /* private mode */ }
+  },
 }));

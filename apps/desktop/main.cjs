@@ -505,6 +505,23 @@ function wireFlowIpc() {
     flowWin.setBounds({ x: b.x, y, width: b.width, height }, true);
   });
   for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, reclampFlow);
+  // "Continue this session" in the Flow window: only the owner renderer holds the
+  // Flow socket, so the ask has to cross windows.
+  ipcMain.on("openlive:flow-resume-session", (_e, id) => {
+    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-resume-session", String(id || ""));
+  });
+  ipcMain.on("openlive:flow-armed", (_e, v) => setFlowArmed(v));
+}
+
+/** The quick disarm, from the tray or from the Flow window. One state, told to
+ *  everyone who draws it, so the tray and the window can never disagree. */
+function setFlowArmed(next) {
+  const armed = flowInput.setArmed(next);
+  if (!armed) dismissFlow();
+  for (const win of [mainWin, ownerWin, flowWin]) {
+    if (win && !win.isDestroyed()) win.webContents.send("openlive:flow-armed", armed);
+  }
+  refreshTray();
 }
 
 // The global mini-mode talk hotkey. Configurable from Settings → General; kept in
@@ -596,12 +613,18 @@ function createTray() {
 function refreshTray() {
   if (!tray) return;
   const mini = !!(panelWin && !panelWin.isDestroyed());
+  const armed = flowInput.isArmed();
   tray.setContextMenu(Menu.buildFromTemplate([
     // Always enabled: `isVisible()` stays true for a window that's merely BEHIND
     // another app, so gating on it would grey out the one control that brings
     // OpenLive forward — the commonest reason to reach for the tray at all.
     { label: "Open OpenLive", click: restoreMainWindow },
     { label: "Mini mode", type: "checkbox", checked: mini, click: () => (mini ? restoreMainWindow() : enterMini()) },
+    { type: "separator" },
+    // Flow runs with no window at all, so the menu bar is the only place its
+    // state is visible and the only place to switch it off in one click.
+    { label: armed ? "Flow is listening for its key" : "Flow is off", enabled: false },
+    { label: "Flow armed", type: "checkbox", checked: armed, click: () => setFlowArmed(!armed) },
     { type: "separator" },
     { label: "Quit OpenLive", role: "quit" },
   ]));
