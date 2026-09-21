@@ -164,7 +164,8 @@ export function captureWindow(windowId: number): Promise<CaptureResult>;
 export function captureRegion(origin: Point, width: number, height: number): Promise<CaptureResult>;
 /** Screenshot pixel to screen coordinate, against the geometry that image came with. */
 export function shotToScreen(shot: ShotGeometry, x: number, y: number): Point;
-/** Runs off the main thread. Boxes come back in screen coordinates. */
+/** Runs off the main thread. Boxes are in the image's own pixels, so a caller
+ *  that wants to click one puts it through `shotToScreen` exactly once. */
 export function recognizeText(png: Buffer, shot: ShotGeometry): Promise<TextBoxInfo[]>;
 
 /** Cheap, and needs no screen-recording permission. */
