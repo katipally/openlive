@@ -1,4 +1,4 @@
-import type { SseEvent, AgentIdWire, AgentMetaWire } from "@openlive/shared";
+import type { SseEvent, AgentIdWire, AgentMetaWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
 
 // Browser side of the /live WebSocket. Same-origin (the web server proxies it to
 // the agent). THIN protocol: we send final user text + camera frames + a cancel
@@ -12,6 +12,7 @@ export type AgentMeta = AgentMetaWire;
 // when the ask comes from a coding agent — drives styling + voice yes/no mapping.
 export type PermissionOption = { id: string; label: string; kind?: string };
 export type ElicitationWire = { reqId: string; mode: "url" | "form"; message: string; url?: string; schema?: unknown; expiresAt?: number };
+export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "flow_insert" | "flow_insert_end" | "flow_context";
 
 export interface LiveHandlers {
   onOpen?: () => void;
@@ -19,7 +20,9 @@ export interface LiveHandlers {
   onReconnecting?: () => void;
   onSse?: (e: SseEvent) => void;
   onNeedFrame?: (reqId: string) => void;
-  onToolBridge?: (reqId: string, op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string) => void;
+  onToolBridge?: (reqId: string, op: ToolBridgeOp, arg?: string) => void;
+  /** One event of a Flow turn. Only a Flow connection ever receives these. */
+  onFlow?: (event: FlowEventWire) => void;
   onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number, toolCallId?: string) => void;
   onPermissionResolved?: (reqId: string) => void;
   onElicitation?: (e: ElicitationWire) => void;
@@ -45,7 +48,9 @@ export class LiveClient {
   private static HEALTHY_MS = 3000; // a connection must survive this long to "count"
   private static MAX_QUEUE = 8;     // cap queued turns during an outage (drop oldest)
   private queue: string[] = [];     // user turns spoken while the socket was down, flushed on reopen
-  constructor(private h: LiveHandlers) {}
+  /** `flow: true` opens the same endpoint for Flow's own runtime: same schemas,
+   *  same permission protocol, its own connection because it is its own renderer. */
+  constructor(private h: LiveHandlers, private opts: { flow?: boolean } = {}) {}
 
   connect(chatId: string) {
     this.chatId = chatId;
@@ -60,7 +65,7 @@ export class LiveClient {
     // so the per-launch token rides as a query param. Empty everywhere else.
     const tok = (window as { openlive?: { agentToken?: string } }).openlive?.agentToken;
     const auth = tok ? `&token=${encodeURIComponent(tok)}` : "";
-    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}`);
+    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${this.opts.flow ? "&flow=1" : ""}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.h.onOpen?.(); // sends the bind FIRST so a flushed turn lands on a bound agent
@@ -107,6 +112,7 @@ export class LiveClient {
         case "elicitation": return this.h.onElicitation?.(m);
         case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
         case "modal_voice_answer": return this.h.onModalVoiceAnswer?.(m.text);
+        case "flow": return this.h.onFlow?.(m.event);
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
@@ -130,6 +136,10 @@ export class LiveClient {
     this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
   }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken ? { spoken } : {}) }); }
+  /** A completed Flow utterance, with the metadata captured as it was spoken. */
+  flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}) }); }
+  /** Barge-in on a Flow turn. `spoken` is what the voice actually got through. */
+  flowCancel(spoken?: string) { this.sendJson({ t: "flow_cancel", ...(spoken ? { spoken } : {}) }); }
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string) { this.sendJson({ t: "frame_response", reqId }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
