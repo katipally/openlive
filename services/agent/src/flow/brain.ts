@@ -107,13 +107,21 @@ export class LocalBrain implements Brain {
  * Request direction: an ACP agent owns its own model, prompt and tools, so all
  * it takes from the turn is what the user just said. History reaches it through
  * `Agent.seed`, and its own tool calls are its business, not the loop's.
+ *
+ * All of it, not the last sentence: a user who says "open the PR" and then
+ * "actually, the other one" before the turn starts has the two drained together,
+ * and dropping either changes what they asked for.
  */
 export function acpTurnInput(req: TurnRequest): TurnInput {
-  for (let i = req.messages.length - 1; i >= 0; i--) {
+  let i = req.messages.length - 1;
+  while (i >= 0 && req.messages[i]!.role !== "user") i--;
+  const said: string[] = [];
+  for (; i >= 0; i--) {
     const m = req.messages[i]!;
-    if (m.role === "user") return { text: m.text, frames: [] };
+    if (m.role !== "user") break;
+    said.unshift(m.text);
   }
-  return { text: "", frames: [] };
+  return { text: said.join("\n"), frames: [] };
 }
 
 /**

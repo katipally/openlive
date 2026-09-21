@@ -115,7 +115,7 @@ describe("flow brain resolution", () => {
 });
 
 describe("ACP mapping", () => {
-  it("sends only the latest user utterance, because the agent owns its own history", () => {
+  it("sends this turn's utterances and no older one, because the agent owns its own history", () => {
     expect(acpTurnInput({
       systemPrompt: "ignored",
       tools: [],
@@ -126,6 +126,19 @@ describe("ACP mapping", () => {
       ],
     })).toEqual({ text: "second", frames: [] });
     expect(acpTurnInput({ systemPrompt: "", tools: [], messages: [] })).toEqual({ text: "", frames: [] });
+  });
+
+  it("carries every utterance the turn drained, not just the last one", () => {
+    expect(acpTurnInput({
+      systemPrompt: "ignored",
+      tools: [],
+      messages: [
+        { role: "user", text: "open the PR" },
+        { role: "assistant", text: "which one?" },
+        { role: "user", text: "the one about coordinates" },
+        { role: "user", text: "and approve it" },
+      ],
+    })).toEqual({ text: "the one about coordinates\nand approve it", frames: [] });
   });
 
   it("maps text and errors, and never turns the agent's own tools into calls for the loop", () => {
