@@ -391,8 +391,10 @@ export class FlowLiveSession {
 
   private async deviceCall<T>(fn: string, args?: unknown): Promise<T> {
     const raw = await this.bridge("flow_device", JSON.stringify({ fn, args }), DEVICE_TIMEOUT_MS);
+    if (!raw) throw new Error(`The machine did not answer in time (${fn}).`);
+    // Anything that is not the envelope is the main process answering in prose.
     const reply = safeJson(raw) as { value?: T; error?: string } | null;
-    if (!reply) throw new Error(`The machine did not answer in time (${fn}).`);
+    if (!reply) throw new Error(raw.slice(0, 400));
     if (reply.error) throw new Error(reply.error);
     return reply.value as T;
   }
