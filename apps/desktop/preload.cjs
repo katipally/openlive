@@ -101,6 +101,10 @@ contextBridge.exposeInMainWorld("openlive", {
     // only one holding the Flow socket) does it, so this has to cross windows.
     resumeSession: (sessionId) => ipcRenderer.send("openlive:flow-resume-session", sessionId),
     onResumeSession: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-resume-session"); ipcRenderer.on("openlive:flow-resume-session", (_e, id) => cb(id)); },
+    // Flow's settings were written. The owner renderer holds the registration and
+    // the auto-quiet rules, so it has to be told or every change needs a relaunch.
+    settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),
+    onSettingsChanged: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-settings-changed"); ipcRenderer.on("openlive:flow-settings-changed", () => cb()); },
     // The tray's quick disarm. Main owns the state (it suspends the hook itself)
     // and broadcasts it, so the tray, the pill and the Flow window never disagree.
     setArmed: (armed) => ipcRenderer.send("openlive:flow-armed", !!armed),

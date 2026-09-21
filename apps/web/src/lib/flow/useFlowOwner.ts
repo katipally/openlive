@@ -27,6 +27,9 @@ const IDLE_BANDS = [0, 0, 0, 0, 0];
 // A camera needs a moment between opening and having a frame to give.
 const CAMERA_TRIES = 20;
 const CAMERA_WAIT_MS = 100;
+// macOS never calls back when a permission is granted, so an unarmed runtime asks.
+const ARM_WATCH_MS = 1000;
+const ARM_WATCH_MAX_ERRORS = 5;
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
 function base64(buf: ArrayBuffer): string {
@@ -59,6 +62,9 @@ export function useFlowOwner(): void {
   const turnActive = useRef(false);
   const summoned = useRef(false);
   const disarmed = useRef(false);
+  /** Whether the addon currently holds a registration, and for which trigger. */
+  const armed = useRef(false);
+  const armedFor = useRef("");
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
@@ -88,11 +94,29 @@ export function useFlowOwner(): void {
       if (!summoned.current) return;
       summoned.current = false;
       api.dismiss();
+      // The pill is gone, so whatever was running is over. Clearing this BEFORE
+      // teardownMic is what lets the microphone actually close: it declines to
+      // close one a turn still claims.
+      turnActive.current = false;
       snap.current = { ...IDLE_FLOW, binding: snap.current.binding, failure: snap.current.failure };
       publish();
       teardownMic();
       // The coordinator holds the binding in Processing until the pipeline says
       // it is finished; without this the next press is swallowed as a busy press.
+      void api.processingFinished();
+    };
+
+    /**
+     * A turn that ended badly. The pill stays up with the reason on it, but the
+     * microphone closes and the coordinator is told the pipeline is finished,
+     * because an error is not a reason to keep recording or to stop answering
+     * the key. Without this a quiet turn that failed wedged both forever.
+     */
+    const failTurn = (message: string) => {
+      turnActive.current = false;
+      patch({ reply: message, inserting: null });
+      setPhase("error");
+      teardownMic();
       void api.processingFinished();
     };
     const dismissSoon = () => {
@@ -101,7 +125,11 @@ export function useFlowOwner(): void {
     };
 
     // ── health ────────────────────────────────────────────────────────────
+    // Settings are re-read here rather than remembered from launch: a provider
+    // key added after the app started is the commonest way "no brain is
+    // configured" used to stick, and that failure outranks the real one.
     const refreshHealth = async () => {
+      await loadSettings();
       const c = valueOr(await api.capabilities(), null);
       patch({
         failure: deriveFailure({
@@ -124,11 +152,34 @@ export function useFlowOwner(): void {
       const granted = valueOr(await api.permissions(), null)?.accessibility;
       // `init` is what asks for Accessibility, and onboarding owns that prompt,
       // so Flow only installs the hook once the grant already exists.
-      if (!granted) return refreshHealth();
+      if (!granted) { armed.current = false; return; }
       await api.init();
+      // Dropping the old registration first is what makes a rebind take effect:
+      // re-registering the same id on a new key would otherwise leave the old
+      // key live while settings claimed the new one.
+      await api.unregister(BINDING_ID);
       await api.register(BINDING_ID, s.binding, addonActivation(s.activation), s.holdThresholdMs);
+      armed.current = true;
+      armedFor.current = triggerOf(s);
       patch({ binding: s.binding });
-      await refreshHealth();
+    };
+
+    /** The three fields that decide what the addon is listening for. */
+    const triggerOf = (s: FlowSettings) => `${s.binding}|${s.activation}|${s.holdThresholdMs}`;
+
+    /**
+     * The settings the runtime actually runs on. Re-arms when the trigger
+     * changed, which is what makes a rebind, an activation change or a new hold
+     * threshold take effect without a relaunch.
+     */
+    const loadSettings = async (): Promise<void> => {
+      try {
+        const r = await fetch("/api/flow/config", { cache: "no-store" });
+        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean };
+        settings.current = body.config;
+        brainReady.current = body.brainReady;
+        if (!armed.current || armedFor.current !== triggerOf(body.config)) await arm();
+      } catch (e) { log.error("flow", "config:", e); }
     };
 
     // ── the cascade ───────────────────────────────────────────────────────
@@ -155,8 +206,9 @@ export function useFlowOwner(): void {
             turnActive.current = false;
             patch({ reply: "", inserting: null });
           },
-          // While an approval chip is up, speech is the ANSWER, never a barge-in.
-          holdBargeIn: () => !!permission.current,
+          // While an approval chip is up, speech is the ANSWER, never a barge-in;
+          // and with barge-in switched off, talking over Flow never cuts it.
+          holdBargeIn: () => !!permission.current || settings.current?.voice.bargeIn === false,
         });
         await eng.start(mic);
         engine.current = eng;
@@ -259,11 +311,8 @@ export function useFlowOwner(): void {
         case "tool_result":
           return setPhase(snap.current.speaking ? "speaking" : "thinking");
         case "error":
-          turnActive.current = false;
-          if (e.aborted) { setPhase("idle"); dismissSoon(); return; }
-          patch({ reply: e.message });
-          setPhase("error");
-          return;
+          if (e.aborted) { turnActive.current = false; setPhase("idle"); dismissSoon(); return; }
+          return failTurn(e.message);
         case "done":
           turnActive.current = false;
           if (snap.current.speaking) engine.current?.endAgentTurn();
@@ -338,7 +387,11 @@ export function useFlowOwner(): void {
     // ── approval ──────────────────────────────────────────────────────────
     const onPermission = (reqId: string, question: string, options: PermissionOption[], expiresAt?: number) => {
       permission.current = { reqId, question, options, expiresAt };
+      // The chips travel in the packet, not in the phase, and a second ask in one
+      // turn leaves the phase already on "confirming" — so publish unconditionally
+      // or the pill shows the question with no buttons under it.
       setPhase("confirming");
+      publish();
       if (snap.current.speaking) engine.current?.say(question);
     };
     const answer = (optionId: string) => {
@@ -393,13 +446,14 @@ export function useFlowOwner(): void {
       if (state === "suspend") {
         disarmed.current = true;
         turnActive.current = false;
+        armed.current = false;
         void api.suspend();
         client.current?.flowCancel(snap.current.reply);
         dismiss();
         teardownMic();
       } else {
         disarmed.current = false;
-        void api.resume().then(arm);
+        void api.resume().then(() => arm());
       }
     });
 
@@ -419,19 +473,37 @@ export function useFlowOwner(): void {
       // A spoken answer that raced its own chip comes back from the server, which
       // is the authority on what is still pending.
       onModalVoiceAnswer: (text) => answerByVoice(text),
-      onError: (message) => { patch({ reply: message }); setPhase("error"); },
+      onError: (message) => failTurn(message),
     }, { flow: true });
     client.current.connect("");
 
-    void (async () => {
-      try {
-        const r = await fetch("/api/flow/config", { cache: "no-store" });
-        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean };
-        settings.current = body.config;
-        brainReady.current = body.brainReady;
-      } catch (e) { log.error("flow", "config:", e); }
-      await arm();
-    })();
+    void loadSettings().then(refreshHealth);
+
+    // A grant given in System Settings is never reported back on macOS, and the
+    // window that asked for it is not this one. Polling while unarmed is what
+    // makes a first run start working the moment the switch is flipped, instead
+    // of at the next relaunch. It stops as soon as the binding is registered,
+    // and after a run of failures rather than hammering a broken bridge.
+    let armErrors = 0;
+    const armWatch = setInterval(() => {
+      if (armed.current || disarmed.current || armErrors >= ARM_WATCH_MAX_ERRORS) return;
+      void arm().then(() => { armErrors = 0; }, () => { armErrors++; });
+    }, ARM_WATCH_MS);
+
+    // Settings written in the main window reach the runtime here. Without this
+    // every change needed a relaunch to take effect.
+    api.onSettingsChanged?.(() => void loadSettings().then(refreshHealth));
+
+    // "Carry on from here" in the Flow window. Only this renderer holds the Flow
+    // socket, so the ask crosses windows to get here. The pill says so, because
+    // a button that changes something invisible has to show that it did.
+    api.onResumeSession?.((sessionId) => {
+      if (!sessionId || turnActive.current) return;
+      client.current?.flowResume(sessionId);
+      summon();
+      setPhase("idle", "Carrying on from that session. Hold your key and talk.");
+      dismissSoon();
+    });
 
     const bands = setInterval(() => {
       if (!summoned.current) return;
@@ -445,6 +517,7 @@ export function useFlowOwner(): void {
 
     return () => {
       clearInterval(bands);
+      clearInterval(armWatch);
       window.removeEventListener("online", online);
       window.removeEventListener("offline", online);
       if (dismissTimer.current) clearTimeout(dismissTimer.current);

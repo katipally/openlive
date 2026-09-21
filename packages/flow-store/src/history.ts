@@ -103,6 +103,12 @@ export function loadSession(id: string): LoadedFlowSession | null {
   return { header, entries, truncated, assets: listAssets(id) };
 }
 
+/** The file a session id names, or "" when nothing on disk answers to it. */
+export function sessionPath(id: string): string {
+  const hit = sessionFiles().find((f) => f.id === id);
+  return hit ? join(sessionsDir(), hit.name) : "";
+}
+
 /** Remove a session and everything captured for it. False when there was no
  *  such session; a partial removal still reports true, because the transcript
  *  going is what the person asked for. */

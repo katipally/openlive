@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { MonitorSpeaker, Mic, Moon } from "lucide-react";
 import type { ActivationMode, InsertionMethod } from "@openlive/flow-store";
 import { useUi } from "@/lib/uiStore";
+import { loadPipelineConfig, savePipelineConfig } from "@/lib/live/pipelineConfig";
 import { cn } from "@/lib/cn";
 import { segBtn, segWrap } from "@/lib/seg";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
@@ -106,8 +107,7 @@ export function FlowSettings() {
               label="Say replies out loud" note="With this off, every reply is written on the pill instead." />
             <Switch on={config.voice.bargeIn} onFlip={(bargeIn) => save({ voice: { bargeIn } })}
               label="Let me talk over it" note="Start talking and Flow stops mid-sentence. Only what it actually said is kept." />
-            <Range label="Speaking pace" min={0.6} max={1.6} step={0.05} value={config.tts.speed}
-              format={(v) => `${v.toFixed(2)}x`} onChange={(speed) => save({ tts: { speed } })} />
+            <SpeakingPace />
           </div>
 
           <div className="flex flex-col rounded-lg bg-card p-1.5 shadow-[var(--shadow-card)]">
@@ -154,6 +154,21 @@ export function FlowSettings() {
       </div>
     </div>
   );
+}
+
+/**
+ * Flow and live calls speak with one voice at one pace, so this writes the
+ * pipeline config the voice stack actually reads per sentence rather than a
+ * second copy of the number that nothing would consult.
+ */
+function SpeakingPace() {
+  const [speed, setSpeed] = useState(() => loadPipelineConfig().tts.speed);
+  const set = (v: number) => {
+    const cfg = loadPipelineConfig();
+    setSpeed(savePipelineConfig({ ...cfg, tts: { ...cfg.tts, speed: v } }).tts.speed);
+  };
+  return <Range label="Speaking pace, here and in calls" min={0.5} max={2} step={0.05} value={speed}
+    format={(v) => `${v.toFixed(2)}x`} onChange={set} />;
 }
 
 function Section({ id, title, desc, children }: { id: string; title: string; desc: string; children: React.ReactNode }) {

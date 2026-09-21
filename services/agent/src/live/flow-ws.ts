@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { LiveServerMsg } from "@openlive/shared";
 import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
-import { FlowSession as FlowStoreSession, readFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { FlowSession as FlowStoreSession, loadSession, readFlowConfig, sessionPath, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { serveFlowMcp } from "../flow/mcp.js";
 import { AcpAgent } from "../agents/acp-agent.js";
@@ -42,6 +42,19 @@ export function truncateToSpoken(messages: Msg[], spoken: string): void {
 }
 
 const safeJson = (s: string): unknown => { try { return JSON.parse(s); } catch { return null; } };
+
+/** The model-facing transcript of a stored session. Tool activity is left out:
+ *  its results are stale, and a call with no result is worse than no call. */
+export function transcriptOf(entries: { type: string; [k: string]: unknown }[]): Msg[] {
+  const out: Msg[] = [];
+  for (const e of entries) {
+    if (e.type !== "message") continue;
+    const text = typeof e.text === "string" ? e.text : "";
+    if (!text.trim()) continue;
+    out.push({ role: e.role === "assistant" ? "assistant" : "user", text });
+  }
+  return out;
+}
 
 const YES_NO: PermissionAskOption[] = [
   { id: "allow", label: "Yes", kind: "allow_once" },
@@ -147,6 +160,8 @@ export class FlowLiveSession {
       case "permission_response":
         this.permPending.get(msg.reqId)?.(msg.optionId);
         return;
+      case "flow_resume":
+        return this.resumeSession(msg.sessionId);
       case "control":
         if (msg.action === "end") this.dispose();
         return;
@@ -226,6 +241,33 @@ export class FlowLiveSession {
   private async persist(type: "message" | "context" | "tool_call" | "tool_result", data: Record<string, unknown>): Promise<void> {
     try { await (await this.session()).append(type, data); }
     catch (e) { log.error("flow", "persist:", e); }
+  }
+
+  /**
+   * Continue an archived session. The next utterance appends to that file rather
+   * than to a fresh one, and the brain is handed the turns already in it, so
+   * "carry on from here" carries the conversation and not just the file.
+   *
+   * A turn in flight keeps what it has: swapping the transcript under a running
+   * loop would leave the reply parented onto the wrong session.
+   */
+  private async resumeSession(sessionId: string): Promise<void> {
+    if (this.closed || this.turnActive) return;
+    const path = sessionPath(sessionId);
+    const loaded = path ? loadSession(sessionId) : null;
+    if (!loaded) return;
+    try {
+      await this.store?.archive();
+      this.store = await FlowStoreSession.resume(
+        path,
+        undefined,
+        { idleMs: readFlowConfig().idleWindowMs, onIdle: () => { this.store = null; this.opening = null; this.messages = []; } },
+      );
+      this.opening = Promise.resolve(this.store);
+      this.messages = transcriptOf(loaded.entries);
+    } catch (e) {
+      log.error("flow", "resume:", e);
+    }
   }
 
   /** One rolling session. On idle expiry it archives itself and the next utterance

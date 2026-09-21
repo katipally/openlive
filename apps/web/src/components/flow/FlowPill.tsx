@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Square, TextCursorInput, Volume2, VolumeX } from "lucide-react";
+import { AlertTriangle, Square, TextCursorInput, Volume2, VolumeX, X } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
@@ -141,12 +141,18 @@ export function FlowPill() {
                 <span className="text-caption leading-relaxed text-muted-foreground">{s.failure!.detail}</span>
               </div>
             </div>
-            {s.failure!.actionLabel && (
-              <button onClick={() => cmd({ t: "flowFix", code: s.failure!.code })}
-                className="self-start rounded-full bg-accent px-4 py-2 text-label font-medium text-white transition hover:opacity-90 [-webkit-app-region:no-drag]">
-                {s.failure!.actionLabel}
+            <div className="flex flex-wrap items-center gap-2">
+              {s.failure!.actionLabel && (
+                <button onClick={() => cmd({ t: "flowFix", code: s.failure!.code })}
+                  className="rounded-full bg-accent px-4 py-2 text-label font-medium text-white transition hover:opacity-90 [-webkit-app-region:no-drag]">
+                  {s.failure!.actionLabel}
+                </button>
+              )}
+              <button onClick={() => cmd({ t: "flowCancel" })}
+                className="rounded-full bg-card px-4 py-2 text-label font-medium text-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">
+                Close
               </button>
-            )}
+            </div>
           </>
         ) : (
           <>
@@ -180,10 +186,13 @@ export function FlowPill() {
                   s.speaking ? "text-foreground" : "text-muted-foreground")}>
                 {s.speaking ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
               </button>
-              {(s.phase === "speaking" || s.phase === "acting" || s.phase === "thinking") && (
-                <button onClick={() => cmd({ t: "flowCancel" })} title="Stop" aria-label="Stop"
+              {(s.phase === "speaking" || s.phase === "acting" || s.phase === "thinking" || s.phase === "error") && (
+                // An error card with no way off it is a state the user cannot
+                // leave, so the same control closes the pill once a turn failed.
+                <button onClick={() => cmd({ t: "flowCancel" })}
+                  title={s.phase === "error" ? "Close" : "Stop"} aria-label={s.phase === "error" ? "Close" : "Stop"}
                   className="grid size-8 shrink-0 place-items-center rounded-full bg-card text-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">
-                  <Square className="size-3.5" />
+                  {s.phase === "error" ? <X className="size-3.5" /> : <Square className="size-3.5" />}
                 </button>
               )}
             </div>
