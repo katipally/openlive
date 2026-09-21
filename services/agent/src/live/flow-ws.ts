@@ -30,9 +30,15 @@ const ASK_TIMEOUT_MS = 20_000;
 /** Enough of a turn to stay useful without turning the session file into a corpus. */
 const PERSIST_TEXT_CAP = 20_000;
 
-/** Cut a persisted reply back to what the voice actually said before the user cut in. */
-export function truncateToSpoken(messages: Msg[], spoken: string): void {
-  for (let i = messages.length - 1; i >= 0; i--) {
+/**
+ * Cut a persisted reply back to what the voice actually said before the user cut in.
+ *
+ * Only ever the aborted turn's own reply: barge in before the first token and
+ * the turn produced no assistant message at all, and the answer waiting above it
+ * belongs to a turn the user heard in full.
+ */
+export function truncateToSpoken(messages: Msg[], spoken: string, from: number): void {
+  for (let i = messages.length - 1; i >= from; i--) {
     const m = messages[i]!;
     if (m.role !== "assistant") continue;
     m.text = spoken.trim() || undefined;
@@ -183,6 +189,7 @@ export class FlowLiveSession {
 
   private async run() {
     this.turnActive = true;
+    const startedAt = this.messages.length;
     const ac = new AbortController();
     this.ac = ac;
     const cfg = readFlowConfig();
@@ -218,7 +225,7 @@ export class FlowLiveSession {
       // An ask left hanging by a cancelled turn must be settled, or the client's
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
-      if (ac.signal.aborted && this.spoken !== null) truncateToSpoken(this.messages, this.spoken);
+      if (ac.signal.aborted && this.spoken !== null) truncateToSpoken(this.messages, this.spoken, startedAt);
       this.spoken = null;
       const last = this.messages[this.messages.length - 1];
       if (last?.role === "assistant" && (last.text || last.toolCalls?.length)) {
