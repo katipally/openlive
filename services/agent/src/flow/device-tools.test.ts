@@ -65,6 +65,33 @@ describe("coordinates", () => {
     expect(actions).toHaveLength(0);
   });
 
+  it("clicks an OCR box where the box actually is, on a retina display", async () => {
+    // 2880x1800 at 2x, capped to 1024 wide for the model.
+    const retina: ShotGeometry = { originX: 0, originY: 0, scale: 2 * (1024 / 2880), width: 1024, height: 640 };
+    const box = { text: "Send", confidence: 1, x: 500, y: 300, width: 40, height: 20 };
+    const { tools, actions } = build({
+      capture: async () => ({ png: "PNGDATA", shot: retina }),
+      recognizeText: async () => [box],
+    });
+
+    const read = await byName(tools, "read_screen_text").execute({}, ctx);
+    expect(read.content[0]).toMatchObject({ text: expect.stringContaining("Send (500, 300)") });
+
+    await byName(tools, "click").execute({ x: box.x, y: box.y }, ctx);
+    expect(actions[0]).toMatchObject({ point: { space: "screen", x: 500 / retina.scale, y: 300 / retina.scale } });
+  });
+
+  it("leaves window geometry in the space the window server speaks", async () => {
+    const { tools, actions, converted } = build();
+    await byName(tools, "screenshot").execute({}, ctx);
+    const listed = await byName(tools, "list_windows").execute({}, ctx);
+    expect(listed.content[0]).toMatchObject({ text: expect.stringContaining("at (0, 0)") });
+
+    await byName(tools, "window_move").execute({ window_id: 7, x: 0, y: 0 }, ctx);
+    expect(actions[0]).toEqual({ kind: "window_move", windowId: 7, point: { space: "screen", x: 0, y: 0 } });
+    expect(converted).toHaveLength(0);
+  });
+
   it("converts both ends of a drag", async () => {
     const { tools, actions } = build();
     await byName(tools, "screenshot").execute({}, ctx);
@@ -122,6 +149,7 @@ describe("honest degradation", () => {
     await expect(byName(tools, "type").execute({ text: "hi" }, ctx)).rejects.toThrow(/elevated/);
     expect(actions).toHaveLength(0);
   });
+
 
   it("refuses rather than returning a black camera frame", async () => {
     const { tools } = build({ cameraFrame: async () => null });
