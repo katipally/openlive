@@ -1,7 +1,6 @@
 //! Text insertion into whatever app has focus, and the streaming session that
 //! makes a model's `insert_text` land progressively instead of in one lump.
 
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
@@ -28,7 +27,8 @@ impl Method {
 
 #[cfg(target_os = "macos")]
 mod layout {
-    use super::*;
+    use super::platform;
+    use std::sync::atomic::{AtomicU16, Ordering};
 
     /// Keycode 9 is V only on a US-ANSI layout. Dvorak and non-Latin layouts
     /// move it, so the real one is resolved from the active layout.

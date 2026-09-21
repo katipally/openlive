@@ -1,6 +1,9 @@
 pub mod binding;
 pub mod clipboard;
 pub mod coordinator;
+pub mod hook;
 pub mod inject;
+pub mod perms;
 pub mod paste_tx;
 pub mod platform;
+pub mod secure_input;
