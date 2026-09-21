@@ -1,4 +1,5 @@
 import { parsePartialJson } from "./partial-json.js";
+import { deviceTools, type DeviceToolOpts } from "./device-tools.js";
 import type { Approve, ImagePart, InsertionSink, Risk, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
 
 // Tool plumbing for the Flow loop: repair what the model got wrong, validate,
@@ -39,7 +40,43 @@ const NAME_ALIASES: Record<string, string> = {
   copy: "clipboard_write",
   context: "get_context",
   getcontext: "get_context",
+  // Block 4's device actions, under the names models reach for first.
+  leftclick: "click",
+  mouseclick: "click",
+  tap: "click",
+  contextclick: "right_click",
+  mousemove: "move",
+  movemouse: "move",
+  movecursor: "move",
+  takescreenshot: "screenshot",
+  capturescreen: "screenshot",
+  screencapture: "screenshot",
+  ocr: "read_screen_text",
+  readtext: "read_screen_text",
+  readscreen: "read_screen_text",
+  windows: "list_windows",
+  activatewindow: "window_activate",
+  focuswindow: "window_activate",
+  movewindow: "window_move",
+  resizewindow: "window_resize",
+  minimizewindow: "window_minimize",
+  closewindow: "window_close",
+  launchapp: "open_app",
+  openapplication: "open_app",
+  openbrowser: "open_url",
+  presskey: "keypress",
+  key: "keypress",
+  hotkey: "keypress",
+  typetextraw: "type",
+  runcommand: "shell",
+  bash: "shell",
+  exec: "shell",
+  terminal: "shell",
 };
+
+// `coordinate: [x, y]` is the single most common hallucinated shape, because
+// that is what the published computer-use schemas look like.
+const POINT_KEYS = ["coordinate", "coordinates", "position", "point", "coords", "location"];
 
 const WRAPPER_KEYS = ["input", "args", "arguments", "parameters", "params"];
 
@@ -86,11 +123,29 @@ export function normalizeArgs(tool: Tool, raw: unknown): Record<string, unknown>
     }
   }
 
+  // A point given as a pair, for a tool that wants two numbers.
+  if (keys.includes("x") && keys.includes("y") && !("x" in args)) {
+    for (const k of POINT_KEYS) {
+      const pair = args[k];
+      if (Array.isArray(pair) && pair.length >= 2) { args.x = pair[0]; args.y = pair[1]; break; }
+      if (isObj(pair) && "x" in pair && "y" in pair) { args.x = pair.x; args.y = pair.y; break; }
+    }
+  }
+
   // Key spelling: `windowTitle` for `window_title`, `Text` for `text`.
   for (const k of Object.keys(args)) {
     if (keys.includes(k)) continue;
     const match = keys.find((d) => reduce(d) === reduce(k));
     if (match && !(match in args)) { args[match] = args[k]; delete args[k]; }
+  }
+
+  // A chord written as "ctrl+c" where the tool wants ["ctrl", "c"]. A string
+  // that is already JSON is left for the validator's own coercion.
+  for (const k of keys) {
+    const v = args[k];
+    if (typeof v === "string" && propSchema(tool, k).type === "array" && !v.trimStart().startsWith("[")) {
+      args[k] = v.split(/[+,\s]+/).filter(Boolean);
+    }
   }
 
   // The tool takes one string and the model named it something else
@@ -356,9 +411,15 @@ const getContext: Tool<Record<string, never>, { context: unknown }> = {
   },
 };
 
-/** Every tool Flow has in Block 3. Device control is Block 4 and is not stubbed here. */
-export function flowTools(): Tool[] {
-  return [insertText, readSelection, clipboardRead, clipboardWrite, getContext];
+/**
+ * Every tool Flow has.
+ *
+ * Perception and control need a machine to act on, so they appear only when a
+ * device is wired in. This one list is what the built-in brain is given and what
+ * the MCP server publishes, which is what keeps the two brains identical.
+ */
+export function flowTools(opts?: DeviceToolOpts): Tool[] {
+  return [insertText, readSelection, clipboardRead, clipboardWrite, getContext, ...(opts ? deviceTools(opts) : [])];
 }
 
 export const toolSpecs = (tools: Tool[]) => tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
