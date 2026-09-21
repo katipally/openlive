@@ -47,7 +47,10 @@ define_class!(
     }
 );
 
-pub fn publish(text: &str, receipt: Arc<Receipt>, started: Instant) -> Result<(), String> {
+/// Returns the change count the promise was published under. Comparing that
+/// later is how ownership is checked: reading the pasteboard back would
+/// fulfil this very promise from whatever thread asked.
+pub fn publish(text: &str, receipt: Arc<Receipt>, started: Instant) -> Result<isize, String> {
     let provider = Provider::alloc().set_ivars(Ivars {
         text: text.to_string(),
         receipt,
@@ -66,8 +69,12 @@ pub fn publish(text: &str, receipt: Arc<Receipt>, started: Instant) -> Result<()
     let writable: Retained<ProtocolObject<dyn NSPasteboardWriting>> =
         ProtocolObject::from_retained(item);
     if pasteboard.writeObjects(&NSArray::from_slice(&[&*writable])) {
-        Ok(())
+        Ok(pasteboard.changeCount())
     } else {
         Err("the pasteboard refused the promised item".into())
     }
+}
+
+pub fn still_ours(change_count: isize) -> bool {
+    NSPasteboard::generalPasteboard().changeCount() == change_count
 }

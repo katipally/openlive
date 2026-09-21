@@ -46,7 +46,13 @@ impl Receipt {
 
 pub struct PasteTx {
     saved: Saved,
+    #[cfg(not(target_os = "macos"))]
     published: String,
+    /// macOS answers "is this still ours?" from the change count, because
+    /// reading the pasteboard back would fulfil our own lazy promise from
+    /// this background thread and AppKit warns that it will misbehave.
+    #[cfg(target_os = "macos")]
+    change_count: isize,
     receipt: Arc<Receipt>,
     started: Instant,
 }
@@ -59,13 +65,21 @@ pub fn begin(text: &str) -> Result<PasteTx, String> {
     let receipt = Arc::new(Receipt::default());
 
     #[cfg(target_os = "macos")]
-    macos::publish(text, receipt.clone(), started)?;
+    let change_count = macos::publish(text, receipt.clone(), started)?;
     #[cfg(target_os = "windows")]
     windows::publish(text, receipt.clone(), started)?;
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     clipboard::set_text(text)?;
 
-    Ok(PasteTx { saved, published: text.to_string(), receipt, started })
+    Ok(PasteTx {
+        saved,
+        #[cfg(not(target_os = "macos"))]
+        published: text.to_string(),
+        #[cfg(target_os = "macos")]
+        change_count,
+        receipt,
+        started,
+    })
 }
 
 impl PasteTx {
@@ -88,7 +102,11 @@ impl PasteTx {
                 thread::sleep(POLL);
             }
             // The user's own copy always wins.
-            if clipboard::current_text().as_deref() != Some(self.published.as_str()) {
+            #[cfg(target_os = "macos")]
+            let ours = macos::still_ours(self.change_count);
+            #[cfg(not(target_os = "macos"))]
+            let ours = clipboard::current_text().as_deref() == Some(self.published.as_str());
+            if !ours {
                 return;
             }
             let _ = clipboard::restore(&self.saved);
