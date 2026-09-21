@@ -358,7 +358,14 @@ function createMainWindow() {
   });
   // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
   // has to re-read this (its "Open OpenLive" is now the only way back).
-  mainWin.on("closed", () => { mainWin = null; refreshTray(); });
+  mainWin.on("closed", () => {
+    mainWin = null;
+    // Flow's owner and pill are hidden, but a hidden window still counts for
+    // window-all-closed — so off macOS they have to go with the last real
+    // window or the app would stay alive with nothing on screen.
+    if (process.platform !== "darwin") closeFlowWindows();
+    refreshTray();
+  });
   for (const ev of ["show", "hide"]) mainWin.on(ev, refreshTray);
 }
 
@@ -466,6 +473,12 @@ function summonFlow() {
 
 function dismissFlow() {
   if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
+}
+
+function closeFlowWindows() {
+  for (const win of [flowWin, ownerWin]) if (win && !win.isDestroyed()) win.destroy();
+  flowWin = null;
+  ownerWin = null;
 }
 
 /** A display was added, removed or rearranged while the pill was up: pull it back
@@ -856,7 +869,8 @@ async function boot() {
 
 app.whenReady().then(boot);
 
-app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
+// `!mainWin`, not "no windows at all": Flow keeps two hidden ones open.
+app.on("activate", () => { if (!mainWin) createMainWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 
 // Tear the server children (and their whole trees) down cleanly on quit: SIGTERM the
