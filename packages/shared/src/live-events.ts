@@ -17,6 +17,48 @@ export const LIVE_TAG = {
   FRAME_IN: 0x02, // client→server: JPEG camera frame (freshest-per-turn or `look`)
 } as const;
 
+// ── Flow (ambient voice mode) ─────────────────────────────────────────────
+// Flow rides the SAME /live socket as chat: same permission protocol, same
+// cancel, one connection. Its turns carry their own event union because the
+// Flow harness has its own loop and tool shape, and folding them into the chat
+// SSE union would change shapes chat already depends on.
+
+/** Free metadata captured for a Flow turn. Never pixels. */
+export const flowContextSchema = z.object({
+  app: z.string().optional(),
+  windowTitle: z.string().optional(),
+  selection: z.string().optional(),
+  url: z.string().optional(),
+  screen: z.object({ width: z.number(), height: z.number(), scale: z.number() }).optional(),
+  capturedAt: z.number(),
+});
+
+/** Model-facing tool output. Bounded by the tool, not by the transport. */
+export const flowContentSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image"), data: z.string(), mime: z.string() }),
+]);
+
+export const flowEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text_delta"), delta: z.string() }),
+  z.object({ type: z.literal("tool_start"), id: z.string(), name: z.string() }),
+  // Best-effort parse of the arguments streamed so far: strings may be cut
+  // mid-word and arrays may be short. Speculate on it, never act on it.
+  z.object({ type: z.literal("tool_args_delta"), id: z.string(), argsPartial: z.record(z.unknown()) }),
+  z.object({ type: z.literal("tool_call"), id: z.string(), name: z.string(), args: z.record(z.unknown()) }),
+  z.object({
+    type: z.literal("tool_result"), id: z.string(), name: z.string(),
+    content: z.array(flowContentSchema), isError: z.boolean(), details: z.unknown().optional(),
+  }),
+  z.object({ type: z.literal("context"), context: flowContextSchema }),
+  z.object({ type: z.literal("turn_end"), stop: z.enum(["stop", "tools", "length"]), usage: z.object({ input: z.number(), output: z.number() }).optional() }),
+  z.object({ type: z.literal("error"), message: z.string(), aborted: z.boolean() }),
+  z.object({ type: z.literal("done"), reason: z.enum(["no_tools", "terminate", "host_stop", "error", "aborted"]) }),
+]);
+export type FlowEventWire = z.infer<typeof flowEventSchema>;
+export type FlowContextWire = z.infer<typeof flowContextSchema>;
+export type FlowContentWire = z.infer<typeof flowContentSchema>;
+
 // ── server → client (JSON) ────────────────────────────────────────────────
 export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Wrap an ordinary chat SSE event so the browser reuses the existing reducer.
@@ -84,6 +126,9 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // (the authority on what's pending) bounces it back here to be routed to the open
   // modal instead of leaking to the agent as a new prompt.
   z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
+  // One event of a Flow turn. Wrapped rather than inlined so the client routes
+  // Flow to the pill's reducer and chat to the chat store, unchanged.
+  z.object({ t: z.literal("flow"), event: flowEventSchema }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
@@ -130,5 +175,11 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("set_mode"), modeId: z.string() }),
   // Set any other ACP session config option (thought/reasoning level, …).
   z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
+  // A completed Flow utterance, with the metadata the desktop captured as the
+  // user spoke it. Approval answers reuse `permission_response`.
+  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional() }),
+  // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
+  // turn on the same socket can never abort each other.
+  z.object({ t: z.literal("flow_cancel") }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;
