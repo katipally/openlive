@@ -379,7 +379,10 @@ const readSelection: Tool<Record<string, never>, { selection: string }> = {
   tier: "read",
   risk: "safe",
   async execute(_args, ctx) {
-    const selection = ctx.context?.selection ?? "";
+    const selection = ctx.context?.selection;
+    if (selection === undefined) {
+      return { content: [text("I cannot read the selection in this app, so I do not know whether anything is selected.")], details: { selection: "" } };
+    }
     return { content: [text(selection || "Nothing is selected right now.")], details: { selection } };
   },
 };
