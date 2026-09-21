@@ -15,6 +15,7 @@
     "@gsap/react": "^2.1.2",
     "@huggingface/transformers": "^4.2.0",
     "@openlive/db": "workspace:*",
+    "@openlive/flow-store": "workspace:*",
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
     "@ricky0123/vad-web": "^0.0.29",

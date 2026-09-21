@@ -2,7 +2,7 @@
 // What Flow needs to know about the machine it is running on: the window the
 // user is actually in, whether this is a moment to speak out loud, and what the
 // platform can honestly do. Everything here is best effort and returns null
-// rather than guessing — the pill says "unknown" far better than it says wrong.
+// rather than guessing. The pill says "unknown" far better than it says wrong.
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -14,12 +14,10 @@ const flowInput = require("./flow-input.cjs");
 // not become a burst of processes.
 const SIGNAL_TTL_MS = 4000;
 
-// Matched against the foreground app and the process list. Lowercased substring
-// match, so "zoom.us" catches "zoom.us.app" and Teams' several executable names.
-const MEETING_APPS = [
-  "zoom", "microsoft teams", "teams", "webex", "bluejeans", "gotomeeting", "ringcentral",
-  "skype", "facetime", "discord", "whereby", "around", "gather", "chime", "lifesize",
-];
+// Processes that exist ONLY while a call is up, so their presence is a fact and
+// not a guess. Matching the app itself is the renderer's job: it holds the
+// user's own list of apps to stay quiet around, and matches the foreground app.
+const IN_CALL_PROCESSES = ["cpthost", "aomhost", "webexmta", "ptone"];
 
 function run(cmd, args, timeout = 1500) {
   return new Promise((resolve) => {
@@ -52,13 +50,14 @@ function captureContext() {
 
 // ── auto-quiet signals ───────────────────────────────────────────────────────
 
-async function runningMeetingApps() {
+/** True only when a call is actually up, null when the process list is unreadable. */
+async function inCall() {
   const out = process.platform === "win32"
     ? await run("tasklist", ["/fo", "csv", "/nh"])
     : await run("/bin/ps", ["-Ao", "comm="]);
   if (out == null) return null;
   const hay = out.toLowerCase();
-  return MEETING_APPS.filter((a) => hay.includes(a));
+  return IN_CALL_PROCESSES.some((p) => hay.includes(p));
 }
 
 /** macOS keeps its Focus assertions in a plist-adjacent JSON; other platforms
@@ -94,10 +93,10 @@ async function outputMuted() {
 let cached = null;
 async function signals() {
   if (cached && Date.now() - cached.at < SIGNAL_TTL_MS) return cached.value;
-  const [meetingApps, muted] = await Promise.all([runningMeetingApps(), outputMuted()]);
+  const [call, muted] = await Promise.all([inCall(), outputMuted()]);
   const value = {
     app: foregroundWindow()?.app ?? null,
-    meetingApps,
+    inCall: call,
     dnd: doNotDisturb(),
     outputMuted: muted,
     // No platform exposes "another process holds the microphone" without a
@@ -141,4 +140,4 @@ function install() {
   app.on("before-quit", () => { cached = null; });
 }
 
-module.exports = { install, captureContext, MEETING_APPS };
+module.exports = { install, captureContext };
