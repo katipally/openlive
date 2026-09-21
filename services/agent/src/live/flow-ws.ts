@@ -80,6 +80,9 @@ export class FlowLiveSession {
   private brain: Brain = new LocalBrain();
   /** The coding-agent brain and the MCP server publishing Flow's tools to it. */
   private agent: Agent | null = null;
+  /** The model already pushed to `agent`, so a change in settings is applied
+   *  without tearing the agent down and losing its session. */
+  private agentModel = "";
   private mcp: { wire: McpServerWire; close(): Promise<void> } | null = null;
   /** Rebuilt every turn from the user's current tiers, and read by both brains. */
   private approve: Approve = async () => ({});
@@ -342,7 +345,10 @@ export class FlowLiveSession {
       if (this.agent) void this.dropAgent();
       return this.brain instanceof LocalBrain ? this.brain : (this.brain = new LocalBrain());
     }
-    if (this.agent && this.brain.id === agentId) return this.brain;
+    if (this.agent && this.brain.id === agentId) {
+      await this.applyAgentModel(cfg.brain.agentModel);
+      return this.brain;
+    }
     void this.dropAgent();
     this.mcp ??= await serveFlowMcp({
       tools: this.tools,
@@ -357,12 +363,22 @@ export class FlowLiveSession {
     );
     await agent.start(signal);
     this.agent = agent;
+    this.agentModel = "";
+    await this.applyAgentModel(cfg.brain.agentModel);
     return (this.brain = new AcpBrain(agent));
+  }
+
+  /** Never throws: an agent that will not take a model still answers on its own. */
+  private async applyAgentModel(modelId: string): Promise<void> {
+    if (!modelId || modelId === this.agentModel) return;
+    this.agentModel = modelId;
+    await this.agent?.setModel?.(modelId);
   }
 
   private async dropAgent(): Promise<void> {
     const agent = this.agent;
     this.agent = null;
+    this.agentModel = "";
     try { await agent?.dispose(); } catch { /* it is going away either way */ }
   }
 
