@@ -281,6 +281,15 @@ pub fn request_screen_recording() -> bool {
     perms::request_screen_recording()
 }
 
+/// Whether anything on this machine is holding the microphone right now.
+///
+/// `null` means the platform would not say, which is NOT "nothing is using
+/// it": auto-quiet must never silence the assistant on an unread signal.
+#[napi]
+pub fn microphone_in_use() -> Option<bool> {
+    platform::current::microphone_in_use()
+}
+
 
 #[napi(object)]
 pub struct DisplayInfo {

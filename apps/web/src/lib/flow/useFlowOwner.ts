@@ -180,7 +180,11 @@ export function useFlowOwner(): void {
       // progress; the utterance is captured either way and transcribed when the
       // worker is ready, so nothing said here is lost.
       if (!modelsMatchConfig() && modelsCached()) void warm();
-      const signals = valueOr(await api.signals(), NO_SIGNALS) as QuietSignals;
+      const read = valueOr(await api.signals(), NO_SIGNALS) as QuietSignals;
+      // The addon can only say the microphone is busy, not who is using it. If
+      // Flow is still holding it from the last turn, that is Flow, so the answer
+      // reverts to "could not tell" rather than quieting Flow against itself.
+      const signals: QuietSignals = { ...read, micBusy: engine.current ? null : read.micBusy };
       const rules = settings.current ? asRules(settings.current) : null;
       const quiet = rules ? decideQuiet(signals, rules, override.current) : "";
       patch({ quiet, speaking: !quiet, transcript: "", reply: "", inserting: null });

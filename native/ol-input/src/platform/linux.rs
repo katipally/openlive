@@ -203,6 +203,13 @@ pub fn request_screen_recording() -> bool {
     screen_recording_ok()
 }
 
+/// ALSA and PipeWire both answer this, but only by walking `/proc/asound`
+/// or opening a PipeWire connection, and neither is cheap enough to run on
+/// every turn. `None` is the honest answer until one of them earns its cost.
+pub fn microphone_in_use() -> Option<bool> {
+    None
+}
+
 pub fn secure_input_active() -> bool {
     false
 }

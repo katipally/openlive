@@ -102,10 +102,9 @@ async function signals() {
     inCall: call,
     dnd: doNotDisturb(),
     outputMuted: muted,
-    // No platform exposes "another process holds the microphone" without a
-    // native audio-device read. Block 4 owns that; until then Flow does not
-    // pretend to know.
-    micBusy: null,
+    // macOS answers this from CoreAudio; the other platforms have no cheap
+    // read and return null, which auto-quiet treats as "could not tell".
+    micBusy: ask("microphoneInUse"),
   };
   cached = { at: Date.now(), value };
   return value;

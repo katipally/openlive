@@ -64,6 +64,13 @@ export function requestAccessibility(): boolean;
 export function requestMicrophone(): string;
 export function requestScreenRecording(): boolean;
 
+/**
+ * Whether anything on this machine is holding the microphone right now.
+ * `null` means the platform would not say, which is never "nothing is using it".
+ * macOS reads CoreAudio's device state; Windows and Linux have no cheap answer.
+ */
+export function microphoneInUse(): boolean | null;
+
 /** A display, in logical screen coordinates. */
 export interface DisplayInfo {
   id: number;
