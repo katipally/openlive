@@ -45,11 +45,11 @@ export function FlowShell() {
     gsap.fromTo(".ol-flow-view", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out });
   }, { scope: root, dependencies: [view, sessionId, onboarding] });
 
-  if (onboarding === null) return <div className="min-h-dvh" />;
+  if (onboarding === null) return <div className="h-dvh" />;
 
   if (onboarding) {
     return (
-      <div ref={root} className="ol-flow-view flex min-h-dvh flex-col">
+      <div ref={root} className="ol-flow-view flex h-dvh flex-col">
         <FlowOnboarding onDone={finishOnboarding} config={config} brainReady={brainReady} save={save} />
       </div>
     );
@@ -58,7 +58,7 @@ export function FlowShell() {
   const armed = !caps ? null : caps.armed && !!caps.permissions?.accessibility && !caps.hookError;
 
   return (
-    <div ref={root} className="flex min-h-dvh flex-col">
+    <div ref={root} className="flex h-dvh flex-col">
       <header className={cn("flex h-14 shrink-0 items-center gap-3 pr-3",
         isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "app-drag")}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
