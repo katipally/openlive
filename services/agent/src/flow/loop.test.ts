@@ -22,15 +22,19 @@ function scripted(turns: BrainEvent[][]): Brain & { seen: number } {
 
 const clipboard: ClipboardPort = { async read() { return ""; }, async write() {} };
 
-function harness(over: Partial<FlowRun> & { brain: Brain }): { run: FlowRun; chunks: string[] } {
+function harness(over: Partial<FlowRun> & { brain: Brain }): { run: FlowRun; chunks: string[]; ended: string[]; insert: ForwardOnlyInsertion } {
   const chunks: string[] = [];
+  const ended: string[] = [];
+  const insert = new ForwardOnlyInsertion((_id, c) => { chunks.push(c); }, (id) => { ended.push(id); });
   return {
     chunks,
+    ended,
+    insert,
     run: {
       tools: flowTools(),
       messages: [{ role: "user", text: "hi" }],
       signal: new AbortController().signal,
-      insert: new ForwardOnlyInsertion((_id, c) => { chunks.push(c); }),
+      insert,
       clipboard,
       getSystemPrompt: () => "system",
       ...over,
@@ -97,6 +101,23 @@ describe("runFlow", () => {
     const { run, chunks } = harness({ brain });
     await collect(run);
     expect(chunks).toEqual(["dear alice"]);
+  });
+
+  it("closes the insertion session when the user barges in mid-call", async () => {
+    const ac = new AbortController();
+    const brain: Brain = {
+      id: "b",
+      async *stream() {
+        yield { type: "tool_start", id: "c1", name: "insert_text" } as BrainEvent;
+        yield { type: "tool_args_delta", id: "c1", argsPartial: { text: "dear alice" } } as BrainEvent;
+        ac.abort();
+        yield { type: "turn_error", message: "cancelled", aborted: true } as BrainEvent;
+      },
+    };
+    const { run, ended, insert } = harness({ brain, signal: ac.signal });
+    await collect(run);
+    expect(ended).toEqual(["c1"]);
+    expect(insert.committed("c1")).toBe("");
   });
 
   it("fails the WHOLE batch when the model ran out of room mid-call", async () => {
