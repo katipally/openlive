@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld("openlive", {
     context: () => ipcRenderer.invoke("openlive:flow-context"),
     signals: () => ipcRenderer.invoke("openlive:flow-signals"),
     capabilities: () => ipcRenderer.invoke("openlive:flow-capabilities"),
+    // One perception or control call into the addon, named by `fn`. Everything
+    // but a camera frame is answered here; the camera never reaches main.
+    device: (fn, args) => ipcRenderer.invoke("openlive:flow-device", fn, args),
+    // Pay for loading the OS text recogniser at launch instead of on the first
+    // real question about the screen.
+    warmOcr: () => ipcRenderer.invoke("openlive:flow-warm-ocr"),
     // The pill: summoned next to the cursor, dismissed when the turn is over, and
     // self-sizing (it measures its own content and grows upward).
     summon: () => ipcRenderer.send("openlive:flow-summon"),

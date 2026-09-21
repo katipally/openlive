@@ -18,7 +18,7 @@ export function warmupOnLaunch(): void {
   if (path.startsWith("/mini") || path === "/flow") return;
   warmed = true;
   // Let first paint + hydration settle before grabbing CPU/GPU for shaders.
-  setTimeout(() => { void run(); }, 1500);
+  setTimeout(() => { void run(); warmOcr(); }, 1500);
 }
 
 async function run(): Promise<void> {
@@ -35,4 +35,13 @@ async function run(): Promise<void> {
     await loadModels(() => {}); // weights come from the Cache API; this is shader warm-up
     log.debug("warmup", "voice stack warmed before first call");
   } catch (e) { log.debug("warmup", "skipped:", e); }
+}
+
+/** The OS text recogniser costs tens of seconds the first time a process asks
+ *  it anything. Paying that on a blank tile at launch is what keeps the first
+ *  real question about the screen from looking like a hang. Needs no
+ *  permission: it reads a bitmap we made, not the screen. */
+function warmOcr(): void {
+  const flow = (window as { openlive?: { flow?: { warmOcr?: () => Promise<unknown> } } }).openlive?.flow;
+  void flow?.warmOcr?.().catch(() => {});
 }
