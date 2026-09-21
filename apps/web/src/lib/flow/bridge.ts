@@ -69,6 +69,9 @@ export interface FlowBridge {
   context(): Promise<Guarded<FlowContextWire>>;
   signals(): Promise<Guarded<QuietSignals>>;
   capabilities(): Promise<Guarded<FlowCapabilities>>;
+  /** One perception or control call into the addon, named by `fn`. */
+  device(fn: string, args: unknown): Promise<Guarded<unknown>>;
+  warmOcr(): Promise<Guarded<void>>;
   summon(): void;
   dismiss(): void;
   size(h: number): void;

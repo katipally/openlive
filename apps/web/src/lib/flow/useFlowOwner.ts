@@ -10,7 +10,8 @@ import { toolMeta } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
-import { addonActivation, flowBridge, valueOr } from "./bridge";
+import { CameraCapture } from "@/lib/live/cameraCapture";
+import { addonActivation, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { IDLE_FLOW, type FlowPhase, type FlowSnapshot } from "./types";
@@ -23,6 +24,17 @@ const BINDING_ID = "flow";
 const BANDS_MS = 66;        // the pill's orb, ~15 fps
 const DISMISS_DELAY_MS = 900; // let the last word land before the pill leaves
 const IDLE_BANDS = [0, 0, 0, 0, 0];
+// A camera needs a moment between opening and having a frame to give.
+const CAMERA_TRIES = 20;
+const CAMERA_WAIT_MS = 100;
+
+/** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
+function base64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+}
 
 interface FlowSettings {
   binding: string;
@@ -281,11 +293,39 @@ export function useFlowOwner(): void {
         }
         if (op === "flow_insert_end") { await endInsertion(); return reply("ok"); }
         if (op === "flow_context") { const c = await api.context(); return reply(c.ok ? JSON.stringify(c.value) : ""); }
+        if (op === "flow_device") {
+          const { fn, args } = JSON.parse(arg ?? "{}") as { fn?: string; args?: unknown };
+          // The camera is the one thing the main process cannot answer: a
+          // MediaStream lives in a renderer. Flow has no always-on camera, so
+          // this opens it for exactly one frame and closes it again.
+          const r = fn === "camera_frame" ? await cameraFrame() : await api.device(fn ?? "", args ?? {});
+          return reply(JSON.stringify(r.ok ? { value: r.value } : { error: r.error }));
+        }
         const bridge = (window as unknown as { openlive?: { bridge?: (o: string, a?: string) => Promise<string> } }).openlive?.bridge;
         return reply(bridge ? await bridge(op, arg) : "That isn't available here.");
       } catch (e) {
         log.error("flow", "bridge:", e);
         reply("That action failed.");
+      }
+    };
+
+    // Flow never samples the camera in the background: the light comes on for
+    // one frame, when a tool asked for it, and goes straight back off.
+    const cameraFrame = async (): Promise<Guarded<{ data: string; mime: string } | null>> => {
+      const cam = new CameraCapture();
+      try {
+        await cam.start();
+        let buf: ArrayBuffer | null = null;
+        for (let i = 0; i < CAMERA_TRIES && !buf; i++) {
+          buf = await cam.captureHiRes();
+          if (!buf) await new Promise((r) => setTimeout(r, CAMERA_WAIT_MS));
+        }
+        if (!buf) return { ok: false, error: "The camera opened but never produced a frame." };
+        return { ok: true, value: { data: base64(buf), mime: "image/jpeg" } };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "The camera could not be opened." };
+      } finally {
+        cam.stop();
       }
     };
 
