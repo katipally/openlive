@@ -51,11 +51,11 @@ export function preamble(): string {
 //   • systemPrompt append — the voice-call context goes into the system prompt
 //     instead of polluting the first user message of the saved transcript.
 // Other agents have no such channel, so they keep the first-turn preamble.
-const buildClaudeMeta = () => ({
+const buildClaudeMeta = (text: string) => ({
   claudeCode: {
     options: {
       persistSession: true,
-      systemPrompt: { type: "preset", preset: "claude_code", append: preamble() },
+      systemPrompt: { type: "preset", preset: "claude_code", append: text },
     },
   },
 });
@@ -72,6 +72,9 @@ export interface AcpOpts {
   // project's own .mcp.json. Flow publishes its tool set here so a coding-agent
   // brain gets exactly the tools the built-in brain has.
   mcpServers?: McpServerWire[];
+  /** Replaces the session preamble. Flow's rules differ from a call's, and an
+   *  ACP agent keeps its own system prompt, so this is the only way in. */
+  preamble?: string;
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -223,7 +226,7 @@ export class AcpAgent implements Agent {
     const quirks = AGENT_REGISTRY[this.id].acp;
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta() : undefined;
+    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText()) : undefined;
     if (meta) this.sentPreamble = true;
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
     // MCP passthrough: the project's own .mcp.json rides along for agents that
@@ -456,7 +459,11 @@ export class AcpAgent implements Agent {
           .map((o) => ({ id: o.optionId, label: o.name || o.optionId, kind: isKind(o.kind) ? o.kind : undefined }));
         if (!options.length) return { outcome: { outcome: "cancelled" } };
         const toolCallId = req.toolCall?.toolCallId;
-        const title = req.toolCall?.title ? ` ${req.toolCall.title}.` : "";
+        // Spoken on the pill, where there is no tool card to read instead, so a
+        // bare "allow it?" is unanswerable. The agent's own title first, then the
+        // one it already sent with the tool call.
+        const named = req.toolCall?.title || (toolCallId ? this.turnTools.get(toolCallId)?.title : "") || "";
+        const title = named ? ` ${named}.` : "";
         const choice = await this.askPermission(`${labelFor(this.id)} wants permission:${title} Allow it?`, options, toolCallId);
         // Barge-in / interrupt resolves any pending ask with this sentinel — ACP
         // requires the client to answer in-flight permission requests as cancelled.
@@ -598,13 +605,16 @@ export class AcpAgent implements Agent {
     await emit({ type: "acp_tool_update", delta });
   }
 
+  /** Flow's rules where it set them, the call preamble everywhere else. */
+  private preambleText(): string { return this.opts.preamble?.trim() || preamble(); }
+
   async runTurn({ text, frames }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
     if (!this.conn || !this.alive) throw new Error(`${labelFor(this.id)} is not running`);
     if (signal.aborted) return;
 
     let userText = text;
     // Once per session, tell the agent it's in a spoken voice+vision call.
-    if (!this.sentPreamble) { userText = `${preamble()}\n\n${userText}`; this.sentPreamble = true; }
+    if (!this.sentPreamble) { userText = `${this.preambleText()}\n\n${userText}`; this.sentPreamble = true; }
     // Note any live camera/screen the user is sharing (frames attached below when supported).
     const sources = frames.length ? [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ") : "";
     if (sources) {

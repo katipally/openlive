@@ -11,7 +11,7 @@ import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type PermissionAskOptio
 import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
-import { buildFlowPrompt } from "../flow/prompt.js";
+import { buildFlowAcpPreamble, buildFlowPrompt } from "../flow/prompt.js";
 import { voiceApprove } from "../flow/approval.js";
 import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
 import type { DevicePort } from "../flow/device.js";
@@ -357,7 +357,11 @@ export class FlowLiveSession {
     });
     const wire = this.mcp.wire;
     const agent = new AgentSupervisor(
-      (ask) => new AcpAgent(agentId, ask, { cwd: flowAgentCwd(), mcpServers: [wire] }),
+      (ask) => new AcpAgent(agentId, ask, {
+        cwd: flowAgentCwd(),
+        mcpServers: [wire],
+        preamble: buildFlowAcpPreamble({ tools: this.tools }),
+      }),
       (question, options, toolCallId) => this.ask(question, this.ac?.signal ?? signal, options, toolCallId).then((id) => id || PERMISSION_CANCELLED),
       { startMs: 60_000 },
     );
