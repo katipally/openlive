@@ -1,6 +1,7 @@
 import { streamProvider, type ProviderEvent } from "@openlive/harness";
 import type { SseEvent } from "@openlive/shared";
-import { resolveLive, type ResolvedLive } from "../providers.js";
+import { readFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { getProviderKey, providerInfo, resolveLive, type ResolvedLive } from "../providers.js";
 import type { Agent, TurnInput } from "../agents/types.js";
 import { parsePartialJson } from "./partial-json.js";
 import type { Brain, BrainEvent, TurnRequest, Usage } from "./types.js";
@@ -62,10 +63,23 @@ const message = (e: unknown) => {
   return m.slice(0, 400) || "the model stream failed";
 };
 
+/**
+ * Flow's brain choice is an override on the shared resolution, never a second
+ * copy of it: an unset, unknown or unkeyed pick falls straight through to what
+ * live voice already resolved.
+ */
+export function resolveFlowBrain(cfg: FlowConfig = readFlowConfig(), base: ResolvedLive = resolveLive()): ResolvedLive {
+  const provider = cfg.brain.providerId ? providerInfo(cfg.brain.providerId) : undefined;
+  if (!provider) return cfg.brain.model ? { ...base, model: cfg.brain.model } : base;
+  const apiKey = getProviderKey(provider.id);
+  if (!apiKey && !provider.keyless) return base;
+  return { provider, model: cfg.brain.model || base.model, apiKey, effort: base.effort };
+}
+
 /** The built-in brain: OpenLive's own provider resolution, keys and adapters. */
 export class LocalBrain implements Brain {
   readonly id = "local";
-  constructor(private readonly resolve: () => ResolvedLive = resolveLive) {}
+  constructor(private readonly resolve: () => ResolvedLive = () => resolveFlowBrain()) {}
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     let sawDone = false;
