@@ -103,15 +103,17 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
  * value has not arrived yet is simply absent.
  */
 export function parsePartialJson(src: string): Record<string, unknown> {
-  const head = (src ?? "").replace(/\s+$/, "");
-  if (!head) return {};
+  // Not trimmed: trailing whitespace inside a half-written string is content the
+  // user asked for, and JSON ignores it everywhere else anyway.
+  const head = src ?? "";
+  if (!head.trim()) return {};
   const { closers, safeEnd, safeClose } = scan(head);
 
   const candidates = [
     head + closers,
     trimStringTail(head) + '"' + closers,
-    head.replace(/,$/, "") + closers,
-    head.replace(/[.eE+-]+$/, "") + closers,
+    head.replace(/,\s*$/, "") + closers,
+    head.replace(/[.eE+-]+\s*$/, "") + closers,
     safeEnd >= 0 ? head.slice(0, safeEnd) + safeClose : null,
   ];
   for (const c of candidates) {

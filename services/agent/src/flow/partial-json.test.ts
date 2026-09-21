@@ -16,6 +16,11 @@ describe("parsePartialJson", () => {
     expect(parsePartialJson('{"text":"dear ali')).toEqual({ text: "dear ali" });
   });
 
+  it("keeps whitespace a fragment ended on, because it is content", () => {
+    expect(parsePartialJson('{"text":"dear ')).toEqual({ text: "dear " });
+    expect(parsePartialJson('{"n":1, ')).toEqual({ n: 1 });
+  });
+
   it("drops a key whose value has not arrived", () => {
     expect(parsePartialJson('{"text":"hi","mode":')).toEqual({ text: "hi" });
   });
