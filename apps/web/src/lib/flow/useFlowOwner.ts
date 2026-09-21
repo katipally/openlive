@@ -34,6 +34,11 @@ const ARM_WATCH_MS = 1000;
 // holding" with a running clock until the next trigger happened to arrive. Far
 // past any real hold, so a genuine long turn is never cut short.
 const MAX_LISTEN_MS = 120_000;
+// A turn that stops saying anything at all. Every event from the server pushes
+// this out, so a long tool call or a slow brain is never cut short; what it
+// catches is an answer that will not arrive, which otherwise left the pill
+// thinking forever with the microphone open and the key dead.
+const ANSWER_SILENCE_MS = 90_000;
 const ARM_WATCH_MAX_ERRORS = 5;
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
@@ -76,6 +81,7 @@ export function useFlowOwner(): void {
   const armedFor = useRef("");
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
   const insertion = useRef<{ id: string; session: number } | null>(null);
@@ -121,6 +127,31 @@ export function useFlowOwner(): void {
       }, MAX_LISTEN_MS);
     };
 
+    const stopAnswerWatchdog = () => {
+      if (!answerTimer.current) return;
+      clearTimeout(answerTimer.current);
+      answerTimer.current = null;
+    };
+    /** Pushed out by every event of the turn, so only silence trips it. */
+    const armAnswerWatchdog = () => {
+      stopAnswerWatchdog();
+      answerTimer.current = setTimeout(() => {
+        answerTimer.current = null;
+        if (!turnActive.current) return;
+        loseTurn("That answer never came back", "Nothing more arrived for a minute and a half, so the turn was let go. Hold your key and ask again.");
+      }, ANSWER_SILENCE_MS);
+    };
+
+    /**
+     * The turn is over and there is no answer: the reply went to a socket that
+     * is gone, or the brain stopped saying anything. Named on the pill, because
+     * silence that looks like thinking is the one state a person cannot act on.
+     */
+    const loseTurn = (title: string, detail: string) => {
+      patch({ failure: { code: "answer_lost", title, detail, actionLabel: "" } });
+      failTurn("");
+    };
+
     const summon = () => {
       if (dismissTimer.current) { clearTimeout(dismissTimer.current); dismissTimer.current = null; }
       if (!summoned.current) { summoned.current = true; api.summon(); }
@@ -130,6 +161,7 @@ export function useFlowOwner(): void {
       if (!summoned.current) return;
       summoned.current = false;
       stopListenWatchdog();
+      stopAnswerWatchdog();
       api.dismiss();
       // The pill is gone, so whatever was running is over. Clearing this BEFORE
       // teardownMic is what lets the microphone actually close: it declines to
@@ -153,6 +185,7 @@ export function useFlowOwner(): void {
     const failTurn = (message: string) => {
       turnActive.current = false;
       finalizing.current = false;
+      stopAnswerWatchdog();
       patch({ reply: message, inserting: null });
       setPhase("error");
       teardownMic();
@@ -326,6 +359,7 @@ export function useFlowOwner(): void {
       summon();
       patch({ transcript: text, partial: false, reply: "", inserting: null });
       setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
+      armAnswerWatchdog();
       const context = valueOr(await api.context(), undefined) as FlowContextWire | undefined;
       client.current?.flowText(text, context);
     };
@@ -339,6 +373,7 @@ export function useFlowOwner(): void {
 
     // ── the Flow socket ───────────────────────────────────────────────────
     const onFlowEvent = (e: FlowEventWire) => {
+      if (turnActive.current) armAnswerWatchdog();
       switch (e.type) {
         case "text_delta":
           patch({ reply: snap.current.reply + e.delta });
@@ -365,6 +400,7 @@ export function useFlowOwner(): void {
           return failTurn(e.message);
         case "done":
           turnActive.current = false;
+          stopAnswerWatchdog();
           if (snap.current.speaking) engine.current?.endAgentTurn();
           else if (snap.current.phase !== "error") dismissSoon();
           return;
@@ -516,6 +552,12 @@ export function useFlowOwner(): void {
     api.onSecureInput(() => void refreshHealth());
 
     client.current = new LiveClient({
+      // Reconnecting mid-turn means the reply was streaming to a socket that is
+      // gone. Nothing will finish it, so say so instead of thinking forever.
+      onOpen: () => {
+        if (!turnActive.current) return;
+        loseTurn("The connection dropped mid-answer", "The reply was on its way when the link to OpenLive went down. Hold your key and ask again.");
+      },
       onFlow: onFlowEvent,
       onToolBridge: (reqId, op, arg) => void onToolBridge(reqId, op, arg),
       onPermission,
@@ -576,6 +618,7 @@ export function useFlowOwner(): void {
       window.removeEventListener("offline", online);
       if (dismissTimer.current) clearTimeout(dismissTimer.current);
       stopListenWatchdog();
+      stopAnswerWatchdog();
       turnActive.current = false;
       teardownMic();
       void api.unregister(BINDING_ID);

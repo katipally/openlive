@@ -13,7 +13,8 @@ export type FlowFailureCode =
   | "offline"
   | "models_missing"
   | "hook_failed"
-  | "listen_timeout";
+  | "listen_timeout"
+  | "answer_lost";
 
 export interface FlowFailure {
   code: FlowFailureCode;
@@ -30,7 +31,7 @@ export type QuietReason = "" | "meeting" | "mic_busy" | "dnd" | "output_muted" |
 
 export interface FlowSnapshot {
   phase: FlowPhase;
-  /** The binding, formatted, so the summon state can show what is being held. */
+  /** The binding as it is stored. Whoever draws it puts it through `bindingLabel`. */
   binding: string;
   /** What the user is saying. `partial` greys it while the transcript is interim. */
   transcript: string;
