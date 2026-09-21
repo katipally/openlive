@@ -126,4 +126,22 @@ describe("FlowLiveSession", () => {
     expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["and again"]);
   });
 
+  it("surfaces what the machine said when it refuses, instead of calling it a timeout", async () => {
+    const ws = new FakeSocket();
+    ws.device = () => "Couldn't do that: the window server is not answering.";
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.say("what is open?");
+    await until(() => turnsDone(ws) === 1);
+
+    const result = ws.sent.find((m) => m.t === "flow" && m.event.type === "tool_result")!.event;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("the window server is not answering");
+    expect(result.content[0].text).not.toContain("in time");
+  });
 });
