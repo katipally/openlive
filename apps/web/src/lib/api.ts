@@ -47,4 +47,8 @@ export const api = {
   deleteExternalSession: (agentId: string, id: string) =>
     fetch("/api/history/session", { method: "DELETE", body: JSON.stringify({ agentId, id }) }).then(j),
   agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
+  /** Starts the agent once to ask what it can be set to, so this is seconds. */
+  agentModels: (agentId: string) =>
+    fetch(`/api/flow/agent-models?agent=${encodeURIComponent(agentId)}`)
+      .then(j<{ models: { id: string; name: string }[]; currentModelId: string | null }>),
 };

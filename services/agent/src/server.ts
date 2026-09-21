@@ -30,6 +30,11 @@ app.get("/health", (c) => c.json({ ok: true }));
 const { voiceRoutes } = await import("./voice/routes.js");
 app.route("/voice", voiceRoutes);
 
+// What a coding agent can be set to. Lazy for the same reason: starting one is
+// the caller's cost, never the boot path's.
+const { agentRoutes } = await import("./agents/models-route.js");
+app.route("/agents", agentRoutes);
+
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
 // reaches it over localhost, and the container web-proxy reaches it over localhost
