@@ -103,6 +103,58 @@ describe("runFlow", () => {
     expect(chunks).toEqual(["dear alice"]);
   });
 
+  const insertTurn = (id: string, parts: string[]): BrainEvent[] => [
+    { type: "tool_start", id, name: "insert_text" },
+    ...parts.map((text): BrainEvent => ({ type: "tool_args_delta", id, argsPartial: { text } })),
+    { type: "tool_end", id, name: "insert_text", args: { text: parts.at(-1)! } },
+    { type: "turn_done", stop: "tools" },
+  ];
+
+  it("types nothing at all when the insert tier is denied", async () => {
+    const brain = scripted([insertTurn("c1", ["dear ", "dear alice"]), [{ type: "turn_done", stop: "stop" }]]);
+    const { run, chunks } = harness({ brain, approve: async () => ({ block: true, reason: "insert_text is turned off in settings." }) });
+    const events = await collect(run);
+    expect(chunks).toEqual([]);
+    expect(events.find((e) => e.type === "tool_result")).toMatchObject({ isError: true });
+  });
+
+  it("types nothing before the user answers an ask, and the whole thing after", async () => {
+    const order: string[] = [];
+    let asked = 0;
+    const brain = scripted([insertTurn("c1", ["dear ", "dear alice"]), [{ type: "turn_done", stop: "stop" }]]);
+    const { run, chunks } = harness({
+      brain,
+      approve: async () => {
+        asked++;
+        order.push("asked");
+        await new Promise<void>((r) => { setTimeout(r, 5); });
+        order.push("answered");
+        return {};
+      },
+    });
+    run.insert = new ForwardOnlyInsertion((_id, c) => { order.push(`typed ${c}`); chunks.push(c); });
+    await collect(run);
+    expect(order).toEqual(["asked", "answered", "typed dear ", "typed alice"]);
+    expect(asked).toBe(1);
+    expect(chunks.join("")).toBe("dear alice");
+  });
+
+  it("does not type a truncated insert again when the model retries it under a new id", async () => {
+    const brain = scripted([
+      [
+        { type: "tool_start", id: "c1", name: "insert_text" },
+        { type: "tool_args_delta", id: "c1", argsPartial: { text: "Hey Sam, thanks for the up" } },
+        { type: "turn_done", stop: "length" },
+      ],
+      insertTurn("c2", ["Hey Sam, thanks for the update."]),
+      [{ type: "turn_done", stop: "stop" }],
+    ]);
+    const { run, chunks } = harness({ brain });
+    const events = await collect(run);
+    expect(chunks.join("")).toBe("Hey Sam, thanks for the update.");
+    expect(events.find((e) => e.type === "tool_result")).toMatchObject({ isError: true, id: "c1" });
+  });
+
   it("closes the insertion session when the user barges in mid-call", async () => {
     const ac = new AbortController();
     const brain: Brain = {

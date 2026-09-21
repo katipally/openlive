@@ -1,4 +1,4 @@
-import { dispatch, toolSpecs, type FlowToolCall } from "./tools.js";
+import { dispatch, resolveToolName, riskOf, toolSpecs, type FlowToolCall, type Verdict } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
@@ -114,6 +114,9 @@ function assistantMessage(text: string, calls: FlowToolCall[]): Msg {
 // in it, not just the last one.
 const TRUNCATED = "The model ran out of room mid-call, so the arguments may be incomplete. Nothing was run. Say it again more briefly.";
 
+const alreadyTyped = (committed: string) =>
+  `${TRUNCATED} The first ${committed.length} characters were already typed into the document; they will not be typed again.`;
+
 // ── the loop ────────────────────────────────────────────────────────────────
 
 export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
@@ -147,9 +150,32 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       let text = "";
       const calls: FlowToolCall[] = [];
       open = calls;
+      // Resolved once per call, by whoever needs it first, and reused by dispatch.
+      const preflighted = new Map<string, Promise<Verdict>>();
       let usage: Usage | undefined;
       let stop: "stop" | "tools" | "length" = "stop";
       let failure: { message: string; aborted: boolean } | null = null;
+
+      /**
+       * May this call's text go into the user's document as it arrives?
+       *
+       * Committing mid-stream is the one path from model output to an executed
+       * action that dispatch does not stand in front of, so the tier is answered
+       * here instead, before the first character lands. A tier that runs answers
+       * in a microtask and the text streams as before; a tier that asks holds the
+       * rest of the call back until the user has said yes, which is the point.
+       */
+      const mayStream = async (call: FlowToolCall, args: Record<string, unknown>): Promise<boolean> => {
+        let decision = preflighted.get(call.id);
+        if (!decision) {
+          const tool = resolveToolName(call.name, tools);
+          if (!tool) return false;
+          decision = Promise.resolve(approve({ tool, args, risk: riskOf(tool, args) }, signal))
+            .catch((e): Verdict => ({ block: true, reason: e instanceof Error ? e.message : "the approval failed" }));
+          preflighted.set(call.id, decision);
+        }
+        return !(await decision).block;
+      };
 
       for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs }, signal)) {
         if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
@@ -159,7 +185,9 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
           // The insertion sink is forward-only, so handing it the growing text is
           // safe to do before the call is even finished being written.
           const call = calls.find((c) => c.id === ev.id);
-          if (call?.name === "insert_text" && typeof ev.argsPartial.text === "string") await run.insert.commit(ev.id, ev.argsPartial.text);
+          if (call?.name === "insert_text" && typeof ev.argsPartial.text === "string" && await mayStream(call, ev.argsPartial)) {
+            await run.insert.commit(ev.id, ev.argsPartial.text);
+          }
           continue;
         }
         if (ev.type === "tool_end") {
@@ -196,12 +224,15 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       let terminate = true;
       if (stop === "length") {
         for (const c of calls) {
-          messages.push({ role: "tool", callId: c.id, name: c.name, result: TRUNCATED, isError: true });
-          yield { type: "tool_result", id: c.id, name: c.name, content: [{ type: "text", text: TRUNCATED }], isError: true, details: { error: TRUNCATED } };
+          const typed = run.insert.committed(c.id);
+          if (typed) await run.insert.abandon(c.id);
+          const result = typed ? alreadyTyped(typed) : TRUNCATED;
+          messages.push({ role: "tool", callId: c.id, name: c.name, result, isError: true });
+          yield { type: "tool_result", id: c.id, name: c.name, content: [{ type: "text", text: result }], isError: true, details: { error: result } };
         }
         terminate = false;
       } else {
-        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel });
+        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel, preflighted });
         for (;;) {
           const next = await running.next();
           if (next.done) {
@@ -222,6 +253,6 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       if (await run.shouldStop?.()) { yield { type: "done", reason: "host_stop" }; return; }
     }
   } finally {
-    for (const c of open) if (c.name === "insert_text") await run.insert.end(c.id);
+    for (const c of open) if (c.name === "insert_text") await run.insert.abandon(c.id);
   }
 }

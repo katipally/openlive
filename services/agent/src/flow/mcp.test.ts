@@ -26,7 +26,7 @@ const device: DevicePort = {
   shell: async () => ({ code: 0, stdout: "", stderr: "" }),
 };
 
-const insert: InsertionSink = { commit: async () => {}, end: async () => {} };
+const insert: InsertionSink = { commit: async () => {}, end: async () => {}, abandon: async () => {}, committed: () => "" };
 const clipboard: ClipboardPort = { read: async () => "on the clipboard", write: async () => {} };
 
 async function connect(tools: Tool[], approve?: Approve) {

@@ -41,6 +41,14 @@ export interface ToolResult<D = unknown> {
 export interface InsertionSink {
   commit(id: string, text: string): Promise<void>;
   end(id: string): Promise<void>;
+  /**
+   * End a call whose tool never ran. What it already typed becomes the baseline
+   * for the next call, so the model's retry under a fresh id continues the
+   * user's document instead of typing the same sentence a second time.
+   */
+  abandon(id: string): Promise<void>;
+  /** How much of this call's text has already reached the user's app. */
+  committed(id: string): string;
 }
 
 /** Reads and writes the system clipboard. Implementations must not throw for an empty clipboard. */
