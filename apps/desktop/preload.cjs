@@ -58,4 +58,31 @@ contextBridge.exposeInMainWorld("openlive", {
   onPanelState: (cb) => { ipcRenderer.removeAllListeners("openlive:panel-state"); ipcRenderer.on("openlive:panel-state", (_e, s) => cb(s)); },
   panelCmd: (c) => ipcRenderer.send("openlive:panel-cmd", c),
   onPanelCmd: (cb) => { ipcRenderer.removeAllListeners("openlive:panel-cmd"); ipcRenderer.on("openlive:panel-cmd", (_e, c) => cb(c)); },
+  // Flow's native input addon (global hold-to-talk hook + text insertion).
+  // Every call resolves to { ok, value } or { ok: false, error } — a failure
+  // in Rust is a value here, never a throw. `init` is what asks for
+  // Accessibility, so only onboarding may call it.
+  flow: {
+    init: () => ipcRenderer.invoke("openlive:flow-init"),
+    permissions: () => ipcRenderer.invoke("openlive:flow-permissions"),
+    request: (what) => ipcRenderer.invoke("openlive:flow-request", what),
+    parseBinding: (b) => ipcRenderer.invoke("openlive:flow-parse-binding", b),
+    register: (id, binding, activation, holdMs) => ipcRenderer.invoke("openlive:flow-register", id, binding, activation, holdMs),
+    unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
+    suspend: () => ipcRenderer.invoke("openlive:flow-suspend"),
+    resume: () => ipcRenderer.invoke("openlive:flow-resume"),
+    trigger: (id, pressed) => ipcRenderer.invoke("openlive:flow-trigger", id, pressed),
+    processingFinished: () => ipcRenderer.invoke("openlive:flow-processing-finished"),
+    startFailed: () => ipcRenderer.invoke("openlive:flow-start-failed"),
+    insert: (text, method) => ipcRenderer.invoke("openlive:flow-insert", text, method),
+    insertBegin: (method) => ipcRenderer.invoke("openlive:flow-insert-begin", method),
+    insertPush: (session, chunk) => ipcRenderer.invoke("openlive:flow-insert-push", session, chunk),
+    insertEnd: (session) => ipcRenderer.invoke("openlive:flow-insert-end", session),
+    secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),
+    recordingRefusal: () => ipcRenderer.invoke("openlive:flow-recording-refusal"),
+    hookError: () => ipcRenderer.invoke("openlive:flow-hook-error"),
+    // Single listener each, same replace-on-subscribe rule as the handlers above.
+    onEffect: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-effect"); ipcRenderer.on("openlive:flow-effect", (_e, effect) => cb(effect)); },
+    onSecureInput: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-secure-input"); ipcRenderer.on("openlive:flow-secure-input", (_e, s) => cb(s)); },
+  },
 });
