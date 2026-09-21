@@ -11,9 +11,9 @@ import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
 import type { ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
 import { log } from "../log.js";
 
-// Flow's half of the /live socket. It is a SEPARATE connection from chat's — the
+// Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
 // pill runtime lives in its own renderer, and a WebSocket cannot be shared across
-// renderers — but it is the same endpoint, the same schemas and the same
+// renderers. But it is the same endpoint, the same schemas and the same
 // permission protocol, so nothing about LiveSession changes.
 
 const BRIDGE_TIMEOUT_MS = 8_000;

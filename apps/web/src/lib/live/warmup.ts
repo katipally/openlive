@@ -11,9 +11,11 @@ let warmed = false;
 
 export function warmupOnLaunch(): void {
   if (warmed || typeof window === "undefined") return;
-  // The desktop mini panel is its own renderer — the MAIN window owns the voice
-  // stack; warming here would load a duplicate copy of every model.
-  if (window.location.pathname.startsWith("/mini")) return;
+  // The desktop mini panel and Flow's pill are display-only renderers — the main
+  // window and Flow's owner renderer hold the voice stack; warming in a pill
+  // would load a duplicate copy of every model.
+  const path = window.location.pathname;
+  if (path.startsWith("/mini") || path === "/flow") return;
   warmed = true;
   // Let first paint + hydration settle before grabbing CPU/GPU for shaders.
   setTimeout(() => { void run(); }, 1500);
