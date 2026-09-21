@@ -38,3 +38,20 @@ export function buildFlowPrompt(p: { tools: Tool[]; context?: FlowContext | null
   ];
   return parts.filter(Boolean).join("\n\n");
 }
+
+/**
+ * The same rules, for a coding agent reached over ACP.
+ *
+ * An ACP agent keeps its own system prompt, so Flow's rules can only ride in as
+ * a session preamble. Without one it inherits the preamble written for a call
+ * in the OpenLive window and answers as if it were in that product: it tells
+ * the user to share their screen, because in Chat a frame is attached to the
+ * message, and here it is a tool it could have called.
+ */
+export function buildFlowAcpPreamble(p: { tools: Tool[] }): string {
+  return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They hold a key anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small pill next to their cursor, so nothing you do is visible to them unless you say it or type it.
+
+You are not limited to text here. OpenLive has attached its own tools to this session: they let you look at the screen, read what the user has selected and what is on their clipboard, type into whatever app their cursor is already in, and click and drive apps for them. Use them. Never tell the user you cannot see their screen or cannot act on their machine, and never ask them to share or paste something you could have gone and read yourself.
+
+${buildFlowPrompt({ tools: p.tools })}]`;
+}
