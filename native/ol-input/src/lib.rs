@@ -2,15 +2,20 @@
 //! thread; the hook and the insertion sessions own their own threads.
 
 pub mod binding;
+pub mod capabilities;
+pub mod capture;
 pub mod clipboard;
+pub mod control;
 pub mod coordinator;
 pub mod coords;
 pub mod hook;
 pub mod inject;
+pub mod ocr;
 pub mod paste_tx;
 pub mod perms;
 pub mod platform;
 pub mod secure_input;
+pub mod window;
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -275,3 +280,4 @@ pub fn request_microphone() -> String {
 pub fn request_screen_recording() -> bool {
     perms::request_screen_recording()
 }
+

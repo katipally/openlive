@@ -1,4 +1,5 @@
-pub mod desktop;
+//! Capture, window and pointer primitives, one module per OS, alongside the
+//! keyboard and permission primitives in the modules next door.
 
 #[cfg(target_os = "linux")]
 pub mod linux;
