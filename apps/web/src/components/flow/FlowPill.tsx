@@ -7,6 +7,7 @@ import { openliveBridge, type PanelCmd, type PanelPacket, type PanelStateSnapsho
 import { flowBridge } from "@/lib/flow/bridge";
 import { quietLabel } from "@/lib/flow/quiet";
 import { IDLE_FLOW, type FlowSnapshot } from "@/lib/flow/types";
+import { duration } from "@/lib/flow/format";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
 import { cn } from "@/lib/cn";
@@ -52,6 +53,31 @@ function Chips({ permission, cmd }: { permission: PendingPermission; cmd: (c: Pa
   );
 }
 
+/**
+ * How long this turn has been going, as the pill shows it.
+ *
+ * One interval, owned by the visible pill and nothing else. It starts when the
+ * pill leaves idle, ticks once a second while a turn is in flight, and is
+ * cleared the moment the turn ends, so nothing is still running behind a hidden
+ * window. Returns "" while idle, which is also how the pill decides not to draw it.
+ */
+function useElapsed(phase: FlowSnapshot["phase"]): string {
+  const startedAt = useRef(0);
+  const [text, setText] = useState("");
+  const running = phase !== "idle" && phase !== "error";
+
+  useEffect(() => {
+    if (!running) { startedAt.current = 0; setText(""); return; }
+    if (!startedAt.current) startedAt.current = Date.now();
+    const tick = () => setText(duration(Date.now() - startedAt.current));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  return text;
+}
+
 export function FlowPill() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
@@ -69,6 +95,8 @@ export function FlowPill() {
       if (next.flow) setS(next.flow);
     });
   }, []);
+
+  const elapsed = useElapsed(s.phase);
 
   // The summon: the window already exists and is already transparent, so frame
   // one is an animation and never a resize. Transforms and opacity only.
@@ -135,6 +163,11 @@ export function FlowPill() {
                 <span className="truncate text-label font-medium leading-snug" aria-live="polite">{title}</span>
                 {detail && <span className="truncate text-caption leading-snug text-muted-foreground">{detail}</span>}
               </div>
+              {elapsed && (
+                <span className="shrink-0 font-mono text-caption tabular-nums text-muted-foreground" aria-label={`${elapsed} so far`}>
+                  {elapsed}
+                </span>
+              )}
               {s.phase === "idle" && s.binding && (
                 <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1">
                   <span className="size-1.5 rounded-full bg-accent" />
