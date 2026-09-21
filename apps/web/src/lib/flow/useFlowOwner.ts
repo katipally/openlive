@@ -65,6 +65,10 @@ export function useFlowOwner(): void {
   const brainReady = useRef(false);
   const override = useRef<boolean | null>(null); // the pill's speaker toggle, for this session
   const turnActive = useRef(false);
+  /** The key is up and the words are still being worked out. The pill must not
+   *  leave and the microphone must not close during this, or the answer arrives
+   *  to a torn-down turn and is never seen. */
+  const finalizing = useRef(false);
   const summoned = useRef(false);
   const disarmed = useRef(false);
   /** Whether the addon currently holds a registration, and for which trigger. */
@@ -131,6 +135,7 @@ export function useFlowOwner(): void {
       // teardownMic is what lets the microphone actually close: it declines to
       // close one a turn still claims.
       turnActive.current = false;
+      finalizing.current = false;
       snap.current = { ...IDLE_FLOW, binding: snap.current.binding, failure: snap.current.failure };
       publish();
       teardownMic();
@@ -147,6 +152,7 @@ export function useFlowOwner(): void {
      */
     const failTurn = (message: string) => {
       turnActive.current = false;
+      finalizing.current = false;
       patch({ reply: message, inserting: null });
       setPhase("error");
       teardownMic();
@@ -250,7 +256,7 @@ export function useFlowOwner(): void {
     };
 
     const teardownMic = () => {
-      if (turnActive.current) return;
+      if (turnActive.current || finalizing.current) return;
       try { engine.current?.stop(); } catch { /* */ }
       engine.current = null;
       try { stream.current?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
@@ -260,7 +266,7 @@ export function useFlowOwner(): void {
     const onEnginePhase = (p: EnginePhase) => {
       if (p === "listening") return setPhase("listening");
       if (p === "speaking") return setPhase("speaking");
-      if (p === "idle" && !turnActive.current) dismissSoon();
+      if (p === "idle" && !turnActive.current && !finalizing.current) dismissSoon();
     };
 
     // ── a turn ────────────────────────────────────────────────────────────
@@ -296,19 +302,30 @@ export function useFlowOwner(): void {
 
     const onStop = async () => {
       if (!engine.current) { dismissSoon(); return; }
-      if (usesPtt()) await engine.current.endPtt();
-      else { engine.current.commitPending(); engine.current.setMuted(true); }
-      if (!turnActive.current && snap.current.phase === "listening") dismissSoon();
+      finalizing.current = true;
+      if (snap.current.phase === "listening") setPhase("thinking", "Working out what you said");
+      try {
+        if (usesPtt()) await engine.current.endPtt();
+        else { engine.current.commitPending(); engine.current.setMuted(true); }
+      } finally {
+        finalizing.current = false;
+      }
+      // Nothing was said, or nothing survived the junk filter. The turn is over
+      // before it began, so let the pill go.
+      if (!turnActive.current) { teardownMic(); dismissSoon(); }
     };
 
-    const onCancel = () => { if (!turnActive.current) dismiss(); };
+    const onCancel = () => { if (!turnActive.current && !finalizing.current) dismiss(); };
 
     const onUserText = async (text: string) => {
-      patch({ transcript: text, partial: false });
       // An approval is open, so this sentence is its answer.
-      if (permission.current) return answerByVoice(text);
+      if (permission.current) { patch({ transcript: text, partial: false }); return answerByVoice(text); }
+      // A question that was asked keeps the pill until it has been answered, even
+      // if the transcription outlived the dismissal it was racing.
       turnActive.current = true;
-      setPhase("thinking");
+      summon();
+      patch({ transcript: text, partial: false, reply: "", inserting: null });
+      setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
       const context = valueOr(await api.context(), undefined) as FlowContextWire | undefined;
       client.current?.flowText(text, context);
     };
