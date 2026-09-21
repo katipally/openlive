@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Flow's settings, plus the one thing the pill cannot work out for itself:
-// whether there is a brain to think with. Read-only — Block 6 owns the editor.
+// whether there is a brain to think with. Read-only: Block 6 owns the editor.
 export function GET() {
   const config = readFlowConfig();
   const rows = listProviders();
