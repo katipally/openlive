@@ -187,6 +187,17 @@ pub fn request_accessibility() -> bool {
     true
 }
 
+/// X11 hands synthetic input to anyone who can open the display, and Wayland
+/// refuses it to everyone but the tools `guard_injection` already looks for,
+/// so there is no per-process grant to probe.
+pub fn post_events_ok() -> bool {
+    true
+}
+
+pub fn request_post_events() -> bool {
+    true
+}
+
 /// PipeWire and PulseAudio grant microphone access at the session level, so
 /// there is nothing to probe: the capture attempt is the probe.
 pub fn microphone_status() -> isize {

@@ -4,8 +4,8 @@
 use std::ffi::c_void;
 use std::os::raw::c_char;
 use std::ptr;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use handy_keys::{Key, Modifiers};
 use objc2::runtime::AnyObject;
@@ -86,6 +86,11 @@ extern "C" {
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
     fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
+    /// Answers "may this process post events", which `AXIsProcessTrusted` does
+    /// not: a process can read the accessibility tree and still have every
+    /// event it posts dropped without a word. macOS 10.15 and later.
+    fn CGPreflightPostEventAccess() -> bool;
+    fn CGRequestPostEventAccess() -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -271,6 +276,35 @@ pub fn type_text(text: &str) -> Result<(), String> {
 
 pub fn accessibility_ok() -> bool {
     unsafe { AXIsProcessTrusted() }
+}
+
+/// The preflight is a round trip to the window server and costs milliseconds,
+/// which a drag cannot pay once per point, so the answer is reused briefly.
+/// Not longer: the grant can be given or taken away while the app runs.
+const POST_EVENTS_TTL: Duration = Duration::from_secs(5);
+static POST_EVENTS: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+
+fn remember_post_events(ok: bool) -> bool {
+    if let Ok(mut cache) = POST_EVENTS.lock() {
+        *cache = Some((Instant::now(), ok));
+    }
+    ok
+}
+
+pub fn post_events_ok() -> bool {
+    if let Ok(cache) = POST_EVENTS.lock() {
+        if let Some((at, ok)) = *cache {
+            if at.elapsed() < POST_EVENTS_TTL {
+                return ok;
+            }
+        }
+    }
+    remember_post_events(unsafe { CGPreflightPostEventAccess() })
+}
+
+/// Prompts. Only the onboarding path calls this, never a probe or a guard.
+pub fn request_post_events() -> bool {
+    remember_post_events(unsafe { CGRequestPostEventAccess() })
 }
 
 /// Shows the system prompt once. macOS never calls back, so the caller polls.

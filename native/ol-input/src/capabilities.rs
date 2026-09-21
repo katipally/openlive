@@ -16,6 +16,10 @@ use crate::platform::desktop::current as desktop;
 pub struct Capabilities {
     /// The global hook can run, which on macOS means Accessibility is granted.
     pub hook: bool,
+    /// Typing and clicking reach other apps. False means every event this
+    /// process posts is discarded without a word, so nothing may claim to
+    /// have typed or clicked.
+    pub post_events: bool,
     /// "paste" or "type".
     pub injection: &'static str,
     pub capture: bool,
@@ -46,6 +50,7 @@ pub fn probe() -> Capabilities {
     let (ocr, tools) = static_parts();
     Capabilities {
         hook: platform::accessibility_ok(),
+        post_events: platform::post_events_ok(),
         injection: match Method::default_for_platform() {
             Method::Paste => "paste",
             Method::Type => "type",

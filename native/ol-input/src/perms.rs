@@ -7,6 +7,9 @@ use crate::platform::current as platform;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub accessibility: bool,
+    /// Whether this process may post keystrokes and clicks. A separate grant
+    /// from `accessibility`, and the two disagree often enough to matter.
+    pub post_events: bool,
     pub microphone: &'static str,
     pub screen_recording: bool,
 }
@@ -23,6 +26,7 @@ fn microphone() -> &'static str {
 pub fn status() -> Status {
     Status {
         accessibility: platform::accessibility_ok(),
+        post_events: platform::post_events_ok(),
         microphone: microphone(),
         screen_recording: platform::screen_recording_ok(),
     }
@@ -32,6 +36,11 @@ pub fn status() -> Status {
 /// `status()` until it flips or gives up.
 pub fn request_accessibility() -> bool {
     platform::request_accessibility()
+}
+
+/// Prompts, exactly like `request_accessibility`, so only onboarding calls it.
+pub fn request_post_events() -> bool {
+    platform::request_post_events()
 }
 
 pub fn request_microphone() -> &'static str {
