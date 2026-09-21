@@ -48,7 +48,7 @@ test("missing and invalid keys fall back per field, not per file", () => {
   expect(cfg.insertion.modifierHoldMs).toBe(DEFAULT_FLOW_CONFIG.insertion.modifierHoldMs);
   expect(cfg.activation).toBe(DEFAULT_FLOW_CONFIG.activation);
   expect(cfg.holdThresholdMs).toBe(DEFAULT_FLOW_CONFIG.holdThresholdMs);
-  expect(cfg.risk.destructive).toBe("auto");
+  expect(cfg.risk.destructive).toBe("ask"); // destructive always asks, whatever the file says
   expect(cfg.risk.control).toBe(DEFAULT_FLOW_CONFIG.risk.control);
   expect(cfg.tts.speed).toBe(DEFAULT_FLOW_CONFIG.tts.speed);
 });
@@ -85,4 +85,10 @@ test("updateFlowConfig holds the lock across the whole read-modify-write", async
 test("a corrupt config file reads as defaults", () => {
   writeFileSync(configPath(), "{ half a file");
   expect(readFlowConfig()).toEqual(DEFAULT_FLOW_CONFIG);
+});
+
+test("per-tool overrides keep only the actions this build understands", () => {
+  const cfg = parseFlowConfig({ toolRisk: { insert_text: "ask", click: "sometimes", run_command: "deny" } });
+  expect(cfg.toolRisk).toEqual({ insert_text: "ask", run_command: "deny" });
+  expect(parseFlowConfig({}).toolRisk).toEqual({});
 });

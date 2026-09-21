@@ -40,6 +40,9 @@ export interface FlowConfig {
     autoQuiet: { meetingApps: boolean; micContention: boolean; systemDnd: boolean; apps: string[] };
   };
   risk: Record<RiskTier, RiskAction>;
+  /** Per-tool override on its tier, keyed by tool name. A tool in the
+   *  `destructive` tier ignores its entry: that one always asks. */
+  toolRisk: Record<string, RiskAction>;
   idleWindowMs: number;
   stt: { whisperSize: string };
   tts: { engine: string; voice: string; speed: number };
@@ -62,6 +65,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     autoQuiet: { meetingApps: true, micContention: true, systemDnd: true, apps: [] },
   },
   risk: { read: "auto", insert: "auto", control: "ask", destructive: "ask" },
+  toolRisk: {},
   idleWindowMs: 5 * 60_000,
   stt: { whisperSize: "base" },
   tts: { engine: "kokoro", voice: "af_heart", speed: 1 },
@@ -74,6 +78,11 @@ const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
 const num = (v: unknown, d: number, min = 0) => (typeof v === "number" && Number.isFinite(v) && v >= min ? v : d);
 const one = <T extends string>(v: unknown, allowed: readonly T[], d: T): T => (allowed.includes(v as T) ? (v as T) : d);
 const strings = (v: unknown, d: string[]) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : d);
+const actions = (v: unknown): Record<string, RiskAction> => {
+  const out: Record<string, RiskAction> = {};
+  for (const [k, raw] of Object.entries(obj(v))) if (RISK_ACTIONS.includes(raw as RiskAction)) out[k] = raw as RiskAction;
+  return out;
+};
 
 // Keyed on the version of the file being read: a v1 file runs MIGRATIONS[1] to
 // become v2, and so on. Nothing to migrate yet; this is where a shipped schema
@@ -134,8 +143,11 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       read: one(risk.read, RISK_ACTIONS, d.risk.read),
       insert: one(risk.insert, RISK_ACTIONS, d.risk.insert),
       control: one(risk.control, RISK_ACTIONS, d.risk.control),
-      destructive: one(risk.destructive, RISK_ACTIONS, d.risk.destructive),
+      // Destructive always asks. A hand-edited "auto" here is not honoured, so
+      // the setting on disk can never disagree with what Flow actually does.
+      destructive: one(risk.destructive, RISK_ACTIONS, d.risk.destructive) === "deny" ? "deny" : "ask",
     },
+    toolRisk: actions(o.toolRisk),
     idleWindowMs: num(o.idleWindowMs, d.idleWindowMs, 1),
     stt: { ...stt, whisperSize: str(stt.whisperSize, d.stt.whisperSize) },
     tts: { ...tts, engine: str(tts.engine, d.tts.engine), voice: str(tts.voice, d.tts.voice), speed: num(tts.speed, d.tts.speed, 0.1) },

@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseSession, readHead, sessionIdFromFileName } from "./jsonl";
 import { sessionAssetsDir, sessionsDir } from "./paths";
@@ -101,6 +101,17 @@ export function loadSession(id: string): LoadedFlowSession | null {
   const { text, complete } = safeHead(path, Number.MAX_SAFE_INTEGER);
   const { header, entries, truncated } = parseSession(text, complete);
   return { header, entries, truncated, assets: listAssets(id) };
+}
+
+/** Remove a session and everything captured for it. False when there was no
+ *  such session; a partial removal still reports true, because the transcript
+ *  going is what the person asked for. */
+export function deleteSession(id: string): boolean {
+  const hit = sessionFiles().find((f) => f.id === id);
+  if (!hit) return false;
+  rmSync(join(sessionsDir(), hit.name), { force: true });
+  rmSync(sessionAssetsDir(id), { recursive: true, force: true });
+  return true;
 }
 
 export function listAssets(sessionId: string): { name: string; path: string; bytes: number }[] {
