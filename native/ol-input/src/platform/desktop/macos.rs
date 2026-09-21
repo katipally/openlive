@@ -224,7 +224,12 @@ unsafe fn window_from(dictionary: *mut AnyObject) -> Option<WindowInfo> {
         origin,
         width: number(bounds, "Width")?,
         height: number(bounds, "Height")?,
-        display_id: display_under(origin),
+        // The centre, not the corner: a window straddling the top of the
+        // screen has an origin that is on no display at all.
+        display_id: display_under(ScreenPoint::new(
+            origin.x + number(bounds, "Width")? / 2.0,
+            origin.y + number(bounds, "Height")? / 2.0,
+        )),
         minimized: number(dictionary, "kCGWindowIsOnscreen").unwrap_or(1.0) == 0.0,
     })
 }

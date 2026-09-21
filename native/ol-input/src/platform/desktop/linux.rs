@@ -216,6 +216,12 @@ fn describe(id: u32) -> Option<WindowInfo> {
             .and_then(|number| number.trim().parse().ok())
     };
     let origin = ScreenPoint::new(value("X")?, value("Y")?);
+    // The centre, not the corner: a window straddling the top of the screen
+    // has an origin that is on no display at all.
+    let centre = ScreenPoint::new(
+        origin.x + value("WIDTH")? / 2.0,
+        origin.y + value("HEIGHT")? / 2.0,
+    );
     Some(WindowInfo {
         id,
         app_name: process_name(pid).unwrap_or_default(),
@@ -229,10 +235,10 @@ fn describe(id: u32) -> Option<WindowInfo> {
             displays
                 .into_iter()
                 .find(|display| {
-                    origin.x >= display.origin.x
-                        && origin.x < display.origin.x + display.width
-                        && origin.y >= display.origin.y
-                        && origin.y < display.origin.y + display.height
+                    centre.x >= display.origin.x
+                        && centre.x < display.origin.x + display.width
+                        && centre.y >= display.origin.y
+                        && centre.y < display.origin.y + display.height
                 })
                 .map(|display| display.id)
         }),
