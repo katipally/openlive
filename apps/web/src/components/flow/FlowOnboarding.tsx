@@ -537,8 +537,10 @@ function TryIt({ config, brainReady, perms, onGoTo }: {
                 <Check className="size-4 shrink-0 text-success-text" strokeWidth={2.6} aria-hidden /> That was it.
               </span>
               <p className="min-w-0 text-body leading-relaxed text-muted-strong">
-                {latest ? `You said: “${sessionLine(latest)}”.` : "Flow heard you."} It is in Flow&rsquo;s history, and
-                the key works exactly the same in every other app.
+                {/* The space lives inside the expression: a JSX text node that
+                    wraps loses the one that would sit between them. */}
+                {latest ? `You said: “${sessionLine(latest)}”. ` : "Flow heard you. "}
+                It is in Flow&rsquo;s history, and the key works exactly the same in every other app.
               </p>
             </>
           ) : (
