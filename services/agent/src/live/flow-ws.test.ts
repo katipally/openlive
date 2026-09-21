@@ -109,4 +109,21 @@ describe("FlowLiveSession", () => {
     expect(asked.some((m) => m.role === "assistant" && m.text === "It's 18 and clear in Berlin.")).toBe(true);
   });
 
+  it("keeps the transcript a running turn is writing into when the session goes idle", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = [async () => { await until(() => fake.idle !== null); fake.idle!(); await tick(); }, ...reply("Here it is.")];
+    ws.say("write it up");
+    await until(() => turnsDone(ws) === 1);
+
+    expect(fake.appended.some((e) => e.type === "message" && e.data.role === "assistant" && e.data.text === "Here it is.")).toBe(true);
+
+    // And the archived transcript is gone by the time the next utterance opens a new one.
+    fake.script = reply("Fresh.");
+    ws.say("and again");
+    await until(() => turnsDone(ws) === 2);
+    expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["and again"]);
+  });
+
 });

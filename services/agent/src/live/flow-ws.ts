@@ -71,6 +71,8 @@ export class FlowLiveSession {
   private closed = false;
   private ac: AbortController | null = null;
   private turnActive = false;
+  /** An idle expiry that landed mid-turn: the transcript is the running loop's until it ends. */
+  private archived = false;
   private spoken: string | null = null;
   /** Utterances that arrived mid-run: the loop drains them between turns. */
   private steering: Msg[] = [];
@@ -231,6 +233,7 @@ export class FlowLiveSession {
       if (last?.role === "assistant" && (last.text || last.toolCalls?.length)) {
         void this.persist("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "" });
       }
+      if (this.archived) { this.archived = false; this.rollSession(); }
       if (this.steering.length && !this.closed) {
         this.messages.push(...this.steering.splice(0));
         void this.run();
@@ -268,13 +271,34 @@ export class FlowLiveSession {
       this.store = await FlowStoreSession.resume(
         path,
         undefined,
-        { idleMs: readFlowConfig().idleWindowMs, onIdle: () => { this.store = null; this.opening = null; this.messages = []; } },
+        { idleMs: readFlowConfig().idleWindowMs, onIdle: () => this.onStoreIdle() },
       );
       this.opening = Promise.resolve(this.store);
       this.messages = transcriptOf(loaded.entries);
     } catch (e) {
       log.error("flow", "resume:", e);
     }
+  }
+
+  /**
+   * The rolling session went idle and archived itself; the next utterance opens
+   * a fresh one with a fresh transcript.
+   *
+   * `runFlow` holds the transcript array it was handed, so replacing it under a
+   * turn in flight would leave that turn appending into an orphan and its reply
+   * unpersisted. A turn in flight keeps both the array and the file it started
+   * writing into, and the swap happens when it ends.
+   */
+  private onStoreIdle(): void {
+    if (this.turnActive) { this.archived = true; return; }
+    this.rollSession();
+  }
+
+  /** Let go of the archived session and its transcript, so the next utterance opens a fresh one. */
+  private rollSession(): void {
+    this.store = null;
+    this.opening = null;
+    this.messages = [];
   }
 
   /** One rolling session. On idle expiry it archives itself and the next utterance
@@ -285,7 +309,7 @@ export class FlowLiveSession {
       this.opening = FlowStoreSession.open({
         idleMs: readFlowConfig().idleWindowMs,
         meta: { mode: "flow" },
-        onIdle: () => { this.store = null; this.opening = null; this.messages = []; },
+        onIdle: () => this.onStoreIdle(),
       }).then((s) => { this.store = s; return s; });
       this.opening.catch(() => { this.opening = null; });
     }
