@@ -1,5 +1,6 @@
 import { dispatch, toolSpecs, type FlowToolCall } from "./tools.js";
 import { allowAll } from "./approval.js";
+import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
 import type {
   Approve, Brain, ClipboardPort, ContextProvider, FlowEvent, InsertionSink, Msg, TextPart, Tool, Usage,
@@ -129,6 +130,10 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
 
     const context = (await run.context?.capture(signal)) ?? null;
     if (context) yield { type: "context", context };
+
+    // Dropping messages moves every index after them, and the anchor is an index.
+    const trimmed = trimImages(messages);
+    if (trimmed) { messages.splice(0, messages.length, ...trimmed); anchor = null; }
 
     const compacted = compact(messages, budget, anchor);
     if (compacted) { messages.splice(0, messages.length, ...compacted); anchor = null; }
