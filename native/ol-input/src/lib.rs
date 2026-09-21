@@ -4,6 +4,7 @@
 pub mod binding;
 pub mod clipboard;
 pub mod coordinator;
+pub mod coords;
 pub mod hook;
 pub mod inject;
 pub mod paste_tx;
