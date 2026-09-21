@@ -9,12 +9,15 @@ export type Guarded<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export interface FlowPermissions { accessibility: boolean; microphone: string; screenRecording: boolean }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
+/** The addon's own report. Absent on a build that predates Block 4. */
+export interface CapabilityReport { hook: boolean; capture: boolean; selection: boolean; windowControl: boolean; elevatedWindowInjection: boolean; session?: string }
 export interface FlowCapabilities {
   platform: string;
   wayland: boolean;
   permissions: FlowPermissions | null;
   secureInput: SecureInputStatus | null;
   hookError: string | null;
+  report: CapabilityReport | null;
 }
 export type HookEffect = { kind: string; bindingId?: string };
 export type AddonActivation = "toggle" | "pushToTalk" | "holdOrToggle";

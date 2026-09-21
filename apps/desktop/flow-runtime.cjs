@@ -27,22 +27,25 @@ function run(cmd, args, timeout = 1500) {
   });
 }
 
-/** Block 4 adds the native window read. Until it lands Flow says what it can see. */
-function foregroundWindow() {
+// The perception exports land with Block 4, so each one is asked for by name and
+// simply absent until it exists. Flow says what it can see and nothing more.
+function ask(name, fallback = null) {
   try {
     const api = flowInput.load();
-    return typeof api.foregroundWindow === "function" ? api.foregroundWindow() : null;
-  } catch { return null; }
+    return typeof api[name] === "function" ? api[name]() : fallback;
+  } catch { return fallback; }
 }
+
+const foregroundWindow = () => ask("foregroundWindow");
 
 function captureContext() {
   const win = foregroundWindow() ?? {};
+  const selection = ask("selectedText");
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   return {
-    ...(win.app ? { app: String(win.app) } : {}),
+    ...(win.appName ? { app: String(win.appName) } : {}),
     ...(win.title ? { windowTitle: String(win.title) } : {}),
-    ...(win.selection ? { selection: String(win.selection) } : {}),
-    ...(win.url ? { url: String(win.url) } : {}),
+    ...(selection ? { selection: String(selection) } : {}),
     screen: { width: display.size.width, height: display.size.height, scale: display.scaleFactor },
     capturedAt: Date.now(),
   };
@@ -95,7 +98,7 @@ async function signals() {
   if (cached && Date.now() - cached.at < SIGNAL_TTL_MS) return cached.value;
   const [call, muted] = await Promise.all([inCall(), outputMuted()]);
   const value = {
-    app: foregroundWindow()?.app ?? null,
+    app: foregroundWindow()?.appName ?? null,
     inCall: call,
     dnd: doNotDisturb(),
     outputMuted: muted,
@@ -109,7 +112,6 @@ async function signals() {
 }
 
 function capabilities() {
-  const wayland = process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
   let permissions = null;
   let secureInput = null;
   let hookError = null;
@@ -121,7 +123,13 @@ function capabilities() {
   } catch (e) {
     hookError = String(e && e.message ? e.message : e);
   }
-  return { platform: process.platform, wayland, permissions, secureInput, hookError };
+  // The addon's own report is the truth about this session when it has one;
+  // the environment is only the fallback for builds that predate it.
+  const report = ask("capabilities");
+  const wayland = report
+    ? report.session === "wayland"
+    : process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
+  return { platform: process.platform, wayland, permissions, secureInput, hookError, report };
 }
 
 // Same { ok, value } shape as the rest of the flow namespace, so a caller never
