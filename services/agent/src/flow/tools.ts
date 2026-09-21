@@ -219,6 +219,9 @@ export function validateArgs(tool: Tool, args: Record<string, unknown>): { ok: t
 
 export const riskOf = (tool: Tool, args: unknown): Risk => (typeof tool.risk === "function" ? tool.risk(args) : tool.risk);
 
+/** An answered risk decision. Kept by whoever asked first, so nobody is asked twice about one call. */
+export type Verdict = Awaited<ReturnType<Approve>>;
+
 // ── dispatch ────────────────────────────────────────────────────────────────
 
 interface Prepared {
@@ -247,12 +250,16 @@ function prepare(call: FlowToolCall, tools: Tool[]): Prepared {
  * approval prompts are serialised and deterministic, then execute in parallel.
  * Results are yielded in completion order for the UI; the returned array is in
  * assistant source order, which is the only order providers accept.
+ *
+ * A call whose approval was already answered elsewhere (the streaming insertion
+ * path decides before it commits a character) carries its verdict in
+ * `preflighted` and is not asked about twice.
  */
 export async function* dispatch(
   calls: FlowToolCall[],
   tools: Tool[],
   ctx: Omit<ToolCtx, "callId">,
-  opts: { approve: Approve; parallel?: boolean },
+  opts: { approve: Approve; parallel?: boolean; preflighted?: Map<string, Promise<Verdict>> },
 ): AsyncGenerator<DispatchResult, DispatchResult[]> {
   const prepared = calls.map((c) => prepare(c, tools));
 
@@ -261,7 +268,8 @@ export async function* dispatch(
     if (ctx.signal.aborted) { p.error = "Cancelled before it ran."; continue; }
     const risk = riskOf(p.tool, p.args);
     try {
-      const verdict = await opts.approve({ tool: p.tool, args: p.args, risk }, ctx.signal);
+      const already = opts.preflighted?.get(p.call.id);
+      const verdict = await (already ?? opts.approve({ tool: p.tool, args: p.args, risk }, ctx.signal));
       if (verdict.block) p.error = `Blocked: ${verdict.reason}`;
     } catch (e) {
       p.error = `Blocked: ${errText(e)}`;
@@ -317,12 +325,15 @@ function errText(e: unknown): string {
  */
 export class ForwardOnlyInsertion implements InsertionSink {
   private sent = new Map<string, string>();
+  /** What an abandoned call left in the document, waiting for the retry that continues it. */
+  private carried = "";
   constructor(private readonly push: (id: string, chunk: string) => Promise<void> | void, private readonly finish?: (id: string) => Promise<void> | void) {}
 
   async commit(id: string, textSoFar: string): Promise<void> {
     if (typeof textSoFar !== "string") return;
-    const done = this.sent.get(id) ?? "";
+    const done = this.sent.get(id) ?? (textSoFar.startsWith(this.carried) ? this.carried : "");
     if (!textSoFar.startsWith(done) || textSoFar.length === done.length) return;
+    this.carried = "";
     this.sent.set(id, textSoFar);
     await this.push(id, textSoFar.slice(done.length));
   }
@@ -331,6 +342,11 @@ export class ForwardOnlyInsertion implements InsertionSink {
     if (!this.sent.has(id)) return;
     this.sent.delete(id);
     await this.finish?.(id);
+  }
+
+  async abandon(id: string): Promise<void> {
+    this.carried = this.sent.get(id) ?? "";
+    await this.end(id);
   }
 
   /** How much of this call's text has already reached the user's app. */
