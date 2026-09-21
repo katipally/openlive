@@ -1,0 +1,17 @@
+{
+  "name": "@openlive/ol-input",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Global hold-to-talk hook and text insertion for OpenLive Flow",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test:rust": "cargo test"
+  }
+}

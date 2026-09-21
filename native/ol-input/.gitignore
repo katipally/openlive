@@ -1,2 +1,5 @@
 target/
 *.node
+
+# Staged addon, produced by scripts/build.cjs.
+ol-input.*.node
