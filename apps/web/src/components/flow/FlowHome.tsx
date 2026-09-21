@@ -8,6 +8,7 @@ import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowSessions, sessionLine, type FlowSessionSummary } from "@/lib/flow/sessions";
 import { bindingLabel } from "@/lib/flow/binding";
 import { clock, duration } from "@/lib/flow/format";
+import { FlowCanvas } from "./FlowCanvas";
 import type { FlowView } from "./FlowShell";
 import { cn } from "@/lib/cn";
 
@@ -28,7 +29,7 @@ export function FlowHome({ onOpen }: { onOpen: (view: FlowView, id?: string | nu
   const speaking = config?.voice.speakReplies !== false;
 
   return (
-    <div className="openlive-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-8 pt-1">
+    <FlowCanvas className="max-w-[54rem] gap-5">
       <section className="flex flex-wrap items-center gap-6 rounded-xl bg-card p-6 shadow-[var(--shadow-card)]">
         <OpenLiveOrb size={76} pulse />
         <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
@@ -83,7 +84,7 @@ export function FlowHome({ onOpen }: { onOpen: (view: FlowView, id?: string | nu
         </p>
       )}
 
-      <section className="flex min-h-0 flex-1 flex-col gap-2.5">
+      <section className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 px-1">
           <h2 className="text-title-sm font-semibold">Recent sessions</h2>
           <span className="text-caption text-muted-foreground">on this machine only</span>
@@ -91,21 +92,18 @@ export function FlowHome({ onOpen }: { onOpen: (view: FlowView, id?: string | nu
           <Link onClick={() => onOpen("history")}>See all</Link>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col rounded-xl bg-card p-1.5 shadow-[var(--shadow-card)]">
+        <div className="flex flex-col rounded-xl bg-card p-1.5 shadow-[var(--shadow-card)]">
           {error && <Empty>Flow&rsquo;s history could not be read.</Empty>}
           {!error && isLoading && <Empty>Looking&hellip;</Empty>}
           {!error && !isLoading && !sessions.length && (
-            <Empty>
-              Nothing yet. Hold {binding} anywhere on this machine and say something &mdash; whatever you say will be
-              here afterwards.
-            </Empty>
+            <Empty>{`Nothing yet. Hold ${binding} anywhere on this machine and say something. Whatever you say will be here afterwards.`}</Empty>
           )}
           {sessions.map((s, i) => (
             <SessionRow key={s.id} session={s} first={i === 0} onClick={() => onOpen("history", s.id)} />
           ))}
         </div>
       </section>
-    </div>
+    </FlowCanvas>
   );
 }
 
