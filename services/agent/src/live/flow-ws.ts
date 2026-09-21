@@ -1,0 +1,256 @@
+import { randomUUID } from "node:crypto";
+import type { WebSocket } from "ws";
+import type { LiveServerMsg } from "@openlive/shared";
+import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
+import { FlowSession as FlowStoreSession, readFlowConfig } from "@openlive/flow-store";
+import { LocalBrain } from "../flow/brain.js";
+import { runFlow } from "../flow/loop.js";
+import { buildFlowPrompt } from "../flow/prompt.js";
+import { voiceApprove } from "../flow/approval.js";
+import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
+import type { ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
+import { log } from "../log.js";
+
+// Flow's half of the /live socket. It is a SEPARATE connection from chat's — the
+// pill runtime lives in its own renderer, and a WebSocket cannot be shared across
+// renderers — but it is the same endpoint, the same schemas and the same
+// permission protocol, so nothing about LiveSession changes.
+
+const BRIDGE_TIMEOUT_MS = 8_000;
+const ASK_TIMEOUT_MS = 20_000;
+/** Enough of a turn to stay useful without turning the session file into a corpus. */
+const PERSIST_TEXT_CAP = 20_000;
+
+/** Cut a persisted reply back to what the voice actually said before the user cut in. */
+export function truncateToSpoken(messages: Msg[], spoken: string): void {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== "assistant") continue;
+    m.text = spoken.trim() || undefined;
+    if (!m.text && !m.toolCalls?.length) messages.splice(i, 1);
+    return;
+  }
+}
+
+const safeJson = (s: string): unknown => { try { return JSON.parse(s); } catch { return null; } };
+
+export class FlowLiveSession {
+  private closed = false;
+  private ac: AbortController | null = null;
+  private turnActive = false;
+  private spoken: string | null = null;
+  /** Utterances that arrived mid-run: the loop drains them between turns. */
+  private steering: Msg[] = [];
+  private messages: Msg[] = [];
+  private tools = flowTools();
+  private brain = new LocalBrain();
+  private bridgePending = new Map<string, (out: string) => void>();
+  private permPending = new Map<string, (optionId: string) => void>();
+  private store: FlowStoreSession | null = null;
+  private opening: Promise<FlowStoreSession> | null = null;
+  /** The metadata the desktop captured as the user spoke, used until a fresher read lands. */
+  private lastContext: FlowContext | null = null;
+
+  private insert = new ForwardOnlyInsertion(
+    (id, chunk) => this.bridge("flow_insert", JSON.stringify({ id, chunk })).then(() => {}),
+    (id) => this.bridge("flow_insert_end", id).then(() => {}),
+  );
+
+  private clipboard: ClipboardPort = {
+    read: () => this.bridge("clipboard_read"),
+    write: async (text) => { await this.bridge("clipboard_write", text); },
+  };
+
+  private context: ContextProvider = {
+    capture: async (signal) => {
+      if (signal.aborted) return this.lastContext;
+      const parsed = flowContextSchema.safeParse(safeJson(await this.bridge("flow_context")));
+      if (parsed.success) this.lastContext = parsed.data;
+      return this.lastContext;
+    },
+  };
+
+  constructor(private ws: WebSocket) {
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary) this.onText(data.toString()).catch((e) => log.error("flow", "text:", e));
+    });
+    ws.on("close", () => this.dispose());
+    ws.on("error", () => this.dispose());
+  }
+
+  // ── inbound ───────────────────────────────────────────────────────────────
+
+  private async onText(str: string) {
+    let msg;
+    try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
+    switch (msg.t) {
+      case "flow_text": {
+        // An ask is awaiting the user, so this utterance is its ANSWER, never a new
+        // turn. The client routes it when its chip is up; a raced one lands here and
+        // is bounced back instead of leaking to the model as a fresh prompt.
+        if (this.permPending.size) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        if (msg.context) this.lastContext = msg.context;
+        return this.onUtterance(msg.text);
+      }
+      case "flow_cancel":
+        // While an ask is open the "barge-in" IS the user answering it.
+        if (this.permPending.size) return;
+        if (this.turnActive) this.spoken = msg.spoken ?? "";
+        this.ac?.abort();
+        return;
+      case "tool_bridge_result": {
+        const r = this.bridgePending.get(msg.reqId);
+        if (r) { this.bridgePending.delete(msg.reqId); r(msg.output); }
+        return;
+      }
+      case "permission_response":
+        this.permPending.get(msg.reqId)?.(msg.optionId);
+        return;
+      case "control":
+        if (msg.action === "end") this.dispose();
+        return;
+      default:
+        return;
+    }
+  }
+
+  private onUtterance(text: string) {
+    if (!text.trim() || this.closed) return;
+    const m: Msg = { role: "user", text };
+    void this.persist("message", { role: "user", text });
+    if (this.turnActive) { this.steering.push(m); return; }
+    this.messages.push(m);
+    void this.run();
+  }
+
+  // ── the turn ──────────────────────────────────────────────────────────────
+
+  private async run() {
+    this.turnActive = true;
+    const ac = new AbortController();
+    this.ac = ac;
+    const cfg = readFlowConfig();
+    const approve = voiceApprove({
+      tiers: cfg.risk,
+      timeoutMs: ASK_TIMEOUT_MS,
+      ask: (question, signal) => this.askPermission(question, signal),
+    });
+    try {
+      for await (const event of runFlow({
+        brain: this.brain,
+        tools: this.tools,
+        messages: this.messages,
+        signal: ac.signal,
+        insert: this.insert,
+        clipboard: this.clipboard,
+        context: this.context,
+        approve,
+        getSystemPrompt: () => buildFlowPrompt({ tools: this.tools }),
+        pollSteering: () => this.steering.splice(0),
+      })) {
+        this.send({ t: "flow", event });
+        void this.record(event);
+      }
+    } catch (e) {
+      log.error("flow", "turn:", e);
+      this.send({ t: "flow", event: { type: "error", message: "That turn failed.", aborted: false } });
+      this.send({ t: "flow", event: { type: "done", reason: "error" } });
+    } finally {
+      this.turnActive = false;
+      this.ac = null;
+      // An ask left hanging by a cancelled turn must be settled, or the client's
+      // chip stays up and swallows the user's next sentence as a yes/no.
+      this.cancelPendingPermissions();
+      if (ac.signal.aborted && this.spoken !== null) truncateToSpoken(this.messages, this.spoken);
+      this.spoken = null;
+      const last = this.messages[this.messages.length - 1];
+      if (last?.role === "assistant" && (last.text || last.toolCalls?.length)) {
+        void this.persist("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "" });
+      }
+      if (this.steering.length && !this.closed) {
+        this.messages.push(...this.steering.splice(0));
+        void this.run();
+      }
+    }
+  }
+
+  /** The session file mirrors the turn; the transcript in memory is the model's copy. */
+  private record(event: { type: string } & Record<string, unknown>): Promise<unknown> | void {
+    if (event.type === "context") return this.persist("context", { context: event.context });
+    if (event.type === "tool_call") return this.persist("tool_call", { callId: event.id, name: event.name, args: event.args });
+    if (event.type === "tool_result") return this.persist("tool_result", { callId: event.id, name: event.name, isError: event.isError });
+  }
+
+  private async persist(type: "message" | "context" | "tool_call" | "tool_result", data: Record<string, unknown>): Promise<void> {
+    try { await (await this.session()).append(type, data); }
+    catch (e) { log.error("flow", "persist:", e); }
+  }
+
+  /** One rolling session. On idle expiry it archives itself and the next utterance
+   *  opens a fresh one with a fresh transcript. */
+  private session(): Promise<FlowStoreSession> {
+    if (this.store) return Promise.resolve(this.store);
+    if (!this.opening) {
+      this.opening = FlowStoreSession.open({
+        idleMs: readFlowConfig().idleWindowMs,
+        meta: { mode: "flow" },
+        onIdle: () => { this.store = null; this.opening = null; this.messages = []; },
+      }).then((s) => { this.store = s; return s; });
+      this.opening.catch(() => { this.opening = null; });
+    }
+    return this.opening;
+  }
+
+  // ── client handshakes ─────────────────────────────────────────────────────
+
+  /** Run an OS action on the user's machine and await its result. */
+  private bridge(op: "clipboard_read" | "clipboard_write" | "flow_insert" | "flow_insert_end" | "flow_context", arg?: string): Promise<string> {
+    if (this.closed) return Promise.resolve("");
+    return new Promise((resolve) => {
+      const reqId = randomUUID();
+      const timer = setTimeout(() => { if (this.bridgePending.delete(reqId)) resolve(""); }, BRIDGE_TIMEOUT_MS);
+      this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
+      this.send({ t: "tool_bridge", reqId, op, arg });
+    });
+  }
+
+  /** The same permission protocol chat uses: chips on the pill, spoken yes/no. */
+  private askPermission(question: string, signal: AbortSignal): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.closed || signal.aborted) return resolve(false);
+      const reqId = randomUUID();
+      const settle = (allowed: boolean) => {
+        if (!this.permPending.delete(reqId)) return;
+        signal.removeEventListener("abort", onAbort);
+        this.send({ t: "permission_resolved", reqId });
+        resolve(allowed);
+      };
+      const onAbort = () => settle(false);
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.permPending.set(reqId, (optionId) => settle(optionId === "allow"));
+      this.send({
+        t: "permission", reqId, question,
+        options: [{ id: "allow", label: "Yes", kind: "allow_once" }, { id: "deny", label: "Cancel", kind: "reject_once" }],
+        expiresAt: Date.now() + ASK_TIMEOUT_MS,
+      });
+    });
+  }
+
+  private cancelPendingPermissions() {
+    for (const settle of [...this.permPending.values()]) settle("deny");
+  }
+
+  private send(m: LiveServerMsg) {
+    if (this.closed || this.ws.readyState !== this.ws.OPEN) return;
+    this.ws.send(JSON.stringify(m));
+  }
+
+  private dispose() {
+    if (this.closed) return;
+    this.closed = true;
+    this.ac?.abort();
+    this.cancelPendingPermissions();
+    for (const [reqId, r] of [...this.bridgePending]) { this.bridgePending.delete(reqId); r(""); }
+    void this.store?.archive().catch(() => {});
+  }
+}

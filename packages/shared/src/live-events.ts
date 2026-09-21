@@ -69,7 +69,11 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Run an OS action on the user's machine (clipboard / open a URL) — desktop
   // only. The client executes it via the Electron bridge and replies with
   // tool_bridge_result. Enables agent-side clipboard_read/write + open_url tools.
-  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url"]), arg: z.string().optional() }),
+  // Flow adds three ops on the same handshake: `flow_insert` (arg is
+  // `{"id","chunk"}`) pushes the next chunk of a streaming insertion, `flow_insert_end`
+  // (arg is the call id) closes it, and `flow_context` reads the foreground window
+  // metadata back as JSON. Chat never sends them.
+  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url", "flow_insert", "flow_insert_end", "flow_context"]), arg: z.string().optional() }),
   // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
   // something (run a command, edit files). The client speaks the question and shows
   // approve/deny chips; the answer comes back as permission_response.
@@ -179,7 +183,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // user spoke it. Approval answers reuse `permission_response`.
   z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional() }),
   // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
-  // turn on the same socket can never abort each other.
-  z.object({ t: z.literal("flow_cancel") }),
+  // turn on the same socket can never abort each other. `spoken` is what the
+  // on-device TTS actually voiced before the cut, so only that is persisted.
+  z.object({ t: z.literal("flow_cancel"), spoken: z.string().optional() }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

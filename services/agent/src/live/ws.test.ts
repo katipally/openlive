@@ -10,6 +10,10 @@ import { vi } from "vitest";
 vi.mock("./session.js", () => ({
   LiveSession: class { constructor(private ws: WebSocket) {} async start() { /* accept and idle */ } },
 }));
+vi.mock("./flow-ws.js", () => ({
+  FlowLiveSession: class { constructor(private ws: WebSocket) { flowConnections++; } },
+}));
+let flowConnections = 0;
 
 const SECRET = "gate-test-secret";
 let server: Server;
@@ -55,5 +59,10 @@ describe("/live upgrade gate", () => {
   });
   it("rejects a token of a different length without throwing", async () => {
     expect(await attempt(`/live?chat=x&token=${SECRET}${SECRET}`)).toMatch(/rejected 401|error.*401/);
+  });
+  it("routes ?flow=1 to the Flow session, not to chat", async () => {
+    const before = flowConnections;
+    expect(await attempt(`/live?flow=1&token=${SECRET}`)).toBe("accepted");
+    expect(flowConnections).toBe(before + 1);
   });
 });
