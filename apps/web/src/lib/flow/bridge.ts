@@ -7,7 +7,15 @@ import type { QuietSignals } from "./quiet";
 
 export type Guarded<T> = { ok: true; value: T } | { ok: false; error: string };
 
-export interface FlowPermissions { accessibility: boolean; microphone: string; screenRecording: boolean }
+export interface FlowPermissions {
+  accessibility: boolean;
+  microphone: string;
+  screenRecording: boolean;
+  /** The right to POST synthetic events, where the platform reports it apart
+   *  from the right to read the accessibility tree. Absent on a build that only
+   *  reports one combined grant, and the UI degrades per grant on that. */
+  postEvents?: boolean;
+}
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
 /** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent on
  *  a build that predates Block 4. */
