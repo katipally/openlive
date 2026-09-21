@@ -18,13 +18,28 @@ export interface FlowCapabilities {
   secureInput: SecureInputStatus | null;
   hookError: string | null;
   report: CapabilityReport | null;
+  /** False while the tray's quick disarm is on: the hook is suspended on purpose. */
+  armed: boolean;
 }
+export type FlowPermissionName = "accessibility" | "microphone" | "screen";
 export type HookEffect = { kind: string; bindingId?: string };
 export type AddonActivation = "toggle" | "pushToTalk" | "holdOrToggle";
 
 export interface FlowBridge {
   init(): Promise<Guarded<FlowPermissions>>;
   permissions(): Promise<Guarded<FlowPermissions>>;
+  /** Shows the system prompt. macOS never calls back, so the caller polls. */
+  request(what: FlowPermissionName): Promise<Guarded<boolean | string>>;
+  /** Validates a candidate binding. Throws inside Rust become `{ ok: false }`. */
+  parseBinding(binding: string): Promise<Guarded<{ canonical: string; modifierOnly: boolean }>>;
+  /** Null when a binding may be recorded, else the reason it may not. */
+  recordingRefusal(): Promise<Guarded<string | null>>;
+  /** Continue an archived session on the next trigger. Routed to the owner renderer. */
+  resumeSession(sessionId: string): void;
+  onResumeSession(cb: (sessionId: string) => void): void;
+  /** The tray's quick disarm, and a subscription to it. */
+  setArmed(armed: boolean): void;
+  onArmed(cb: (armed: boolean) => void): void;
   register(id: string, binding: string, activation: AddonActivation, holdMs: number): Promise<Guarded<void>>;
   unregister(id: string): Promise<Guarded<void>>;
   suspend(): Promise<Guarded<void>>;

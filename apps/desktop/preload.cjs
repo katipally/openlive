@@ -91,6 +91,14 @@ contextBridge.exposeInMainWorld("openlive", {
     summon: () => ipcRenderer.send("openlive:flow-summon"),
     dismiss: () => ipcRenderer.send("openlive:flow-dismiss"),
     size: (h) => ipcRenderer.send("openlive:flow-size", h),
+    // Continue an archived session: the main window asks, the owner renderer (the
+    // only one holding the Flow socket) does it, so this has to cross windows.
+    resumeSession: (sessionId) => ipcRenderer.send("openlive:flow-resume-session", sessionId),
+    onResumeSession: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-resume-session"); ipcRenderer.on("openlive:flow-resume-session", (_e, id) => cb(id)); },
+    // The tray's quick disarm. Main owns the state (it suspends the hook itself)
+    // and broadcasts it, so the tray, the pill and the Flow window never disagree.
+    setArmed: (armed) => ipcRenderer.send("openlive:flow-armed", !!armed),
+    onArmed: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-armed"); ipcRenderer.on("openlive:flow-armed", (_e, v) => cb(!!v)); },
     // Single listener each, same replace-on-subscribe rule as the handlers above.
     onEffect: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-effect"); ipcRenderer.on("openlive:flow-effect", (_e, effect) => cb(effect)); },
     onSecureInput: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-secure-input"); ipcRenderer.on("openlive:flow-secure-input", (_e, s) => cb(s)); },

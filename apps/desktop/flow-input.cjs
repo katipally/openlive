@@ -12,6 +12,7 @@ const SECURE_INPUT_POLL_MS = 1000;
 let addon = null;
 let hooked = false;
 let secureTimer = null;
+let armed = true; // the tray's quick disarm; the hook itself is suspended to match
 let target = () => null; // the webContents that receives effects
 
 function load() {
@@ -66,6 +67,19 @@ function initialize() {
   return api.permissionStatus();
 }
 
+/** The tray's quick disarm. Suspending the hook is the honest implementation:
+ *  no effect can arrive, so nothing downstream has to remember to ignore one.
+ *  A never-initialised addon is already disarmed, so a failure here is not one. */
+function setArmed(next) {
+  armed = !!next;
+  if (!hooked) return armed;
+  try { armed ? load().resumeHook() : load().suspendHook(); }
+  catch (e) { console.error("[flow-input] arm:", e); }
+  return armed;
+}
+
+const isArmed = () => armed;
+
 function teardown() {
   if (secureTimer) { clearInterval(secureTimer); secureTimer = null; }
   if (!addon) return;
@@ -109,4 +123,4 @@ function install(getTarget) {
   app.on("before-quit", teardown);
 }
 
-module.exports = { install, teardown, load };
+module.exports = { install, teardown, load, setArmed, isArmed };

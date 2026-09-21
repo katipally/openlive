@@ -49,8 +49,9 @@ export interface FlowConfig {
 }
 
 // AltGr lives on right alt everywhere but macOS, where right option is the
-// idiomatic free modifier.
-const DEFAULT_BINDING = process.platform === "darwin" ? "rightalt" : "rightctrl";
+// idiomatic free modifier. Spelled in the addon's canonical vocabulary
+// (`<group>_left` / `<group>_right`), which is what registerBinding parses.
+const DEFAULT_BINDING = process.platform === "darwin" ? "option_right" : "ctrl_right";
 
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   version: FLOW_CONFIG_VERSION,
