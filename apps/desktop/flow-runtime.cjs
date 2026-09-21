@@ -45,7 +45,9 @@ function captureContext() {
   return {
     ...(win.appName ? { app: String(win.appName) } : {}),
     ...(win.title ? { windowTitle: String(win.title) } : {}),
-    ...(selection ? { selection: String(selection) } : {}),
+    // Empty is "nothing is selected" and absent is "could not read it": the
+    // addon tells them apart and so must the context it fills.
+    ...(selection == null ? {} : { selection: String(selection) }),
     screen: { width: display.size.width, height: display.size.height, scale: display.scaleFactor },
     capturedAt: Date.now(),
   };
