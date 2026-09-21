@@ -2,13 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { LiveServerMsg } from "@openlive/shared";
 import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
-import { FlowSession as FlowStoreSession, readFlowConfig } from "@openlive/flow-store";
-import { LocalBrain } from "../flow/brain.js";
+import { FlowSession as FlowStoreSession, readFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { AcpBrain, LocalBrain } from "../flow/brain.js";
+import { serveFlowMcp } from "../flow/mcp.js";
+import { AcpAgent } from "../agents/acp-agent.js";
+import { AgentSupervisor } from "../agents/supervisor.js";
+import { agentCwd, PERMISSION_CANCELLED, type Agent, type PermissionAskOption } from "../agents/index.js";
+import type { McpServerWire } from "../agents/mcp-config.js";
+import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
 import { buildFlowPrompt } from "../flow/prompt.js";
 import { voiceApprove } from "../flow/approval.js";
 import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
-import type { ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
+import type { DevicePort } from "../flow/device.js";
+import type { Approve, Brain, ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
 import { log } from "../log.js";
 
 // Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
@@ -17,6 +24,8 @@ import { log } from "../log.js";
 // permission protocol, so nothing about LiveSession changes.
 
 const BRIDGE_TIMEOUT_MS = 8_000;
+/** Perception is slower than the clipboard: OCR pays a one-off Vision warm-up of about 26 seconds per process. */
+const DEVICE_TIMEOUT_MS = 40_000;
 const ASK_TIMEOUT_MS = 20_000;
 /** Enough of a turn to stay useful without turning the session file into a corpus. */
 const PERSIST_TEXT_CAP = 20_000;
@@ -34,6 +43,11 @@ export function truncateToSpoken(messages: Msg[], spoken: string): void {
 
 const safeJson = (s: string): unknown => { try { return JSON.parse(s); } catch { return null; } };
 
+const YES_NO: PermissionAskOption[] = [
+  { id: "allow", label: "Yes", kind: "allow_once" },
+  { id: "deny", label: "Cancel", kind: "reject_once" },
+];
+
 export class FlowLiveSession {
   private closed = false;
   private ac: AbortController | null = null;
@@ -42,8 +56,12 @@ export class FlowLiveSession {
   /** Utterances that arrived mid-run: the loop drains them between turns. */
   private steering: Msg[] = [];
   private messages: Msg[] = [];
-  private tools = flowTools();
-  private brain = new LocalBrain();
+  private brain: Brain = new LocalBrain();
+  /** The coding-agent brain and the MCP server publishing Flow's tools to it. */
+  private agent: Agent | null = null;
+  private mcp: { wire: McpServerWire; close(): Promise<void> } | null = null;
+  /** Rebuilt every turn from the user's current tiers, and read by both brains. */
+  private approve: Approve = async () => ({});
   private bridgePending = new Map<string, (out: string) => void>();
   private permPending = new Map<string, (optionId: string) => void>();
   private store: FlowStoreSession | null = null;
@@ -60,6 +78,29 @@ export class FlowLiveSession {
     read: () => this.bridge("clipboard_read"),
     write: async (text) => { await this.bridge("clipboard_write", text); },
   };
+
+  /**
+   * Perception and control, over the same bridge as the clipboard.
+   *
+   * The addon lives in the Electron main process, so every call is one round
+   * trip named by `fn`. An error comes back as an error, never as an empty
+   * result: a tool that returns a black frame is worse than one that refuses.
+   */
+  private device: DevicePort = {
+    capabilities: () => this.deviceCall("capabilities"),
+    displays: () => this.deviceCall("displays"),
+    capture: (target) => this.deviceCall("capture", target),
+    shotToScreen: (shot, point) => this.deviceCall("shot_to_screen", { shot, point }),
+    recognizeText: (png, shot) => this.deviceCall("recognize_text", { png, shot }),
+    windows: () => this.deviceCall("windows"),
+    foreground: () => this.deviceCall("foreground"),
+    cameraFrame: () => this.deviceCall("camera_frame"),
+    control: (action) => this.deviceCall("control", action),
+    shell: (command) => this.deviceCall("shell", { command }),
+  };
+
+  // Declared after `device`: a class field is initialized in source order.
+  private tools = flowTools({ device: this.device });
 
   private context: ContextProvider = {
     capture: async (signal) => {
@@ -130,7 +171,7 @@ export class FlowLiveSession {
     const ac = new AbortController();
     this.ac = ac;
     const cfg = readFlowConfig();
-    const approve = voiceApprove({
+    this.approve = voiceApprove({
       tiers: cfg.risk,
       perTool: cfg.toolRisk,
       timeoutMs: ASK_TIMEOUT_MS,
@@ -138,14 +179,14 @@ export class FlowLiveSession {
     });
     try {
       for await (const event of runFlow({
-        brain: this.brain,
+        brain: await this.brainFor(cfg, ac.signal),
         tools: this.tools,
         messages: this.messages,
         signal: ac.signal,
         insert: this.insert,
         clipboard: this.clipboard,
         context: this.context,
-        approve,
+        approve: (req, signal) => this.approve(req, signal),
         getSystemPrompt: () => buildFlowPrompt({ tools: this.tools }),
         pollSteering: () => this.steering.splice(0),
       })) {
@@ -205,36 +246,82 @@ export class FlowLiveSession {
   // ── client handshakes ─────────────────────────────────────────────────────
 
   /** Run an OS action on the user's machine and await its result. */
-  private bridge(op: "clipboard_read" | "clipboard_write" | "flow_insert" | "flow_insert_end" | "flow_context", arg?: string): Promise<string> {
+  private bridge(op: "clipboard_read" | "clipboard_write" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device", arg?: string, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<string> {
     if (this.closed) return Promise.resolve("");
     return new Promise((resolve) => {
       const reqId = randomUUID();
-      const timer = setTimeout(() => { if (this.bridgePending.delete(reqId)) resolve(""); }, BRIDGE_TIMEOUT_MS);
+      const timer = setTimeout(() => { if (this.bridgePending.delete(reqId)) resolve(""); }, timeoutMs);
       this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
       this.send({ t: "tool_bridge", reqId, op, arg });
     });
   }
 
+  /**
+   * The brain the user picked.
+   *
+   * A coding agent gets Flow's tool set as an MCP server built from the SAME
+   * `Tool[]` the built-in brain runs, through the same approval hook, so
+   * swapping the brain cannot change what Flow can do or what it asks about.
+   */
+  private async brainFor(cfg: FlowConfig, signal: AbortSignal): Promise<Brain> {
+    const agentId = cfg.brain.kind === "acp" && isAgentId(cfg.brain.agentId) ? cfg.brain.agentId : null;
+    if (!agentId) {
+      if (this.agent) void this.dropAgent();
+      return this.brain instanceof LocalBrain ? this.brain : (this.brain = new LocalBrain());
+    }
+    if (this.agent && this.brain.id === agentId) return this.brain;
+    void this.dropAgent();
+    this.mcp ??= await serveFlowMcp({
+      tools: this.tools,
+      ctx: () => ({ signal: this.ac?.signal ?? signal, context: this.lastContext, insert: this.insert, clipboard: this.clipboard }),
+      approve: (req, s) => this.approve(req, s),
+    });
+    const wire = this.mcp.wire;
+    const agent = new AgentSupervisor(
+      (ask) => new AcpAgent(agentId, ask, { cwd: agentCwd("flow"), mcpServers: [wire] }),
+      (question, options, toolCallId) => this.ask(question, this.ac?.signal ?? signal, options, toolCallId).then((id) => id || PERMISSION_CANCELLED),
+      { startMs: 60_000 },
+    );
+    await agent.start(signal);
+    this.agent = agent;
+    return (this.brain = new AcpBrain(agent));
+  }
+
+  private async dropAgent(): Promise<void> {
+    const agent = this.agent;
+    this.agent = null;
+    try { await agent?.dispose(); } catch { /* it is going away either way */ }
+  }
+
   /** The same permission protocol chat uses: chips on the pill, spoken yes/no. */
   private askPermission(question: string, signal: AbortSignal): Promise<boolean> {
+    return this.ask(question, signal, YES_NO).then((id) => id === "allow");
+  }
+
+  /** Resolves the option the user picked, or "" when they refused, ran out of time or cut in. */
+  private ask(question: string, signal: AbortSignal, options: PermissionAskOption[], toolCallId?: string): Promise<string> {
     return new Promise((resolve) => {
-      if (this.closed || signal.aborted) return resolve(false);
+      if (this.closed || signal.aborted) return resolve("");
       const reqId = randomUUID();
-      const settle = (allowed: boolean) => {
+      const settle = (optionId: string) => {
         if (!this.permPending.delete(reqId)) return;
         signal.removeEventListener("abort", onAbort);
         this.send({ t: "permission_resolved", reqId });
-        resolve(allowed);
+        resolve(optionId);
       };
-      const onAbort = () => settle(false);
+      const onAbort = () => settle("");
       signal.addEventListener("abort", onAbort, { once: true });
-      this.permPending.set(reqId, (optionId) => settle(optionId === "allow"));
-      this.send({
-        t: "permission", reqId, question,
-        options: [{ id: "allow", label: "Yes", kind: "allow_once" }, { id: "deny", label: "Cancel", kind: "reject_once" }],
-        expiresAt: Date.now() + ASK_TIMEOUT_MS,
-      });
+      this.permPending.set(reqId, (optionId) => settle(options.some((o) => o.id === optionId && !o.kind?.startsWith("reject")) ? optionId : ""));
+      this.send({ t: "permission", reqId, question, options, expiresAt: Date.now() + ASK_TIMEOUT_MS, ...(toolCallId ? { toolCallId } : {}) });
     });
+  }
+
+  private async deviceCall<T>(fn: string, args?: unknown): Promise<T> {
+    const raw = await this.bridge("flow_device", JSON.stringify({ fn, args }), DEVICE_TIMEOUT_MS);
+    const reply = safeJson(raw) as { value?: T; error?: string } | null;
+    if (!reply) throw new Error(`The machine did not answer in time (${fn}).`);
+    if (reply.error) throw new Error(reply.error);
+    return reply.value as T;
   }
 
   private cancelPendingPermissions() {
@@ -252,6 +339,8 @@ export class FlowLiveSession {
     this.ac?.abort();
     this.cancelPendingPermissions();
     for (const [reqId, r] of [...this.bridgePending]) { this.bridgePending.delete(reqId); r(""); }
+    void this.dropAgent();
+    void this.mcp?.close().catch(() => {});
     void this.store?.archive().catch(() => {});
   }
 }
