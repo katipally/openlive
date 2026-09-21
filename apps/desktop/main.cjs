@@ -12,6 +12,7 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const { powerMonitor } = require("electron");
 const flowInput = require("./flow-input.cjs");
+const flowRuntime = require("./flow-runtime.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 process.on("uncaughtException", (e) => { console.error("[main] uncaught:", e); });
@@ -376,12 +377,11 @@ function miniDisplay() {
 }
 function pillBottom(area) { return area.y + area.height - 72; } // clear the dock
 
-function createPanelWindow() {
-  if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); return; }
-  const area = miniDisplay().workArea;
-  panelWin = new BrowserWindow({
-    width: PILL_W, height: PILL_H,
-    x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
+/** The floating pill window itself. Two callers: mini mode, and Flow's summon —
+ *  same chrome, same focus behaviour, different route and different anchor. */
+function makePanelWindow(route, bounds) {
+  const win = new BrowserWindow({
+    ...bounds,
     show: false, frame: false, resizable: false, skipTaskbar: true,
     // Transparent so the renderer can draw a real rounded, floating pill (border +
     // shadow + gaps around it) instead of an opaque rectangle. hasShadow off — the
@@ -392,11 +392,106 @@ function createPanelWindow() {
     ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
-  panelWin.setAlwaysOnTop(true, "floating", 1);
-  panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  panelWin.loadURL(`${WEB_URL}/mini`);
+  win.setAlwaysOnTop(true, "floating", 1);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  win.loadURL(`${WEB_URL}${route}`);
+  return win;
+}
+
+function createPanelWindow() {
+  if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); return; }
+  const area = miniDisplay().workArea;
+  panelWin = makePanelWindow("/mini", {
+    width: PILL_W, height: PILL_H,
+    x: area.x + Math.round((area.width - PILL_W) / 2), y: pillBottom(area) - PILL_H,
+  });
   panelWin.once("ready-to-show", () => { if (panelWin) panelWin.showInactive(); });
   panelWin.on("closed", () => { panelWin = null; });
+}
+
+// ── Flow: the owner renderer and the summoned pill ───────────────────────────
+// Flow works with no visible window, so a hidden renderer owns the voice cascade
+// and the Flow socket (backgroundThrottling off, exactly as mini mode's main
+// renderer). The pill is a second summon reason for the same panel window: it
+// appears next to the cursor, on the display the cursor is on, and never steals
+// focus from the app the user is typing into.
+const FLOW_INSET = 24;   // the motion spec's clamp inside the screen edge
+const FLOW_CURSOR_GAP = 18;
+let ownerWin = null;
+let flowWin = null;
+
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+function createOwnerWindow() {
+  if (ownerWin && !ownerWin.isDestroyed()) return ownerWin;
+  ownerWin = new BrowserWindow({
+    width: 480, height: 320, show: false, skipTaskbar: true,
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+  });
+  ownerWin.loadURL(`${WEB_URL}/flow-owner`);
+  ownerWin.on("closed", () => { ownerWin = null; });
+  return ownerWin;
+}
+
+/** Where the pill goes for a given content height: under the cursor, on the
+ *  cursor's display, fully inside its work area. Called on every summon and on
+ *  every resize, so a display change mid-interaction re-clamps rather than
+ *  stranding the pill off-screen. */
+function flowBounds(height, anchor) {
+  const point = anchor ?? screen.getCursorScreenPoint();
+  const area = screen.getDisplayNearestPoint(point).workArea;
+  const width = clamp(PILL_W, 260, Math.max(260, area.width - FLOW_INSET * 2));
+  const h = clamp(Math.round(height) || PILL_H, 44, Math.max(44, area.height - FLOW_INSET * 2));
+  return {
+    width, height: h,
+    x: clamp(point.x - Math.round(width / 2), area.x + FLOW_INSET, area.x + area.width - width - FLOW_INSET),
+    y: clamp(point.y + FLOW_CURSOR_GAP, area.y + FLOW_INSET, area.y + area.height - h - FLOW_INSET),
+  };
+}
+
+function createFlowWindow() {
+  if (flowWin && !flowWin.isDestroyed()) return flowWin;
+  // Built hidden, ahead of the first trigger, so the summon is an animation and
+  // never a page load.
+  flowWin = makePanelWindow("/flow", flowBounds(PILL_H));
+  flowWin.on("closed", () => { flowWin = null; });
+  return flowWin;
+}
+
+function summonFlow() {
+  const win = createFlowWindow();
+  win.setBounds(flowBounds(win.getBounds().height));
+  win.showInactive();
+}
+
+function dismissFlow() {
+  if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
+}
+
+/** A display was added, removed or rearranged while the pill was up: pull it back
+ *  inside whichever work area it now sits nearest. */
+function reclampFlow() {
+  if (!flowWin || flowWin.isDestroyed() || !flowWin.isVisible()) return;
+  const b = flowWin.getBounds();
+  flowWin.setBounds(flowBounds(b.height, { x: b.x + Math.round(b.width / 2), y: b.y }));
+}
+
+function wireFlowIpc() {
+  flowRuntime.install();
+  ipcMain.on("openlive:flow-summon", summonFlow);
+  ipcMain.on("openlive:flow-dismiss", dismissFlow);
+  // The pill measures itself and grows UPWARD: the bottom edge is the anchor the
+  // user's eye is on, and it must not move when a transcript wraps to two lines.
+  ipcMain.on("openlive:flow-size", (_e, h) => {
+    if (!flowWin || flowWin.isDestroyed()) return;
+    const b = flowWin.getBounds();
+    const area = screen.getDisplayNearestPoint({ x: b.x + Math.round(b.width / 2), y: b.y }).workArea;
+    const height = clamp(Math.round(h) || PILL_H, 44, Math.max(44, area.height - FLOW_INSET * 2));
+    if (height === b.height) return;
+    const y = clamp(b.y + b.height - height, area.y + FLOW_INSET, area.y + area.height - height - FLOW_INSET);
+    flowWin.setBounds({ x: b.x, y, width: b.width, height }, true);
+  });
+  for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, reclampFlow);
 }
 
 // The global mini-mode talk hotkey. Configurable from Settings → General; kept in
@@ -538,9 +633,18 @@ function wireMiniIpc() {
     const y = Math.max(area.y + 8, bottom - height);
     panelWin.setBounds({ x: b.x, y, width: PILL_W, height }, true); // animate the grow (mac)
   });
-  // State/command relay between the main renderer (voice pipeline) and the panel.
-  ipcMain.on("openlive:panel-state", (_e, s) => { if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send("openlive:panel-state", s); });
-  ipcMain.on("openlive:panel-cmd", (_e, c) => { if (mainWin) mainWin.webContents.send("openlive:panel-cmd", c); });
+  // State/command relay between a publishing renderer and its pill. One bridge,
+  // two pairs: the main renderer talks to the mini panel, Flow's owner renderer
+  // talks to the Flow pill. The sender decides which pair a packet belongs to.
+  const sentBy = (e, win) => !!win && !win.isDestroyed() && e.sender === win.webContents;
+  ipcMain.on("openlive:panel-state", (e, s) => {
+    const dest = sentBy(e, ownerWin) ? flowWin : panelWin;
+    if (dest && !dest.isDestroyed()) dest.webContents.send("openlive:panel-state", s);
+  });
+  ipcMain.on("openlive:panel-cmd", (e, c) => {
+    const dest = sentBy(e, flowWin) ? ownerWin : mainWin;
+    if (dest && !dest.isDestroyed()) dest.webContents.send("openlive:panel-cmd", c);
+  });
 }
 
 // ── launch at login ──────────────────────────────────────────────────────────
@@ -597,7 +701,9 @@ function wireWindowIpc() {
 // ── power events → renderer (pause the mic/VAD cleanly instead of waking up
 // with a stuck pipeline after the laptop slept mid-call) ──────────────────────
 function wirePowerEvents() {
-  const send = (state) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:power", state); };
+  const send = (state) => {
+    for (const win of [mainWin, ownerWin]) if (win && !win.isDestroyed()) win.webContents.send("openlive:power", state);
+  };
   powerMonitor.on("suspend", () => send("suspend"));
   powerMonitor.on("lock-screen", () => send("suspend"));
   powerMonitor.on("resume", () => send("resume"));
@@ -730,7 +836,9 @@ async function boot() {
   wireWindowIpc();
   wireBridgeIpc();
   wirePowerEvents();
-  flowInput.install(() => (mainWin && !mainWin.isDestroyed() ? mainWin.webContents : null));
+  wireFlowIpc();
+  // Hook effects drive Flow's cascade, which lives in the owner renderer.
+  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null));
   createSplash();
   if (!(await startServers())) { app.quit(); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
@@ -740,6 +848,9 @@ async function boot() {
     return;
   }
   createMainWindow();
+  // Flow is armed whenever the app runs, with or without a visible window.
+  createOwnerWindow();
+  createFlowWindow();
   initAutoUpdate();
 }
 

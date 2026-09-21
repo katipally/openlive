@@ -109,4 +109,4 @@ function install(getTarget) {
   app.on("before-quit", teardown);
 }
 
-module.exports = { install, teardown };
+module.exports = { install, teardown, load };
