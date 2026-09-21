@@ -7,7 +7,7 @@ import { useUi } from "@/lib/uiStore";
 import { loadPipelineConfig, savePipelineConfig } from "@/lib/live/pipelineConfig";
 import { cn } from "@/lib/cn";
 import { segBtn, segWrap } from "@/lib/seg";
-import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { BindingField } from "./BindingField";
 import { BrainPicker } from "./BrainPicker";

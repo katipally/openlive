@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowRight, Check, ExternalLink, Info, Monitor } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
