@@ -1,7 +1,7 @@
 "use strict";
 // Owner of the ol-input native addon: it loads lazily, its lifecycle is tied
 // to the app's, and everything it emits is forwarded to the renderer over IPC.
-// Nothing here initialises the hook on its own — that call is what asks for
+// Nothing here initialises the hook on its own: that call is what asks for
 // Accessibility, and onboarding decides when the user sees that prompt.
 const path = require("node:path");
 const { app, ipcMain } = require("electron");

@@ -51,7 +51,7 @@ fn render() -> Option<()> {
         }
         std::ptr::copy_nonoverlapping(promise.text.as_ptr(), target.cast::<u16>(), promise.text.len());
         let _ = GlobalUnlock(handle);
-        SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(handle.0 as *mut c_void)).ok()?;
+        SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(handle.0)).ok()?;
     }
     promise.receipt.mark_read(promise.started.elapsed());
     Some(())
