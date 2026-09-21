@@ -230,3 +230,46 @@ describe("dispatch", () => {
     expect(results[0]).toMatchObject({ isError: true });
   });
 });
+
+// ── the device actions in the repair table ──────────────────────────────────
+
+describe("normalizing a device call", () => {
+  const click: Tool = {
+    name: "click", description: "", tier: "control", risk: "confirm",
+    parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, button: { type: "string" } }, required: ["x", "y"] },
+    async execute() { return { content: [], details: null }; },
+  };
+  const keypress: Tool = {
+    name: "keypress", description: "", tier: "control", risk: "confirm",
+    parameters: { type: "object", properties: { keys: { type: "array", items: { type: "string" } } }, required: ["keys"] },
+    async execute() { return { content: [], details: null }; },
+  };
+
+  it("splits a pair into the two numbers the tool wants", () => {
+    expect(normalizeArgs(click, { coordinate: [12, 34] })).toEqual({ x: 12, y: 34 });
+    expect(normalizeArgs(click, { position: { x: 5, y: 6 } })).toEqual({ x: 5, y: 6 });
+  });
+
+  it("leaves explicit coordinates alone", () => {
+    expect(normalizeArgs(click, { x: 1, y: 2, coordinate: [9, 9] })).toEqual({ x: 1, y: 2 });
+  });
+
+  it("turns a written chord into the array the tool wants", () => {
+    expect(normalizeArgs(keypress, { keys: "cmd+s" })).toEqual({ keys: ["cmd", "s"] });
+    expect(validateArgs(keypress, normalizeArgs(keypress, { keys: "ctrl shift p" }))).toEqual({ ok: true, value: { keys: ["ctrl", "shift", "p"] } });
+    expect(normalizeArgs(keypress, { keys: '["cmd","s"]' })).toEqual({ keys: '["cmd","s"]' });
+  });
+
+  it("answers to the names models reach for", () => {
+    const set = [click, keypress];
+    expect(resolveToolName("left_click", set)).toBe(click);
+    expect(resolveToolName("LeftClick", set)).toBe(click);
+    expect(resolveToolName("press_key", set)).toBe(keypress);
+  });
+});
+
+describe("the tool set", () => {
+  it("has no device actions without a machine to act on", () => {
+    expect(flowTools().map((t) => t.name)).toEqual(["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context"]);
+  });
+});
