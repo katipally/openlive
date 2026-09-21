@@ -25,6 +25,15 @@
   --color-danger: var(--destructive);
   --color-success: var(--success);
   --color-link-foreground: var(--link-foreground);
+  /* Text-safe siblings of the status colours. --success and --destructive are
+     tuned as FILLS (dots, chips, bars); at body size on a light surface they
+     land under 4.5:1, so anything that spells a status out in words uses these
+     instead. --destructive-fill is the one darker fill white text sits on. */
+  --color-success-text: var(--success-text);
+  --color-destructive-text: var(--destructive-text);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-icon-info: var(--icon-info);
+  --color-muted-strong: var(--muted-strong);
   --color-surface-raised: var(--surface-raised);
 
   --shadow-xs: var(--shadow-xs);
@@ -100,6 +109,11 @@
   --destructive: #dc2626;
   --success: #16a34a;
   --link-foreground: #2563eb;
+  --success-text: #15803d;
+  --destructive-text: #b91c1c;
+  --destructive-fill: #c81e1e;
+  --icon-info: #3b56a8;
+  --muted-strong: #56564f;
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.16);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
@@ -148,6 +162,13 @@
   --destructive: #fa423e;
   --success: #40c977;
   --link-foreground: #8fbcff;
+  /* Dark inverts the problem: the fills are already bright enough to read, and
+     what needs lifting is the body-length secondary copy. */
+  --success-text: #5ddb8d;
+  --destructive-text: #ff8b88;
+  --destructive-fill: #e0403c;
+  --icon-info: #9db8ff;
+  --muted-strong: #c9c9c4;
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
