@@ -566,25 +566,23 @@ fn down_up(button: Button) -> (CGEventType, CGEventType, CGEventType) {
     }
 }
 
+/// Where the pointer is, in the same coordinates every call here takes. A
+/// null event carries the current pointer location and needs no permission.
+pub fn cursor_position() -> Option<ScreenPoint> {
+    let event = CGEvent::new(None)?;
+    let location = CGEvent::location(Some(&event));
+    Some(ScreenPoint::new(location.x, location.y))
+}
+
 pub fn mouse_move(point: ScreenPoint) -> Result<(), String> {
     post(CGEventType::MouseMoved, point, Button::Left, None)
 }
 
-pub fn mouse_click(point: ScreenPoint, button: Button, count: u32) -> Result<(), String> {
-    let (down, up, _) = down_up(button);
-    mouse_move(point)?;
-    for click in 1..=count {
-        // The click state is what makes the second press a double click
-        // rather than two separate ones.
-        post(down, point, button, Some(i64::from(click)))?;
-        post(up, point, button, Some(i64::from(click)))?;
-    }
-    Ok(())
-}
-
-pub fn mouse_button(point: ScreenPoint, button: Button, down: bool) -> Result<(), String> {
+/// `click_state` is what makes the second press of a double click a double
+/// click rather than two separate ones.
+pub fn mouse_button(point: ScreenPoint, button: Button, down: bool, click_state: u32) -> Result<(), String> {
     let (press, release, _) = down_up(button);
-    post(if down { press } else { release }, point, button, Some(1))
+    post(if down { press } else { release }, point, button, Some(i64::from(click_state.max(1))))
 }
 
 pub fn mouse_drag_to(point: ScreenPoint, button: Button) -> Result<(), String> {
@@ -595,12 +593,15 @@ pub fn mouse_drag_to(point: ScreenPoint, button: Button) -> Result<(), String> {
 pub fn scroll(point: ScreenPoint, horizontal: i32, vertical: i32) -> Result<(), String> {
     mouse_move(point)?;
     let source = event_source();
+    // Both axes are negated: Core Graphics counts a positive wheel as a push
+    // away from the user, and the tool contract every platform here answers to
+    // is "positive scrolls down, and to the right".
     let event = CGEvent::new_scroll_wheel_event2(
         source.as_deref(),
-        CGScrollEventUnit::Pixel,
+        CGScrollEventUnit::Line,
         2,
-        vertical,
-        horizontal,
+        -vertical,
+        -horizontal,
         0,
     )
     .ok_or("could not create a scroll event")?;

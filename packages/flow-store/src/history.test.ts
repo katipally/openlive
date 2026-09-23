@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { deleteSession, listAssets, listSessions, loadSession, searchSessions, sessionPath } from "./history";
+import { deleteSession, listAssets, listSessions, loadSession, renameSession, searchSessions, sessionPath } from "./history";
 import { FlowSession } from "./session";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -34,6 +34,8 @@ test("sessions list newest first, bounded by the limit", async () => {
   expect(all[0]!.state).toBe("archived");
   expect(all[0]!.assetsDir).toContain(ids[11]!);
   expect(listSessions(3).map((s) => s.id)).toEqual(all.slice(0, 3).map((s) => s.id));
+  expect(listSessions(3, 3).map((s) => s.id)).toEqual(all.slice(3, 6).map((s) => s.id));
+  expect(listSessions(3, 12)).toEqual([]);
 });
 
 test("search matches content and is bounded by its scan cap", async () => {
@@ -45,6 +47,8 @@ test("search matches content and is bounded by its scan cap", async () => {
   expect(searchSessions("body 0")).toHaveLength(1);
   expect(searchSessions("body 0", 60, 2)).toHaveLength(0); // never looked past the two newest
   expect(searchSessions("   ").length).toBe(listSessions().length);
+  const bodies = searchSessions("body");
+  expect(searchSessions("body", 2, undefined, 2).map((s) => s.id)).toEqual(bodies.slice(2, 4).map((s) => s.id));
 });
 
 test("loading a session brings its assets with it", async () => {
@@ -82,4 +86,26 @@ test("a session can be found by id and removed with everything captured for it",
   expect(listAssets(s.id)).toEqual([]);
   expect(loadSession(s.id)).toBeNull();
   expect(deleteSession(s.id)).toBe(false); // deleting what is already gone is not an error
+});
+
+test("a session can be renamed, and cleared back to what was said", async () => {
+  await sleep(2);
+  const s = await FlowSession.open({ meta: { mode: "flow" } });
+  await s.append("message", { role: "user", text: "what was said" });
+  expect(renameSession(s.id, "while live")).toBe(false); // its owner may still append
+  await s.archive();
+
+  expect(renameSession(s.id, "  A better name  ")).toBe(true);
+  const listed = listSessions(1)[0]!;
+  expect(listed.id).toBe(s.id);
+  expect(listed.title).toBe("A better name");
+  const loaded = loadSession(s.id)!;
+  expect(loaded.header?.mode).toBe("flow");
+  expect(loaded.entries.map((e) => e.type)).toEqual(["session_state", "message", "session_state"]);
+  expect(loaded.truncated).toBe(false);
+
+  expect(renameSession(s.id, "")).toBe(true);
+  expect(listSessions(1)[0]!.title).toBe("what was said");
+  expect(renameSession("no-such-session", "x")).toBe(false);
+  deleteSession(s.id);
 });

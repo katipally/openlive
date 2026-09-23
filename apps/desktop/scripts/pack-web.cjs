@@ -10,13 +10,14 @@ const webDir = path.join(root, "apps/web");
 const standalone = path.join(webDir, ".next", "standalone");
 const dist = path.resolve(__dirname, "..", "dist", "web");
 
-// 1. Build. Bake the agent's ws URL so the renderer connects straight to the
-//    local agent (no proxy), and force a production build.
+// 1. Build, production. No agent URL is baked in: the desktop app picks the
+//    agent's port at launch and hands it to the renderer, which connects
+//    straight to the local agent (no proxy).
 console.log("[pack-web] next build (standalone)…");
 execSync("pnpm --filter @openlive/web build", {
   cwd: root,
   stdio: "inherit",
-  env: { ...process.env, NODE_ENV: "production", NEXT_PUBLIC_LIVE_WS_URL: "ws://localhost:47823" },
+  env: { ...process.env, NODE_ENV: "production" },
 });
 
 // 2. Assemble a flat dist/web where server.js sits at the root next to

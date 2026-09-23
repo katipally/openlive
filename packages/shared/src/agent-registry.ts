@@ -260,7 +260,7 @@ export const isAgentId = (x: unknown): x is AgentId => typeof x === "string" && 
 
 /** Label for an agent id; null/unknown = the built-in OpenLive assistant. */
 export const agentLabel = (id: string | null | undefined): string =>
-  (id && isAgentId(id) && AGENT_REGISTRY[id].label) || "OpenLive";
+  (id && isAgentId(id) && AGENT_REGISTRY[id].label) || "API mode";
 
 /** The adapter command as one display string (settings placeholder, docs). */
 export const adapterCommand = (id: AgentId): string => {

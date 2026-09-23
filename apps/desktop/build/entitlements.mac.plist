@@ -14,6 +14,9 @@
   <true/>
   <key>com.apple.security.device.camera</key>
   <true/>
+  <!-- osascript: the output-muted check and opening Terminal for an agent sign-in. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
   <!-- The app runs localhost servers and calls the LLM API. -->
   <key>com.apple.security.network.client</key>
   <true/>

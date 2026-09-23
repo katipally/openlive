@@ -10,6 +10,7 @@ import { usePresence } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { kindMeta, toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
+import { usePointerDrag } from "@/lib/usePointerDrag";
 import { Disclosure } from "@/components/Disclosure";
 import { ToolCallCard } from "./ToolCallCard";
 
@@ -31,19 +32,24 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
   // exit, no hard cut — before unmounting. usePresence owns mount + both tweens.
   const mounted = usePresence(asideRef, open, { enter: { autoAlpha: 1, x: 0 }, exit: { autoAlpha: 0, x: 24 } });
 
+  // Follow new words only while the reader is already at the bottom; scrolling
+  // up to reread must not get yanked back on every word.
+  const atBottom = useRef(true);
+  const onScroll = () => {
+    const el = scroller.current;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
   }, [msgs, userCaption]);
 
   // Drag the left edge to resize; clamped to a sane range.
+  const drag = usePointerDrag();
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
-    const move = (ev: PointerEvent) => onResize(Math.min(640, Math.max(280, window.innerWidth - ev.clientX)));
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.style.userSelect = ""; };
     document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    drag((ev) => onResize(Math.min(640, Math.max(280, window.innerWidth - ev.clientX))), () => { document.body.style.userSelect = ""; });
   };
 
   if (!mounted) return null;
@@ -62,7 +68,7 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
               <Download className="size-4" />
             </button>
           )}
-          <button onClick={onClose} title="Hide activity" aria-label="Hide activity"
+          <button onClick={onClose} title="Hide activity (T)" aria-label="Hide activity"
             className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
             <PanelRightClose className="size-4" />
           </button>
@@ -71,7 +77,7 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
       {todos.length > 0 && <PlanCard todos={todos} />}
       {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
           anchoring fights content-visibility height estimates. */}
-      <div ref={scroller} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
+      <div ref={scroller} onScroll={onScroll} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
         {empty && <p className="mt-8 text-center text-label text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
           <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />

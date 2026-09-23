@@ -352,13 +352,22 @@ pub fn elevated_injection_ok() -> bool {
     true
 }
 
+/// xdotool talks to an X server. In a Wayland session there is none to talk
+/// to and it fails by doing nothing at all, which is the one outcome Flow may
+/// never produce, so it is not offered there however installed it is.
 fn pointer_tool() -> Result<&'static str, String> {
-    for tool in ["xdotool", "ydotool"] {
+    let candidates: &[&str] = if is_wayland() { &["ydotool"] } else { &["xdotool", "ydotool"] };
+    for tool in candidates {
         if which(tool).is_some() {
             return Ok(tool);
         }
     }
-    Err("pointer control needs xdotool or ydotool, neither of which is installed".into())
+    Err(if is_wayland() {
+        "pointer control in a Wayland session needs ydotool, with its daemon running, and it is not installed"
+    } else {
+        "pointer control needs xdotool or ydotool, neither of which is installed"
+    }
+    .into())
 }
 
 fn button_number(button: Button) -> &'static str {
@@ -378,17 +387,10 @@ pub fn mouse_move(point: ScreenPoint) -> Result<(), String> {
     }
 }
 
-pub fn mouse_click(point: ScreenPoint, button: Button, count: u32) -> Result<(), String> {
-    mouse_move(point)?;
-    for _ in 0..count {
-        mouse_button(point, button, true)?;
-        mouse_button(point, button, false)?;
-    }
-    Ok(())
-}
-
-pub fn mouse_button(point: ScreenPoint, button: Button, down: bool) -> Result<(), String> {
-    mouse_move(point)?;
+/// Both pointer tools recognise a double click from the timing of two
+/// presses, so the click state the caller counts is nothing they need.
+pub fn mouse_button(point: ScreenPoint, button: Button, down: bool, _click_state: u32) -> Result<(), String> {
+    let _ = point;
     let number = button_number(button);
     match pointer_tool()? {
         "xdotool" => run("xdotool", &[if down { "mousedown" } else { "mouseup" }, number]),
@@ -409,21 +411,44 @@ pub fn mouse_drag_to(point: ScreenPoint, _button: Button) -> Result<(), String> 
     mouse_move(point)
 }
 
+/// One process per notch is the cost of shelling out, so the notches a single
+/// call will spend are bounded: a model that asks for a thousand gets a long
+/// scroll, not a thousand processes.
+const MAX_NOTCHES: i32 = 40;
+
 pub fn scroll(point: ScreenPoint, horizontal: i32, vertical: i32) -> Result<(), String> {
-    mouse_move(point)?;
+    let _ = point;
+    let notches = |amount: i32| amount.clamp(-MAX_NOTCHES, MAX_NOTCHES);
+    let (vertical, horizontal) = (notches(vertical), notches(horizontal));
     let tool = pointer_tool()?;
     if tool != "xdotool" {
+        // evdev counts a positive wheel as a push away from the user, and the
+        // contract every platform here answers to is "positive scrolls down".
         let x = horizontal.to_string();
-        let y = vertical.to_string();
+        let y = (-vertical).to_string();
         return run("ydotool", &["mousemove", "--wheel", "-x", &x, "-y", &y]);
     }
-    for (amount, button) in [(vertical, ("4", "5")), (horizontal, ("6", "7"))] {
-        let number = if amount < 0 { button.0 } else { button.1 };
+    // 4 and 5 are up and down, 6 and 7 are left and right.
+    for (amount, buttons) in [(vertical, ("4", "5")), (horizontal, ("6", "7"))] {
+        let number = if amount < 0 { buttons.0 } else { buttons.1 };
         for _ in 0..amount.abs() {
             run("xdotool", &["click", number])?;
         }
     }
     Ok(())
+}
+
+/// `xdotool getmouselocation` answers `x:900 y:520 screen:0 window:12`.
+/// ydotool cannot report a position at all, and an unknown position means the
+/// glide is skipped rather than aimed from a guess.
+pub fn cursor_position() -> Option<ScreenPoint> {
+    let reported = output("xdotool", &["getmouselocation"]).ok()?;
+    let field = |name: &str| -> Option<f64> {
+        reported
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix(name)?.parse::<f64>().ok())
+    };
+    Some(ScreenPoint::new(field("x:")?, field("y:")?))
 }
 
 pub fn key_chord(chord: &str) -> Result<(), String> {
@@ -507,8 +532,10 @@ pub fn selection_backend() -> &'static str {
     }
 }
 
+/// There is no Wayland protocol for moving somebody else's window, and
+/// xdotool being installed there does not make one.
 pub fn window_control_ok() -> bool {
-    which("xdotool").is_some()
+    !is_wayland() && which("xdotool").is_some()
 }
 
 /// Named in the capability report, because on Linux what is installed is what

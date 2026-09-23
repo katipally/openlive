@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Flow pointer</title>
+<style>
+  /* The window is the whole desktop, so nothing here may paint a background,
+     and nothing may be laid out relative to a size that changes when a
+     display is plugged in. Both layers are small boxes moved by transform,
+     which is also what keeps a desktop-sized window cheap: the compositor
+     translates two little textures instead of repainting acres of glass. */
+  :root { --accent: #5b9dff; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  .layer { position: fixed; top: 0; left: 0; will-change: transform, opacity; pointer-events: none; }
+  .layer canvas { display: block; }
+  #follow { opacity: 0; transition: opacity 160ms ease-out; }
+  #follow.live { opacity: 1; }
+  #aim { opacity: 0; transition: opacity 220ms ease-out; }
+  #aim.live { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="layer" id="follow"><canvas id="followCanvas"></canvas></div>
+<div class="layer" id="aim"><canvas id="aimCanvas"></canvas></div>
+<script>
+(() => {
+  "use strict";
+
+  // There is no second arrow drawn here. The machine's own pointer is already
+  // under this window and being driven; painting a duplicate on top of it
+  // smears two arrows into one blur the moment their shapes disagree. What
+  // this adds is the halo, the wake behind it and the ring where it is headed,
+  // so the movement reads as Flow's without anything to fall out of step with.
+
+  /** The follower is big enough to hold the halo and the widest ripple; the
+   *  reticle only ever has to hold itself. Both in CSS pixels. */
+  const FOLLOW = 220;
+  const RETICLE = 120;
+  /** How much of the recent path is still drawn behind the pointer. Short
+   *  enough to read as motion blur rather than a snake. */
+  const TRAIL_MS = 90;
+  const RIPPLE_MS = 520;
+  /** How long the halo stays after an action ends. A little under the main
+   *  process's linger, so it has finished fading before the window hides, and
+   *  long enough that the gap between two steps of one job is not a blink. */
+  const REST_MS = 1400;
+  /** Within this of the target, the pointer has arrived. */
+  const ARRIVED = 3;
+
+  const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#5b9dff";
+
+  const follow = document.getElementById("follow");
+  const aim = document.getElementById("aim");
+
+  /** A canvas sized in CSS pixels but backed at the display's own resolution,
+   *  re-backed whenever the window lands on a display with a different one. */
+  function surface(canvas, size) {
+    const context = canvas.getContext("2d");
+    let backing = 0;
+    return {
+      context,
+      prepare() {
+        const ratio = window.devicePixelRatio || 1;
+        if (backing !== ratio) {
+          backing = ratio;
+          canvas.width = Math.round(size * ratio);
+          canvas.height = Math.round(size * ratio);
+          canvas.style.width = `${size}px`;
+          canvas.style.height = `${size}px`;
+        }
+        context.setTransform(backing, 0, 0, backing, 0, 0);
+        context.clearRect(0, 0, size, size);
+      },
+    };
+  }
+
+  const follower = surface(document.getElementById("followCanvas"), FOLLOW);
+  const reticle = surface(document.getElementById("aimCanvas"), RETICLE);
+
+  const state = {
+    at: null,          // where the real pointer is, in window pixels
+    trail: [],         // recent positions, for the blur behind it
+    target: null,      // { x, y, kind, count }
+    arrived: false,
+    ripples: [],       // { at: {x, y}, born }
+    active: false,
+    restUntil: 0,      // still drawn, no longer working
+    calm: false,       // the system asked for less movement
+  };
+
+  const now = () => performance.now();
+  const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  window.flowCursor.onAim((aimed) => {
+    state.restUntil = 0;
+    // Typing arrives with a kind and no position: there is nothing to aim at,
+    // but Flow is still working the machine, so the halo stays up and only the
+    // reticle is withheld.
+    state.target = typeof aimed.x === "number" ? aimed : null;
+    state.arrived = false;
+    state.active = true;
+    state.calm = aimed.reducedMotion === true;
+  });
+
+  window.flowCursor.onDone(() => {
+    state.active = false;
+    state.target = null;
+    state.restUntil = now() + REST_MS;
+  });
+
+  window.flowCursor.onAt((point) => {
+    const time = now();
+    // Pruned here, not only when painted: under reduced motion nothing paints it.
+    state.trail = state.calm ? [] : state.trail.filter((point) => time - point.born < TRAIL_MS);
+    if (state.at && !state.calm) state.trail.push({ ...state.at, born: time });
+    state.at = point;
+    arrive();
+  });
+
+  /** The press is not announced: the native side owns its timing, and the
+   *  moment the pointer lands on what it was aimed at IS that moment. */
+  function arrive() {
+    const target = state.target;
+    if (!target || state.arrived || !state.at) return;
+    if (distance(state.at, target) > ARRIVED) return;
+    state.arrived = true;
+    if (target.kind === "move" || target.kind === "mouse_up") return;
+    const count = target.kind === "click" ? Math.min(Math.max(target.count || 1, 1), 3) : 1;
+    for (let click = 0; click < count; click += 1) {
+      state.ripples.push({ at: { ...state.at }, born: now() + click * 90 });
+    }
+  }
+
+  function drawHalo(context, x, y, tint, radius) {
+    const glow = context.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, `${tint}80`);
+    glow.addColorStop(0.55, `${tint}33`);
+    glow.addColorStop(1, `${tint}00`);
+    context.fillStyle = glow;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  function paintFollower(time, tint) {
+    follower.prepare();
+    const context = follower.context;
+    const middle = FOLLOW / 2;
+    const origin = state.at;
+
+    if (!state.calm) {
+      state.trail = state.trail.filter((point) => time - point.born < TRAIL_MS);
+      for (const point of state.trail) {
+        const age = (time - point.born) / TRAIL_MS;
+        context.globalAlpha = (1 - age) * 0.3;
+        drawHalo(context, middle + point.x - origin.x, middle + point.y - origin.y, tint, 13);
+      }
+      context.globalAlpha = 1;
+    }
+
+    // While an action is running the halo breathes and sits wider, because the
+    // whole point of it is to be noticed from across the screen; after it, it
+    // settles back and fades out with the linger.
+    const alive = state.active && !state.calm;
+    const breath = alive ? 3 * Math.sin(time / 240) : 0;
+    drawHalo(context, middle, middle, tint, (state.calm ? 20 : alive ? 34 : 26) + breath);
+    if (alive) {
+      context.globalAlpha = 0.5;
+      context.strokeStyle = tint;
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.arc(middle, middle, 17 + breath, 0, Math.PI * 2);
+      context.stroke();
+      context.globalAlpha = 1;
+    }
+
+    for (const ripple of state.ripples) {
+      const age = (time - ripple.born) / RIPPLE_MS;
+      if (age < 0 || age > 1) continue;
+      const eased = 1 - (1 - age) * (1 - age);
+      context.globalAlpha = 1 - eased;
+      context.strokeStyle = tint;
+      context.lineWidth = 2.5 * (1 - eased) + 0.5;
+      context.beginPath();
+      context.arc(middle + ripple.at.x - origin.x, middle + ripple.at.y - origin.y, 6 + eased * 40, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+    state.ripples = state.ripples.filter((ripple) => time - ripple.born < RIPPLE_MS);
+
+    follow.style.transform = `translate3d(${origin.x - middle}px, ${origin.y - middle}px, 0)`;
+  }
+
+  /** Where the pointer is going, marked before it gets there, so the person
+   *  can see the intent rather than only the result. */
+  function paintReticle(time, tint) {
+    reticle.prepare();
+    const context = reticle.context;
+    const middle = RETICLE / 2;
+    const breath = state.calm ? 0 : Math.sin(time / 260) * 1.6;
+    context.strokeStyle = tint;
+    context.globalAlpha = 0.75;
+    context.lineWidth = 1.6;
+    context.beginPath();
+    context.arc(middle, middle, 13 + breath, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 0.28;
+    context.beginPath();
+    context.arc(middle, middle, 21 + breath * 1.6, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 1;
+    aim.style.transform = `translate3d(${state.target.x - middle}px, ${state.target.y - middle}px, 0)`;
+  }
+
+  function frame() {
+    const time = now();
+    const tint = accent();
+    const showing = state.at && (state.active || state.ripples.length > 0 || time < state.restUntil);
+
+    follow.classList.toggle("live", Boolean(showing));
+    if (state.at) paintFollower(time, tint);
+
+    const aiming = state.active && state.target && !state.arrived;
+    aim.classList.toggle("live", Boolean(aiming));
+    if (aiming) paintReticle(time, tint);
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

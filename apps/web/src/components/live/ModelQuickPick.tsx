@@ -5,8 +5,9 @@ import { AlertCircle, Brain, Eye, Zap } from "lucide-react";
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { allowedEfforts } from "@openlive/harness/types";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useUi } from "@/lib/uiStore";
-import { Section, Field, Picker, Segmented, ThinkNote, THINK_HINT } from "./SetupControls";
+import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT, effortName } from "./SetupControls";
 
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless, protocol: p.protocol }));
 
@@ -23,7 +24,7 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
 
   const providerId = settings?.liveProviderId ?? providers.find((p) => p.isDefault)?.kind ?? providers[0]?.kind ?? PROVIDERS[0]!.id;
-  const { data: models = [], isLoading: modelsLoading } = useQuery({ queryKey: ["models", providerId], queryFn: () => api.models(providerId), enabled: !!providerId });
+  const { data: models = [], isLoading: modelsLoading, error: modelsError } = useQuery({ queryKey: ["models", providerId], queryFn: () => api.models(providerId), enabled: !!providerId, retry: false });
   const row = providers.find((p) => p.kind === providerId);
   const provider = PROVIDERS.find((p) => p.id === providerId);
   const hasKey = provider?.keyless || row?.hasKey;
@@ -31,6 +32,7 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   const save = useMutation({
     mutationFn: (b: Record<string, string>) => api.updateSettings(b),
     onSuccess: (s) => qc.setQueryData(["settings"], s),
+    onError: () => toast("Couldn’t save that choice. Try again."),
   });
 
   const effort = settings?.liveEffort ?? "auto";
@@ -54,7 +56,7 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
         <Picker ariaLabel="Model" value={settings?.liveModel || ""}
           onChange={(id) => save.mutate({ liveModel: id })}
           disabled={!hasKey || !models.length}
-          placeholder={!hasKey ? "Add an API key to load models" : modelsLoading ? "Loading models…" : models.length ? "Recommended" : "No models available"}
+          placeholder={!hasKey ? "Add an API key to load models" : modelsLoading ? "Loading models…" : modelsError ? modelsError.message : models.length ? "Recommended" : "No models available"}
           options={[
             { id: "", name: "Recommended", detail: "Let OpenLive pick a fast one", starred: true },
             ...models.map((m) => ({ id: m.id, name: m.display_name })),
@@ -70,17 +72,17 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
           </div>
         )}
         {blind && (
-          <p className="flex items-center gap-1 pt-1 text-micro text-arc">
+          <p className="flex items-center gap-1 pt-1 text-micro text-arc-text">
             <AlertCircle className="size-3 shrink-0" /> This model can&apos;t see — set a vision model in Settings.
           </p>
         )}
       </Field>
 
       <Field label="Effort" hint={THINK_HINT}>
-        <Segmented ariaLabel="Effort" value={effort} onChange={(v) => save.mutate({ liveEffort: v })}
+        <AutoControl ariaLabel="Effort" value={effort} onChange={(v) => save.mutate({ liveEffort: v })}
           options={efforts.map((e) => ({
             id: e,
-            name: e === "auto" ? "Auto" : e[0]!.toUpperCase() + e.slice(1),
+            name: effortName(e),
             starred: e === "auto",
           }))} />
         <ThinkNote />

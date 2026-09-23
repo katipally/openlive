@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listProviders, getProviderApiKey } from "@openlive/db";
 import { BUILTIN_PROVIDERS, fetchModels } from "@openlive/harness";
+import { classifyModelsError } from "@/lib/modelsError";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +24,15 @@ export async function GET(req: Request) {
     (row ? getProviderApiKey(row.id) : null) ??
     provider.envKeys?.map((k) => process.env[k]?.trim()).find(Boolean);
 
+  // Success stays a bare array. A failure is { error, reason } with a real status,
+  // so the pickers can say "key rejected" or "offline" instead of "add a key".
+  let liveError: unknown;
   try {
-    const models = await fetchModels(provider, key ?? undefined);
+    const models = await fetchModels(provider, key ?? undefined, (e) => { liveError = e; });
+    const failure = liveError === undefined ? null : classifyModelsError(liveError);
+    // A rejected key is worth saying even when the catalog could fill the list;
+    // with no key at all, a 401 is expected and the pickers already ask for one.
+    if (failure && (failure.reason === "key_rejected" ? !!key : !models.length)) return NextResponse.json(failure, { status: failure.status });
     return NextResponse.json(
       models.map((m) => ({
         id: m.id,
@@ -36,7 +44,8 @@ export async function GET(req: Request) {
         cost: m.cost,
       })),
     );
-  } catch {
-    return NextResponse.json([]);
+  } catch (e) {
+    const failure = classifyModelsError(liveError ?? e);
+    return NextResponse.json(failure, { status: failure.status });
   }
 }

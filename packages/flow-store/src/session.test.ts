@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { entryChain, readSession } from "./jsonl";
-import { FlowSession, readSessionState, resolveAsset } from "./session";
+import { FlowSession, readSessionState, resolveAsset, sessionAssetFile } from "./session";
 import { flowDir, sessionsDir } from "./paths";
 
 const dir = mkdtempSync(join(tmpdir(), "flow-session-"));
@@ -92,4 +92,11 @@ test("the idle window archives the session and hands control back", async () => 
   await new Promise((r) => setTimeout(r, 60));
   expect(rolled).toBe(1);
   expect(readSessionState(s.path)).toBe("archived");
+});
+
+test("a requested asset stays inside its own session's folder", () => {
+  expect(sessionAssetFile("abc-123", "shot.png")).toBe(join(flowDir(), "assets", "abc-123", "shot.png"));
+  for (const [id, name] of <[string, string][]>[["..", "config.json"], [".", "x.png"], ["abc", ".."], ["abc", "../other/x.png"], ["a/b", "x.png"], ["", "x.png"], ["abc", ""], ["abc", ".hidden"]]) {
+    expect(sessionAssetFile(id, name)).toBe("");
+  }
 });

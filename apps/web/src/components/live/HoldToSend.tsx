@@ -10,8 +10,7 @@ const R = 6.5;
 const C = 2 * Math.PI * R;
 
 /** Presentational "Waiting for you… tap to send" pill: a ring fills toward the
- *  auto-send moment; tapping commits the turn right away. Also used by the desktop
- *  mini panel, which gets `until`/`holdMs` over IPC instead of from the store. */
+ *  auto-send moment; tapping commits the turn right away. */
 export function HoldPill({ until, holdMs, onSend, compact }: { until: number; holdMs: number; onSend: () => void; compact?: boolean }) {
   const [frac, setFrac] = useState(0);
   const ref = useRef<HTMLButtonElement>(null);

@@ -8,7 +8,7 @@
 //           electron) that linger WITHOUT holding a port — the "empty processes"
 //           that pile up across desktop:dev runs. POSIX only (see note below).
 //
-// The pre-dev sweeps pass BOTH stacks' ports (3000/8787 AND 47824/47823/9333):
+// The pre-dev sweeps pass BOTH stacks' ports (3000/8787 AND 47834/47833/9333):
 // Next refuses to start when another dev server exists for the same app dir
 // regardless of port, and its server process renames itself to "next-server
 // (vX)" — no repo path in its command line, so only the port kill catches it.

@@ -9,7 +9,7 @@
 use std::ffi::c_void;
 
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
     EnumDisplayMonitors, GetDC, GetDIBits, GetMonitorInfoW, MonitorFromWindow,
@@ -28,11 +28,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_MOUSE, KEYEVENTF_KEYUP, MOUSEEVENTF_ABSOLUTE,
     MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
     MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL,
-    MOUSEEVENTF_HWHEEL, MOUSEINPUT,
+    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW,
+    EnumWindows, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW,
     SetForegroundWindow, SetWindowPos, ShowWindow, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOSIZE, SWP_NOZORDER, SW_MINIMIZE, SW_RESTORE,
@@ -500,8 +500,12 @@ const ELEVATED: &str =
      silently discard any input sent to it: restart OpenLive as administrator or \
      switch to a window that is not elevated";
 
+/// Whether input would reach the window in FRONT, which is the same question
+/// `guard_injection` answers and must not be a different one: asking whether
+/// OpenLive is itself elevated would refuse every click on every ordinary
+/// Windows machine, where nothing in front is elevated either.
 pub fn elevated_injection_ok() -> bool {
-    we_are_elevated()
+    guard_injection().is_ok()
 }
 
 fn virtual_screen() -> (f64, f64, f64, f64) {
@@ -522,7 +526,10 @@ fn mouse_input(flags: u32, point: Option<ScreenPoint>, data: i32) -> INPUT {
             (
                 (((point.x - left) * ABSOLUTE_RANGE) / width).round() as i32,
                 (((point.y - top) * ABSOLUTE_RANGE) / height).round() as i32,
-                MOUSEEVENTF_ABSOLUTE.0 | MOUSEEVENTF_MOVE.0,
+                // VIRTUALDESK is what makes the normalised pair span every
+                // display. Without it Windows maps them onto the primary one,
+                // and every click on a second monitor lands somewhere else.
+                MOUSEEVENTF_ABSOLUTE.0 | MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_VIRTUALDESK.0,
             )
         }
         None => (0, 0, 0),
@@ -559,20 +566,19 @@ pub fn mouse_move(point: ScreenPoint) -> Result<(), String> {
     send(&[mouse_input(0, Some(point), 0)])
 }
 
-pub fn mouse_click(point: ScreenPoint, button: Button, count: u32) -> Result<(), String> {
-    mouse_move(point)?;
-    for _ in 0..count {
-        send(&[
-            mouse_input(button_flags(button, true), None, 0),
-            mouse_input(button_flags(button, false), None, 0),
-        ])?;
-    }
-    Ok(())
+/// Windows recognises a double click from the timing of two presses, so the
+/// click state the caller counts is nothing this platform needs.
+pub fn mouse_button(point: ScreenPoint, button: Button, down: bool, _click_state: u32) -> Result<(), String> {
+    let _ = point;
+    send(&[mouse_input(button_flags(button, down), None, 0)])
 }
 
-pub fn mouse_button(point: ScreenPoint, button: Button, down: bool) -> Result<(), String> {
-    mouse_move(point)?;
-    send(&[mouse_input(button_flags(button, down), None, 0)])
+/// Physical pixels, which is the space `virtual_screen` and every coordinate
+/// on this platform is already in.
+pub fn cursor_position() -> Option<ScreenPoint> {
+    let mut point = POINT::default();
+    unsafe { GetCursorPos(&mut point).ok()? };
+    Some(ScreenPoint::new(f64::from(point.x), f64::from(point.y)))
 }
 
 pub fn mouse_drag_to(point: ScreenPoint, _button: Button) -> Result<(), String> {
@@ -580,9 +586,11 @@ pub fn mouse_drag_to(point: ScreenPoint, _button: Button) -> Result<(), String> 
 }
 
 pub fn scroll(point: ScreenPoint, horizontal: i32, vertical: i32) -> Result<(), String> {
-    mouse_move(point)?;
+    let _ = point;
+    // A positive wheel delta is a push away from the user, and the contract
+    // every platform here answers to is "positive scrolls down".
     if vertical != 0 {
-        send(&[mouse_input(MOUSEEVENTF_WHEEL.0, None, vertical * WHEEL_DELTA)])?;
+        send(&[mouse_input(MOUSEEVENTF_WHEEL.0, None, -vertical * WHEEL_DELTA)])?;
     }
     if horizontal != 0 {
         send(&[mouse_input(MOUSEEVENTF_HWHEEL.0, None, horizontal * WHEEL_DELTA)])?;

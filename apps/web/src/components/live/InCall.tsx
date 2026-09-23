@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, Minimize2, PanelRightOpen, Pointer } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, PanelRightOpen, Pointer } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
@@ -16,9 +16,10 @@ import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
 import { setPttEnabled } from "@/lib/live/usePtt";
+import { isTextTarget } from "@/lib/live/keyTargets";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { useMenuPresence, usePresence } from "@/lib/usePopIn";
-import { useFocusTrap } from "@/lib/useFocusTrap";
+import { useMenuPresence } from "@/lib/usePopIn";
+import { useMenuKeys } from "@/lib/useMenuKeys";
 import { cn } from "@/lib/cn";
 
 const PHASE_LABEL: Record<LivePhase, string> = {
@@ -52,7 +53,6 @@ export function InCall(props: InCallProps) {
   // Arm/disarm push-to-talk. Disarming while Space is held first ends the hold
   // cleanly (the engine owns the held audio), then drops the armed flag.
   const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };
-  const setMinimized = useUi((s) => s.setMinimized);
   const root = useRef<HTMLDivElement>(null);
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
 
@@ -114,15 +114,15 @@ export function InCall(props: InCallProps) {
   const statusLabel = pttActive ? "Push-to-talk — release to send" : toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
-  // In-call keyboard shortcuts. Single letters are safe here — there's no text
-  // input during a call (Space/Enter already belong to push-to-talk/hold-commit).
-  // Skipped when a menu input or modifier is involved, except ⌘E (end).
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // In-call keyboard shortcuts (Space/Enter already belong to push-to-talk/hold-commit).
+  // Skipped while Settings, a prompt or any modal is up, when typing or choosing
+  // in a field, and when a modifier is involved, except ⌘E (end).
   const toggleHistory = useUi((s) => s.toggleHistory);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const { permission, elicitation } = useLiveStore.getState();
+      if (useUi.getState().settingsOpen || permission || elicitation || document.querySelector('[aria-modal="true"]') || isTextTarget(t)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); handleEnd(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       switch (e.key) {
@@ -131,8 +131,6 @@ export function InCall(props: InCallProps) {
         case "s": case "S": void toggleScreen(); break;
         case "t": case "T": setPanelOpen((v) => !v); break;
         case "h": case "H": toggleHistory(); break;
-        case "?": setSheetOpen((v) => !v); break;
-        case "Escape": setSheetOpen(false); return; // don't preventDefault other Esc handlers
         default: return;
       }
       e.preventDefault();
@@ -143,7 +141,7 @@ export function InCall(props: InCallProps) {
   }, [toggleMute, toggleCamera, toggleScreen, toggleHistory]);
 
   return (
-    <div ref={root} className="fixed inset-0 z-40 flex flex-col bg-background">
+    <div ref={root} className="fixed inset-0 z-[var(--z-stage)] flex flex-col bg-background">
       <TopBar />
 
       <div className="flex min-h-0 flex-1">
@@ -164,7 +162,7 @@ export function InCall(props: InCallProps) {
           {error && <p className="absolute inset-x-0 top-3 mx-auto max-w-md px-6 text-center text-label text-danger">{error}</p>}
 
           {!panelOpen && (
-            <button onClick={() => setPanelOpen(true)} title="Show activity" aria-label="Show activity"
+            <button onClick={() => setPanelOpen(true)} title="Show activity (T)" aria-label="Show activity"
               className="absolute right-3 top-3 z-20 grid size-9 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:text-foreground">
               <PanelRightOpen className="size-4" />
             </button>
@@ -188,13 +186,12 @@ export function InCall(props: InCallProps) {
           {/* control bar — a stable width regardless of sharing */}
           <div data-tour="controls" className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface px-2.5 py-2 shadow-[var(--shadow-pop)]">
             <IconBtn on={pttEnabled} title={pttEnabled ? "Push-to-talk on — Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Pointer} />
-            <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}
+            <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} title={muted ? "Unmute (M)" : "Mute (M)"} onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} label="Microphone" />
-            <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} title={cameraOn ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}
+            <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} title={cameraOn ? "Turn camera off (C)" : "Turn camera on (C)"} onClick={() => void toggleCamera()}
               devices={cams} activeId={camId} onPick={setCam} label="Camera" />
-            <IconBtn on={screenOn} title={screenOn ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
+            <IconBtn on={screenOn} title={screenOn ? "Stop sharing screen (S)" : "Share screen (S)"} onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
             <span className="mx-0.5 h-5 w-px bg-border" />
-            <IconBtn on={false} title="Minimize to floating bar" onClick={() => setMinimized(true)} icon={Minimize2} />
             <EndCallButton onEnd={handleEnd} />
           </div>
         </main>
@@ -204,46 +201,8 @@ export function InCall(props: InCallProps) {
       </div>
 
       <SpotlightTour id="call" steps={[
-        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, minimize to the floating pill, and hang up. The pointer button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
+        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, and hang up. The pointer button on the left arms push-to-talk — once on, Space drives talking. Press ? anytime for all shortcuts." },
       ]} />
-
-      <ShortcutSheet open={sheetOpen} pttEnabled={pttEnabled} onClose={() => setSheetOpen(false)} />
-    </div>
-  );
-}
-
-// The "?" cheat sheet — every in-call binding in one quiet card.
-function ShortcutSheet({ open, pttEnabled, onClose }: { open: boolean; pttEnabled: boolean; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const mounted = usePresence(ref, open);
-  useFocusTrap(ref, mounted, onClose);
-  const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
-  const mod = mac ? "⌘" : "Ctrl";
-  const rows: [string, string][] = [
-    ["M", "Mute / unmute"],
-    ["C", "Camera on / off"],
-    ["S", "Share screen"],
-    ["T", "Show / hide activity panel"],
-    ["H", "History sidebar"],
-    [`${mod} E`, "End call"],
-    [`${mod} ,`, "Settings"],
-    ...(pttEnabled ? [["Space", "Push-to-talk (hold or tap)"], ["Enter", "Send a held thought now"]] as [string, string][] : []),
-    ["?", "This cheat sheet"],
-  ];
-  if (!mounted) return null;
-  return (
-    <div ref={ref} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/30" onClick={onClose} role="dialog" aria-label="Keyboard shortcuts">
-      <div className="animate-modal-in w-72 rounded-2xl bg-popover p-4 shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2.5 text-body font-semibold">Keyboard shortcuts</p>
-        <div className="flex flex-col gap-1.5">
-          {rows.map(([key, what]) => (
-            <div key={key} className="flex items-center justify-between text-label">
-              <span className="text-muted-foreground">{what}</span>
-              <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-caption text-foreground">{key}</kbd>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -265,27 +224,21 @@ function ControlWithMenu({ on, icon, title, onClick, danger, devices, activeId, 
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  useMenuKeys(ref, open, requestClose);
   return (
     <div ref={ref} className="relative flex items-center">
       <IconBtn on={on} title={title} onClick={onClick} icon={icon} danger={danger} />
       {devices.length > 0 && (
-        <button onClick={toggle} aria-label={`Choose ${label}`}
+        <button onClick={toggle} aria-label={`Choose ${label}`} aria-haspopup="menu" aria-expanded={open}
           className="-ml-1 grid size-5 place-items-center rounded-full text-faint transition hover:text-foreground">
           <ChevronUp className={cn("size-3.5 transition", open && "rotate-180")} />
         </button>
       )}
       {mounted && (
-        <div ref={menuRef} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
-          <div className="px-3 py-1.5 text-caption font-medium uppercase tracking-wide text-faint">{label}</div>
+        <div ref={menuRef} role="menu" aria-label={label} className="absolute bottom-11 left-0 z-50 w-60 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl">
+          <div aria-hidden className="px-3 py-1.5 text-caption font-medium uppercase tracking-wide text-faint">{label}</div>
           {devices.map((d) => (
-            <button key={d.id} onClick={() => { onPick(d.id); requestClose(); }}
+            <button key={d.id} role="menuitemradio" aria-checked={d.id === activeId} onClick={() => { onPick(d.id); requestClose(); }}
               className={cn("block w-full truncate px-3 py-1.5 text-left text-label transition hover:bg-foreground/[0.06]",
                 d.id === activeId ? "text-foreground" : "text-muted-foreground")}>
               {d.id === activeId ? "✓ " : "   "}{d.label}

@@ -26,6 +26,15 @@ export const SEG_CHARS_MAX = 34;
  *  supports is the right default and deeper effort is the exception. */
 export const THINK_HINT = "Lower answers faster";
 
+/** One name per effort level, wherever effort is offered: live voice, the quick
+ *  pick and Flow's brain. "auto" is whatever the lowest level the model supports
+ *  is, which is why it reads as "Lowest" rather than as a setting of its own. */
+const EFFORT_NAMES: Record<string, string> = {
+  auto: "Lowest", low: "Low", medium: "Medium", high: "High", xhigh: "Very high", max: "Maximum",
+};
+export const effortName = (effort: string): string =>
+  EFFORT_NAMES[effort] ?? (effort ? effort[0]!.toUpperCase() + effort.slice(1) : "");
+
 /** The same steer, spelled out, under a reasoning control. Guidance only — we never
  *  silently override what the agent reports as its own current level. */
 export function ThinkNote() {

@@ -31,13 +31,14 @@ const installed = targets.length
   ? execFileSync("rustup", ["target", "list", "--installed"], { encoding: "utf8" })
   : "";
 
-if (targets.length && targets.every((t) => installed.includes(t))) {
+const missing = targets.filter((t) => !installed.includes(t));
+if (missing.length) {
+  throw new Error(`[ol-input] a universal addon needs \`rustup target add ${missing.join(" ")}\` (or pass --host-only for a local build)`);
+}
+if (targets.length) {
   const slices = targets.map(build);
   execFileSync("lipo", ["-create", ...slices, "-output", out], { stdio: "inherit" });
 } else {
-  if (targets.length) {
-    console.warn(`[ol-input] building host-only: run \`rustup target add ${targets.join(" ")}\` for a universal addon`);
-  }
   fs.copyFileSync(build(null), out);
 }
 if (process.platform === "darwin") {

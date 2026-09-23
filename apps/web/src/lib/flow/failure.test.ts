@@ -37,4 +37,10 @@ describe("deriveFailure", () => {
       expect(f?.detail).toBeTruthy();
     }
   });
+
+  it("names the grant the way the platform does, and offers no trigger that does not exist", () => {
+    expect(deriveFailure({ ...HEALTHY, accessibility: false })?.detail).toContain("Accessibility");
+    expect(deriveFailure({ ...HEALTHY, platform: "win32", accessibility: false })?.detail).toContain("input access");
+    expect(deriveFailure({ ...HEALTHY, platform: "linux", wayland: true })?.detail).not.toMatch(/tray|command line/);
+  });
 });

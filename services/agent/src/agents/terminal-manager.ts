@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Emit } from "../tools.js";
-import { killTree } from "./proc.js";
+import { killTree, track } from "./proc.js";
 import { log } from "../log.js";
 
 // Client-hosted ACP terminals (terminal/create … terminal/release): the agent
@@ -51,6 +51,7 @@ export class TerminalManager {
       shell: isWin,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    track(child);
     const cap = Math.min(Math.max(p.outputByteLimit ?? DEFAULT_CAP, 1024), MAX_CAP);
     const term: Term = {
       child, buf: "", truncated: false, cap, pendingLive: "",

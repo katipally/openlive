@@ -10,6 +10,7 @@ pub mod coordinator;
 pub mod coords;
 pub mod hook;
 pub mod inject;
+pub mod motion;
 pub mod ocr;
 pub mod paste_tx;
 pub mod perms;
@@ -21,14 +22,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
 
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
 use binding::Binding;
-use coordinator::{Activation, Effect};
+use coordinator::Effect;
 use hook::Hook;
 use inject::{Method, Session};
 
@@ -65,15 +65,8 @@ impl From<Effect> for HookEffect {
                 kind: "stop".into(),
                 binding_id: Some(binding_id),
             },
-            Effect::Cancel => HookEffect { kind: "cancel".into(), binding_id: None },
         }
     }
-}
-
-#[napi(object)]
-pub struct BindingInfo {
-    pub canonical: String,
-    pub modifier_only: bool,
 }
 
 #[napi(object)]
@@ -142,30 +135,9 @@ pub fn hook_error() -> Result<Option<String>> {
 }
 
 #[napi]
-pub fn parse_binding(binding: String) -> Result<BindingInfo> {
+pub fn register_binding(id: String, binding: String) -> Result<()> {
     let parsed = Binding::from_str(&binding).map_err(err)?;
-    Ok(BindingInfo {
-        canonical: parsed.to_string(),
-        modifier_only: parsed.is_modifier_only(),
-    })
-}
-
-#[napi]
-pub fn register_binding(
-    id: String,
-    binding: String,
-    activation: String,
-    hold_threshold_ms: u32,
-) -> Result<()> {
-    let parsed = Binding::from_str(&binding).map_err(err)?;
-    let activation = match activation.as_str() {
-        "toggle" => Activation::Toggle,
-        "pushToTalk" => Activation::PushToTalk,
-        "holdOrToggle" => Activation::HoldOrToggle,
-        other => return Err(err(format!("unknown activation mode \"{other}\""))),
-    };
-    let hold = Duration::from_millis(u64::from(hold_threshold_ms));
-    with_hook(|hook| hook.register(id, parsed, activation, hold))
+    with_hook(|hook| hook.register(id, parsed))
 }
 
 #[napi]
@@ -183,21 +155,17 @@ pub fn resume_hook() -> Result<()> {
     with_hook(|hook| hook.resume())
 }
 
-/// Programmatic trigger, from the CLI or a menu item. Never debounced: a
-/// dropped one desyncs toggle parity.
+/// Programmatic trigger, from the CLI or a menu item. One call is the whole
+/// gesture: it opens Flow, and the next one closes it.
 #[napi]
 pub fn trigger_external(id: String, pressed: bool) -> Result<()> {
     with_hook(|hook| hook.trigger_external(id, pressed))
 }
 
+/// Flow is no longer open, and the gesture was not what closed it.
 #[napi]
-pub fn notify_processing_finished() -> Result<()> {
-    with_hook(|hook| hook.processing_finished())
-}
-
-#[napi]
-pub fn notify_start_failed() -> Result<()> {
-    with_hook(|hook| hook.start_failed())
+pub fn notify_closed() -> Result<()> {
+    with_hook(|hook| hook.closed())
 }
 
 fn method(name: Option<String>) -> Result<Method> {
@@ -302,12 +270,6 @@ pub fn secure_input_status() -> SecureInputStatus {
         culprit: status.culprit,
         changed: status.changed,
     }
-}
-
-/// Null when a binding may be recorded, otherwise the reason it may not.
-#[napi]
-pub fn binding_recording_refusal() -> Option<String> {
-    secure_input::refusal_reason()
 }
 
 #[napi]
@@ -642,60 +604,116 @@ fn button(name: Option<String>) -> Result<control::Button> {
     }
 }
 
+/// One pointer or keyboard action, run to completion off the main thread.
+///
+/// Every one of these takes as long as the movement it describes, because the
+/// pointer travels rather than teleports. Electron's main thread owns the
+/// window that draws the cursor and the timer that follows it, so an action
+/// that blocked it would stutter the very thing it is animating.
+pub enum PointerAction {
+    Move(coords::ScreenPoint),
+    Click(coords::ScreenPoint, control::Button, u32),
+    Press(coords::ScreenPoint, control::Button, bool),
+    Drag(Vec<coords::ScreenPoint>, control::Button),
+    Scroll(coords::ScreenPoint, i32, i32),
+    Type(String),
+    Keys(Vec<String>),
+}
+
+pub struct ControlTask(Option<PointerAction>);
+
+impl napi::Task for ControlTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let action = self.0.take().ok_or_else(|| err("the action was already run".to_string()))?;
+        match action {
+            PointerAction::Move(point) => control::move_to(point),
+            PointerAction::Click(point, button, count) => control::click(point, button, count),
+            PointerAction::Press(point, button, down) => {
+                if down { control::mouse_down(point, button) } else { control::mouse_up(point, button) }
+            }
+            PointerAction::Drag(path, button) => control::drag(&path, button),
+            PointerAction::Scroll(point, horizontal, vertical) => control::scroll(point, horizontal, vertical),
+            PointerAction::Type(text) => control::type_text(&text),
+            PointerAction::Keys(keys) => control::keypress(&keys),
+        }
+        .map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
+fn run(action: PointerAction) -> AsyncTask<ControlTask> {
+    AsyncTask::new(ControlTask(Some(action)))
+}
+
+/// Where the pointer is now, in the coordinates every control call takes.
+/// Null when the platform will not say, which is not the origin.
 #[napi]
-pub fn move_mouse(point: Point) -> Result<()> {
-    control::move_to(screen(&point)).map_err(err)
+pub fn cursor_position() -> Option<Point> {
+    platform::desktop::current::cursor_position().map(|point| Point { x: point.x, y: point.y })
 }
 
 #[napi]
-pub fn click(point: Point, mouse_button: Option<String>, count: Option<u32>) -> Result<()> {
-    control::click(screen(&point), button(mouse_button)?, count.unwrap_or(1)).map_err(err)
+pub fn move_mouse(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Move(screen(&point)))
 }
 
 #[napi]
-pub fn double_click(point: Point) -> Result<()> {
-    control::click(screen(&point), control::Button::Left, 2).map_err(err)
+pub fn click(point: Point, mouse_button: Option<String>, count: Option<u32>) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Click(screen(&point), button(mouse_button)?, count.unwrap_or(1))))
 }
 
 #[napi]
-pub fn right_click(point: Point) -> Result<()> {
-    control::click(screen(&point), control::Button::Right, 1).map_err(err)
+pub fn double_click(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Click(screen(&point), control::Button::Left, 2))
 }
 
 #[napi]
-pub fn mouse_down(point: Point, mouse_button: Option<String>) -> Result<()> {
-    control::mouse_down(screen(&point), button(mouse_button)?).map_err(err)
+pub fn right_click(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Click(screen(&point), control::Button::Right, 1))
 }
 
 #[napi]
-pub fn mouse_up(point: Point, mouse_button: Option<String>) -> Result<()> {
-    control::mouse_up(screen(&point), button(mouse_button)?).map_err(err)
+pub fn mouse_down(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Press(screen(&point), button(mouse_button)?, true)))
+}
+
+#[napi]
+pub fn mouse_up(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Press(screen(&point), button(mouse_button)?, false)))
 }
 
 /// The whole path, not just its ends: a drag that teleports is ignored by
 /// every canvas and most drop targets.
 #[napi]
-pub fn drag(path: Vec<Point>, mouse_button: Option<String>) -> Result<()> {
+pub fn drag(path: Vec<Point>, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
     let path: Vec<coords::ScreenPoint> = path.iter().map(screen).collect();
-    control::drag(&path, button(mouse_button)?).map_err(err)
+    Ok(run(PointerAction::Drag(path, button(mouse_button)?)))
 }
 
 #[napi]
-pub fn scroll(point: Point, horizontal: i32, vertical: i32) -> Result<()> {
-    control::scroll(screen(&point), horizontal, vertical).map_err(err)
+pub fn scroll(point: Point, horizontal: i32, vertical: i32) -> AsyncTask<ControlTask> {
+    run(PointerAction::Scroll(screen(&point), horizontal, vertical))
 }
 
+/// The layout is resolved on the thread that owns it, before the typing is
+/// handed off.
 #[napi]
-pub fn type_text(text: String) -> Result<()> {
+pub fn type_text(text: String) -> AsyncTask<ControlTask> {
     inject::refresh_layout();
-    control::type_text(&text).map_err(err)
+    run(PointerAction::Type(text))
 }
 
 /// A chord, as `["ctrl", "c"]`. The modifiers stay down across the key.
 #[napi]
-pub fn keypress(keys: Vec<String>) -> Result<()> {
+pub fn keypress(keys: Vec<String>) -> AsyncTask<ControlTask> {
     inject::refresh_layout();
-    control::keypress(&keys).map_err(err)
+    run(PointerAction::Keys(keys))
 }
 
 /// What this machine can do right now. Cheap: only the parts that cannot

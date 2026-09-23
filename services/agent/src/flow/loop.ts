@@ -1,4 +1,4 @@
-import { dispatch, resolveToolName, riskOf, toolSpecs, type FlowToolCall, type Verdict } from "./tools.js";
+import { dispatch, resolveToolName, toolSpecs, type FlowToolCall, type Verdict } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
@@ -160,17 +160,16 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
        * May this call's text go into the user's document as it arrives?
        *
        * Committing mid-stream is the one path from model output to an executed
-       * action that dispatch does not stand in front of, so the tier is answered
-       * here instead, before the first character lands. A tier that runs answers
-       * in a microtask and the text streams as before; a tier that asks holds the
-       * rest of the call back until the user has said yes, which is the point.
+       * action that dispatch does not stand in front of, so consent is checked
+       * here instead, before the first character lands. Consent already given
+       * answers in a microtask and the text streams as before.
        */
       const mayStream = async (call: FlowToolCall, args: Record<string, unknown>): Promise<boolean> => {
         let decision = preflighted.get(call.id);
         if (!decision) {
           const tool = resolveToolName(call.name, tools);
           if (!tool) return false;
-          decision = Promise.resolve(approve({ tool, args, risk: riskOf(tool, args) }, signal))
+          decision = Promise.resolve(approve({ tool, args }, signal))
             .catch((e): Verdict => ({ block: true, reason: e instanceof Error ? e.message : "the approval failed" }));
           preflighted.set(call.id, decision);
         }

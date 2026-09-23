@@ -1,9 +1,9 @@
 import { parsePartialJson } from "./partial-json.js";
 import { deviceTools, type DeviceToolOpts } from "./device-tools.js";
-import type { Approve, ImagePart, InsertionSink, Risk, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
+import type { Approve, ImagePart, InsertionSink, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
 
 // Tool plumbing for the Flow loop: repair what the model got wrong, validate,
-// ask when the risk says to, run, and turn every possible failure into an
+// check the person consented, run, and turn every possible failure into an
 // ordinary tool result the model can read. Nothing here ever propagates.
 
 const text = (t: string): TextPart => ({ type: "text", text: t });
@@ -217,9 +217,7 @@ export function validateArgs(tool: Tool, args: Record<string, unknown>): { ok: t
   return { ok: true, value: out };
 }
 
-export const riskOf = (tool: Tool, args: unknown): Risk => (typeof tool.risk === "function" ? tool.risk(args) : tool.risk);
-
-/** An answered risk decision. Kept by whoever asked first, so nobody is asked twice about one call. */
+/** An answered consent check. Kept by whoever asked first, so nobody is asked twice about one call. */
 export type Verdict = Awaited<ReturnType<Approve>>;
 
 // ── dispatch ────────────────────────────────────────────────────────────────
@@ -246,8 +244,8 @@ function prepare(call: FlowToolCall, tools: Tool[]): Prepared {
 /**
  * Run a batch of tool calls.
  *
- * Order is the whole point: normalize, validate, preflight SEQUENTIALLY so
- * approval prompts are serialised and deterministic, then execute in parallel.
+ * Order is the whole point: normalize, validate, preflight SEQUENTIALLY so a
+ * first-run consent is taken once, not once per call, then execute in parallel.
  * Results are yielded in completion order for the UI; the returned array is in
  * assistant source order, which is the only order providers accept.
  *
@@ -266,10 +264,9 @@ export async function* dispatch(
   for (const p of prepared) {
     if (p.error || !p.tool) continue;
     if (ctx.signal.aborted) { p.error = "Cancelled before it ran."; continue; }
-    const risk = riskOf(p.tool, p.args);
     try {
       const already = opts.preflighted?.get(p.call.id);
-      const verdict = await (already ?? opts.approve({ tool: p.tool, args: p.args, risk }, ctx.signal));
+      const verdict = await (already ?? opts.approve({ tool: p.tool, args: p.args }, ctx.signal));
       if (verdict.block) p.error = `Blocked: ${verdict.reason}`;
     } catch (e) {
       p.error = `Blocked: ${errText(e)}`;
@@ -359,8 +356,6 @@ const insertText: Tool<{ text: string }, { inserted: number }> = {
   name: "insert_text",
   description: "Type text into the app the user is in right now, at their cursor. Use this whenever they asked for words rather than an answer: a message, a commit message, a paragraph, a rewrite. Write only the text itself, no preamble and no quotes around it.",
   parameters: { type: "object", properties: { text: { type: "string", description: "Exactly the text to type, nothing else" } }, required: ["text"], additionalProperties: false },
-  tier: "insert",
-  risk: "safe",
   promptGuidelines: [
     "When they want words in their app, insert_text them; do not read them out as well.",
     "Text streams as you write it, so never restate or revise text you already wrote in the same call.",
@@ -376,8 +371,6 @@ const readSelection: Tool<Record<string, never>, { selection: string }> = {
   name: "read_selection",
   description: "Read the text the user currently has selected in the app they are in.",
   parameters: noParams,
-  tier: "read",
-  risk: "safe",
   async execute(_args, ctx) {
     const selection = ctx.context?.selection;
     if (selection === undefined) {
@@ -391,8 +384,6 @@ const clipboardRead: Tool<Record<string, never>, { text: string }> = {
   name: "clipboard_read",
   description: "Read the text currently on the user's clipboard.",
   parameters: noParams,
-  tier: "read",
-  risk: "safe",
   async execute(_args, ctx) {
     const value = await ctx.clipboard.read();
     return { content: [text(value || "The clipboard is empty.")], details: { text: value } };
@@ -403,8 +394,6 @@ const clipboardWrite: Tool<{ text: string }, { text: string }> = {
   name: "clipboard_write",
   description: "Put text on the user's clipboard so they can paste it themselves. Prefer insert_text when they want it typed where they are.",
   parameters: { type: "object", properties: { text: { type: "string", description: "The text to copy" } }, required: ["text"], additionalProperties: false },
-  tier: "insert",
-  risk: "safe",
   async execute(args, ctx) {
     await ctx.clipboard.write(args.text);
     return { content: [text("Copied.")], details: { text: args.text } };
@@ -415,8 +404,6 @@ const getContext: Tool<Record<string, never>, { context: unknown }> = {
   name: "get_context",
   description: "What the user is looking at: the foreground app, its window title, any selected text, and the page URL when it is a browser.",
   parameters: noParams,
-  tier: "read",
-  risk: "safe",
   async execute(_args, ctx) {
     const c = ctx.context;
     if (!c) return { content: [text("I cannot see what app they are in right now.")], details: { context: null } };

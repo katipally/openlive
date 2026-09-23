@@ -1,246 +1,160 @@
 //! Pure activation state machine. No OS handles, no timers, no clock reads:
 //! every entry point takes `now`, so the whole thing is driven from tests.
+//!
+//! One gesture opens Flow and the same gesture closes it: two quick taps of the
+//! trigger key, alone. Anything else the key is doing — held down, pressed as
+//! part of a shortcut — must pass through untouched, because the trigger is
+//! Control and Control belongs to the app the person is working in.
 
 use std::time::{Duration, Instant};
 
 /// Presses closer together than this are one physical press arriving twice.
 pub const DEBOUNCE: Duration = Duration::from_millis(30);
 /// X11 auto-repeat synthesizes release/press pairs, so a key-up is only real
-/// when no press of the same binding follows it inside this window.
+/// when no press of the same binding follows it inside this window. Without it
+/// a key held down would drum out a stream of taps.
 pub const RELEASE_GRACE: Duration = Duration::from_millis(50);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Activation {
-    Toggle,
-    PushToTalk,
-    HoldOrToggle,
-}
+/// A press held longer than this is the key being used, not tapped.
+pub const TAP_MAX: Duration = Duration::from_millis(350);
+/// Two taps this close together are one deliberate double-tap.
+pub const DOUBLE_TAP: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     Start { binding_id: String },
     Stop { binding_id: String },
-    Cancel,
 }
 
 #[derive(Debug, Clone)]
 pub struct Input {
-    pub binding_id: String,
     pub pressed: bool,
     pub external: bool,
     pub other_key: bool,
 }
 
+/// The press currently in progress.
 #[derive(Debug, Clone)]
-struct Hold {
-    binding_id: String,
-    pressed_at: Instant,
-    /// When recording actually began. Equal to `pressed_at` except for a
-    /// modifier-only hold, which spends the threshold arming first, so the
-    /// latch decision has to be measured from here or it could never latch.
-    started_at: Instant,
-    locked: bool,
-    /// A modifier-only hold that another key is still allowed to cancel.
-    /// Cleared once the hold latches, because a latched recording is deliberate.
-    cancellable: bool,
+struct Press {
+    at: Instant,
+    /// Set on key-up and confirmed once the grace window passes without a
+    /// matching press, which is how auto-repeat is told from a real release.
     pending_release: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
-enum Phase {
-    Idle,
-    Armed(Hold),
-    Capturing(Hold),
-    Processing { pending_press: Option<(String, Instant)> },
-}
-
-#[derive(Debug, Clone)]
 pub struct CoordinatorState {
-    activation: Activation,
-    hold_threshold: Duration,
-    modifier_only: bool,
-    phase: Phase,
+    binding_id: String,
+    open: bool,
+    press: Option<Press>,
+    /// A completed tap waiting for its partner.
+    last_tap: Option<Instant>,
     last_press: Option<Instant>,
 }
 
 impl CoordinatorState {
-    pub fn new(activation: Activation, hold_threshold: Duration, modifier_only: bool) -> Self {
-        Self {
-            activation,
-            hold_threshold,
-            modifier_only,
-            phase: Phase::Idle,
-            last_press: None,
-        }
-    }
-
-    /// One knob produces all three modes: toggle and push-to-talk qualify the
-    /// instant the key goes down, hold-or-toggle waits out the configured hold.
-    fn threshold(&self) -> Duration {
-        match self.activation {
-            Activation::HoldOrToggle => self.hold_threshold,
-            _ => Duration::ZERO,
-        }
-    }
-
-    pub fn is_idle(&self) -> bool {
-        matches!(self.phase, Phase::Idle)
+    pub fn new(binding_id: String) -> Self {
+        Self { binding_id, open: false, press: None, last_tap: None, last_press: None }
     }
 
     pub fn on_input(&mut self, input: Input, now: Instant) -> Option<Effect> {
+        // A shortcut. It disqualifies the press it landed on and the tap before
+        // it, so Ctrl+C, Ctrl+V can never add up to a gesture.
+        //
+        // The press is dropped, not flagged: the hook stops tracking the binding
+        // the moment another key lands on it, so no release for this press is
+        // ever delivered. Keeping it would leave a press that nothing can ever
+        // retire, and the next press — the start of a real gesture — would be
+        // discarded as a duplicate of it.
         if input.other_key {
-            return self.on_collision();
+            self.press = None;
+            self.last_tap = None;
+            return None;
+        }
+        // An external trigger has no press and no release to pair: it is the
+        // whole gesture, delivered at once.
+        if input.external {
+            return input.pressed.then(|| self.toggle());
         }
         if input.pressed {
-            self.on_press(input, now)
+            self.on_press(now);
+            None
         } else {
-            self.on_release(&input.binding_id, now);
+            self.on_release(now);
             None
         }
     }
 
-    fn on_collision(&mut self) -> Option<Effect> {
-        match &self.phase {
-            Phase::Armed(hold) | Phase::Capturing(hold) if hold.cancellable => {
-                self.phase = Phase::Idle;
-                Some(Effect::Cancel)
-            }
-            _ => None,
-        }
-    }
-
-    fn on_press(&mut self, input: Input, now: Instant) -> Option<Effect> {
+    fn on_press(&mut self, now: Instant) {
         // Cancelling a pending release runs before the debounce: an auto-repeat
-        // press dropped by the debounce would let the release fire and end the
-        // hold while the key is still physically down.
-        if let Phase::Armed(hold) | Phase::Capturing(hold) = &mut self.phase {
-            if hold.binding_id == input.binding_id && hold.pending_release.take().is_some() {
-                return None;
+        // press dropped by the debounce would let the release stand and turn a
+        // held key into a tap.
+        if let Some(press) = &mut self.press {
+            if press.pending_release.take().is_some() {
+                return;
             }
         }
-        if !input.external {
-            if let Some(last) = self.last_press {
-                if now.duration_since(last) < DEBOUNCE {
-                    return None;
-                }
+        if let Some(last) = self.last_press {
+            if now.duration_since(last) < DEBOUNCE {
+                return;
             }
-            self.last_press = Some(now);
         }
-
-        match &mut self.phase {
-            Phase::Idle => self.begin(input.binding_id, now, input.external),
-            Phase::Armed(_) => None,
-            Phase::Capturing(hold) => {
-                if hold.locked && hold.binding_id == input.binding_id {
-                    let binding_id = hold.binding_id.clone();
-                    self.phase = Phase::Processing { pending_press: None };
-                    Some(Effect::Stop { binding_id })
-                } else {
-                    None
-                }
-            }
-            Phase::Processing { pending_press } => {
-                if pending_press.is_none() {
-                    *pending_press = Some((input.binding_id, now));
-                }
-                None
-            }
+        self.last_press = Some(now);
+        if self.press.is_none() {
+            self.press = Some(Press { at: now, pending_release: None });
         }
     }
 
-    /// Optimistic: `Start` is emitted the moment the hold qualifies and
-    /// `on_start_failed` is the rollback. A modifier-only binding is the one
-    /// case that waits, because it must prove it is held alone past the
-    /// threshold before Ctrl+C can be told apart from a trigger.
-    fn begin(&mut self, binding_id: String, now: Instant, external: bool) -> Option<Effect> {
-        let locked = self.activation == Activation::Toggle || external;
-        let hold = Hold {
-            binding_id: binding_id.clone(),
-            pressed_at: now,
-            started_at: now,
-            locked,
-            cancellable: self.modifier_only && !locked,
-            pending_release: None,
-        };
-        if hold.cancellable && !self.threshold().is_zero() {
-            self.phase = Phase::Armed(hold);
+    fn on_release(&mut self, now: Instant) {
+        if let Some(press) = &mut self.press {
+            press.pending_release = Some(now);
+        }
+    }
+
+    /// The grace window passed with no press behind it, so the release was real
+    /// and this press can finally be judged.
+    pub fn on_grace_expired(&mut self, _now: Instant) -> Option<Effect> {
+        let press = self.press.as_ref()?;
+        let released_at = press.pending_release?;
+        let pressed_at = press.at;
+        self.press = None;
+
+        // Held rather than tapped, which also breaks the tap before it.
+        if released_at.duration_since(pressed_at) > TAP_MAX {
+            self.last_tap = None;
             return None;
         }
-        self.phase = Phase::Capturing(hold);
-        Some(Effect::Start { binding_id })
-    }
-
-    fn on_release(&mut self, binding_id: &str, now: Instant) {
-        if let Phase::Armed(hold) | Phase::Capturing(hold) = &mut self.phase {
-            if hold.binding_id == binding_id && !hold.locked {
-                hold.pending_release = Some(now);
+        match self.last_tap {
+            Some(first) if released_at.duration_since(first) <= DOUBLE_TAP => {
+                self.last_tap = None;
+                Some(self.toggle())
             }
-        }
-    }
-
-    pub fn on_grace_expired(&mut self, now: Instant) -> Option<Effect> {
-        let threshold = self.threshold();
-        match &mut self.phase {
-            Phase::Armed(hold) => {
-                if hold.pending_release.is_some() {
-                    self.phase = Phase::Idle;
-                } else if now.duration_since(hold.pressed_at) >= threshold {
-                    let binding_id = hold.binding_id.clone();
-                    let mut hold = hold.clone();
-                    hold.started_at = now;
-                    self.phase = Phase::Capturing(hold);
-                    return Some(Effect::Start { binding_id });
-                }
-                None
-            }
-            Phase::Capturing(hold) => {
-                let released_at = hold.pending_release?;
-                // Hold length is measured to the actual key-up, not to the
-                // moment the grace window runs out.
-                if released_at.duration_since(hold.started_at) >= threshold {
-                    let binding_id = hold.binding_id.clone();
-                    self.phase = Phase::Processing { pending_press: None };
-                    Some(Effect::Stop { binding_id })
-                } else {
-                    hold.pending_release = None;
-                    hold.locked = true;
-                    hold.cancellable = false;
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    /// A press that arrived while the pipeline was busy is replayed with its
-    /// original timestamp, so toggle parity survives a slow turn.
-    pub fn on_processing_finished(&mut self, _now: Instant) -> Option<Effect> {
-        let pending = match &mut self.phase {
-            Phase::Processing { pending_press } => pending_press.take(),
-            _ => return None,
-        };
-        match pending {
-            Some((binding_id, pressed_at)) => self.begin(binding_id, pressed_at, false),
-            None => {
-                self.phase = Phase::Idle;
+            _ => {
+                self.last_tap = Some(released_at);
                 None
             }
         }
     }
 
-    pub fn on_start_failed(&mut self) {
-        self.phase = Phase::Idle;
+    fn toggle(&mut self) -> Effect {
+        self.open = !self.open;
+        let binding_id = self.binding_id.clone();
+        if self.open {
+            Effect::Start { binding_id }
+        } else {
+            Effect::Stop { binding_id }
+        }
+    }
+
+    /// Flow closed for a reason this state machine never saw: the orb's own
+    /// close button, the idle timer, the machine going to sleep. The gesture is
+    /// a toggle, so it can only stay honest if whoever actually closes Flow says
+    /// so — otherwise the next double-tap does the opposite of what is on screen.
+    pub fn on_closed(&mut self) {
+        self.open = false;
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
-        match &self.phase {
-            Phase::Armed(hold) => Some(match hold.pending_release {
-                Some(released_at) => released_at + RELEASE_GRACE,
-                None => hold.pressed_at + self.threshold(),
-            }),
-            Phase::Capturing(hold) => hold.pending_release.map(|r| r + RELEASE_GRACE),
-            _ => None,
-        }
+        self.press.as_ref()?.pending_release.map(|r| r + RELEASE_GRACE)
     }
 }
 
@@ -248,273 +162,174 @@ impl CoordinatorState {
 mod tests {
     use super::*;
 
-    const HOLD: Duration = Duration::from_millis(250);
-
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
     }
 
-    fn press(id: &str) -> Input {
-        Input { binding_id: id.into(), pressed: true, external: false, other_key: false }
+    fn new() -> CoordinatorState {
+        CoordinatorState::new("flow".into())
     }
 
-    fn release(id: &str) -> Input {
-        Input { binding_id: id.into(), pressed: false, external: false, other_key: false }
+    fn input(pressed: bool, other_key: bool) -> Input {
+        Input { pressed, external: false, other_key }
     }
 
-    fn collision(id: &str) -> Input {
-        Input { binding_id: id.into(), pressed: true, external: false, other_key: true }
+    fn start() -> Option<Effect> {
+        Some(Effect::Start { binding_id: "flow".into() })
     }
 
-    fn start(id: &str) -> Option<Effect> {
-        Some(Effect::Start { binding_id: id.into() })
+    fn stop() -> Option<Effect> {
+        Some(Effect::Stop { binding_id: "flow".into() })
     }
 
-    fn stop(id: &str) -> Option<Effect> {
-        Some(Effect::Stop { binding_id: id.into() })
-    }
-
-    #[test]
-    fn push_to_talk_starts_on_press_and_stops_on_release() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::PushToTalk, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_input(release("b"), t0 + ms(400));
-        assert_eq!(c.next_deadline(), Some(t0 + ms(400) + RELEASE_GRACE));
-        assert_eq!(c.on_grace_expired(t0 + ms(450)), stop("b"));
+    /// One tap: press, release, and the grace window closing behind it.
+    fn tap(c: &mut CoordinatorState, at: Instant, held: Duration) -> Option<Effect> {
+        c.on_input(input(true, false), at);
+        c.on_input(input(false, false), at + held);
+        c.on_grace_expired(at + held + RELEASE_GRACE)
     }
 
     #[test]
-    fn push_to_talk_stops_even_below_the_hold_threshold() {
+    fn two_quick_taps_open_flow() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::PushToTalk, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_input(release("b"), t0 + ms(10));
-        assert_eq!(c.on_grace_expired(t0 + ms(60)), stop("b"));
+        let mut c = new();
+        assert_eq!(tap(&mut c, t0, ms(40)), None);
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
     }
 
     #[test]
-    fn toggle_ignores_releases_and_stops_on_the_second_press() {
+    fn the_same_gesture_closes_it() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::Toggle, HOLD, false);
+        let mut c = new();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
+        tap(&mut c, t0 + ms(1000), ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(1200), ms(40)), stop());
+    }
 
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_input(release("b"), t0 + ms(40));
+    #[test]
+    fn one_tap_alone_does_nothing() {
+        let t0 = Instant::now();
+        let mut c = new();
+        assert_eq!(tap(&mut c, t0, ms(40)), None);
         assert_eq!(c.next_deadline(), None);
-        assert_eq!(c.on_grace_expired(t0 + ms(200)), None);
-        assert_eq!(c.on_input(press("b"), t0 + ms(900)), stop("b"));
     }
 
     #[test]
-    fn hold_or_toggle_long_hold_stops_on_release() {
+    fn taps_too_far_apart_never_pair() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_input(release("b"), t0 + ms(800));
-        assert_eq!(c.on_grace_expired(t0 + ms(850)), stop("b"));
+        let mut c = new();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(tap(&mut c, t0 + DOUBLE_TAP + ms(50), ms(40)), None);
     }
 
     #[test]
-    fn hold_or_toggle_short_release_latches_until_the_next_press() {
+    fn a_held_key_is_not_a_tap() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_input(release("b"), t0 + ms(100));
-        assert_eq!(c.on_grace_expired(t0 + ms(150)), None);
-        assert_eq!(c.next_deadline(), None);
-        assert_eq!(c.on_input(press("b"), t0 + ms(5_000)), stop("b"));
+        let mut c = new();
+        assert_eq!(tap(&mut c, t0, TAP_MAX + ms(10)), None);
+        assert_eq!(tap(&mut c, t0 + ms(600), ms(40)), None);
     }
 
+    /// The whole point of the gesture: Control keeps working as Control.
     #[test]
-    fn hold_length_is_measured_to_the_release_not_to_grace_expiry() {
+    fn a_shortcut_never_builds_toward_the_gesture() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, false);
-
-        c.on_input(press("b"), t0);
-        c.on_input(release("b"), t0 + ms(240));
-        // 240ms of hold plus 50ms of grace is past the threshold, the hold is not.
-        assert_eq!(c.on_grace_expired(t0 + ms(290)), None);
-        assert_eq!(c.on_input(press("b"), t0 + ms(400)), stop("b"));
-    }
-
-    #[test]
-    fn x11_auto_repeat_burst_produces_one_start_and_one_stop() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-
-        let mut t = 100;
-        for _ in 0..30 {
-            assert_eq!(c.on_input(release("b"), t0 + ms(t)), None);
-            assert_eq!(c.on_input(press("b"), t0 + ms(t + 5)), None);
-            // The host would never reach the deadline: the press lands first.
-            assert!(c.next_deadline().is_none() || c.next_deadline() > Some(t0 + ms(t + 5)));
-            t += 10;
-        }
-
-        c.on_input(release("b"), t0 + ms(t));
-        assert_eq!(c.on_grace_expired(t0 + ms(t + 50)), stop("b"));
-    }
-
-    #[test]
-    fn debounce_drops_a_duplicate_press_but_never_an_external_one() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::Toggle, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        assert_eq!(c.on_input(press("b"), t0 + ms(20)), None);
-        assert_eq!(c.on_input(press("b"), t0 + ms(60)), stop("b"));
-
-        let mut c = CoordinatorState::new(Activation::Toggle, HOLD, false);
-        let ext = |id: &str| Input {
-            binding_id: id.into(),
-            pressed: true,
-            external: true,
-            other_key: false,
-        };
-        assert_eq!(c.on_input(ext("b"), t0), start("b"));
-        assert_eq!(c.on_input(ext("b"), t0 + ms(1)), stop("b"));
-    }
-
-    #[test]
-    fn modifier_only_arms_past_the_threshold_before_starting() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        assert_eq!(c.on_input(press("ctrl"), t0), None);
-        assert_eq!(c.next_deadline(), Some(t0 + HOLD));
-        assert_eq!(c.on_grace_expired(t0 + ms(200)), None);
-        assert_eq!(c.on_grace_expired(t0 + HOLD), start("ctrl"));
-    }
-
-    #[test]
-    fn ctrl_c_cancels_the_armed_modifier_and_passes_through() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        assert_eq!(c.on_input(press("ctrl"), t0), None);
-        assert_eq!(c.on_input(collision("ctrl"), t0 + ms(40)), Some(Effect::Cancel));
-        assert!(c.is_idle());
-        assert_eq!(c.next_deadline(), None);
-        // The release of the passed-through combo must not resurrect anything.
-        assert_eq!(c.on_input(release("ctrl"), t0 + ms(90)), None);
-        assert_eq!(c.on_grace_expired(t0 + ms(400)), None);
-    }
-
-    #[test]
-    fn a_key_arriving_during_a_modifier_hold_cancels_the_recording() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        c.on_input(press("ctrl"), t0);
-        assert_eq!(c.on_grace_expired(t0 + HOLD), start("ctrl"));
-        assert_eq!(c.on_input(collision("ctrl"), t0 + ms(300)), Some(Effect::Cancel));
-        assert!(c.is_idle());
-    }
-
-    #[test]
-    fn a_latched_modifier_recording_is_not_cancelled_by_typing() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        c.on_input(press("ctrl"), t0);
-        assert_eq!(c.on_grace_expired(t0 + HOLD), start("ctrl"));
-        c.on_input(release("ctrl"), t0 + ms(260));
-        assert_eq!(c.on_grace_expired(t0 + ms(310)), None);
-        assert!(c.next_deadline().is_none());
-        assert_eq!(c.on_input(collision("ctrl"), t0 + ms(400)), None);
-        assert_eq!(c.on_input(press("ctrl"), t0 + ms(900)), stop("ctrl"));
-    }
-
-    #[test]
-    fn modifier_only_auto_repeat_does_not_break_arming() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        c.on_input(press("ctrl"), t0);
-        for t in [50u64, 60, 70, 80] {
-            c.on_input(release("ctrl"), t0 + ms(t));
-            assert_eq!(c.on_input(press("ctrl"), t0 + ms(t + 5)), None);
-        }
-        assert_eq!(c.next_deadline(), Some(t0 + HOLD));
-        assert_eq!(c.on_grace_expired(t0 + HOLD), start("ctrl"));
-    }
-
-    #[test]
-    fn a_modifier_tapped_below_the_threshold_starts_nothing() {
-        let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        c.on_input(press("ctrl"), t0);
-        c.on_input(release("ctrl"), t0 + ms(60));
-        assert_eq!(c.next_deadline(), Some(t0 + ms(110)));
+        let mut c = new();
+        c.on_input(input(true, false), t0);
+        c.on_input(input(true, true), t0 + ms(20)); // Ctrl+C
+        c.on_input(input(false, false), t0 + ms(60));
         assert_eq!(c.on_grace_expired(t0 + ms(110)), None);
-        assert!(c.is_idle());
+        // And the tap before it was discarded too.
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), None);
+    }
+
+    /// The bug this was written for: after Ctrl+C the hook stops reporting the
+    /// binding as pressed, so the press that the shortcut landed on never gets a
+    /// release. Holding on to it swallowed the whole next gesture.
+    #[test]
+    fn a_shortcut_does_not_swallow_the_next_gesture() {
+        let t0 = Instant::now();
+        let mut c = new();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
+
+        // Ctrl+C, with no release ever delivered for that press.
+        c.on_input(input(true, false), t0 + ms(1000));
+        c.on_input(input(true, true), t0 + ms(1020));
+
+        // The very next double-tap must still close Flow.
+        tap(&mut c, t0 + ms(2000), ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(2200), ms(40)), stop());
     }
 
     #[test]
-    fn a_long_modifier_hold_stops_on_release() {
+    fn a_tap_then_a_shortcut_does_not_open_flow() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::HoldOrToggle, HOLD, true);
-
-        c.on_input(press("ctrl"), t0);
-        assert_eq!(c.on_grace_expired(t0 + HOLD), start("ctrl"));
-        c.on_input(release("ctrl"), t0 + ms(1_200));
-        assert_eq!(c.on_grace_expired(t0 + ms(1_250)), stop("ctrl"));
+        let mut c = new();
+        tap(&mut c, t0, ms(40));
+        c.on_input(input(true, false), t0 + ms(150));
+        c.on_input(input(true, true), t0 + ms(170));
+        c.on_input(input(false, false), t0 + ms(200));
+        assert_eq!(c.on_grace_expired(t0 + ms(250)), None);
     }
 
     #[test]
-    fn a_press_during_processing_is_replayed_with_its_original_time() {
+    fn auto_repeat_does_not_drum_out_taps() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::Toggle, HOLD, false);
-
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        assert_eq!(c.on_input(press("b"), t0 + ms(500)), stop("b"));
-        assert_eq!(c.on_input(press("b"), t0 + ms(600)), None);
-        assert_eq!(c.on_processing_finished(t0 + ms(2_000)), start("b"));
-        // Parity survived: the replayed press left us recording, so the next
-        // press stops, it does not start a second time.
-        assert_eq!(c.on_input(press("b"), t0 + ms(2_100)), stop("b"));
+        let mut c = new();
+        c.on_input(input(true, false), t0);
+        // X11 repeats: release/press pairs inside the grace window, for a key
+        // that is still physically down.
+        for i in 1..6u64 {
+            c.on_input(input(false, false), t0 + ms(i * 40));
+            c.on_input(input(true, false), t0 + ms(i * 40 + 5));
+        }
+        c.on_input(input(false, false), t0 + ms(400));
+        // Held well past TAP_MAX, so it is a hold and not a tap.
+        assert_eq!(c.on_grace_expired(t0 + ms(450)), None);
     }
 
     #[test]
-    fn processing_with_no_pending_press_returns_to_idle() {
+    fn one_press_arriving_twice_is_still_one_press() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::PushToTalk, HOLD, false);
-
-        c.on_input(press("b"), t0);
-        c.on_input(release("b"), t0 + ms(100));
-        assert_eq!(c.on_grace_expired(t0 + ms(150)), stop("b"));
-        assert_eq!(c.on_processing_finished(t0 + ms(900)), None);
-        assert!(c.is_idle());
+        let mut c = new();
+        c.on_input(input(true, false), t0);
+        c.on_input(input(true, false), t0 + ms(10)); // inside DEBOUNCE
+        c.on_input(input(false, false), t0 + ms(40));
+        assert_eq!(c.on_grace_expired(t0 + ms(90)), None);
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
     }
 
     #[test]
-    fn a_failed_start_rolls_back_to_idle() {
+    fn an_external_trigger_is_the_whole_gesture() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::PushToTalk, HOLD, false);
+        let mut c = new();
+        assert_eq!(c.on_input(Input { pressed: true, external: true, other_key: false }, t0), start());
+        assert_eq!(c.on_input(Input { pressed: true, external: true, other_key: false }, t0 + ms(10)), stop());
+    }
 
-        assert_eq!(c.on_input(press("b"), t0), start("b"));
-        c.on_start_failed();
-        assert!(c.is_idle());
-        assert_eq!(c.on_input(press("b"), t0 + ms(100)), start("b"));
+    /// Flow closed without the gesture — the orb's button, the idle timer. The
+    /// next double-tap has to OPEN it, not close something already gone.
+    #[test]
+    fn closing_flow_another_way_leaves_the_next_gesture_opening() {
+        let t0 = Instant::now();
+        let mut c = new();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
+        c.on_closed();
+        tap(&mut c, t0 + ms(1000), ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(1200), ms(40)), start());
     }
 
     #[test]
-    fn a_second_binding_is_ignored_while_the_first_is_capturing() {
+    fn a_pending_release_is_the_only_deadline() {
         let t0 = Instant::now();
-        let mut c = CoordinatorState::new(Activation::PushToTalk, HOLD, false);
-
-        assert_eq!(c.on_input(press("a"), t0), start("a"));
-        assert_eq!(c.on_input(press("b"), t0 + ms(100)), None);
-        c.on_input(release("b"), t0 + ms(150));
+        let mut c = new();
         assert_eq!(c.next_deadline(), None);
-        c.on_input(release("a"), t0 + ms(200));
-        assert_eq!(c.on_grace_expired(t0 + ms(250)), stop("a"));
+        c.on_input(input(true, false), t0);
+        assert_eq!(c.next_deadline(), None);
+        c.on_input(input(false, false), t0 + ms(40));
+        assert_eq!(c.next_deadline(), Some(t0 + ms(40) + RELEASE_GRACE));
     }
 }

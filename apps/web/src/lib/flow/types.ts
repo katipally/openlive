@@ -1,6 +1,10 @@
-// What the pill shows and what it can ask the owner renderer to do. The pill is
-// a display and command surface only: every decision in here was already made by
+// What the orb shows and what it can ask the owner renderer to do. The orb is a
+// display and command surface only: every decision in here was already made by
 // the owner, which runs the cascade and the Flow socket.
+//
+// Flow is voice. What was said belongs in the transcript, not on a floating
+// window, so this carries only what the orb actually draws: which way it is
+// pulsing, and the one thing that needs the person.
 
 export type FlowPhase = "idle" | "listening" | "thinking" | "speaking" | "acting" | "confirming" | "error";
 
@@ -13,7 +17,7 @@ export type FlowFailureCode =
   | "offline"
   | "models_missing"
   | "hook_failed"
-  | "listen_timeout"
+  | "mic_failed"
   | "answer_lost";
 
 export interface FlowFailure {
@@ -26,31 +30,19 @@ export interface FlowFailure {
   actionLabel?: string;
 }
 
-/** Why Flow answered in text instead of out loud this turn. "" means it spoke. */
-export type QuietReason = "" | "meeting" | "mic_busy" | "dnd" | "output_muted" | "off";
-
 export interface FlowSnapshot {
   phase: FlowPhase;
-  /** The binding as it is stored. Whoever draws it puts it through `bindingLabel`. */
-  binding: string;
-  /** What the user is saying. `partial` greys it while the transcript is interim. */
-  transcript: string;
-  partial: boolean;
-  /** What Flow is saying back this turn, spoken or written. */
+  /** What Flow is saying back this turn. Kept because a barge-in has to report
+   *  how much of it was actually voiced. */
   reply: string;
-  /** The one-line "Reading the terminal output" cue under the heading. */
+  /** Why Flow is in this phase, for the owner's own logic. */
   detail: string;
-  /** Text landing in the user's app right now, and the app it is landing in. */
-  inserting: { text: string; app: string } | null;
-  /** Whether this turn is being spoken. The manual override has already won here. */
+  /** Whether this turn is being spoken out loud, after auto-quiet. */
   speaking: boolean;
-  quiet: QuietReason;
-  /** 0..1 while the voice models are still loading, else null. */
-  warming: number | null;
+  /** The one thing worth growing the orb for, besides a question. */
   failure: FlowFailure | null;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {
-  phase: "idle", binding: "", transcript: "", partial: false, reply: "", detail: "",
-  inserting: null, speaking: true, quiet: "", warming: null, failure: null,
+  phase: "idle", reply: "", detail: "", speaking: true, failure: null,
 };

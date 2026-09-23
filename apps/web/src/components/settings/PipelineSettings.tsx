@@ -1,18 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2 } from "lucide-react";
 import {
-  loadPipelineConfig, savePipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
+  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
   DEFAULT_PIPELINE_CONFIG, mergePipelineConfig, type PipelineConfig, type TtsEngine,
 } from "@/lib/live/pipelineConfig";
 import { tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
+import { Segmented } from "@/lib/seg";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
-import { useUi } from "@/lib/uiStore";
+import { usePendingDeletes } from "@/lib/deferredDelete";
+import { prefersReduced } from "@/lib/gsap";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
@@ -145,15 +147,9 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
       <StageHead title="Turn-taking" desc="Decides when you've actually finished speaking. Smart-Turn reads the semantics of your last words; silence timeout just waits out the trailing pause." />
-      <div className="grid grid-cols-3 gap-1 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-        {TURN_PRESETS.map((p) => (
-          <button key={p.id} onClick={() => applyPreset(p.values)} title={p.desc}
-            className={cn("rounded-lg px-2 py-2 text-center transition", preset === p.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground")}>
-            <span className="block text-label font-medium leading-tight">{p.name}</span>
-            <span className="block text-micro leading-tight text-faint">{p.desc}</span>
-          </button>
-        ))}
-      </div>
+      <Segmented label="Turn-taking preset" tone="soft" className="grid w-full" value={preset}
+        options={TURN_PRESETS.map((p) => ({ id: p.id, label: p.name, sub: p.desc, title: p.desc }))}
+        onChange={(id) => { const p = TURN_PRESETS.find((t) => t.id === id); if (p) applyPreset(p.values); }} />
       {preset === "custom" && <p className="-mt-2 text-caption text-faint">Custom — the sliders below (and trailing silence in the VAD stage) are hand-tuned.</p>}
       <EngineCard name="Smart-Turn v3" desc="Pipecat's semantic end-of-turn model — a Whisper-tiny encoder, ~12 ms on CPU." />
       <label className="flex flex-col gap-1.5">
@@ -203,7 +199,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const accents = [...new Set(engine.voices.map((v) => v.accent))];
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine and voice apply to the next reply — switching engines downloads that engine's weights once. Speaking speed lives in General → Voice & speech." />
+      <StageHead title="Text-to-speech" desc="Speaks replies back to you on-device. Engine and voice apply to the next reply — switching engines downloads that engine's weights once. Speaking speed is at the top of this tab." />
       <div className="grid grid-cols-3 gap-2">
         {TTS_ENGINES.map((e) => (
           <button key={e.id} onClick={() => setEngine(e.id)}
@@ -216,7 +212,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
             <p className="mt-1 text-caption leading-relaxed text-muted-foreground">
               {e.id === "kokoro" ? "82M StyleTTS2 — natural, 28 English voices (~82 MB)."
                 : e.id === "supertonic" ? "Supertone's 66M flow-matching TTS — fastest first-word, 10 voices (~400 MB, OpenRAIL-M)."
-                : "Cloned from a short recording — record and manage in the Clone Voice tab (runs locally)."}
+                : "Cloned from a short recording. Record and manage them under Your voices below (runs locally)."}
             </p>
           </button>
         ))}
@@ -246,17 +242,23 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   );
 }
 
-/** Voice picker for the clone engine — just your saved profiles. Recording,
- *  previewing, and managing them lives in the standalone Clone Voice tab. */
+/** Voice picker for the clone engine: just your saved profiles. Recording,
+ *  previewing, and managing them lives under Your voices, further down this tab. */
 function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
-  const { data: profiles = [], isLoading } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["voice-profiles"], queryFn: () => fetch("/api/voice/profiles").then((r) => r.json()),
+  const { data: allProfiles = [], isLoading } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["voice-profiles"], queryFn: async () => {
+      const r = await fetch("/api/voice/profiles");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
   });
-  const openVoices = () => useUi.getState().openSettingsTab("voices");
+  const pending = usePendingDeletes((s) => s.keys);
+  const profiles = allProfiles.filter((p) => !pending.has(`voice:${p.id}`));
+  const openVoices = () => document.getElementById("set-voice-yours")?.scrollIntoView({ behavior: prefersReduced() ? "auto" : "smooth", block: "start" });
   if (!isLoading && profiles.length === 0) return (
-    <div className="flex items-center gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-label text-arc">
+    <div className="flex items-center gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-label text-arc-text">
       No cloned voices yet.
-      <button onClick={openVoices} className="font-medium underline underline-offset-2">Open Clone Voice to record one</button>
+      <button onClick={openVoices} className="font-medium underline underline-offset-2">Record one under Your voices</button>
     </div>
   );
   return (
@@ -269,7 +271,7 @@ function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update
         </select>
         <button onClick={openVoices}
           className="h-9 shrink-0 rounded-lg border border-border px-3 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-          Manage in Clone Voice
+          Manage your voices
         </button>
       </div>
     </label>
@@ -280,6 +282,14 @@ export function PipelineSettings() {
   const [cfg, setCfg] = useState<PipelineConfig>(() => loadPipelineConfig());
   const [stage, setStage] = useState<StageId>("mic");
   const update: Update = (next) => setCfg(savePipelineConfig(next));
+  useEffect(() => onPipelineConfig(setCfg), []);
+  // Local and exactly reversible, so the reset applies now and Undo puts the old
+  // config back, rather than deferring like a delete.
+  const reset = () => {
+    const prev = cfg;
+    update(DEFAULT_PIPELINE_CONFIG);
+    toast("Speech engine reset to defaults", "info", { undo: () => savePipelineConfig(prev), commit: () => {} });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -287,16 +297,8 @@ export function PipelineSettings() {
         <p className="text-label leading-relaxed text-muted-foreground">
           Your whole voice pipeline runs on-device — tune each stage below. Nothing here leaves your machine.
         </p>
-        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-          {STAGES.map((s) => (
-            <button key={s.id} onClick={() => setStage(s.id)}
-              className={cn("flex flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-center transition", stage === s.id ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground")}>
-              <s.icon className="size-4" />
-              <span className="text-caption font-medium leading-none">{s.label}</span>
-              <span className="text-micro leading-none text-faint">{s.sub}</span>
-            </button>
-          ))}
-        </div>
+        <Segmented label="Pipeline stage" tone="soft" anchor="set-voice-stage" className="mt-3 grid w-full"
+          options={STAGES} value={stage} onChange={setStage} />
       </div>
 
       <div className="min-h-[240px]">
@@ -306,7 +308,7 @@ export function PipelineSettings() {
         {stage === "tts" && <TtsStage cfg={cfg} update={update} />}
       </div>
 
-      <button onClick={() => update(DEFAULT_PIPELINE_CONFIG)}
+      <button id="set-voice-reset" onClick={reset}
         className="flex items-center gap-1.5 self-start rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
         <RotateCcw className="size-3.5" /> Reset to defaults
       </button>

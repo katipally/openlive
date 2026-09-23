@@ -5,7 +5,7 @@ import lockfile from "proper-lockfile";
 import { ensureDir, flowDir, leasePath } from "./paths";
 import type { LeaseOwner } from "./types";
 
-// The pill and the main window are separate renderers, and the agent service is a
+// The orb and the main window are separate renderers, and the agent service is a
 // third process, so "who owns the live session" has to survive a hard kill. The
 // lease is the owner record itself; proper-lockfile only arbitrates the
 // read-modify-write around it. Staleness is a liveness probe, never a timestamp:

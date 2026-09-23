@@ -74,16 +74,17 @@ function enrich(l: LiveModel, meta: any, providerId: string): ModelInfo {
 
 /**
  * Live model list for a provider, enriched with models.dev metadata. Falls back to the models.dev
- * catalog, then the offline snapshot, if the live endpoint is unavailable.
+ * catalog, then the offline snapshot, if the live endpoint is unavailable. `onLiveError` hears why
+ * the live endpoint failed, so a caller can tell a rejected key from an unreachable host.
  */
-export async function fetchModels(provider: ProviderInfo, apiKey?: string): Promise<ModelInfo[]> {
+export async function fetchModels(provider: ProviderInfo, apiKey?: string, onLiveError?: (e: unknown) => void): Promise<ModelInfo[]> {
   const catalogId = (provider as any).catalogId as string | undefined
   let live: LiveModel[] = []
   try {
     if (provider.protocol === "anthropic") live = await fetchAnthropic(provider.baseURL, apiKey)
     else live = await fetchOpenAICompat(provider.baseURL, apiKey)
-  } catch {
-    // fall through to catalog/snapshot
+  } catch (e) {
+    onLiveError?.(e) // then fall through to catalog/snapshot
   }
 
   if (!live.length) return (await getModels(provider.id, catalogId)).filter((m) => isChat(m.id, undefined))

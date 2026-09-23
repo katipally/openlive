@@ -1,14 +1,8 @@
 /** A hold-to-talk effect emitted by the coordinator on the hook thread. */
 export interface HookEffect {
-  /** "start" | "stop" | "cancel" */
+  /** "start" | "stop" — Flow was opened, or closed, by the gesture. */
   kind: string;
-  /** Absent on "cancel". */
   bindingId?: string;
-}
-
-export interface BindingInfo {
-  canonical: string;
-  modifierOnly: boolean;
 }
 
 export interface SecureInputStatus {
@@ -30,7 +24,6 @@ export interface PermissionStatus {
   screenRecording: boolean;
 }
 
-export type Activation = "toggle" | "pushToTalk" | "holdOrToggle";
 export type InsertionMethod = "paste" | "type";
 
 /** Idempotent. Resolves the keyboard layout and asks for post-event access,
@@ -44,16 +37,18 @@ export function shutdown(): void;
 /** The error the hook thread died with, or null while it is healthy. */
 export function hookError(): string | null;
 
-export function parseBinding(binding: string): BindingInfo;
-export function registerBinding(id: string, binding: string, activation: Activation, holdThresholdMs: number): void;
+/** Watches for two quick taps of `binding`, alone. The key is never swallowed:
+ *  it keeps working as itself in whatever app is in front. */
+export function registerBinding(id: string, binding: string): void;
 export function unregisterBinding(id: string): void;
 export function suspendHook(): void;
 export function resumeHook(): void;
 
-/** Programmatic trigger. Never debounced. */
+/** Programmatic trigger: one call is the whole gesture. */
 export function triggerExternal(id: string, pressed: boolean): void;
-export function notifyProcessingFinished(): void;
-export function notifyStartFailed(): void;
+/** Flow closed for a reason the hook never saw (its own button, an idle
+ *  timeout, sleep). Keeps the toggle honest. */
+export function notifyClosed(): void;
 
 /** Resolves once the text has landed, and rejects when it did not. Runs off
  *  the main thread: the paste receipt arrives on the main thread's run loop. */
@@ -65,8 +60,6 @@ export function endInsertion(session: number): Promise<void>;
 
 /** Poll at 1Hz from the main thread. */
 export function secureInputStatus(): SecureInputStatus;
-/** Null when a binding may be recorded, otherwise the reason it may not. */
-export function bindingRecordingRefusal(): string | null;
 
 export function permissionStatus(): PermissionStatus;
 export function requestAccessibility(): boolean;
@@ -194,18 +187,33 @@ export function openUrl(url: string): void;
 /** Null when the app or the platform will not say, not when nothing is selected. */
 export function selectedText(): string | null;
 
-export function moveMouse(point: Point): void;
-export function click(point: Point, mouseButton?: MouseButton, count?: number): void;
-export function doubleClick(point: Point): void;
-export function rightClick(point: Point): void;
-export function mouseDown(point: Point, mouseButton?: MouseButton): void;
-export function mouseUp(point: Point, mouseButton?: MouseButton): void;
+/**
+ * Where the pointer is now, or null when the platform will not say, which is
+ * never the origin.
+ */
+export function cursorPosition(): Point | null;
+
+/**
+ * Every control call runs off the main thread and resolves when the action has
+ * finished, which for anything that moves the pointer is as long as the
+ * movement takes: the pointer travels along a planned path rather than
+ * teleporting, because an app that never saw it arrive opens no menu and arms
+ * no drop target.
+ */
+export function moveMouse(point: Point): Promise<void>;
+export function click(point: Point, mouseButton?: MouseButton, count?: number): Promise<void>;
+export function doubleClick(point: Point): Promise<void>;
+export function rightClick(point: Point): Promise<void>;
+export function mouseDown(point: Point, mouseButton?: MouseButton): Promise<void>;
+/** Released where it is asked to be: a held button is dragged there first. */
+export function mouseUp(point: Point, mouseButton?: MouseButton): Promise<void>;
 /** The whole path, not just its ends. */
-export function drag(path: Point[], mouseButton?: MouseButton): void;
-export function scroll(point: Point, horizontal: number, vertical: number): void;
-export function typeText(text: string): void;
+export function drag(path: Point[], mouseButton?: MouseButton): Promise<void>;
+/** Notches, not pixels. Positive scrolls down, and to the right, everywhere. */
+export function scroll(point: Point, horizontal: number, vertical: number): Promise<void>;
+export function typeText(text: string): Promise<void>;
 /** A chord, as ["ctrl", "c"]. */
-export function keypress(keys: string[]): void;
+export function keypress(keys: string[]): Promise<void>;
 
 /** What this machine can do right now. Safe to call on demand. */
 export function capabilities(): CapabilityReport;

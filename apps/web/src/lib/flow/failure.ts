@@ -32,7 +32,7 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
     return {
       code: "no_accessibility",
       title: "I can hear you, but I cannot type for you",
-      detail: `${h.platform === "darwin" ? "macOS" : "Your system"} has not given OpenLive Accessibility access, so nothing can be inserted. Your words are still here.`,
+      detail: `${h.platform === "darwin" ? "macOS has not given OpenLive Accessibility access" : "Your system has not given OpenLive input access"}, so nothing can be inserted. Your words are still here.`,
       actionLabel: "Open settings",
     };
   }
@@ -40,7 +40,7 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
     return {
       code: "wayland",
       title: "Wayland will not hand out a global key",
-      detail: "This compositor blocks the system-wide hook, so the binding cannot arm. Trigger Flow from the tray or the command line instead.",
+      detail: "This compositor blocks the system-wide hook, so the double tap cannot reach Flow here. Chat and calls in the OpenLive window still work.",
     };
   }
   if (h.secureInput) {

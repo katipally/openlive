@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Play, Search, Volume2, X } from "lucide-react";
+import { motion } from "motion/react";
+import { Check, ImageIcon, Play, Search, Volume2, X } from "lucide-react";
+import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
 import { cn } from "@/lib/cn";
+import { toolMeta } from "@/lib/live/toolMeta";
 import { flowBridge } from "@/lib/flow/bridge";
 import { clock, dayLabel, duration, latency, stamp } from "@/lib/flow/format";
 import {
@@ -50,7 +53,7 @@ export function FlowHistory({ sessionId, onSelect }: { sessionId: string | null;
         {error && <Note>Flow&rsquo;s history could not be read.</Note>}
         {!error && isLoading && <Note>Looking&hellip;</Note>}
         {!error && !isLoading && !sessions.length && (
-          <Note>{query ? `Nothing matching “${query}”.` : "Nothing yet. Hold your key anywhere and say something."}</Note>
+          <Note>{query ? `Nothing matching “${query}”.` : "Nothing yet. Open Flow anywhere and say something."}</Note>
         )}
         <Rows sessions={sessions} onSelect={onSelect} />
         {more && (
@@ -92,6 +95,12 @@ function Rows({ sessions, onSelect }: { sessions: FlowSessionSummary[]; onSelect
                 {s.state === "crash" && (
                   <span className="shrink-0 rounded-full bg-destructive/10 px-2.5 py-0.5 text-caption text-destructive-text">Ended unexpectedly</span>
                 )}
+                {s.assets > 0 && (
+                  <span className="flex shrink-0 items-center gap-1 text-caption tabular-nums text-muted-foreground"
+                    title={s.assets === 1 ? "One capture" : `${s.assets} captures`}>
+                    <ImageIcon className="size-3.5" aria-hidden /> {s.assets}
+                  </span>
+                )}
                 {Number.isFinite(ms) && ms > 0 && (
                   <span className="shrink-0 font-mono text-caption tabular-nums text-muted-foreground">{duration(ms)}</span>
                 )}
@@ -123,7 +132,8 @@ function Transcript({ id, onBack }: { id: string; onBack: () => void }) {
   const last = entries[entries.length - 1]?.timestamp ?? first;
   const ms = new Date(last).getTime() - new Date(first).getTime();
   const app = entries.find((e) => e.type === "context" && (e.context as { app?: string })?.app);
-  const tools = [...new Set(entries.filter((e) => e.type === "tool_call").map((e) => str(e.name)))].filter(Boolean);
+  const tools = [...new Set(entries.filter((e) => e.type === "tool_call").map((e) => str(e.name)))]
+    .filter(Boolean).map((name) => toolMeta(name).label);
 
   const remove = async () => {
     if (!(await deleteFlowSession(id))) return;
@@ -173,7 +183,7 @@ function Transcript({ id, onBack }: { id: string; onBack: () => void }) {
         <dl className="flex flex-col gap-3 rounded-lg bg-card p-5 shadow-[var(--shadow-card)]">
           <span className="text-micro font-medium uppercase tracking-[0.06em] text-muted-foreground">This session</span>
           <Fact label="Lasted">{Number.isFinite(ms) && ms > 0 ? duration(ms) : "a moment"}</Fact>
-          <Fact label="Brain">{str(data?.header?.brain) || "OpenLive"}</Fact>
+          <Fact label="Brain">{brainLine(data?.header)}</Fact>
           {app && <Fact label="In front">{str((app.context as { app?: string }).app)}</Fact>}
           <Fact label="Tools">{tools.length ? tools.join(", ") : "None"}</Fact>
         </dl>
@@ -226,10 +236,27 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
+/**
+ * Who answered, read from the header the session opened with.
+ *
+ * Sessions written before the header carried a brain say so rather than
+ * claiming API mode answered them, which is what the old fallback did for every
+ * coding-agent session ever recorded.
+ */
+export function brainLine(header: FlowSessionDetail["header"] | undefined): string {
+  const raw = header?.brain;
+  if (!raw || typeof raw !== "object") return "Not recorded";
+  const b = raw as { kind?: string; id?: string; model?: string; effort?: string };
+  const name = b.kind === "acp"
+    ? (isAgentId(b.id ?? "") ? AGENT_REGISTRY[b.id as keyof typeof AGENT_REGISTRY].label : b.id || "A coding agent")
+    : "API mode";
+  return [name, b.model, b.effort && `${b.effort} effort`].filter(Boolean).join(" · ");
+}
+
 /** What a session is called: its own title, else the first thing that was said.
  *  Derived here rather than taken from the listing, so a transcript opened by
  *  URL still leads with the sentence instead of with "Flow session". */
-function headline(data: FlowSessionDetail | undefined): string {
+export function headline(data: FlowSessionDetail | undefined): string {
   const given = str(data?.header?.title).trim();
   if (given) return given;
   const said = (data?.entries ?? []).find((e) => e.type === "message" && e.role === "user" && str(e.text).trim());
@@ -237,26 +264,32 @@ function headline(data: FlowSessionDetail | undefined): string {
 }
 
 /** One line of the plain-text copy, so a pasted transcript reads like the screen. */
-function lineOf(e: FlowSessionEntry): string {
+export function lineOf(e: FlowSessionEntry): string {
   if (e.type === "message") return `${e.role === "user" ? "You" : "Flow"}: ${str(e.text)}`;
-  if (e.type === "tool_call") return `${str(e.name)}(${JSON.stringify(e.args ?? {})})`;
-  if (e.type === "tool_result") return `${str(e.name)} → ${e.isError ? "failed" : "ok"}`;
+  if (e.type === "tool_call") return `${toolMeta(str(e.name)).label}: ${JSON.stringify(e.args ?? {})}`;
+  if (e.type === "tool_result") {
+    const shots = Array.isArray(e.assets) ? e.assets.length : 0;
+    return `${toolMeta(str(e.name)).label} → ${e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
+  }
   if (e.type === "context") return `In front: ${str((e.context as { app?: string })?.app)}`;
   return e.type;
 }
 
-function Event({ entry, sessionId, assets }: { entry: FlowSessionEntry; sessionId: string; assets: { name: string }[] }) {
+type EventProps = { entry: FlowSessionEntry; sessionId: string; assets: { name: string }[]; onZoom?: (url: string) => void };
+
+export function Event(props: EventProps) {
+  const { entry } = props;
   return (
     <div className="flex gap-4">
       <span className="w-[4.25rem] shrink-0 pt-0.5 font-mono text-caption tabular-nums text-muted-foreground">{stamp(entry.timestamp)}</span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Body entry={entry} sessionId={sessionId} assets={assets} />
+        <Body {...props} />
       </div>
     </div>
   );
 }
 
-function Body({ entry, sessionId, assets }: { entry: FlowSessionEntry; sessionId: string; assets: { name: string }[] }) {
+function Body({ entry, sessionId, assets, onZoom }: EventProps) {
   if (entry.type === "message") {
     const user = entry.role === "user";
     return (
@@ -281,12 +314,14 @@ function Body({ entry, sessionId, assets }: { entry: FlowSessionEntry; sessionId
 
   if (entry.type === "tool_call" || entry.type === "tool_result") {
     const failed = entry.type === "tool_result" && entry.isError === true;
-    const shot = shotFor(entry, assets);
+    const shots = shotsFor(entry, assets);
     return (
       <div className="flex flex-col gap-2.5 rounded-lg bg-card p-3.5 shadow-[var(--shadow-card)]">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <span className={cn("size-[7px] shrink-0 rounded-full", failed ? "bg-destructive-fill" : "bg-success")} aria-hidden />
-          <span className="min-w-0 truncate font-mono text-label">{str(entry.name) || "tool"}</span>
+          <span className="min-w-0 truncate text-label font-medium" title={str(entry.name)}>
+            {str(entry.name) ? toolMeta(str(entry.name)).label : "A tool"}
+          </span>
           {entry.type === "tool_result" && (
             <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-caption",
               failed ? "bg-destructive/10 text-destructive-text" : "bg-success/15 text-success-text")}>
@@ -304,11 +339,16 @@ function Body({ entry, sessionId, assets }: { entry: FlowSessionEntry; sessionId
             {JSON.stringify(entry.args, null, 2)}
           </pre>
         )}
-        {shot && (
-          <a href={assetUrl(sessionId, shot)} target="_blank" rel="noreferrer" className="self-start">
-            <img src={assetUrl(sessionId, shot)} alt={`What ${str(entry.name)} captured`} loading="lazy"
-              className="max-h-64 w-auto max-w-full rounded-md bg-surface-raised object-contain shadow-[var(--shadow-xs)]" />
-          </a>
+        {!!shots.length && (
+          <div className="flex flex-wrap gap-2">
+            {shots.map((name) => (
+              <a key={name} href={assetUrl(sessionId, name)} target="_blank" rel="noreferrer" className="min-w-0"
+                onClick={(e) => { if (onZoom) { e.preventDefault(); onZoom(assetUrl(sessionId, name)); } }}>
+                <motion.img layoutId={onZoom ? assetUrl(sessionId, name) : undefined} src={assetUrl(sessionId, name)} alt={`What ${str(entry.name) || "this tool"} saw`} loading="lazy"
+                  className="max-h-64 w-auto max-w-full rounded-md bg-surface-raised object-contain shadow-[var(--shadow-xs)]" />
+              </a>
+            ))}
+          </div>
         )}
       </div>
     );
@@ -317,9 +357,10 @@ function Body({ entry, sessionId, assets }: { entry: FlowSessionEntry; sessionId
   return <p className="text-caption text-muted-strong">{entry.type}</p>;
 }
 
-/** An entry names its assets by relative path; the transcript needs the basename. */
-function shotFor(entry: FlowSessionEntry, assets: { name: string }[]): string {
-  const raw = str(entry.asset) || str((entry.details as { asset?: string })?.asset);
-  const name = raw.split("/").pop() ?? "";
-  return name && assets.some((a) => a.name === name) ? name : "";
+/** An entry names its captures by relative path; the transcript needs the
+ *  basename, and only the ones whose file is still on disk. */
+function shotsFor(entry: FlowSessionEntry, assets: { name: string }[]): string[] {
+  const raw = Array.isArray(entry.assets) ? entry.assets : [entry.asset, (entry.details as { asset?: string })?.asset];
+  const names = raw.map((v) => str(v).split("/").pop() ?? "").filter(Boolean);
+  return [...new Set(names)].filter((name) => assets.some((a) => a.name === name));
 }

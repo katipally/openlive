@@ -1,40 +1,40 @@
 "use client";
 
+import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "motion/react";
 import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
+import { effortName, THINK_HINT } from "@/components/live/SetupControls";
+import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
+import { useUi } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
+import { useMotionTokens } from "@/lib/motion";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import type { FlowConfig } from "@openlive/flow-store";
 
-// Who does the thinking, and what that thinker is set to. Both sides end in a
-// model: OpenLive's own brain lists the models of the provider whose key you
-// saved, and a coding agent is asked what it can be set to.
+// Who does the thinking, and what that thinker is set to. API mode is set once
+// in Settings > Models and shared with Chat, so it is only summarised here. A
+// coding agent is asked what it can be set to, effort included.
+//
+// The lowest effort is the recommended one and the default, because every extra
+// thinking token is silence on a spoken line. It is a recommendation, not a
+// ceiling: every level the model takes is in the list.
 //
 // Which coding agents exist is not guessed: it is the same /api/agents probe the
 // Agents settings tab uses, which runs the person's own login shell.
 
-export function BrainPicker({ config, save, compact = false }: {
+export function BrainPicker({ config, save }: {
   config: FlowConfig | null;
   save: (patch: FlowConfigPatch) => void;
-  /** Settings draws two rows; the first run draws two cards side by side. */
-  compact?: boolean;
 }) {
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
-  const providers = useQuery({ queryKey: ["providers"], queryFn: api.providers });
+  const choice = useApiModeChoice();
+  const openSettingsTab = useUi((s) => s.openSettingsTab);
+  const { spring, fade } = useMotionTokens();
 
-  const kind = config?.brain.kind ?? "openlive";
-  const keyed = (providers.data ?? []).filter((p) => p.hasKey);
+  const kind = config?.brain.kind ?? "api";
   const installed = (agents.data ?? []).filter((a) => a.installed && !a.hidden);
-
-  // Nothing was picked, so the models shown are the ones the default key can
-  // reach, which is also what the turn would actually run on.
-  const providerKind = config?.brain.providerId || keyed.find((p) => p.isDefault)?.kind || keyed[0]?.kind || "";
-  const models = useQuery({
-    queryKey: ["models", providerKind],
-    queryFn: () => api.models(providerKind || undefined),
-    enabled: kind === "openlive" && !!keyed.length,
-  });
 
   const agentId = kind === "acp" ? config?.brain.agentId ?? "" : "";
   const agentReady = !!installed.find((a) => a.id === agentId);
@@ -45,145 +45,122 @@ export function BrainPicker({ config, save, compact = false }: {
     staleTime: 5 * 60_000,
     retry: false,
   });
+  const looking = agents.isFetching || agentModels.isFetching;
+  const note = agentModelNote(agentReady, agentModels);
 
   return (
-    <div className={cn("grid items-start gap-4", compact ? "" : "[grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]")}>
-      <Choice
-        checked={kind === "openlive"}
-        onChoose={() => save({ brain: { kind: "openlive" } })}
-        title="OpenLive’s own brain"
-        detail="Runs on the API keys you already put in OpenLive. Tuned for short spoken turns, so it starts answering while it is still thinking."
-      >
-        <Field label="Provider">
-          <select
-            className="ol-select h-9 min-w-0 flex-1 rounded-md bg-surface-raised px-2.5 text-body text-foreground outline-none"
-            value={providerKind}
-            disabled={kind !== "openlive" || !keyed.length}
-            onChange={(e) => save({ brain: { kind: "openlive", providerId: e.target.value, model: "" } })}
-          >
-            {!keyed.length && <option value="">No key saved yet</option>}
-            {keyed.map((p) => <option key={p.id} value={p.kind}>{p.name}</option>)}
-          </select>
-        </Field>
+    <div className="flex flex-col divide-y divide-border rounded-lg bg-card px-4 shadow-[var(--shadow-card)]">
+      <Choice checked={kind === "api"} onChoose={() => save({ brain: { kind: "api" } })} title="API mode · BYOK"
+        detail={choice.loading ? "\u2026" : !choice.usable ? `${choice.providerName} has no key yet`
+          : [choice.providerName, choice.model, `${effortName(choice.effort)} effort`].join(" \u00b7 ")}>
+        <button type="button" onClick={() => openSettingsTab("models")}
+          className="text-label font-medium text-accent transition hover:opacity-80">
+          Change in Models
+        </button>
+      </Choice>
 
-        <Field label="Model">
-          <select
-            className="ol-select h-9 min-w-0 flex-1 rounded-md bg-surface-raised px-2.5 text-body text-foreground outline-none"
-            value={config?.brain.model ?? ""}
-            disabled={kind !== "openlive"}
-            onChange={(e) => save({ brain: { kind: "openlive", model: e.target.value } })}
-          >
-            <option value="">Whatever live voice is set to</option>
-            {(models.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
-          </select>
-        </Field>
-
-        <p className="text-caption leading-relaxed text-muted-strong">
-          {!keyed.length
-            ? "No provider key is saved yet, so this brain has nothing to think with."
-            : models.isLoading
-              ? "Asking the provider what it offers…"
-              : `${keyed.map((p) => p.name).join(", ")} ${keyed.length === 1 ? "key is" : "keys are"} saved on this machine.`}
+      {(agents.data ?? []).filter((a) => !a.hidden).map((a) => {
+        const on = kind === "acp" && config?.brain.agentId === a.id;
+        return (
+          <Fragment key={a.id}>
+            <Choice checked={on} disabled={!a.installed} title={a.label}
+              onChoose={() => save({ brain: { kind: "acp", agentId: a.id, agentModel: "" } })}>
+              {!a.installed ? "Not installed" : a.credState === "ready" ? (a.version ?? "Signed in") : (
+                <button type="button" onClick={() => openSettingsTab("agents")} className="transition hover:text-foreground">
+                  Sign in in Agents
+                </button>
+              )}
+            </Choice>
+            <AnimatePresence initial={false}>
+            {on && (
+              <motion.div className="overflow-hidden" transition={{ ...spring, bounce: 0, opacity: fade }}
+                initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+              <div className="flex flex-col gap-2.5 py-3 pl-7">
+                <Field label="Model">
+                  <select className={selectClass} value={config?.brain.agentModel ?? ""}
+                    disabled={!agentModels.data?.models.length}
+                    onChange={(e) => save({ brain: { kind: "acp", agentModel: e.target.value } })}>
+                    <option value="">Agent default</option>
+                    {(agentModels.data?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  </select>
+                </Field>
+                {!!agentModels.data?.effort?.values.length && (
+                  <Field label="Effort" hint={THINK_HINT}>
+                    <select className={selectClass} value={config?.brain.agentEffort ?? ""}
+                      onChange={(e) => save({ brain: { kind: "acp", agentEffort: e.target.value } })}>
+                      <option value="">Agent default (recommended)</option>
+                      {/* Named by id, so the levels both brains have read the same on both
+                          sides; an agent-only level keeps whatever the agent calls it. */}
+                      {agentModels.data.effort.values.map((v) => <option key={v.id} value={v.id}>{effortName(v.id) || v.name}</option>)}
+                    </select>
+                  </Field>
+                )}
+                {note && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-1 text-caption leading-relaxed text-muted-foreground">{note}</span>
+                    <button type="button" onClick={() => { void agents.refetch(); if (agentReady) void agentModels.refetch(); }} disabled={looking}
+                      className="flex shrink-0 items-center gap-1.5 text-label font-medium text-muted-foreground transition hover:text-foreground">
+                      <RefreshCw className={cn("size-3.5", looking && "animate-spin")} aria-hidden />
+                      {looking ? "Looking\u2026" : "Look again"}
+                    </button>
+                  </div>
+                )}
+              </div>
+              </motion.div>
+            )}
+            </AnimatePresence>
+          </Fragment>
+        );
+      })}
+      {!agents.data?.length && (
+        <p className="py-3 text-caption text-muted-foreground">
+          {agents.isLoading ? "Looking for coding agents…" : "No coding agents were found on this machine."}
         </p>
-      </Choice>
-
-      <Choice
-        checked={kind === "acp"}
-        onChoose={() => save({ brain: { kind: "acp", agentId: config?.brain.agentId || installed[0]?.id || "" } })}
-        title="The coding agent you already use"
-        detail="Flow talks to it over ACP. It keeps your project context, your tools and your rules, and now it has a voice."
-      >
-        <div className="flex flex-col rounded-lg bg-surface-raised p-1.5">
-          {(agents.data ?? []).filter((a) => !a.hidden).map((a) => {
-            const on = kind === "acp" && config?.brain.agentId === a.id;
-            return (
-              <label key={a.id}
-                className={cn("flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2.5 py-1.5 transition",
-                  a.installed ? "hover:bg-foreground/[0.05]" : "cursor-default",
-                  on && "bg-card shadow-[var(--shadow-xs)]")}>
-                <input type="radio" name="flow-agent" checked={on} disabled={!a.installed}
-                  onChange={() => save({ brain: { kind: "acp", agentId: a.id, agentModel: "" } })}
-                  className="size-4 shrink-0 accent-[var(--accent)]" />
-                <span className={cn("min-w-0 flex-1 truncate text-body", a.installed ? "font-medium text-foreground" : "text-muted-foreground")}>
-                  {a.label}
-                </span>
-                <span className="shrink-0 text-caption text-muted-foreground">
-                  {!a.installed ? "not on this machine" : a.credState === "ready" ? (a.version ?? "signed in") : "sign in needed"}
-                </span>
-              </label>
-            );
-          })}
-          {!agents.isLoading && !agents.data?.length && (
-            <p className="px-2.5 py-3 text-caption text-muted-strong">No coding agents were found on this machine.</p>
-          )}
-        </div>
-
-        <Field label="Model">
-          <select
-            className="ol-select h-9 min-w-0 flex-1 rounded-md bg-surface-raised px-2.5 text-body text-foreground outline-none"
-            value={config?.brain.agentModel ?? ""}
-            disabled={kind !== "acp" || !agentModels.data?.models.length}
-            onChange={(e) => save({ brain: { kind: "acp", agentModel: e.target.value } })}
-          >
-            <option value="">Whatever the agent is already set to</option>
-            {(agentModels.data?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-          </select>
-        </Field>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 flex-1 text-caption leading-relaxed text-muted-strong">
-            {agentModelNote(agentId, agentReady, agentModels)}
-          </span>
-          <button type="button" onClick={() => { void agents.refetch(); if (agentId) void agentModels.refetch(); }}
-            disabled={agents.isFetching || agentModels.isFetching}
-            className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-raised px-3 py-1.5 text-label font-medium transition hover:bg-foreground/10">
-            <RefreshCw className={cn("size-3.5", (agents.isFetching || agentModels.isFetching) && "animate-spin")} aria-hidden />
-            {agents.isFetching || agentModels.isFetching ? "Looking…" : "Look again"}
-          </button>
-        </div>
-      </Choice>
+      )}
     </div>
   );
 }
 
+const selectClass = "ol-select h-9 min-w-[10rem] flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy";
+
 /** Asking an agent for its models means starting it, so say what is happening. */
 function agentModelNote(
-  agentId: string,
   ready: boolean,
   q: { isLoading: boolean; isError: boolean; data?: { models: unknown[] } },
 ): string {
-  if (!agentId) return "Found by running your login shell, the same way OpenLive launches it.";
-  if (!ready) return "Pick one that is on this machine, and its models are read from the agent itself.";
-  if (q.isLoading) return "Starting the agent once to ask what it can be set to. This takes a few seconds.";
-  if (q.isError) return "The agent did not answer. It still works; Flow will use whatever it is already set to.";
-  if (!q.data?.models.length) return "This agent does not let its model be chosen from outside, so it keeps its own.";
-  return "Read from the agent itself, not a list OpenLive keeps.";
+  if (!ready) return "Not on this machine any more. Pick another.";
+  if (q.isLoading) return "Asking the agent what it can be set to\u2026";
+  if (q.isError) return "The agent did not answer, so it keeps its own settings.";
+  if (!q.data?.models.length) return "This agent keeps its own model.";
+  return "";
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-wrap items-center gap-2.5">
-      <span className="w-[4rem] shrink-0 text-label text-muted-strong">{label}</span>
+      <span className="flex min-w-[4rem] shrink-0 flex-col">
+        <span className="text-label text-muted-strong">{label}</span>
+        {hint && <span className="text-caption text-muted-foreground">{hint}</span>}
+      </span>
       {children}
     </label>
   );
 }
 
-function Choice({ checked, onChoose, title, detail, children }: {
-  checked: boolean; onChoose: () => void; title: string; detail: string; children: React.ReactNode;
+function Choice({ checked, disabled, onChoose, title, detail, children }: {
+  checked: boolean; disabled?: boolean; onChoose: () => void; title: string; detail?: string; children: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3.5 rounded-xl bg-card p-5 shadow-[var(--shadow-card)] transition-shadow duration-300",
-      checked && "shadow-[var(--shadow-pop),inset_0_0_0_2px_var(--accent-soft)]")}>
-      <label className="flex cursor-pointer items-start gap-3">
-        <input type="radio" name="flow-brain" checked={checked} onChange={onChoose}
-          className="mt-1 size-[18px] shrink-0 accent-[var(--accent)]" />
-        <span className="flex min-w-0 flex-col gap-1">
-          <span className="text-title-sm font-semibold">{title}</span>
-          <span className="text-body leading-relaxed text-muted-strong">{detail}</span>
+    <div className="flex min-h-12 items-center gap-3 py-2.5">
+      <label className={cn("flex min-w-0 flex-1 items-center gap-3", disabled ? "cursor-default" : "cursor-pointer")}>
+        <input type="radio" name="flow-brain" checked={checked} disabled={disabled} onChange={onChoose}
+          className="size-4 shrink-0 accent-[var(--accent)]" />
+        <span className="flex min-w-0 flex-col">
+          <span className={cn("truncate text-body", disabled ? "text-muted-foreground" : "font-medium text-foreground")}>{title}</span>
+          {detail && <span className="break-words text-caption text-muted-foreground">{detail}</span>}
         </span>
       </label>
-      {children}
+      <span className="shrink-0 text-caption text-muted-foreground">{children}</span>
     </div>
   );
 }

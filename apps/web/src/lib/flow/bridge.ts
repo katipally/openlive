@@ -46,34 +46,37 @@ export interface FlowCapabilities {
   /** False while the tray's quick disarm is on: the hook is suspended on purpose. */
   armed: boolean;
 }
+/** Flow's one gesture: two quick taps of this key, alone, anywhere on the
+ *  machine — once to open Flow and once to close it. Not configurable. One
+ *  gesture that is always true beats a key nobody remembers rebinding, and the
+ *  addon never swallows it, so Control keeps working as Control. */
+export const FLOW_TRIGGER = "ctrl";
+
 export type FlowPermissionName = "accessibility" | "microphone" | "screen";
 export type HookEffect = { kind: string; bindingId?: string };
-export type AddonActivation = "toggle" | "pushToTalk" | "holdOrToggle";
 
 export interface FlowBridge {
   init(): Promise<Guarded<FlowPermissions>>;
   permissions(): Promise<Guarded<FlowPermissions>>;
   /** Shows the system prompt. macOS never calls back, so the caller polls. */
   request(what: FlowPermissionName): Promise<Guarded<boolean | string>>;
-  /** Validates a candidate binding. Throws inside Rust become `{ ok: false }`. */
-  parseBinding(binding: string): Promise<Guarded<{ canonical: string; modifierOnly: boolean }>>;
-  /** Null when a binding may be recorded, else the reason it may not. */
-  recordingRefusal(): Promise<Guarded<string | null>>;
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
-  onResumeSession(cb: (sessionId: string) => void): void;
+  onResumeSession(cb: (sessionId: string) => void): () => void;
   /** Flow's settings were written, so the runtime should re-read them. */
   settingsChanged?(): void;
-  onSettingsChanged?(cb: () => void): void;
+  onSettingsChanged?(cb: () => void): () => void;
   /** The tray's quick disarm, and a subscription to it. */
   setArmed(armed: boolean): void;
-  onArmed(cb: (armed: boolean) => void): void;
-  register(id: string, binding: string, activation: AddonActivation, holdMs: number): Promise<Guarded<void>>;
+  onArmed(cb: (armed: boolean) => void): () => void;
+  /** Watch for the gesture. The key is never swallowed. */
+  register(id: string, binding: string): Promise<Guarded<void>>;
   unregister(id: string): Promise<Guarded<void>>;
   suspend(): Promise<Guarded<void>>;
   resume(): Promise<Guarded<void>>;
-  processingFinished(): Promise<Guarded<void>>;
-  startFailed(): Promise<Guarded<void>>;
+  /** Flow closed, and the gesture was not what closed it. Without this the
+   *  addon's toggle drifts out of step with what is on screen. */
+  closed(): Promise<Guarded<void>>;
   insertBegin(method?: string): Promise<Guarded<number>>;
   insertPush(session: number, chunk: string): Promise<Guarded<void>>;
   insertEnd(session: number): Promise<Guarded<void>>;
@@ -85,9 +88,22 @@ export interface FlowBridge {
   warmOcr(): Promise<Guarded<void>>;
   summon(): void;
   dismiss(): void;
-  size(h: number): void;
-  onEffect(cb: (e: HookEffect) => void): void;
-  onSecureInput(cb: (s: SecureInputStatus) => void): void;
+  /** The orb window is about to hide: play the exit, then call `hidden`. */
+  onHiding?(cb: () => void): void;
+  hidden?(): void;
+  /** Whether the orb window takes clicks. False lets them through to the app
+   *  underneath, which is what keeps a window parked over the dock harmless. */
+  interactive(on: boolean): void;
+  /** The orb window was shown, which reset it to click-through. */
+  onShown?(cb: () => void): void;
+  /** Bring the OpenLive window up on Flow, from the orb's full-screen control,
+   *  or on Flow's settings when a failure's fix lives there. */
+  expand(to?: "flow-settings"): void;
+  /** The main window's side of `expand`: show Flow, because that is where the
+   *  person already was. */
+  onShow?(cb: (to: string) => void): () => void;
+  onEffect(cb: (e: HookEffect) => void): () => void;
+  onSecureInput(cb: (s: SecureInputStatus) => void): () => void;
 }
 
 export const flowBridge = (): FlowBridge | undefined =>
@@ -95,7 +111,3 @@ export const flowBridge = (): FlowBridge | undefined =>
 
 /** A guarded result, or the fallback. The error is the caller's to report. */
 export const valueOr = <T>(r: Guarded<T> | undefined, fallback: T): T => (r && r.ok ? r.value : fallback);
-
-/** The addon's activation vocabulary, from the user's configured one. */
-export const addonActivation = (mode: string): AddonActivation =>
-  mode === "toggle" ? "toggle" : mode === "hold_or_toggle" ? "holdOrToggle" : "pushToTalk";

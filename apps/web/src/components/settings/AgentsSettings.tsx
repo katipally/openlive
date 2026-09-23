@@ -9,6 +9,7 @@ import { useAgentActions } from "@/lib/agentActions";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import { Switch } from "@/components/Switch";
 import { Section } from "./Section";
 
 export function AgentsSettings() {
@@ -18,7 +19,7 @@ export function AgentsSettings() {
 
   return (
     <div className="flex flex-col gap-7">
-      <Section title="Coding agents"
+      <Section id="set-agents-list" title="Coding agents"
         desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span> — OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History — its sessions stay on disk.</>}>
         <div className="flex flex-col gap-2.5">
           {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
@@ -41,7 +42,7 @@ function statusChip(a: AgentStatus) {
   if (a.credState === "ready") return { text: "Ready", cls: "text-success" };
   // Wizard agents (hermes) aren't "signed out" in this state — their setup was
   // started but never finished (no provider picked). Say that.
-  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", cls: "text-arc" };
+  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", cls: "text-arc-text" };
   return { text: "Installed", cls: "text-success" }; // creds unknowable — don't cry wolf
 }
 
@@ -90,7 +91,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["history"] });
-    });
+    }).catch(() => toast(`Couldn’t ${hidden ? "hide" : "show"} ${a.label}. Try again.`));
 
   const busy = !!run?.running;
   const running = run?.running ? run.action : null;
@@ -158,10 +159,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
             )}
             <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-caption text-muted-foreground" title={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"}>
               {a.hidden ? "Hidden" : "Shown"}
-              <button role="switch" aria-checked={!a.hidden} onClick={() => setHidden(!a.hidden)}
-                className={cn("relative h-5 w-9 rounded-full transition", a.hidden ? "bg-foreground/15" : "bg-accent")}>
-                <span className={cn("absolute top-0.5 size-4 rounded-full bg-white shadow transition-[left]", a.hidden ? "left-0.5" : "left-[18px]")} />
-              </button>
+              <Switch on={!a.hidden} onFlip={() => setHidden(!a.hidden)} />
             </label>
           </div>
         </div>

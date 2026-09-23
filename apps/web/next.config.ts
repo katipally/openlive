@@ -17,9 +17,11 @@ import { join } from "node:path";
 // because transformers.js can fall back to it for its own ort wasm loader.
 const MODEL_HOSTS = "https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net";
 // Live voice connects to the agent over a WebSocket. Desktop/dev: directly to the
-// agent port (NEXT_PUBLIC_LIVE_WS_URL / localhost). Container: same-origin through
-// the server.mjs proxy, which injects the shared secret (browsers can't set that
-// header themselves). Both origins stay in connect-src.
+// agent port on loopback, which the desktop app picks at launch, so any loopback
+// port is allowed. Container: same-origin through the server.mjs proxy, which
+// injects the shared secret (browsers can't set that header themselves). A baked
+// NEXT_PUBLIC_LIVE_WS_URL elsewhere stays allowed too.
+const LOOPBACK_WS = "ws://localhost:* ws://127.0.0.1:*";
 const LIVE_WS = (() => {
   const raw = process.env.NEXT_PUBLIC_LIVE_WS_URL || `ws://localhost:${process.env.AGENT_PORT || 8787}`;
   try { return new URL(raw).origin; } catch { return "ws://localhost:8787"; }
@@ -31,7 +33,7 @@ const CSP = [
   "default-src 'self'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
-  `connect-src 'self' blob: data: ${LIVE_WS} ${MODEL_HOSTS}`,
+  `connect-src 'self' blob: data: ${LOOPBACK_WS} ${LIVE_WS} ${MODEL_HOSTS}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "frame-src 'none'",

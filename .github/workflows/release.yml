@@ -48,12 +48,20 @@ jobs:
           node -e "const f='apps/desktop/package.json';const fs=require('fs');const p=JSON.parse(fs.readFileSync(f));p.version=process.env.V;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
           echo "Building version $V"
 
-      # Assemble the Next standalone server + the agent bundle into dist/ (these
-      # are what Electron packages as unpacked resources).
-      - name: Pack web + agent
+      # The ol-input addon (Flow's hotkey + text insertion) is Rust. The mac build
+      # is one universal binary, so it needs both Apple targets; pack-native fails
+      # if either is missing rather than shipping a host-only addon.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # Assemble the Next standalone server, the agent bundle and the native addon
+      # into dist/ (these are what Electron packages as unpacked resources).
+      - name: Pack web + agent + native
         run: |
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
+          pnpm --filter @openlive/desktop pack:native
 
       # Apple's notary service is intermittently flaky (returns empty/unexpected
       # results). Retry a few times so a transient notarization blip doesn't fail

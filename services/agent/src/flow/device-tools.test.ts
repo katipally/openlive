@@ -205,17 +205,120 @@ describe("perception", () => {
   });
 });
 
-describe("risk tiers", () => {
-  it("puts perception on read, control on control and the shell on destructive", () => {
-    const { tools } = build();
-    const tier = (n: string) => byName(tools, n).tier;
-    expect([tier("screenshot"), tier("read_screen_text"), tier("list_windows"), tier("get_window"), tier("camera_frame")])
-      .toEqual(["read", "read", "read", "read", "read"]);
-    expect([tier("click"), tier("type"), tier("window_close"), tier("open_url")])
-      .toEqual(["control", "control", "control", "control"]);
-    expect(tier("shell")).toBe("destructive");
-    expect(byName(tools, "shell").risk).toBe("dangerous");
-    expect(byName(tools, "screenshot").risk).toBe("safe");
-    expect(byName(tools, "click").risk).toBe("confirm");
+
+describe("coordinates the model got wrong", () => {
+  it("refuses a point outside the picture rather than clicking past its edge", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "screenshot").execute({}, ctx);
+    // 3840 is the display's real width. The model was shown 1024.
+    await expect(byName(tools, "click").execute({ x: 3840, y: 400 }, ctx))
+      .rejects.toThrow(/1024 by 768/);
+    expect(actions).toEqual([]);
+  });
+
+  it("takes a point on the far edge of the picture", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "screenshot").execute({}, ctx);
+    await byName(tools, "click").execute({ x: 1024, y: 768 }, ctx);
+    expect(actions).toHaveLength(1);
+  });
+});
+
+describe("scrolling", () => {
+  it("scrolls by notches, whatever size the model asks for", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "screenshot").execute({}, ctx);
+    await byName(tools, "scroll").execute({ x: 10, y: 10, vertical: 1200 }, ctx);
+    expect(actions[0]).toMatchObject({ kind: "scroll", vertical: 40, horizontal: 0 });
+  });
+
+  it("says so rather than posting a scroll of nothing", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "screenshot").execute({}, ctx);
+    await expect(byName(tools, "scroll").execute({ x: 10, y: 10 }, ctx)).rejects.toThrow(/nothing/i);
+    expect(actions).toEqual([]);
+  });
+});
+
+describe("chords", () => {
+  it("presses the arrow key a model asked for by its web name", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "keypress").execute({ keys: ["Cmd", "ArrowDown"] }, ctx);
+    expect(actions[0]).toEqual({ kind: "keypress", keys: ["cmd", "down"] });
+  });
+
+  it("keeps a side-suffixed modifier the platform does know", async () => {
+    const { tools, actions } = build();
+    await byName(tools, "keypress").execute({ keys: ["ctrl_left", "c"] }, ctx);
+    expect(actions[0]).toEqual({ kind: "keypress", keys: ["ctrl_left", "c"] });
+  });
+});
+
+describe("the frame the model is working in", () => {
+  it("shows the same window again after an action, not whatever is in front", async () => {
+    const targets: unknown[] = [];
+    const { tools } = build({ capture: async (t) => { targets.push(t); return { png: "PNGDATA", shot: SHOT }; } });
+    await byName(tools, "screenshot").execute({ window_id: 7 }, ctx);
+    await byName(tools, "click").execute({ x: 10, y: 10 }, ctx);
+    expect(targets).toEqual([{ windowId: 7 }, { windowId: 7 }]);
+  });
+
+  it("falls back to the display when that window is gone", async () => {
+    const targets: unknown[] = [];
+    const { tools } = build({
+      capture: async (t) => {
+        targets.push(t);
+        if (t.windowId !== undefined && targets.length > 1) throw new Error("no such window");
+        return { png: "PNGDATA", shot: SHOT };
+      },
+    });
+    await byName(tools, "screenshot").execute({ window_id: 7 }, ctx);
+    const r = await byName(tools, "window_close").execute({ window_id: 7 }, ctx);
+    expect(targets).toEqual([{ windowId: 7 }, { windowId: 7 }, {}]);
+    expect(r.content.at(-1)).toMatchObject({ type: "image" });
+  });
+});
+
+describe("evidence after an action", () => {
+  const textOf = (r: { content: { type: string }[] }) =>
+    r.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
+
+  it("names the window in front, because a screenshot alone cannot say a page never navigated", async () => {
+    const { tools } = build({
+      foreground: async () => ({ id: 7, appName: "Brave Browser", title: "Namecheap", pid: 3, x: 0, y: 0, width: 800, height: 600, minimized: false }),
+    });
+    await byName(tools, "screenshot").execute({}, ctx);
+    const r = await byName(tools, "keypress").execute({ keys: ["enter"] }, ctx);
+    expect(textOf(r)).toContain('In front now: Brave Browser — "Namecheap"');
+  });
+
+  it("photographs the display once the window it was watching is no longer in front", async () => {
+    const targets: Array<{ windowId?: number }> = [];
+    const { tools } = build({
+      capture: async (t) => { targets.push(t); return { png: "PNGDATA", shot: SHOT }; },
+      foreground: async () => ({ id: 9, appName: "Brave Browser", pid: 4, x: 0, y: 0, width: 800, height: 600, minimized: false }),
+    });
+    await byName(tools, "screenshot").execute({ window_id: 7 }, ctx);
+    await byName(tools, "click").execute({ x: 10, y: 10 }, ctx);
+    expect(targets).toEqual([{ displayId: undefined, windowId: 7 }, {}]);
+  });
+
+  it("waits and looks again, for a page that was still loading", async () => {
+    const slept: number[] = [];
+    const f = fakeDevice();
+    const tools = deviceTools({ device: f.device, sleep: async (ms) => { slept.push(ms); } });
+    const r = await byName(tools, "wait").execute({ seconds: 2 }, ctx);
+    expect(slept).toEqual([2000]);
+    expect(r.content[1]).toEqual({ type: "image", data: "PNGDATA", mime: "image/png" });
+  });
+
+  it("gives a launched app longer to appear than a pointer move takes", async () => {
+    const slept: number[] = [];
+    const f = fakeDevice();
+    const tools = deviceTools({ device: f.device, sleep: async (ms) => { slept.push(ms); } });
+    await byName(tools, "screenshot").execute({}, ctx);
+    await byName(tools, "open_url").execute({ url: "https://youtube.com" }, ctx);
+    await byName(tools, "move").execute({ x: 1, y: 1 }, ctx);
+    expect(slept[0]).toBeGreaterThan(slept[1]!);
   });
 });

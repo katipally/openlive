@@ -15,11 +15,15 @@ pnpm install
 pnpm desktop:dev      # runs web + agent (dev) and opens the Electron window
 ```
 
+Dev uses its own ports, `47833` (agent) / `47834` (web), so it runs alongside an
+installed OpenLive.
+
 ## Build
 
 The build bundles the Next app (standalone) + the agent (esbuild) into the app,
-then runs electron-builder. Ports are the uncommon `47823` (agent) / `47824`
-(web) to avoid collisions on users' machines.
+then runs electron-builder. The web server always uses `47824` (its origin keys
+the saved settings and cached models). The agent prefers `47823` and takes any
+free loopback port when that one is busy; the window is told which at launch.
 
 ```bash
 pnpm desktop:build:mac    # → apps/desktop/release/OpenLive-<ver>-mac.dmg (universal)
@@ -76,7 +80,7 @@ code-signing cert via electron-builder's `win.certificateFile` +
 ```
 main.cjs        Electron main: spawns the servers, media permissions, window, splash
 preload.cjs     contextIsolation on; exposes only the small `openlive` bridge
-                (window controls, mini mode, clipboard/open-url for agent tools)
+                (window controls, Flow and its orb, clipboard/open-url for agent tools)
 splash.html     loading screen shown until the web server answers
 resources/web   Next standalone server (dist/web) — UI + /api settings routes
 resources/agent agent.mjs (esbuild bundle) — the /live WebSocket + tools

@@ -59,9 +59,13 @@ function startSecureInputPoll() {
 function initialize() {
   const api = load();
   api.initializeInjector();
+  // A hook thread that died stays installed, and installing is a no-op while it
+  // is, so it has to be dropped before a retry can start a live one.
+  if (hooked && api.hookError()) { api.shutdown(); hooked = false; }
   if (!hooked) {
     api.initializeHook((effect) => send("openlive:flow-effect", effect));
     hooked = true;
+    if (!armed) api.suspendHook();
   }
   startSecureInputPoll();
   return api.permissionStatus();
@@ -79,6 +83,17 @@ function setArmed(next) {
 }
 
 const isArmed = () => armed;
+
+/** The one meaning of "Ready", shared with the Flow window: armed, granted, and
+ *  a key listener that is still alive. "stopped" when that listener died. */
+function readiness() {
+  if (!armed) return "off";
+  try {
+    const api = load();
+    if (api.hookError()) return "stopped";
+    return api.permissionStatus().accessibility ? "ready" : "off";
+  } catch { return "off"; }
+}
 
 function teardown() {
   if (secureTimer) { clearInterval(secureTimer); secureTimer = null; }
@@ -102,15 +117,12 @@ function install(getTarget) {
     throw new Error(`unknown permission "${what}"`);
   }));
 
-  ipcMain.handle("openlive:flow-parse-binding", guard((b) => load().parseBinding(b)));
-  ipcMain.handle("openlive:flow-register", guard((id, binding, activation, holdMs) =>
-    load().registerBinding(id, binding, activation, holdMs)));
+  ipcMain.handle("openlive:flow-register", guard((id, binding) => load().registerBinding(id, binding)));
   ipcMain.handle("openlive:flow-unregister", guard((id) => load().unregisterBinding(id)));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
   ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
-  ipcMain.handle("openlive:flow-processing-finished", guard(() => load().notifyProcessingFinished()));
-  ipcMain.handle("openlive:flow-start-failed", guard(() => load().notifyStartFailed()));
+  ipcMain.handle("openlive:flow-closed", guard(() => load().notifyClosed()));
 
   ipcMain.handle("openlive:flow-insert", guard((text, method) => load().insertText(text, method)));
   ipcMain.handle("openlive:flow-insert-begin", guard((method) => load().beginInsertion(method)));
@@ -118,10 +130,11 @@ function install(getTarget) {
   ipcMain.handle("openlive:flow-insert-end", guard((session) => load().endInsertion(session)));
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
-  ipcMain.handle("openlive:flow-recording-refusal", guard(() => load().bindingRecordingRefusal()));
   ipcMain.handle("openlive:flow-hook-error", guard(() => load().hookError()));
 
-  app.on("before-quit", teardown);
+  // will-quit, not before-quit: ⌘Q only closes to the menu bar now, and that
+  // cancelled quit still fires before-quit, which left Flow with no key listener.
+  app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed };
+module.exports = { install, teardown, load, setArmed, isArmed, readiness };

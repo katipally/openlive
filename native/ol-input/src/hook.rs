@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use handy_keys::{KeyEvent, KeyboardListener};
+use handy_keys::{KeyEvent, KeyboardListener, Modifiers};
 
 use crate::binding::Binding;
-use crate::coordinator::{Activation, CoordinatorState, Effect, Input};
+use crate::coordinator::{CoordinatorState, Effect, Input};
 use crate::secure_input;
 
 /// How long the manager thread waits on the listener before looking at its
@@ -32,8 +32,6 @@ enum Command {
     Register {
         id: String,
         binding: Binding,
-        activation: Activation,
-        hold_threshold: Duration,
         reply: Sender<Result<(), String>>,
     },
     Unregister {
@@ -46,8 +44,7 @@ enum Command {
         id: String,
         pressed: bool,
     },
-    ProcessingFinished,
-    StartFailed,
+    Closed,
     Shutdown,
 }
 
@@ -111,14 +108,8 @@ impl Hook {
             .map_err(|_| "the hook thread stopped before answering".to_string())?
     }
 
-    pub fn register(
-        &self,
-        id: String,
-        binding: Binding,
-        activation: Activation,
-        hold_threshold: Duration,
-    ) -> Result<(), String> {
-        self.call(|reply| Command::Register { id, binding, activation, hold_threshold, reply })
+    pub fn register(&self, id: String, binding: Binding) -> Result<(), String> {
+        self.call(|reply| Command::Register { id, binding, reply })
     }
 
     pub fn unregister(&self, id: String) -> Result<(), String> {
@@ -143,12 +134,9 @@ impl Hook {
         self.post(Command::External { id, pressed })
     }
 
-    pub fn processing_finished(&self) -> Result<(), String> {
-        self.post(Command::ProcessingFinished)
-    }
-
-    pub fn start_failed(&self) -> Result<(), String> {
-        self.post(Command::StartFailed)
+    /// Flow closed for a reason the hook never saw. See `on_closed`.
+    pub fn closed(&self) -> Result<(), String> {
+        self.post(Command::Closed)
     }
 }
 
@@ -234,16 +222,12 @@ fn apply(
     sink: &EffectSink,
 ) {
     match command {
-        Command::Register { id, binding, activation, hold_threshold, reply } => {
+        Command::Register { id, binding, reply } => {
             entries.retain(|entry| entry.id != id);
             entries.push(Entry {
+                coordinator: CoordinatorState::new(id.clone()),
                 id,
                 binding,
-                coordinator: CoordinatorState::new(
-                    activation,
-                    hold_threshold,
-                    binding.is_modifier_only(),
-                ),
                 pressed: false,
             });
             sync(entries, *suspended, blocking);
@@ -271,36 +255,26 @@ fn apply(
             let _ = reply.send(Ok(()));
         }
         Command::External { id, pressed } => feed(entries, &id, pressed, true, false, sink),
-        Command::ProcessingFinished => {
-            let now = Instant::now();
+        Command::Closed => {
             for entry in entries.iter_mut() {
-                if let Some(effect) = entry.coordinator.on_processing_finished(now) {
-                    sink(effect);
-                }
-            }
-        }
-        Command::StartFailed => {
-            for entry in entries.iter_mut() {
-                entry.coordinator.on_start_failed();
+                entry.coordinator.on_closed();
             }
         }
         Command::Shutdown => {}
     }
 }
 
-/// Keeps the blocked-hotkey set and the secure-input shadow list in step with
-/// what is registered.
-fn sync(
-    entries: &[Entry],
-    suspended: bool,
-    blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>,
-) {
+/// Keeps the secure-input shadow list in step with what is registered.
+///
+/// Nothing is ever added to the blocked-hotkey set. The trigger is a plain
+/// modifier the focused app is using for its own shortcuts, and the gesture is
+/// two taps of it alone: watching is enough, and swallowing it would break
+/// every shortcut on the machine.
+fn sync(entries: &[Entry], suspended: bool, blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>) {
     if let Ok(mut set) = blocking.lock() {
         set.clear();
-        if !suspended {
-            set.extend(entries.iter().map(|entry| entry.binding.hotkey()));
-        }
     }
+    let _ = suspended;
     secure_input::set_shadow_bindings(
         entries.iter().map(|entry| (entry.id.clone(), entry.binding)).collect(),
     );
@@ -316,20 +290,54 @@ fn feed(
 ) {
     let now = Instant::now();
     for entry in entries.iter_mut().filter(|entry| entry.id == id) {
-        let input = Input {
-            binding_id: entry.id.clone(),
-            pressed,
-            external,
-            other_key,
-        };
+        let input = Input { pressed, external, other_key };
         if let Some(effect) = entry.coordinator.on_input(input, now) {
-            sink(effect.clone());
+            sink(effect);
         }
     }
 }
 
+/// handy-keys re-reads the OS modifier state only on ordinary key events, never
+/// on a bare modifier press. A release it missed (⌘ lifted while ⌘Q was closing
+/// the window) then rode along on every Control tap, so each tap read as a
+/// chord and Flow could not be opened until some letter was typed. A group the
+/// OS says is up is dropped, except the one this event is changing.
+fn drop_released(mods: Modifiers, held: Modifiers, changed: Option<Modifiers>) -> Modifiers {
+    let mut out = mods;
+    for group in [Modifiers::CMD, Modifiers::SHIFT, Modifiers::OPT, Modifiers::CTRL] {
+        let changing = changed.is_some_and(|c| c.intersects(group));
+        if !changing && out.intersects(group) && !held.intersects(group) {
+            out.remove(group);
+        }
+    }
+    out
+}
+
+#[cfg(target_os = "macos")]
+fn os_held_modifiers() -> Option<Modifiers> {
+    use objc2_core_graphics::{CGEventFlags, CGEventSource, CGEventSourceStateID};
+    let flags = CGEventSource::flags_state(CGEventSourceStateID::CombinedSessionState);
+    let groups = [
+        (CGEventFlags::MaskCommand, Modifiers::CMD),
+        (CGEventFlags::MaskShift, Modifiers::SHIFT),
+        (CGEventFlags::MaskAlternate, Modifiers::OPT),
+        (CGEventFlags::MaskControl, Modifiers::CTRL),
+    ];
+    Some(groups.into_iter().filter(|(f, _)| flags.contains(*f)).fold(Modifiers::empty(), |m, (_, g)| m | g))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn os_held_modifiers() -> Option<Modifiers> {
+    None
+}
+
 fn on_key_event(entries: &mut [Entry], event: &KeyEvent, sink: &EffectSink) {
     let now = Instant::now();
+    let mut event = *event;
+    if let Some(held) = os_held_modifiers() {
+        event.modifiers = drop_released(event.modifiers, held, event.changed_modifier);
+    }
+    let event = &event;
     for entry in entries.iter_mut() {
         let hotkey = entry.binding.hotkey();
         let matches = hotkey.modifiers.matches(event.modifiers) && hotkey.key == event.key;
@@ -361,14 +369,33 @@ fn on_key_event(entries: &mut [Entry], event: &KeyEvent, sink: &EffectSink) {
         };
 
         let Some((pressed, other_key)) = input else { continue };
-        let input = Input {
-            binding_id: entry.id.clone(),
-            pressed,
-            external: false,
-            other_key,
-        };
+        let input = Input { pressed, external: false, other_key };
         if let Some(effect) = entry.coordinator.on_input(input, now) {
             sink(effect);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missed_release_is_dropped() {
+        // ⌘ still tracked after ⌘Q, but the OS says only Control is down.
+        let mods = Modifiers::CTRL_LEFT | Modifiers::CMD_LEFT;
+        assert_eq!(drop_released(mods, Modifiers::CTRL, Some(Modifiers::CTRL_LEFT)), Modifiers::CTRL_LEFT);
+    }
+
+    #[test]
+    fn a_real_chord_is_kept() {
+        let mods = Modifiers::CTRL_LEFT | Modifiers::CMD_LEFT;
+        assert_eq!(drop_released(mods, Modifiers::CTRL | Modifiers::CMD, Some(Modifiers::CTRL_LEFT)), mods);
+    }
+
+    #[test]
+    fn the_changing_modifier_is_trusted_over_a_late_os_read() {
+        // Control was tapped and already lifted by the time the state is read.
+        assert_eq!(drop_released(Modifiers::CTRL_LEFT, Modifiers::empty(), Some(Modifiers::CTRL_LEFT)), Modifiers::CTRL_LEFT);
     }
 }

@@ -29,17 +29,19 @@ function rows(caps: FlowCapabilities): Row[] {
       label: "Hearing you",
       state: perms ? (perms.microphone === "granted" ? "yes" : "no") : "unknown",
       detail: perms?.microphone === "granted"
-        ? "Open only while you hold the key."
+        ? "Open only while Flow is open."
         : perms?.microphone === "denied"
           ? "The microphone was refused. Flow cannot listen until you allow it in your system settings."
-          : "Not asked for yet. Flow asks the first time you hold the key.",
+          : "Not asked for yet. Flow asks the first time you open it.",
     },
     {
       label: "Seeing the screen",
-      state: perms ? (perms.screenRecording ? "yes" : "no") : "unknown",
-      detail: perms?.screenRecording
-        ? `Asked for only when you ask about what is on screen. Captured with ${report?.captureBackend || "the system capture"}.`
-        : "Not granted yet. Flow asks the first time you ask it about something on screen, and works without it until then.",
+      state: !perms ? "unknown" : perms.screenRecording && (!report || report.capture) ? "yes" : "no",
+      detail: !perms?.screenRecording
+        ? "Not granted. Flow can still hear you, type for you and answer; it just cannot look. Allow OpenLive the screen in your system settings."
+        : report && !report.capture
+          ? "Granted, but this copy of OpenLive cannot capture: the system gives the right to the app, not to the copy already running. Quit OpenLive and open it again."
+          : `Captured only when you ask about what is on screen, with ${report?.captureBackend || "the system capture"}.`,
     },
     {
       label: "Reading text in a picture",
@@ -58,7 +60,7 @@ function rows(caps: FlowCapabilities): Row[] {
     {
       label: "Moving and clicking other apps",
       state: report ? (report.windowControl ? "yes" : "no") : "unknown",
-      detail: report?.windowControl ? "Anything beyond reading asks you first." : "This session does not allow synthetic input.",
+      detail: report?.windowControl ? "Whatever you ask for, without stopping to confirm it." : "This session does not allow synthetic input.",
     },
   ];
 

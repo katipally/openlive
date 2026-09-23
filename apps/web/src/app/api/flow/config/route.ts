@@ -1,26 +1,31 @@
 import { NextResponse } from "next/server";
 import { readFlowConfig, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
-import { listProviders } from "@openlive/db";
+import { getSetting, listProviders } from "@openlive/db";
 import { BUILTIN_PROVIDERS } from "@openlive/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Flow's settings, plus the one thing the pill cannot work out for itself:
+// Flow's settings, plus the one thing the runtime cannot work out for itself:
 // whether there is a brain to think with.
 
 function brainReady(config: FlowConfig): boolean {
   const rows = listProviders();
-  const chosen = config.brain.providerId || rows.find((r) => r.isDefault)?.kind || rows[0]?.kind || "";
+  const chosen = getSetting("liveProviderId") || rows.find((r) => r.isDefault)?.kind || rows[0]?.kind || "";
   const provider = BUILTIN_PROVIDERS.find((p) => p.id === chosen);
   return config.brain.kind === "acp"
     ? !!config.brain.agentId
     : !!provider && (provider.keyless || rows.some((r) => r.kind === chosen && r.hasKey));
 }
 
+const failed = (e: unknown) =>
+  NextResponse.json({ error: e instanceof Error ? e.message : "Flow's settings could not be read." }, { status: 500 });
+
 export function GET() {
-  const config = readFlowConfig();
-  return NextResponse.json({ config, brainReady: brainReady(config) });
+  try {
+    const config = readFlowConfig();
+    return NextResponse.json({ config, brainReady: brainReady(config) });
+  } catch (e) { return failed(e); }
 }
 
 const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -43,6 +48,8 @@ export async function PATCH(req: Request) {
   let patch: unknown;
   try { patch = await req.json(); } catch { patch = null; }
   if (!isPlain(patch)) return NextResponse.json({ error: "expected an object" }, { status: 400 });
-  const config = await updateFlowConfig((cur) => merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
-  return NextResponse.json({ config, brainReady: brainReady(config) });
+  try {
+    const config = await updateFlowConfig((cur) => merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
+    return NextResponse.json({ config, brainReady: brainReady(config) });
+  } catch (e) { return failed(e); }
 }

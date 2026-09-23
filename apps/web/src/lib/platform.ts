@@ -12,22 +12,23 @@ export const desktopPlatform: string =
 /** macOS desktop: traffic lights live top-LEFT → headers clear ~84px on the left.
  *  Windows/Linux desktop: controls live top-RIGHT → clear the right edge instead. */
 export const isMacDesktop = isDesktop && desktopPlatform === "darwin";
+
+/** Whether the keyboard in front of the person is a Mac one, which is what
+ *  decides whether a key is called "Control" or "Ctrl". The shell's own answer
+ *  when there is one; the browser's otherwise. */
+export const isMac = desktopPlatform
+  ? desktopPlatform === "darwin"
+  : typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
+/** The primary shortcut modifier as that keyboard labels it. */
+export const MOD = isMac ? "⌘" : "Ctrl";
+/** Flow's summon key, named the way that keyboard prints it. */
+export const CONTROL = isMac ? "Control" : "Ctrl";
 export const isWinDesktop = isDesktop && !!desktopPlatform && desktopPlatform !== "darwin";
 
 /** Last path segment for display ("/a/b/c" → "c"); tolerant of trailing slashes
  *  and both separators. `fallback` shows when the path is empty. */
 export const basename = (p: string, fallback = ""): string =>
   p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p || fallback;
-
-/** The user's saved global mini-mode talk hotkey (Settings → General). Read by
- *  PanelBridge on each mini entry so the main process registers the right one. */
-const HOTKEY_KEY = "openlive-mini-hotkey";
-export function savedMiniHotkey(): string {
-  try { return localStorage.getItem(HOTKEY_KEY) || "Alt+Space"; } catch { return "Alt+Space"; }
-}
-export function saveMiniHotkey(acc: string): void {
-  try { localStorage.setItem(HOTKEY_KEY, acc); } catch { /* private mode */ }
-}
 
 /** The Electron preload bridge for OS actions (clipboard / open URL / pick folder),
  *  or undefined in the browser. */

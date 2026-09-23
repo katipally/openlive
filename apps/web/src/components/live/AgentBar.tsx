@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Folder, ChevronDown, Check, Cpu, SlidersHorizontal, FolderOpen } from "lucide-react";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { setConversationFolder, setConversationModel, setConversationMode, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { useMenuPresence } from "@/lib/usePopIn";
+import { useMenuKeys } from "@/lib/useMenuKeys";
 import { cn } from "@/lib/cn";
 import { isDesktop, basename, bridge } from "@/lib/platform";
 
@@ -20,25 +21,19 @@ function PillMenu({ icon: Icon, label, title, items, current, onPick, footer }: 
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  useMenuKeys(ref, open, requestClose);
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
-      <button onClick={toggle} title={title}
+      <button onClick={toggle} title={title} aria-haspopup="menu" aria-expanded={open}
         className="flex max-w-[180px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
         <Icon className="size-3.5 shrink-0" /> <span className="truncate">{label}</span> <ChevronDown className={cn("size-3 shrink-0 transition", open && "rotate-180")} />
       </button>
       {mounted && (
-        <div ref={menuRef} className="absolute right-0 z-50 mt-1.5 w-64 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div ref={menuRef} role="menu" aria-label={title} className="absolute right-0 z-50 mt-1.5 w-64 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           <div className="px-3 pt-2 text-micro font-medium uppercase tracking-wide text-faint">{title}</div>
           <div className="openlive-scroll max-h-64 overflow-y-auto py-1">
             {items.map((it) => (
-              <button key={it.id} onClick={() => { onPick(it.id); requestClose(); }}
+              <button key={it.id} role="menuitemradio" aria-checked={it.id === (current ?? "")} onClick={() => { onPick(it.id); requestClose(); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-foreground/[0.06]">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-label text-foreground">{it.label}</span>
@@ -69,7 +64,7 @@ export function WorkspacePill() {
     <PillMenu icon={Folder} title="Project folder" label={boundCwd ? basename(boundCwd) : "Pick folder"}
       items={folderItems} current={boundCwd} onPick={(id) => setConversationFolder(activeChatId, id)}
       footer={b && (
-        <button onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-label text-foreground transition hover:bg-foreground/[0.06]">
+        <button role="menuitem" onClick={browse} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-label text-foreground transition hover:bg-foreground/[0.06]">
           <FolderOpen className="size-4 text-accent" /> Browse…
         </button>
       )} />

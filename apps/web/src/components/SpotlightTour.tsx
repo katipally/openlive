@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useUi } from "@/lib/uiStore";
 
 // Reusable first-visit SPOTLIGHT tour: dims the page with a cutout + accent ring
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
@@ -16,17 +17,28 @@ export interface TourStep { target: string; title: string; body: string }
 const seenKey = (id: string) => `openlive-tour-${id}`;
 export const tourSeen = (id: string): boolean => { try { return !!localStorage.getItem(seenKey(id)); } catch { return true; } };
 const markSeen = (id: string) => { try { localStorage.setItem(seenKey(id), "1"); } catch { /* private mode */ } };
+/** Forgets every tour, so each plays again the next time its screen shows. */
+export function resetTours() {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((k) => k?.startsWith(seenKey("")));
+    for (const k of keys) localStorage.removeItem(k!);
+  } catch { /* private mode: nothing was stored */ }
+}
 
 export function SpotlightTour({ id, steps, active = true }: { id: string; steps: TourStep[]; active?: boolean }) {
   const [show, setShow] = useState(false);
+  // Settings covers every other surface, so only its own tour may run over it;
+  // the rest wait and pick up again once it closes.
+  const coveredBySettings = useUi((s) => s.settingsOpen) && id !== "settings";
+  const live = active && !coveredBySettings;
   // Defer the start slightly so the surface's own entrance animation finishes
   // and the anchors are where they'll stay.
   useEffect(() => {
-    if (!active || tourSeen(id)) return;
+    if (!live || tourSeen(id)) return;
     const t = setTimeout(() => setShow(true), 650);
     return () => clearTimeout(t);
-  }, [id, active]);
-  if (!show || !active) return null;
+  }, [id, live]);
+  if (!show || !live) return null;
   return <Tour steps={steps} onClose={() => { markSeen(id); setShow(false); }} />;
 }
 
@@ -40,13 +52,18 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   const [leaving, setLeaving] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const [cardH, setCardH] = useState(190); // measured after render so vertical clamping is exact
+  // Callers pass fresh steps/onClose each render; the poll below keys on the
+  // target alone so a parent re-render does not restart it.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+  const target = steps[step]!.target;
 
   // Poll the anchor (rAF-throttled) so the spotlight FOLLOWS layout changes, and —
   // critically — CLOSE the tour if the target disappears (the user navigated away or
   // opened Settings over the surface). Without this a stale rect stranded the bubble
   // on screen. Only setRect on an actual change so we don't re-render every frame.
   useEffect(() => {
-    const sel = `[data-tour="${steps[step]!.target}"]`;
+    const sel = `[data-tour="${target}"]`;
     let raf = 0;
     let missingSince = 0;
     let prev = "";
@@ -59,15 +76,15 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
         if (key !== prev) { prev = key; setRect(r); }
       } else {
         if (!missingSince) missingSince = t;
-        else if (t - missingSince > 400) { onClose(); return; } // anchor gone for good → don't strand
+        else if (t - missingSince > 400) { onCloseRef.current(); return; } // anchor gone for good → don't strand
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [step, steps, onClose]);
+  }, [target]);
 
-  const close = useCallback(() => { setLeaving(true); setTimeout(onClose, 180); }, [onClose]);
+  const close = useCallback(() => { setLeaving(true); setTimeout(() => onCloseRef.current(), 180); }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
@@ -125,7 +142,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   const arrowSide = place === "below" ? "-top-1.5" : place === "above" ? "-bottom-1.5" : place === "right" ? "-left-1.5" : "-right-1.5";
 
   return (
-    <div className={cn("fixed inset-0 z-[65] transition-opacity duration-200", leaving ? "opacity-0" : "opacity-100 animate-[fade-up_0.2s_ease-out]")}
+    <div className={cn("fixed inset-0 z-[var(--z-tour)] transition-opacity duration-200", leaving ? "opacity-0" : "opacity-100 animate-[fade-up_0.2s_ease-out]")}
       role="dialog" aria-modal="true" aria-label="Feature tour">
       {/* the spotlight: one element whose giant shadow dims everything AROUND the target */}
       <div className="absolute rounded-2xl transition-all duration-300 ease-out"

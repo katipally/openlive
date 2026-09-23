@@ -2,13 +2,14 @@
 // What Flow needs to know about the machine it is running on: the window the
 // user is actually in, whether this is a moment to speak out loud, and what the
 // platform can honestly do. Everything here is best effort and returns null
-// rather than guessing. The pill says "unknown" far better than it says wrong.
+// rather than guessing. The orb says "unknown" far better than it says wrong.
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { app, ipcMain, nativeImage, screen } = require("electron");
 const flowInput = require("./flow-input.cjs");
+const flowCursor = require("./flow-cursor.cjs");
 
 // Shelling out is the only way to read most of these, so a burst of turns must
 // not become a burst of processes.
@@ -148,19 +149,46 @@ const SHELL_OUTPUT_CAP = 64 * 1024;
 
 const addon = () => flowInput.load();
 
-/** The display a capture means when neither a display nor a window was named. */
+/**
+ * The display a capture means when neither a display nor a window was named.
+ *
+ * Falling back to the cursor means crossing from Electron's coordinates into
+ * the addon's, which are the same on macOS and X11 and physical pixels on a
+ * scaled Windows display. The point is converted and then matched by which
+ * display contains it, because two displays that differ only in scale have
+ * origins that never compare equal across that boundary.
+ */
 function frontDisplayId() {
+  const displays = addon().displays();
   const front = addon().foregroundWindow();
   if (front && typeof front.displayId === "number") return front.displayId;
-  const point = screen.getCursorScreenPoint();
-  const here = screen.getDisplayNearestPoint(point);
-  const match = addon().displays().find((d) => d.x === here.bounds.x && d.y === here.bounds.y);
-  return (match ?? addon().displays().find((d) => d.primary))?.id;
+  const dip = screen.getCursorScreenPoint();
+  const point = typeof screen.dipToScreenPoint === "function" ? screen.dipToScreenPoint(dip) : dip;
+  const here = displays.find((d) => point.x >= d.x && point.x < d.x + d.width
+    && point.y >= d.y && point.y < d.y + d.height);
+  return (here ?? displays.find((d) => d.primary) ?? displays[0])?.id;
 }
 
 const screenPoint = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 
-function control(action) {
+/**
+ * Run one control action, with the halo up for as long as it lasts.
+ *
+ * Every pointer call in the addon is a promise now, because the pointer
+ * travels rather than teleports and the main thread has a cursor to draw while
+ * it does. Awaiting is what makes a tool result mean "this happened", and what
+ * lets the screenshot that follows show the result rather than the middle.
+ */
+async function control(action) {
+  const done = flowCursor.begin(action);
+  try {
+    return await dispatch(action);
+  } finally {
+    done();
+  }
+}
+
+function dispatch(action) {
   const api = addon();
   switch (action?.kind) {
     case "move": return api.moveMouse(screenPoint(action.point));
@@ -221,7 +249,7 @@ async function deviceCall(fn, args = {}) {
       return api.recognizeText(Buffer.from(String(args.png ?? ""), "base64"), args.shot);
     case "windows": return api.windowList();
     case "foreground": return api.foregroundWindow();
-    case "control": { control(args); return null; }
+    case "control": { await control(args); return null; }
     case "shell": return shell(args.command);
     default: throw new Error(`"${fn}" is not something this machine can be asked to do.`);
   }
@@ -246,12 +274,14 @@ function guard(fn) {
 }
 
 function install() {
+  flowCursor.install();
   ipcMain.handle("openlive:flow-context", guard(captureContext));
   ipcMain.handle("openlive:flow-signals", guard(signals));
   ipcMain.handle("openlive:flow-capabilities", guard(capabilities));
   ipcMain.handle("openlive:flow-device", guard(deviceCall));
   ipcMain.handle("openlive:flow-warm-ocr", guard(warmOcr));
-  app.on("before-quit", () => { cached = null; });
+  // Only a quit that is really happening; see flow-input.cjs for the cancelled one.
+  app.on("will-quit", () => { cached = null; flowCursor.dispose(); });
 }
 
 module.exports = { install, captureContext };
