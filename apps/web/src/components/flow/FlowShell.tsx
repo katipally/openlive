@@ -73,7 +73,6 @@ export function FlowShell() {
         // An open session covers this bar, and a drag region under an overlay still eats its clicks.
         isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && !sessionId && "app-drag")}>
         {isDesktop && <SwitchHole />}
-        <div className="flex-1" />
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
