@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advancePhase, lin, micGate, mixFrame, srgb, TARGETS, transitionTo, voiceBands, WAVE_ORB_RADIUS, WAVE_ORB_STATES } from "./waveOrb";
+import { advancePhase, glassBody, lin, micGate, mixFrame, srgb, TARGETS, transitionTo, voiceBands, WAVE_ORB_RADIUS, WAVE_ORB_STATES } from "./waveOrb";
 
 describe("wave orb colour", () => {
   it("round-trips sRGB through linear light", () => {
@@ -16,6 +16,23 @@ describe("wave orb colour", () => {
       expect(TARGETS[name].c).toHaveLength(18);
       expect(TARGETS[name].n.every(Number.isFinite)).toBe(true);
     }
+  });
+
+  it("tints the glass body deep in the state's own hue, lit toward the upper-left", () => {
+    const body = (name: keyof typeof WAVE_ORB_STATES, lift = 1) => glassBody(TARGETS[name].c.map(srgb), lift);
+    for (const name of Object.keys(WAVE_ORB_STATES) as (keyof typeof WAVE_ORB_STATES)[]) {
+      const lit = body(name), shadow = body(name, 0);
+      // Deep, so the threads keep their contrast, yet never the old near-black.
+      expect(Math.max(...lit)).toBeLessThan(0.4);
+      expect(Math.max(...lit)).toBeGreaterThan(0.1);
+      lit.forEach((v, k) => expect(v).toBeGreaterThan(shadow[k]!));
+    }
+    const [r, g, b] = body("listening");
+    expect(g).toBeGreaterThan(r! * 2);
+    expect(b).toBeGreaterThan(r! * 2);
+    const [tr, tg, tb] = body("thinking");
+    expect(tb).toBeGreaterThan(tg!);
+    expect(tr).toBeGreaterThan(tg!);
   });
 });
 

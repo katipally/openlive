@@ -34,7 +34,6 @@ const vec3 SHELL_MID = vec3(0.607843, 0.956863, 1.0);
 const vec3 SHELL_EDGE = vec3(0.772549, 0.662745, 1.0);
 const vec3 SHEEN_COLOR = vec3(0.917647, 0.956863, 1.0);
 const vec3 SPEC_COLOR = vec3(0.862745, 0.917647, 1.0);
-const vec3 CANVAS = vec3(0.011765, 0.015686, 0.035294);
 const float GLASS_OPACITY = 0.44;
 const float SHELL_MID_ALPHA = 0.18;
 const float SHELL_EDGE_ALPHA = 0.18;
@@ -92,6 +91,14 @@ vec3 siriFluid(vec2 p) {
   return clamp(color, 0.0, 1.0);
 }
 
+// The glass body: a deep shade of the state's own colours, lifted toward the
+// upper-left light so it reads as lit glass rather than a hole in the desktop.
+// sRGB, like uCol, so it glides with the palette. Keep drawFlat's in step.
+vec3 bodyColor(vec2 p) {
+  vec3 deep = mix(uCol[3], uCol[2], 0.35) * 0.24 + vec3(0.012, 0.014, 0.024);
+  return deep * (0.7 + 0.75 * smoothstep(-1.0, 1.0, dot(p, vec2(-0.566529, 0.824042))));
+}
+
 vec3 over(vec3 dst, vec3 src, float a) {
   float k = clamp(a, 0.0, 1.0);
   return src * k + dst * (1.0 - k);
@@ -147,7 +154,10 @@ void main() {
     }
     float lum = dot(fcol, vec3(0.213, 0.715, 0.072));
     vec3 clearSat = clamp(vec3(lum) + (fcol - vec3(lum)) * 1.22, 0.0, 1.0);
-    vec3 col = over(CANVAS, clearSat, 0.99 * clearFa);
+    // Divided by the exposure applied below, so the body lands as is. The wave
+    // is light, so it screens over the body and the threads stay as bright.
+    vec3 body = bodyColor(p) / max(uB.x, 0.001);
+    vec3 col = mix(body, 1.0 - (1.0 - body) * (1.0 - clearSat), clearFa);
 
     float surfaceBand = (1.0 - smoothstep(0.0, 0.026 + 0.055 * SHELL_EDGE_ALPHA, edgeDepth)) * clearFa;
     float rim = pow(surfaceBand, 1.8);
@@ -291,6 +301,11 @@ export function micGate() {
   };
 }
 
+/** The glass body's sRGB colour from a palette in sRGB (six rgb triples), at
+ *  `lift` 0 (away from the light) to 1 (the upper-left): the shader's bodyColor. */
+export const glassBody = (cols: ArrayLike<number>, lift: number) =>
+  [0.012, 0.014, 0.024].map((floor, k) => ((cols[9 + k]! * 0.65 + cols[6 + k]! * 0.35) * 0.24 + floor) * (0.7 + 0.75 * lift));
+
 // Without WebGL2 (no GPU, a blocklisted driver, a lost context) the orb keeps
 // its glass disc and a still wave in the state's colours, and still cross-fades.
 function drawFlat(ctx: CanvasRenderingContext2D, w: number, h: number, radius: number, cols: Float32Array, amp: number, envW: number, glow: number) {
@@ -308,7 +323,12 @@ function drawFlat(ctx: CanvasRenderingContext2D, w: number, h: number, radius: n
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, TAU);
-  ctx.fillStyle = "#030409";
+  // The shader's smoothstep lift, from the lower-right to the upper-left.
+  const dx = r * 0.566529, dy = r * 0.824042;
+  const body = ctx.createLinearGradient(cx + dx, cy + dy, cx - dx, cy - dy);
+  for (const [at, lift] of [[0, 0], [0.25, 0.15625], [0.5, 0.5], [0.75, 0.84375], [1, 1]] as const)
+    body.addColorStop(at, `rgb(${glassBody(cols, lift).map((v) => Math.round(Math.min(1, v) * 255))})`);
+  ctx.fillStyle = body;
   ctx.fill();
   ctx.clip();
   const spectrum = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
