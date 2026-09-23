@@ -228,6 +228,9 @@ html.chromeless .ol-toasts { display: none; }
    windows the page IS the floating surface, so in dev it drew itself next to
    the orb as if it were part of it. */
 html.chromeless nextjs-portal { display: none; }
+/* Every button on these windows is a pill or a circle; the app's 6px focus
+   radius squared them off while focused. */
+html.chromeless button:focus-visible { border-radius: 9999px; }
 
 /* ─── Desktop shell (frameless window) ──────────────────────────────────────
    The window has no native frame; drag it from any surface tagged .app-drag,
