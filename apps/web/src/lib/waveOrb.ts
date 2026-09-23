@@ -202,10 +202,10 @@ export function advancePhase(w: number[], by: number) {
 // (thinking = the siri preset, the rest derived from it); amp..audio extend the
 // wave so states read by motion and shape, not by colour alone.
 const KEYS = ["speed", "contourDeform", "zoom", "warp", "ridgeAmt", "shade", "exposure", "edgeGlow",
-  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio"] as const;
+  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio", "lift"] as const;
 type Key = (typeof KEYS)[number];
 const BASE: Record<Key, number> = { speed: 0.82, contourDeform: 0, zoom: 0.36, warp: 3.2, ridgeAmt: 0.5, shade: 0.12, exposure: 2, edgeGlow: 0,
-  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0 };
+  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0, lift: 0 };
 const CALM = { speed: 0.246, zoom: 0.3384, warp: 1.664, ridgeAmt: 0.24, exposure: 1.36 };
 
 export const WAVE_ORB_STATES = {
@@ -219,7 +219,7 @@ export const WAVE_ORB_STATES = {
     colors: ["#CFE0FF", "#7FB0FF", "#9DB8F0", "#5B7FD8", "#FFFFFF", "#5B9DFF"] },
   reconnecting: { speed: 0.5, warp: 1.8, ridgeAmt: 0.3, exposure: 1.05, amp: 0.6, envW: 1.2, ripple: 0.4, stutter: 1,
     colors: ["#8C9AB8", "#6A7FA6", "#7C86A8", "#56628A", "#C0C8D8", "#56628A"] },
-  listening: { speed: 0.7, warp: 2.6, ridgeAmt: 0.45, exposure: 1.8, edgeGlow: 0.3, amp: 0.7, audio: 1.3,
+  listening: { speed: 0.14, warp: 1.4, ridgeAmt: 0.45, exposure: 1.8, edgeGlow: 0.3, amp: 0.5, breathe: 0.6, audio: 2.4, lift: 1,
     colors: ["#E6FF9E", "#5EF2C2", "#43C286", "#33B7D6", "#F0FFF6", "#43C286"] },
   thinking: { speed: 1.35, edgeGlow: 0.25, braid: 1, pulse: 1,
     colors: ["#FFD86B", "#F0A24A", "#C77DFF", "#8E6CFF", "#FFF3DE", "#F0A24A"] },
@@ -283,7 +283,7 @@ export function voiceBands(bands: number[] | undefined, level: number): WaveOrbB
 // up from silence, and a floor left down there would read the room as a voice.
 // Measured on a MacBook mic against `say` at a speaking level.
 const FLOOR_RISE_S = 3, FLOOR_WARM_S = 1, FLOOR_WARM_RISE_S = 0.2;
-const MIC_KNEE = 0.05, MIC_GAIN = 3.2;
+const MIC_KNEE = 0.04, MIC_GAIN = 6;
 
 /** A voice's bands with the room taken out: 0 in silence, near 1 for speech. */
 export function micGate() {
@@ -478,13 +478,16 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       const s = reduced ? 0 : 0.8 * n[K.audio]!;
       const rule = (v: number, add: number, prop: number, cap: number, level: number) =>
         Math.min(Math.max(cap, v), v * (1 + prop * level * s) + add * level * s);
-      const speed = rule(n[K.speed]!, 0, 0.7, 5, band.all);
-      const warp = rule(n[K.warp]!, 0.85, 0, 7, band.mid);
+      // `lift` is for a state that rests almost still, so a voice has to add
+      // motion rather than scale the little there is.
+      const lift = s > 0 ? n[K.lift]! : 0;
+      const speed = rule(n[K.speed]!, 0, 0.7, 5, band.all) + lift * 1.2 * band.all;
+      const warp = rule(n[K.warp]!, 0.85, 0, 7, band.mid) + lift * 2 * band.mid;
       const contour = rule(n[K.contourDeform]!, 0.075, 0, 1, band.low);
       const sheen = rule(0.28, 0.16, 0, 2, band.high);
       const exposure = rule(n[K.exposure]!, 0, 0.12, 4, band.all);
       clock += dt;
-      let amp = n[K.amp]! * Math.min(1.8, 1 + s * (0.7 * band.low + 0.4 * band.all));
+      let amp = n[K.amp]! * Math.min(1.8 + lift * 1.6, 1 + s * (0.7 * band.low + 0.4 * band.all));
       let rate = 0;
       if (!reduced) {
         rate = 1;
