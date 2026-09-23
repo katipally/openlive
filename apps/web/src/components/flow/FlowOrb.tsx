@@ -8,6 +8,7 @@ import { flowBridge } from "@/lib/flow/bridge";
 import { IDLE_FLOW, type FlowFailure, type FlowSnapshot } from "@/lib/flow/types";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
+import { pauseWaveOrbs, WAVE_ORB_RADIUS } from "@/lib/waveOrb";
 import { cn } from "@/lib/cn";
 import { isMac } from "@/lib/platform";
 
@@ -33,10 +34,13 @@ const CARD_W = 392;
 /** How long the hover controls outlast the pointer: long enough to cross from
  *  the orb to a button at an unhurried pace, short enough not to feel stuck. */
 const CONTROLS_LINGER_MS = 600;
+const ORB_SIZE = 64;
+/** How far the orb's glow reaches past it. The window's bottom edge would cut
+ *  it off, so the orb sits at least this far above that edge. */
+const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
 
-/** Flow's phases onto the orb's palette: acting and confirming are both work. */
-const orbPhase = (p: FlowSnapshot["phase"]) =>
-  p === "listening" ? "listening" : p === "speaking" ? "speaking" : p === "idle" || p === "error" ? "idle" : "thinking";
+/** Flow's phases onto the orb's states: acting and confirming are both work on the machine. */
+const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "acting" : p);
 
 export function FlowOrb() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
@@ -56,7 +60,9 @@ export function FlowOrb() {
       setPermission(next.permission);
       if (next.flow) setS(next.flow);
     });
-    openliveBridge()?.onCallOrb?.(setCall);
+    // Its window hides as the call orb goes, with no `hiding` to say so; a summon
+    // that follows is always `shown` after this.
+    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) pauseWaveOrbs(true); });
   }, []);
 
   const stripRef = useRef<HTMLDivElement>(null);
@@ -140,14 +146,20 @@ export function FlowOrb() {
     // controls would draw and do nothing when clicked. A summon mid-exit lands
     // here too, and overwriting the exit keeps it from ever answering `hidden`.
     api.onShown?.(() => {
+      pauseWaveOrbs(false);
       inside = false; at = null; clearTimeout(linger); setHovered(false);
       gsap.to(root, { autoAlpha: 1, y: 0, duration: prefersReduced() ? 0 : 0.2, ease: EASE.out, overwrite: true });
     });
     // The window hides only once this answers, which leaves the orb faded out
     // for the next open to rise from.
     api.onHiding?.(() => {
-      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => api.hidden?.() });
+      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); api.hidden?.(); } });
     });
+    // Background throttling is off here, so a hidden window would keep drawing
+    // the orb: it holds still until shown. The window may have been shown before
+    // `onShown` was listening, so it asks.
+    pauseWaveOrbs(true);
+    void api.visible?.().then((v) => { if (v) pauseWaveOrbs(false); });
     window.addEventListener("mousemove", onMove);
     document.addEventListener("mouseleave", onLeave);
     return () => {
@@ -171,7 +183,7 @@ export function FlowOrb() {
   }
 
   return (
-    <div ref={rootRef} className="fixed inset-0 flex flex-col items-center justify-end gap-2.5 p-3">
+    <div ref={rootRef} className="fixed inset-0 flex flex-col items-center justify-end gap-2.5 p-3" style={{ paddingBottom: Math.max(12, ORB_GLOW) }}>
       {/* Always mounted, so a card appearing is a change a screen reader hears.
           Only an approval interrupts; a failure waits its turn. */}
       <span className="sr-only" aria-live="assertive">{permission?.question ?? ""}</span>
@@ -254,7 +266,7 @@ export function FlowOrb() {
       )}
 
       <div data-hit className="shrink-0">
-        <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: 0 })} getBands={() => bands.current} size={64} />
+        <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: 0 })} getBands={() => bands.current} size={ORB_SIZE} />
       </div>
     </div>
   );

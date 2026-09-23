@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { ImageIcon, MoreHorizontal, Search } from "lucide-react";
+import { ImageIcon, MoreHorizontal, Search, Settings2 } from "lucide-react";
 import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
 import { Keycap } from "@/components/Keycap";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
@@ -44,6 +44,7 @@ export function FlowHome({ sessionId, onOpen, caps }: {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const { fade } = useMotionTokens();
+  const openSettingsTab = useUi((s) => s.openSettingsTab);
 
   useEffect(() => {
     const t = setTimeout(() => { setQuery(typed.trim()); setPicked(new Set()); }, SEARCH_DEBOUNCE_MS);
@@ -80,7 +81,7 @@ export function FlowHome({ sessionId, onOpen, caps }: {
   return (
     <FlowCanvas className="max-w-[46rem] gap-8">
       <section className="flex flex-col items-center gap-5 text-center">
-        <OpenLiveOrb size={84} />
+        <OpenLiveOrb size={84} pulse />
         <div className="space-y-2">
           <h1 className="text-display font-semibold tracking-tight">Flow</h1>
           <p className="text-callout leading-relaxed text-muted-foreground">
@@ -100,6 +101,11 @@ export function FlowHome({ sessionId, onOpen, caps }: {
               </AnimatePresence>
             </span>
           )}
+          {/* Stretched to the row, so it stands exactly as tall as the chips beside it. */}
+          <button type="button" onClick={() => openSettingsTab("flow")} title="Flow settings" aria-label="Flow settings"
+            className="flex shrink-0 items-center self-stretch rounded-full bg-surface-raised px-2.5 text-muted-strong transition hover:bg-foreground/10 hover:text-foreground">
+            <Settings2 className="size-3.5" aria-hidden />
+          </button>
         </div>
         {hookError && <p className="max-w-full truncate text-caption text-destructive-text" title={hookError}>{hookError}</p>}
       </section>

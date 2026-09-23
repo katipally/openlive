@@ -612,6 +612,7 @@ function wireFlowIpc() {
   });
   // A reply after a summon cancelled the exit finds no pending hide and is dropped.
   ipcMain.on("openlive:flow-hidden", () => { if (flowHiding) finishDismissFlow(); });
+  ipcMain.handle("openlive:flow-visible", () => !!flowWin && !flowWin.isDestroyed() && flowWin.isVisible());
   ipcMain.on("openlive:flow-expand", (_e, to) => expandFlow(to));
   for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, reclampFlow);
   // "Continue this session" in the Flow window: only the owner renderer holds the

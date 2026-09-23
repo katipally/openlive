@@ -96,6 +96,9 @@ export interface FlowBridge {
   interactive(on: boolean): void;
   /** The orb window was shown, which reset it to click-through. */
   onShown?(cb: () => void): void;
+  /** Whether the orb window is on screen now, for a renderer that may have
+   *  missed the `onShown` that put it there. */
+  visible?(): Promise<boolean>;
   /** Bring the OpenLive window up on Flow, from the orb's full-screen control,
    *  or on Flow's settings when a failure's fix lives there. */
   expand(to?: "flow-settings"): void;
