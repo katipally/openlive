@@ -37,7 +37,7 @@ export function FlowOnboarding({ onDone, config, save }: {
         {step === 1 ? (
           <>
             <div className="flex flex-col gap-3">
-              <OpenLiveOrb size={48} />
+              <OpenLiveOrb size={48} pulse />
               <h1 className="text-title-lg font-semibold tracking-tight">Talk to any app</h1>
               <p className="text-body leading-relaxed text-muted-strong">
                 {`Tap ${CONTROL} ${CONTROL} anywhere. Flow types, acts, and answers out loud. It needs these first:`}

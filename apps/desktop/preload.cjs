@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld("openlive", {
     interactive: (on) => ipcRenderer.send("openlive:flow-interactive", !!on),
     // The window was just shown, so its mouse state went back to click-through.
     onShown: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-shown"); ipcRenderer.on("openlive:flow-shown", () => cb()); },
+    visible: () => ipcRenderer.invoke("openlive:flow-visible"),
     // The orb's full-screen control: bring OpenLive up, on Flow, or on Flow's
     // settings when `to` is "flow-settings".
     expand: (to) => ipcRenderer.send("openlive:flow-expand", to === "flow-settings" ? to : ""),
