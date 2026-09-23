@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
-import { FlowPill } from "@/components/flow/FlowPill";
+import { FlowOrb } from "@/components/flow/FlowOrb";
 
-// Flow's pill window loads this route. Pure display surface: everything it shows
-// arrives over IPC from the owner renderer.
+// Flow's orb window loads this route. Pure display surface: everything it shows
+// arrives over IPC, from the owner renderer or, for a call, the main process.
 export default function FlowPage() {
-  // Same tag the mini panel uses, so globals.css strips the root chrome that
-  // would otherwise paint behind a chromeless floating pill.
+  // globals.css strips the root chrome that would otherwise paint behind a
+  // chromeless floating orb.
   useEffect(() => {
-    document.documentElement.classList.add("mini");
-    return () => document.documentElement.classList.remove("mini");
+    document.documentElement.classList.add("chromeless");
+    return () => document.documentElement.classList.remove("chromeless");
   }, []);
-  return <FlowPill />;
+  return <FlowOrb />;
 }

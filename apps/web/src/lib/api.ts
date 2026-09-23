@@ -27,8 +27,10 @@ export const api = {
   providers: () => fetch("/api/providers").then(j<Provider[]>),
   updateProviderKey: (id: string, apiKey: string) =>
     fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ apiKey }) }).then(j<Provider>),
+  // keepalive here and on the two chat deletes: an Undo toast commits them, and
+  // that can happen as the window closes.
   removeProviderKey: (id: string) =>
-    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ clear: true }) }).then(j<Provider>),
+    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ clear: true }), keepalive: true }).then(j<Provider>),
   // Upsert a key for a provider by its registry id (creates the DB row if new).
   setProviderKey: (kind: string, apiKey: string) =>
     fetch("/api/providers", { method: "POST", body: JSON.stringify({ kind, apiKey }) }).then(j<Provider>),
@@ -40,15 +42,19 @@ export const api = {
   chats: () => fetch("/api/chats").then(j<ChatSummary[]>),
   history: () => fetch("/api/history").then(j<HistoryWorkspace[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
-  deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE" }).then(j),
+  deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE", keepalive: true }).then(j),
   renameChat: (id: string, title: string) =>
     fetch(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).then(j),
   // Permanently delete a coding agent's OWN on-disk session (irreversible).
   deleteExternalSession: (agentId: string, id: string) =>
-    fetch("/api/history/session", { method: "DELETE", body: JSON.stringify({ agentId, id }) }).then(j),
+    fetch("/api/history/session", { method: "DELETE", body: JSON.stringify({ agentId, id }), keepalive: true }).then(j),
   agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
   /** Starts the agent once to ask what it can be set to, so this is seconds. */
   agentModels: (agentId: string) =>
     fetch(`/api/flow/agent-models?agent=${encodeURIComponent(agentId)}`)
-      .then(j<{ models: { id: string; name: string }[]; currentModelId: string | null }>),
+      .then(j<{
+        models: { id: string; name: string }[];
+        currentModelId: string | null;
+        effort: { id: string; label: string; values: { id: string; name: string }[]; currentId: string | null } | null;
+      }>),
 };

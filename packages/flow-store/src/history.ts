@@ -1,4 +1,4 @@
-import { readdirSync, rmSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseSession, readHead, sessionIdFromFileName } from "./jsonl";
 import { sessionAssetsDir, sessionsDir } from "./paths";
@@ -27,6 +27,9 @@ export interface FlowSessionSummary {
   title: string;
   state: SessionState;
   assetsDir: string;
+  /** How many pictures this session kept. Counted from the directory rather
+   *  than from the log, so it is exact even for a session too long to read. */
+  assets: number;
 }
 
 export interface LoadedFlowSession {
@@ -63,12 +66,14 @@ function summarize(id: string, name: string): FlowSessionSummary | null {
     title: titleOf(header, entries),
     state: readSessionState(path),
     assetsDir: sessionAssetsDir(id),
+    assets: countAssets(id),
   };
 }
 
-export function listSessions(limit = LIST_LIMIT): FlowSessionSummary[] {
+/** `offset` skips that many of the newest, so a page costs its own reads only. */
+export function listSessions(limit = LIST_LIMIT, offset = 0): FlowSessionSummary[] {
   const out: FlowSessionSummary[] = [];
-  for (const { id, name } of sessionFiles()) {
+  for (const { id, name } of sessionFiles().slice(offset)) {
     if (out.length >= limit) break;
     const summary = summarize(id, name);
     if (summary) out.push(summary);
@@ -78,16 +83,18 @@ export function listSessions(limit = LIST_LIMIT): FlowSessionSummary[] {
 
 /** Substring match over the title and the bounded head of each scanned session.
  *  Bounded by `scan` files, so a huge archive costs the same as a small one. */
-export function searchSessions(query: string, limit = LIST_LIMIT, scan = SEARCH_SCAN): FlowSessionSummary[] {
+export function searchSessions(query: string, limit = LIST_LIMIT, scan = SEARCH_SCAN, offset = 0): FlowSessionSummary[] {
   const needle = query.trim().toLowerCase();
-  if (!needle) return listSessions(limit);
+  if (!needle) return listSessions(limit, offset);
   const out: FlowSessionSummary[] = [];
   let scanned = 0;
+  let skipped = 0;
   for (const { id, name } of sessionFiles()) {
     if (out.length >= limit || scanned >= scan) break;
     scanned++;
     const path = join(sessionsDir(), name);
     if (!safeHead(path, SEARCH_HEAD_BYTES).text.toLowerCase().includes(needle)) continue;
+    if (skipped++ < offset) continue;
     const summary = summarize(id, name);
     if (summary) out.push(summary);
   }
@@ -118,6 +125,33 @@ export function deleteSession(id: string): boolean {
   rmSync(join(sessionsDir(), hit.name), { force: true });
   rmSync(sessionAssetsDir(id), { recursive: true, force: true });
   return true;
+}
+
+/**
+ * Give a session its own title, or clear it with "" so it falls back to the first
+ * thing said. The header is line 1 of an append-only file, so this rewrites the
+ * file through a temp and an atomic rename. A live session is refused: its owner
+ * may append between the read and the rename, and that line would be lost.
+ * O(file size), paid once per rename.
+ */
+export function renameSession(id: string, title: string): boolean {
+  const path = sessionPath(id);
+  if (!path || readSessionState(path) === "active") return false;
+  const text = readFileSync(path, "utf8");
+  const cut = text.indexOf("\n");
+  const header = parseSession(cut < 0 ? "" : text.slice(0, cut + 1)).header;
+  if (!header) return false;
+  const next: SessionHeader = { ...header, title: title.trim() };
+  if (!next.title) delete next.title;
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(next)}${text.slice(cut)}`, { mode: 0o600 });
+  renameSync(tmp, path); // atomic on the same filesystem
+  return true;
+}
+
+/** One readdir, no stat per file: a listing only needs to know how many. */
+export function countAssets(sessionId: string): number {
+  try { return readdirSync(sessionAssetsDir(sessionId)).length; } catch { return 0; }
 }
 
 export function listAssets(sessionId: string): { name: string; path: string; bytes: number }[] {

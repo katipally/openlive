@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePointerDrag } from "@/lib/usePointerDrag";
 import { Video } from "lucide-react";
 
 // A floating camera tile on the stage during a live video call. Draggable from
@@ -31,22 +32,35 @@ export function CameraPiP({ stream }: { stream: MediaStream | null }) {
     return { x: Math.max(8, Math.min(x, p.width - w - 8)), y: Math.max(8, Math.min(y, p.height - h - 8)) };
   };
 
+  // Keep the tile on the stage when the window or the side panel changes its size.
+  useEffect(() => {
+    const parent = boxRef.current?.parentElement;
+    if (!parent) return;
+    const ro = new ResizeObserver(() => {
+      const fit = Math.max(120, Math.min(size, parent.clientWidth - 16));
+      if (fit !== size) setSize(fit);
+      setPos((p) => (p.x < 0 ? p : clamp(p.x, p.y, fit, fit * 0.75)));
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size]);
+
+  const drag = usePointerDrag();
   const onDrag = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).dataset.resize) return; // resize handle owns this
     e.preventDefault();
     const startX = e.clientX, startY = e.clientY, ox = pos.x, oy = pos.y;
     const h = size * 0.75;
     const move = (ev: PointerEvent) => setPos(clamp(ox + (ev.clientX - startX), oy + (ev.clientY - startY), size, h));
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    drag(move);
   };
 
   const onResize = (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
     const startX = e.clientX, ow = size;
     const move = (ev: PointerEvent) => setSize(Math.max(120, Math.min(640, ow + (ev.clientX - startX))));
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    drag(move);
   };
 
   return (

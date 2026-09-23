@@ -5,8 +5,8 @@ import { flowAgentCwd, PERMISSION_CANCELLED, type AgentId } from "./index.js";
 import type { AgentMeta } from "./types.js";
 import { log } from "../log.js";
 
-// Which models a coding agent offers is something only that agent can say, and
-// it only says it once an ACP session exists. So this starts one in Flow's own
+// Which models a coding agent offers, and how hard it can be told to think, is
+// something only that agent can say, and it only says it once an ACP session exists. So this starts one in Flow's own
 // folder, keeps what `session/new` reported, and shuts it down again.
 //
 // Starting an agent is seconds, not milliseconds, so the answer is cached and a
@@ -18,7 +18,12 @@ export const agentRoutes = new Hono();
 const CACHE_MS = 5 * 60_000;
 const PROBE_MS = 30_000;
 
-interface Models { models: { id: string; name: string }[]; currentModelId: string | null }
+interface Models {
+  models: { id: string; name: string }[];
+  currentModelId: string | null;
+  /** The agent's "how hard to think" setting, where it has one. */
+  effort: { id: string; label: string; values: { id: string; name: string }[]; currentId: string | null } | null;
+}
 
 const cache = new Map<AgentId, { at: number; models: Models }>();
 const inflight = new Map<AgentId, Promise<Models>>();
@@ -34,7 +39,12 @@ async function probe(id: AgentId): Promise<Models> {
   try {
     await agent.start(ac.signal);
     const meta = seen.at(-1);
-    return { models: meta?.models ?? [], currentModelId: meta?.currentModelId ?? null };
+    const effort = meta?.options.find((o) => o.category === "thought_level") ?? null;
+    return {
+      models: meta?.models ?? [],
+      currentModelId: meta?.currentModelId ?? null,
+      effort: effort && { id: effort.id, label: effort.label, values: effort.values, currentId: effort.currentId },
+    };
   } finally {
     clearTimeout(bell);
     try { await agent.dispose(); } catch { /* it is going away either way */ }

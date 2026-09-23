@@ -2,12 +2,8 @@
 
 import { useEffect } from "react";
 import { useLiveStore } from "./liveStore";
-import { openliveBridge } from "./panelBridge";
+import { isControlTarget, isTextTarget } from "./keyTargets";
 
-const isTyping = () => {
-  const el = document.activeElement as HTMLElement | null;
-  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
-};
 
 /** In-app Space behavior (Settings → General): "hold" = press-and-hold to talk;
  *  "toggle" = tap to start, tap to stop. */
@@ -33,14 +29,15 @@ export function setPttEnabled(on: boolean): void {
 /** Push-to-talk + send-now keys for an active call (only while push-to-talk is
  *  ARMED via the in-call toggle):
  *  Space = talk (hold or tap-to-toggle per the General setting);
- *  Enter = commit a held mid-thought pause immediately.
- *  In the desktop mini pill, the global hotkey arrives as a TOGGLE (Electron's
- *  globalShortcut has no keyup) via openlive:ptt-toggle. */
+ *  Enter = commit a held mid-thought pause immediately. */
 export function usePtt(active: boolean, { pttDown, pttUp, sendNow }: { pttDown: () => void; pttUp: () => void; sendNow: () => void }) {
   useEffect(() => {
     if (!active) return;
     const down = (e: KeyboardEvent) => {
-      if (isTyping()) return;
+      // A keyboard-focused button or switch owns Space/Enter. A mouse click also
+      // focuses the button it hit, and that one should not swallow push-to-talk.
+      const el = document.activeElement as HTMLElement | null;
+      if (isTextTarget(el) || (isControlTarget(el) && el?.matches(":focus-visible"))) return;
       if (e.code === "Space" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (!useLiveStore.getState().pttEnabled) return; // PTT not armed — Space stays a normal key
         e.preventDefault();
@@ -52,21 +49,16 @@ export function usePtt(active: boolean, { pttDown, pttUp, sendNow }: { pttDown: 
     const up = (e: KeyboardEvent) => {
       if (e.code === "Space" && voiceInputMode() === "hold" && useLiveStore.getState().pttActive) { e.preventDefault(); pttUp(); }
     };
+    // A hold whose keyup lands in another app never arrives; let go when focus leaves.
+    const release = () => { if (voiceInputMode() === "hold" && useLiveStore.getState().pttActive) pttUp(); };
+    const onVisibility = () => { if (document.hidden) release(); };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
-    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+    window.addEventListener("blur", release);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("keydown", down); window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", release); document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [active, pttDown, pttUp, sendNow]);
-
-  // Desktop global hotkey (mini mode): each press toggles talk on/off.
-  useEffect(() => {
-    if (!active || !openliveBridge()?.onPttToggle) return;
-    // preload's ipcRenderer.on has no matching off-API exposed; guard staleness by
-    // checking the CURRENT store state each fire instead of unsubscribing.
-    openliveBridge()!.onPttToggle!(() => {
-      const s = useLiveStore.getState();
-      if (!s.active) return;
-      if (s.pttActive) pttUp(); else pttDown();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
 }

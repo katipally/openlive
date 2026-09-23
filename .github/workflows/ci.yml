@@ -49,10 +49,14 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Pack web + agent
+      # The ol-input native addon is Rust; without it Flow can't load in the build.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Pack web + agent + native
         run: |
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
+          pnpm --filter @openlive/desktop pack:native
 
       # --publish never: this is a build-only smoke test. Without it,
       # electron-builder's publish auto-detection demands a GH_TOKEN in
@@ -82,10 +86,14 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Pack web + agent
+      # The ol-input native addon is Rust; without it Flow can't load in the build.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Pack web + agent + native
         run: |
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
+          pnpm --filter @openlive/desktop pack:native
 
       - name: Build Linux AppImage (unsigned)
         run: pnpm --filter @openlive/desktop exec electron-builder --linux --publish never

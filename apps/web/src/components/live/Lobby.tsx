@@ -125,7 +125,7 @@ export function Lobby(props: LobbyProps) {
           before Start — not as a confusing failure after. */}
       {agentGap && (
         <button onClick={() => useUi.getState().openSettingsTab("agents")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc-text transition hover:bg-arc/15">
           <Wrench className="size-3.5" />
           {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
         </button>
@@ -138,18 +138,21 @@ export function Lobby(props: LobbyProps) {
       )}
       {keyGap && provDef && (
         <button onClick={() => useUi.getState().openSettingsTab("models")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc transition hover:bg-arc/15">
+          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc-text transition hover:bg-arc/15">
           <Wrench className="size-3.5" /> No API key for {provDef.name} — add one in Settings
         </button>
       )}
-      {micGap && <p className="text-caption text-arc">No microphone detected — connect one so the call can hear you.</p>}
+      {micGap && <p className="text-caption text-arc-text">No microphone detected — connect one so the call can hear you.</p>}
     </div>
   );
 
   return (
-    <div ref={root} className="fixed inset-0 z-40 flex bg-background">
+    <div ref={root} className="@container/lobby fixed inset-0 z-[var(--z-stage)] bg-background">
+      {/* Side by side while both fit; narrower, the setup panel stacks under the
+          stage and the whole page scrolls as one. */}
+      <div className="flex h-full @max-3xl/lobby:flex-col @max-3xl/lobby:overflow-y-auto">
       {/* main stage — self-preview, mic level, device pickers, Start */}
-      <main className="relative min-w-0 flex-1 overflow-y-auto">
+      <main className="relative min-w-0 flex-1 overflow-y-auto @max-3xl/lobby:flex-none @max-3xl/lobby:overflow-visible">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
         <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-[84px]" : "left-4")} />
         <button onClick={() => useUi.getState().setHistoryOpen(true)} title="Sessions" aria-label="Sessions"
@@ -161,7 +164,7 @@ export function Lobby(props: LobbyProps) {
             <h2 className="text-title-lg font-semibold tracking-tight">Talk with OpenLive</h2>
             <p className="max-w-sm text-body text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
             {cpu && (
-              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-caption text-arc">
+              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-caption text-arc-text">
                 Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
               </p>
             )}
@@ -178,7 +181,7 @@ export function Lobby(props: LobbyProps) {
 
           {/* project folder — front and center (it gates Start for a coding agent) */}
           <div className="w-full max-w-[22rem] text-left" data-tour="folder">
-            <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "OpenLive"} required={!!boundAgent} />
+            <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "API mode"} required={!!boundAgent} />
           </div>
 
           {cta}
@@ -188,7 +191,7 @@ export function Lobby(props: LobbyProps) {
 
       {/* AI panel — a floating elevated card (same slot the in-call transcript uses,
           so start→call reads as continuous) */}
-      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl @max-3xl/lobby:ml-3 @max-3xl/lobby:mt-0 @max-3xl/lobby:w-auto @max-3xl/lobby:overflow-visible border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-callout font-semibold tracking-tight">Set up your call</span>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
@@ -210,6 +213,7 @@ export function Lobby(props: LobbyProps) {
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
       </aside>
+      </div>
 
       <SpotlightTour id="lobby" steps={[
         { target: "folder", title: "Give it a project folder", body: "A coding agent works inside one folder — the only place it reads and writes, and where its session is saved so you can resume from the CLI too." },

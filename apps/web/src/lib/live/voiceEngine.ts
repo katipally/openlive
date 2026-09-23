@@ -29,6 +29,17 @@ export interface VoiceEngineHandlers {
   holdBargeIn?: () => boolean;
 }
 
+/**
+ * Turn-taking numbers for a surface that needs different ones from the user's
+ * saved pipeline.
+ *
+ * Flow is the case this exists for: in a call the person can see the caption
+ * and press a key, and being cut off early costs them a click. Hands-free there
+ * is no key and no screen, so a sentence cut in half is sent, answered and
+ * acted on before they can say the rest of it.
+ */
+export interface TurnTuning { threshold?: number; holdMs?: number; redemptionMs?: number }
+
 const PARTIAL_MS = 500;      // min gap between interim transcriptions
 const ONSET_GRACE_MS = 250;  // agent's own first syllable can't self-trigger barge-in
 const MIN_UTTER_SAMPLES = 16000 * 0.25; // ignore <0.25s blips
@@ -77,13 +88,26 @@ export class VoiceEngine {
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
-  constructor(private h: VoiceEngineHandlers, player?: AudioPlayer) { this.player = player ?? new AudioPlayer(); }
+  constructor(private h: VoiceEngineHandlers, player?: AudioPlayer, private tuning: TurnTuning = {}) {
+    this.player = player ?? new AudioPlayer();
+  }
+
+  /** The user's saved turn-taking, with this surface's overrides on top. */
+  private turnCfg() {
+    const { turn, vad } = loadPipelineConfig();
+    return {
+      threshold: this.tuning.threshold ?? turn.threshold,
+      holdMs: this.tuning.holdMs ?? turn.holdMs,
+      redemptionMs: this.tuning.redemptionMs ?? vad.redemptionMs,
+      engine: turn.engine,
+    };
+  }
 
   async start(stream: MediaStream) {
     this.player.resume();
     // VAD sensitivity + trailing silence come from the user's pipeline config;
     // baked into MicVAD at construction, so edits apply on the next start().
-    const vadCfg = loadPipelineConfig().vad;
+    const vadCfg = { ...loadPipelineConfig().vad, redemptionMs: this.turnCfg().redemptionMs };
     this.vad = await MicVAD.new({
       model: "v5",
       // Silero worklet + onnx + ort wasm are vendored into /public/vad by
@@ -230,7 +254,7 @@ export class VoiceEngine {
       // turn model isn't loaded, fall back to the VAD's silence endpointing.
       // "silence" turn engine skips Smart-Turn entirely and lets the VAD's trailing
       // silence (redemptionMs) end the turn; "smart-turn" uses the semantic model.
-      const turnCfg = loadPipelineConfig().turn;
+      const turnCfg = this.turnCfg();
       // While push-to-talk is held, no end-of-turn decision at all: just accumulate
       // and caption — release (endPtt) is the one and only turn boundary.
       const useTurnModel = !this.ptt && turnModelReady() && turnCfg.engine !== "silence";
@@ -281,7 +305,7 @@ export class VoiceEngine {
 
   private scheduleHold() {
     this.clearHold();
-    const holdMs = loadPipelineConfig().turn.holdMs;
+    const holdMs = this.turnCfg().holdMs;
     this.holdTimer = setTimeout(() => this.flushPending(), holdMs);
     this.h.onHold({ until: Date.now() + holdMs });
   }

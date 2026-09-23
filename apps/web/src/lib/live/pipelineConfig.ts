@@ -146,8 +146,18 @@ export function loadPipelineConfig(): PipelineConfig {
   } catch { return DEFAULT_PIPELINE_CONFIG; }
 }
 
+// The Voice tab edits this config from three places at once (speed, engine,
+// cloned voice). Each holds a copy in state; without a change signal one saving
+// its stale copy would silently undo another's edit.
+const listeners = new Set<(c: PipelineConfig) => void>();
+export function onPipelineConfig(fn: (c: PipelineConfig) => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
 export function savePipelineConfig(c: PipelineConfig): PipelineConfig {
   const clamped = clampPipelineConfig(c);
   try { localStorage.setItem(KEY, JSON.stringify(clamped)); } catch { /* private mode / SSR */ }
+  for (const fn of listeners) fn(clamped);
   return clamped;
 }

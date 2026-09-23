@@ -68,7 +68,7 @@ The core, the ears / mouth / eyes:
 - **On-device voice loop.** Silero VAD, Whisper STT, Smart-Turn end-of-turn, and
   your pick of two TTS engines: Kokoro (28 voices, light) or Supertonic (10 voices,
   44.1 kHz). All of it runs in the app on WebGPU.
-- **Speak as yourself.** Settings → Clone Voice records 5 to 30 seconds of you
+- **Speak as yourself.** Settings → Voice records 5 to 30 seconds of you
   (with a seekable listen-back before anything is saved) and your assistant speaks
   in your voice from then on. Zero-shot cloning (ZipVoice, Apache-2.0) running
   locally, an optional ~208 MB install, deletable anytime. Profiles preview with any
@@ -100,8 +100,9 @@ The integrations that serve it:
 - **Manage agents in Settings.** Install, sign in, update, and uninstall each
   agent's CLI from the app. Status updates itself while you finish a sign-in in the
   terminal, and if the terminal can't open you get the exact command to run instead.
-- **Floating mini mode.** Shrink to an always-on-top pill that keeps listening while
-  you work, with a menu-bar tray and notifications to close the loop.
+- **A call that stays in reach.** Minimise OpenLive mid-call and the call rides on
+  the orb above the dock (mute, open, end), with a menu-bar tray and notifications
+  to close the loop.
 - **A transcript you can use.** Agent replies render as markdown with copy buttons
   on code blocks, and the whole conversation exports to a Markdown file.
 - **Private by design.** Audio never uploads. API keys are encrypted at rest
@@ -114,8 +115,8 @@ The integrations that serve it:
 | ![Home](assets/home.png) | ![In a live call](assets/hero.png) |
 | **Pre-call setup** | **Settings — agents** |
 | ![Pre-call setup](assets/lobby.png) | ![Settings](assets/settings.png) |
-| **Clone your voice** | **Mini mode** |
-| ![Clone Voice](assets/clone-voice.png) | ![Mini mode](assets/mini-mode.png) |
+| **Clone your voice** | |
+| ![Clone Voice](assets/clone-voice.png) | |
 
 ## Why on-device voice matters
 
@@ -166,7 +167,7 @@ You can also run it in a browser during development with `pnpm dev`, then open
 
 ```
 apps/desktop     Electron shell: spawns the local servers, media perms, window,
-                 mini mode, tray + notifications
+                 Flow's orb, tray + notifications
 apps/web         Next.js UI + the on-device voice engine (src/lib/live/*) + /api routes
                  (agents install/auth, history discovery, settings)
 services/agent   Hono + ws: the /live WebSocket, the ACP agent driver (acp-agent.ts,

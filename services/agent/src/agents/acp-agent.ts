@@ -14,7 +14,7 @@ import type { Emit } from "../tools.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
-import { killTree } from "./proc.js";
+import { killTree, track } from "./proc.js";
 import { readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
 
@@ -164,6 +164,7 @@ export class AcpAgent implements Agent {
       detached: !isWin,
     });
     this.child = child;
+    track(child);
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
 
@@ -459,7 +460,7 @@ export class AcpAgent implements Agent {
           .map((o) => ({ id: o.optionId, label: o.name || o.optionId, kind: isKind(o.kind) ? o.kind : undefined }));
         if (!options.length) return { outcome: { outcome: "cancelled" } };
         const toolCallId = req.toolCall?.toolCallId;
-        // Spoken on the pill, where there is no tool card to read instead, so a
+        // Spoken on the orb, where there is no tool card to read instead, so a
         // bare "allow it?" is unanswerable. The agent's own title first, then the
         // one it already sent with the tool call.
         const named = req.toolCall?.title || (toolCallId ? this.turnTools.get(toolCallId)?.title : "") || "";

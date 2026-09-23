@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -11,11 +11,9 @@ import { api } from "@/lib/api";
 import { chatStore } from "@/lib/chatStore";
 import { Lobby } from "./Lobby";
 import { InCall } from "./InCall";
-import { MiniBar } from "./MiniBar";
-import { PanelBridge } from "./PanelBridge";
 import { PermissionPrompt } from "./AgentControls";
 import { ElicitationPrompt } from "./ElicitationPrompt";
-import { isDesktop } from "@/lib/platform";
+import { openliveBridge, setPanelCmdHandler } from "@/lib/live/panelBridge";
 
 // Hosts one live call: a full-page lobby before the call (self-preview, agent /
 // model pick, devices, model download) then the full-screen in-call view — both
@@ -33,11 +31,8 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
     error: s.error, mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId, boundAgent: s.boundAgent, boundCwd: s.boundCwd,
   })));
   const openSettings = useUi((s) => s.openSettings);
-  const minimized = useUi((s) => s.minimized);
-  const setMinimized = useUi((s) => s.setMinimized);
 
-  // Hold Space = push-to-talk, Enter = send a held pause now; the desktop mini
-  // pill's global hotkey arrives as a toggle through the same hook.
+  // Hold Space = push-to-talk, Enter = send a held pause now.
   usePtt(active, { pttDown, pttUp, sendNow });
 
   useEffect(() => { void refreshDevices(); }, [refreshDevices]);
@@ -59,7 +54,22 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // instant). No-op for the built-in assistant or once already connected.
   useEffect(() => { if (!active && boundAgent && boundCwd && agentReady) prewarm(); }, [active, boundAgent, boundCwd, agentReady, prewarm]);
 
-  const end = () => { setMinimized(false); stop(); onExit(); };
+  const end = () => { stop(); onExit(); };
+
+  // Desktop: the call, for the orb to show while this window is minimised or
+  // hidden, and the orb's mute / end back. End skips InCall's exit animation:
+  // a hidden window runs no animation frames, so it would never finish.
+  const ctl = useRef({ toggleMute, end }); ctl.current = { toggleMute, end };
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    startedAt.current = Date.now();
+    setPanelCmdHandler((c) => { if (c.t === "mute") ctl.current.toggleMute(); else if (c.t === "end") ctl.current.end(); });
+    return () => { setPanelCmdHandler(null); openliveBridge()?.callState?.(null); };
+  }, [active]);
+  useEffect(() => {
+    if (active) openliveBridge()?.callState?.({ muted, startedAt: startedAt.current });
+  }, [active, muted]);
 
   return (
     <>
@@ -71,19 +81,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           onOpenSettings={openSettings} onExit={end} />
       )}
 
-      {/* Desktop mini = a separate always-on-top panel window (this window hides);
-          web mini = the in-page pill overlay. */}
-      {active && minimized && isDesktop && (
-        <PanelBridge toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
-          onEnd={end} sendNow={sendNow} pttUp={pttUp} answerPermission={answerPermission} getBands={getBands} />
-      )}
-      {active && minimized && !isDesktop && (
-        <MiniBar phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn}
-          cameraStream={cameraStream} screenStream={screenStream}
-          toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
-          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} pttUp={pttUp} />
-      )}
-      {active && !minimized && (
+      {active && (
         <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttUp={pttUp}
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}

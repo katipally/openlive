@@ -4,6 +4,19 @@ All notable changes to OpenLive are recorded here. The newest version is on top.
 Releases before 0.1.9 predate this file — see the
 [GitHub releases](https://github.com/katipally/openlive/releases) for those.
 
+## [Unreleased]
+
+### Removed
+- **Mini mode.** The floating always-on-top call bar, its tray item and its
+  global talk hotkey (Settings → General → Mini mode) are gone. A call now shows
+  on the orb above the dock whenever the OpenLive window is minimised or hidden,
+  with mute, open and end. Closing the window ends the call.
+
+### Changed
+- **Settings opens on General and goes back where you came from.** The close
+  button is now "Back to Chat / Flow / OpenLive / call" at the top of the
+  sidebar; Esc and Back still work.
+
 ## [0.2.7] - 2026-08-27
 
 ### Fixed

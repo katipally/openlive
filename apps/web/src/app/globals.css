@@ -34,6 +34,7 @@
   --color-destructive-fill: var(--destructive-fill);
   --color-icon-info: var(--icon-info);
   --color-muted-strong: var(--muted-strong);
+  --color-arc-text: var(--arc-text);
   --color-surface-raised: var(--surface-raised);
 
   --shadow-xs: var(--shadow-xs);
@@ -98,7 +99,9 @@
   --popover: #fcfaf6;
   --foreground: #1a1a18;
   --muted-foreground: #6a6a66;
-  --faint: rgba(0, 0, 0, 0.45);
+  /* 0.58 clears 4.5:1 on every light surface (4.95 on --surface, 5.07 on
+     --background, 5.24 on --card); 0.45 sat near 3.3:1. */
+  --faint: rgba(0, 0, 0, 0.58);
   --border: rgba(0, 0, 0, 0.14);
   --border-heavy: rgba(0, 0, 0, 0.22);
   --accent: #2f6fed;
@@ -114,6 +117,9 @@
   --destructive-fill: #c81e1e;
   --icon-info: #3b56a8;
   --muted-strong: #56564f;
+  /* --arc as words: 5.35:1 on --background, 5.89:1 on --card, 4.84:1 on an
+     arc/10 tint. The fill stays bright; #e2701f as text was 2.7:1. */
+  --arc-text: #9a4a0a;
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.16);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
@@ -136,10 +142,16 @@
      Blocking modals (permission / elicitation) MUST sit above Settings, or a
      mid-call approval opened while Settings is up renders behind it and auto-denies. */
   --z-nav: 30;
+  --z-stage: 40;     /* full-window call surfaces: the lobby and the call itself */
   --z-overlay: 50;   /* drawers, side panels, in-call popovers */
+  --z-drawer: 55;    /* the Sessions drawer (its scrim sits one below) */
   --z-settings: 60;  /* full-screen Settings overlay */
+  --z-tour: 65;      /* spotlight tour: over Settings, which it points into */
+  --z-palette: 66;   /* ⌘K palette + shortcuts sheet: over Settings and the tour, under blocking modals */
   --z-modal: 70;     /* blocking modals — always above Settings */
-  --z-toast: 90;     /* transient toasts — above everything */
+  --z-banner: 80;    /* connection banner: a slim pill, over modals, under toasts */
+  --z-toast: 90;     /* transient toasts */
+  --z-window: 100;   /* frameless window controls: always clickable */
 }
 
 .dark {
@@ -151,7 +163,7 @@
   --popover: #202024;
   --foreground: #fafafa;
   --muted-foreground: #a1a1aa;
-  --faint: rgba(255, 255, 255, 0.45);
+  --faint: rgba(255, 255, 255, 0.48);  /* 0.45 fell to 4.35:1 on --popover; this is 4.77 */
   --border: rgba(255, 255, 255, 0.08);
   --border-heavy: rgba(255, 255, 255, 0.14);
   --accent: #5b9dff;
@@ -169,6 +181,7 @@
   --destructive-fill: #e0403c;
   --icon-info: #9db8ff;
   --muted-strong: #c9c9c4;
+  --arc-text: var(--arc);
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
@@ -204,13 +217,17 @@ body::before {
 }
 .dark body::before { opacity: 0.04; mix-blend-mode: overlay; }
 
-/* The chromeless mini pill (/mini) tags <html> with .mini — strip the root chrome
-   (paper grain, toasts) that would otherwise paint behind the floating pill, and
-   make the page transparent so the pill floats as a real rounded panel over the
-   desktop (the panel BrowserWindow is transparent; the pill draws its own bg). */
-html.mini, html.mini body { background: transparent; }
-html.mini body::before { content: none; }
-html.mini .ol-toasts { display: none; }
+/* The orb window (/flow) tags <html> with .chromeless: strip the root chrome
+   (paper grain, toasts) that would otherwise paint behind the floating orb, and
+   make the page transparent so it floats over the desktop (the BrowserWindow is
+   transparent; the orb draws its own surfaces). */
+html.chromeless, html.chromeless body { background: transparent; }
+html.chromeless body::before { content: none; }
+html.chromeless .ol-toasts { display: none; }
+/* Next's dev indicator is a fixed badge in the corner of the page. On these
+   windows the page IS the floating surface, so in dev it drew itself next to
+   the orb as if it were part of it. */
+html.chromeless nextjs-portal { display: none; }
 
 /* ─── Desktop shell (frameless window) ──────────────────────────────────────
    The window has no native frame; drag it from any surface tagged .app-drag,
@@ -264,6 +281,13 @@ html.mini .ol-toasts { display: none; }
 }
 .animate-streaming-fade { animation: streaming-fade 180ms ease-out; }
 
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in { animation: fade-in 140ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .animate-fade-in { animation: none; } }
+
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -301,6 +325,44 @@ html.mini .ol-toasts { display: none; }
 }
 .animate-modal-in { animation: modal-in var(--dur-base) var(--ease-settle); }
 @media (prefers-reduced-motion: reduce) { .animate-modal-in { animation: none; } }
+
+/* A row a Settings search result jumped to: a ring that fades out. Under reduced
+   motion the ring just sits there until the class comes off. */
+@keyframes set-hit {
+  from { box-shadow: 0 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 0 2px transparent; }
+}
+.ol-set-hit { border-radius: 0.75rem; animation: set-hit 1.6s var(--ease-out-quart) forwards; }
+@media (prefers-reduced-motion: reduce) { .ol-set-hit { animation: none; box-shadow: 0 0 0 2px var(--accent); } }
+
+/* How long an Undo toast has left. Hidden under reduced motion. */
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* <details> glides open and shut where the engine can size to `auto`
+   (Chromium 131+); anywhere else it snaps, as it always did. */
+@supports (interpolate-size: allow-keywords) {
+  details { interpolate-size: allow-keywords; }
+  details::details-content {
+    height: 0;
+    overflow-y: clip;
+    display: flow-root; /* keeps a child's top margin inside, so it collapses too */
+    transition: height var(--dur-fast) var(--ease-out-quart), content-visibility var(--dur-fast) allow-discrete;
+  }
+  details[open]::details-content { height: auto; }
+}
+@media (prefers-reduced-motion: reduce) { details::details-content { transition: none; } }
+
+/* Every button gives under the finger. The `scale` property, not `transform`,
+   so it composes with motion's transforms; in the base layer, so any button's
+   own active:scale-* wins. The floating windows (html.chromeless) keep their own tuning. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not(.chromeless) button:not(:disabled):active { scale: 0.97; }
+  }
+}
 
 /* shimmer for the thinking / generating state — blue accent sweep */
 @keyframes arc-sweep {

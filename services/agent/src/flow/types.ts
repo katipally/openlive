@@ -1,13 +1,15 @@
 import type { Message, ToolDef } from "@openlive/harness";
 import type { FlowContentWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
-import type { RiskAction, RiskTier } from "@openlive/flow-store";
-
 // The Flow harness speaks the canonical harness message shape so a transcript
 // goes to a provider, to disk and over ACP unchanged.
 export type Msg = Message;
 export type ToolSpec = ToolDef;
 
 export interface Usage { input: number; output: number }
+
+/** The MCP server Flow publishes its tools as. Every harness namespaces a tool
+ *  under this, so the preamble has to say it out loud. */
+export const MCP_SERVER_NAME = "openlive-flow";
 
 export type TextPart = Extract<FlowContentWire, { type: "text" }>;
 export type ImagePart = Extract<FlowContentWire, { type: "image" }>;
@@ -17,9 +19,6 @@ export type FlowContext = FlowContextWire;
 
 /** What `runFlow` yields. Identical to the wire union, so forwarding is a cast-free pass-through. */
 export type FlowEvent = FlowEventWire;
-
-export type Risk = "safe" | "confirm" | "dangerous";
-export type { RiskAction, RiskTier };
 
 export interface ToolResult<D = unknown> {
   /** Bounded, model-facing. */
@@ -80,10 +79,6 @@ export interface Tool<P = any, D = any> {
   description: string;
   /** JSON Schema. One object goes to the provider, to disk and over ACP unchanged. */
   parameters: Record<string, unknown>;
-  /** Which settings tier governs this tool. The action per tier is user config. */
-  tier: RiskTier;
-  /** Dynamic, because `rm -rf` and `ls` are the same tool at different risks. */
-  risk: Risk | ((args: P) => Risk);
   /** Lines contributed to the system prompt when this tool is available. */
   promptGuidelines?: string[];
   execute(args: P, ctx: ToolCtx): Promise<ToolResult<D>>;
@@ -120,10 +115,8 @@ export interface Brain {
   stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent>;
 }
 
-/** Answer a risk decision. Must not throw; a throw is treated as a block. */
+/** May this call run? Must not throw; a throw is treated as a block. */
 export type Approve = (
-  req: { tool: Tool; args: unknown; risk: Risk },
+  req: { tool: Tool; args: unknown },
   signal: AbortSignal,
 ) => Promise<{ block: true; reason: string } | { block?: false }>;
-
-export type Tiers = Record<RiskTier, RiskAction>;

@@ -1,19 +1,19 @@
 "use client";
 
 import { useUi } from "@/lib/uiStore";
-import { segBtn, segWrap } from "@/lib/seg";
-import { cn } from "@/lib/cn";
+import { Segmented } from "@/lib/seg";
 
 // The app-level switch. Chat is the OpenLive you already know; Flow is the same
-// product with no window in the way. Flow's key stays armed in both, so this
+// product with no window in the way. Flow's gesture stays armed in both, so this
 // only changes what the window shows.
+//
+// It has exactly one home — top centre of the window, in both modes — because a
+// control that moves when you use it is a control you have to find again.
+
+const MODES = [{ id: "chat" as const, label: "Chat" }, { id: "flow" as const, label: "Flow" }];
+
 export function ModeSwitch({ className }: { className?: string }) {
   const mode = useUi((s) => s.mode);
   const setMode = useUi((s) => s.setMode);
-  return (
-    <div className={cn(segWrap, className)} role="group" aria-label="What this window shows">
-      <button type="button" onClick={() => setMode("chat")} aria-pressed={mode === "chat"} className={segBtn(mode === "chat")}>Chat</button>
-      <button type="button" onClick={() => setMode("flow")} aria-pressed={mode === "flow"} className={segBtn(mode === "flow")}>Flow</button>
-    </div>
-  );
+  return <Segmented options={MODES} value={mode} onChange={setMode} label="What this window shows" className={className} />;
 }

@@ -166,7 +166,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("cancel"), spoken: z.string().optional() }),
   z.object({ t: z.literal("control"), action: z.enum(["camera_on", "camera_off", "screen_on", "screen_off", "end"]) }),
   // Answer to need_frame; the hi-res JPEG follows as the next FRAME_IN binary.
-  z.object({ t: z.literal("frame_response"), reqId: z.string() }),
+  // `failed`: the grab failed and no JPEG follows, so the look settles now.
+  z.object({ t: z.literal("frame_response"), reqId: z.string(), failed: z.boolean().optional() }),
   // Result of a tool_bridge OS action (clipboard text / ok / error message).
   z.object({ t: z.literal("tool_bridge_result"), reqId: z.string(), output: z.string() }),
   // Bind (or unbind) this conversation to a coding agent + set its project folder.
@@ -188,7 +189,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
   // turn on the same socket can never abort each other. `spoken` is what the
   // on-device TTS actually voiced before the cut, so only that is persisted.
-  z.object({ t: z.literal("flow_cancel"), spoken: z.string().optional() }),
+  // `close` means Flow itself went away, so an open ask is refused with it.
+  z.object({ t: z.literal("flow_cancel"), spoken: z.string().optional(), close: z.boolean().optional() }),
   // Continue an archived Flow session: the next utterance appends to that file
   // and the brain is given the turns it already holds, instead of starting over.
   z.object({ t: z.literal("flow_resume"), sessionId: z.string() }),

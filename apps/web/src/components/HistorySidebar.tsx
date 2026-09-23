@@ -15,6 +15,7 @@ import { usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Disclosure } from "@/components/Disclosure";
 import { cn } from "@/lib/cn";
+import { Segmented, type SegOption } from "@/lib/seg";
 import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AGENT_REGISTRY, agentLabel, isAgentId } from "@openlive/shared";
@@ -22,11 +23,17 @@ import type { HistoryChat, HistoryWorkspace } from "@openlive/shared";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
+import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
 type ResumeFn = (c: HistoryChat, cwd: string) => void;
 // A pending destructive action → the confirm modal. `run` performs it.
 interface PendingDelete { title: string; body: string; run: () => Promise<void> }
 type RequestDelete = (r: PendingDelete) => void;
+
+const SESSION_FILTERS: SegOption<"all" | "openlive">[] = [
+  { id: "all", label: "All", title: "Every session for these folders, including ones created in the agents' own CLIs" },
+  { id: "openlive", label: "OpenLive", title: "Only sessions started from OpenLive. Hides agent-CLI sessions and folders with none" },
+];
 
 // External sessions we can delete are plain files/dirs; opencode/hermes keep theirs
 // inside live sqlite databases we won't write into — no delete affordance for those.
@@ -43,8 +50,9 @@ function relTime(iso: string): string {
 
 // Left History sidebar: workspace → chats (all agents' chats for a project
 // together, each row wearing its agent's mark). New Chat pinned on top, search
-// across titles + workspace names, rename/delete on hover, deletes gated by a
-// confirm modal. Collapse state persists per workspace.
+// across titles + workspace names, rename/delete on hover. One chat deletes behind
+// an Undo toast; a whole workspace, many at once and possibly from an agent's own
+// disk, still asks first. Collapse state persists per workspace.
 export function HistorySidebar() {
   const open = useUi((s) => s.historyOpen);
   const setOpen = useUi((s) => s.setHistoryOpen);
@@ -67,16 +75,24 @@ export function HistorySidebar() {
   const { data: allWorkspaces = [], isLoading } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
   // Apply the filter BEFORE anything renders or searches, so counts, search
   // results, and collapse-all all agree on what exists.
+  // Chats waiting out their Undo are gone from here too, and a folder they emptied goes with them.
+  const pendingDeletes = usePendingDeletes((st) => st.keys);
   const workspaces = useMemo(() => {
-    if (filter === "all") return allWorkspaces;
-    return allWorkspaces
+    const shown = pendingDeletes.size
+      ? allWorkspaces
+        .map((ws) => ({ ...ws, chats: ws.chats.filter((c) => !pendingDeletes.has(`chat:${c.id}`)) }))
+        .filter((ws, i) => ws.chats.length > 0 || allWorkspaces[i]!.chats.length === 0)
+      : allWorkspaces;
+    if (filter === "all") return shown;
+    return shown
       .map((ws) => ({ ...ws, chats: ws.chats.filter((c) => c.source !== "external") }))
       .filter((ws) => ws.chats.length > 0);
-  }, [allWorkspaces, filter]);
+  }, [allWorkspaces, filter, pendingDeletes]);
   const collapseAll = () => { for (const ws of workspaces) setDisclosure(`hist:ws:${ws.cwd || "none"}`, false); };
   const overrides = useHistoryOverrides((st) => st.titles);
 
-  useEffect(() => { if (open) setVisible(true); else { setQuery(""); setSearching(false); } }, [open]);
+  // Closed from outside (the H shortcut, New chat): drop the drawer with it.
+  useEffect(() => { if (open) setVisible(true); else { setVisible(false); setQuery(""); setSearching(false); } }, [open]);
 
   const { contextSafe } = useGSAP(() => {
     if (!visible || prefersReduced()) return;
@@ -97,6 +113,9 @@ export function HistorySidebar() {
     gsap.to(backdrop.current, { autoAlpha: 0, duration: DUR.fast, ease: EASE.soft });
     gsap.to(root.current, { xPercent: -100, autoAlpha: 0.6, duration: DUR.base, ease: EASE.out, onComplete: done });
   });
+
+  // Off while the delete confirm owns focus, so Esc there cancels it, not the drawer.
+  useFocusTrap(root, visible && !pending, close);
 
   const resume: ResumeFn = (c, cwd) => {
     // OpenLive chat → reopen it. External agent session → a fresh OpenLive
@@ -144,8 +163,8 @@ export function HistorySidebar() {
   if (!visible) return null;
   return (
     <>
-      <div ref={backdrop} className="fixed inset-0 z-[54] bg-black/30" onClick={close} />
-      <aside ref={root} className="fixed bottom-3 left-3 top-3 z-[55] flex w-[300px] flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
+      <div ref={backdrop} className="fixed inset-0 z-[calc(var(--z-drawer)-1)] bg-black/30" onClick={close} />
+      <aside ref={root} role="dialog" aria-modal="true" aria-label="Sessions" className="fixed bottom-3 left-3 top-3 z-[var(--z-drawer)] flex w-[min(300px,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
         <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
           <span className="text-callout font-semibold">Sessions</span>
           <button onClick={close} aria-label="Close sessions" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
@@ -164,7 +183,7 @@ export function HistorySidebar() {
               <>
                 <Search className="size-3.5 shrink-0 text-faint" />
                 <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
-                  onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearching(false); } }}
+                  onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setQuery(""); setSearching(false); } }}
                   onBlur={() => { if (!query.trim()) setSearching(false); }}
                   className="h-8 min-w-0 flex-1 bg-transparent text-label text-foreground outline-none placeholder:text-faint" />
                 <button onClick={() => { setQuery(""); setSearching(false); }} aria-label="Close search"
@@ -182,21 +201,8 @@ export function HistorySidebar() {
         {/* Filter row: what's listed (All ↔ OpenLive-only) + collapse-all. The
             segmented control shows WHERE you are; tooltips explain each choice. */}
         <div className="flex shrink-0 items-center gap-2 px-2 pb-1.5">
-          <div role="group" aria-label="Which sessions to show"
-            className="flex h-7 flex-1 items-center gap-0.5 rounded-lg bg-surface p-0.5">
-            <button onClick={() => setFilter("all")} aria-pressed={filter === "all"}
-              title="Every session for these folders — including ones created in the agents' own CLIs"
-              className={cn("h-6 flex-1 rounded-md text-caption font-medium transition-colors",
-                filter === "all" ? "bg-elevated text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground")}>
-              All
-            </button>
-            <button onClick={() => setFilter("openlive")} aria-pressed={filter === "openlive"}
-              title="Only sessions started from OpenLive — hides agent-CLI sessions and folders with none"
-              className={cn("h-6 flex-1 rounded-md text-caption font-medium transition-colors",
-                filter === "openlive" ? "bg-elevated text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground")}>
-              OpenLive
-            </button>
-          </div>
+          <Segmented label="Which sessions to show" size="sm" tone="soft" className="grid flex-1 bg-surface shadow-none"
+            value={filter} onChange={setFilter} options={SESSION_FILTERS} />
           <button onClick={collapseAll} title="Collapse all folders" aria-label="Collapse all folders"
             className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
             <ChevronsDownUp className="size-3.5" />
@@ -216,7 +222,7 @@ export function HistorySidebar() {
             <>
               {results.length === 0 && <p className="px-2 py-4 text-label text-faint">Nothing matches “{query.trim()}”.</p>}
               {results.map(({ chat, cwd }) => (
-                <ChatRow key={chat.id} c={chat} cwd={cwd} showWorkspace activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
+                <ChatRow key={chat.id} c={chat} cwd={cwd} showWorkspace activeChatId={activeChatId} resume={resume} />
               ))}
             </>
           ) : (
@@ -276,7 +282,7 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
       <Disclosure open={open}>
         <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
           {chats.map((c) => (
-            <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
+            <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} />
           ))}
         </div>
       </Disclosure>
@@ -287,7 +293,7 @@ function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: Histor
 // One chat row: the agent's mark + title (+ workspace subtitle in search results).
 // Rename + delete surface on hover. Title = an OpenLive-side override (external
 // sessions) or the real title (OpenLive sessions).
-function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }: { c: HistoryChat; cwd: string; showWorkspace?: boolean; activeChatId: string; resume: ResumeFn; requestDelete: RequestDelete }) {
+function ChatRow({ c, cwd, showWorkspace, activeChatId, resume }: { c: HistoryChat; cwd: string; showWorkspace?: boolean; activeChatId: string; resume: ResumeFn }) {
   const qc = useQueryClient();
   const override = useHistoryOverrides((st) => st.titles[c.id]);
   const setOverride = useHistoryOverrides((st) => st.setTitle);
@@ -302,16 +308,13 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
     else api.renameChat(c.id, t).then(() => qc.invalidateQueries({ queryKey: ["history", "v2"] }));
   };
 
-  const del = () => requestDelete({
-    title: "Delete conversation?",
-    body: c.source === "external"
-      ? `Permanently deletes “${title}” from ${agentLabel(c.agentId)}’s own history on disk. This can’t be undone.`
-      : `Permanently deletes “${title}” and its messages.`,
-    run: async () => {
-      if (c.source === "external") await api.deleteExternalSession(c.agentId ?? "", c.resumeSessionId ?? c.id);
-      else await api.deleteChat(c.id);
-    },
-  });
+  // Nothing is deleted until the Undo toast is gone, so no confirm is needed,
+  // even for an agent's own on-disk session.
+  const del = () => deferDelete(`chat:${c.id}`, `Deleted “${title}”`, async () => {
+    if (c.source === "external") await api.deleteExternalSession(c.agentId ?? "", c.resumeSessionId ?? c.id);
+    else await api.deleteChat(c.id);
+    await qc.invalidateQueries({ queryKey: ["history", "v2"] });
+  }, "Couldn’t delete that conversation. It’s back in the list.");
 
   if (editing) {
     return (
@@ -336,10 +339,10 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume, requestDelete }:
           </span>
         </span>
       </button>
-      <span className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-card/90 opacity-0 shadow-sm backdrop-blur-sm transition group-hover/s:opacity-100">
-        <button onClick={() => setEditing(true)} title="Rename" className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-foreground"><Pencil className="size-3" /></button>
+      <span className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-card/90 opacity-0 shadow-sm backdrop-blur-sm transition group-focus-within/s:opacity-100 group-hover/s:opacity-100">
+        <button onClick={() => setEditing(true)} title="Rename" aria-label={`Rename ${title}`} className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-foreground"><Pencil className="size-3" /></button>
         {(c.source !== "external" || canDeleteExternal(c.agentId)) && (
-          <button onClick={del} title="Delete" className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-danger"><Trash2 className="size-3" /></button>
+          <button onClick={del} title="Delete" aria-label={`Delete ${title}`} className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-danger"><Trash2 className="size-3" /></button>
         )}
       </span>
     </div>

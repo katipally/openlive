@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Msg } from "../flow/types.js";
 
-// The session is driven exactly as the pill drives it: messages in over the
+// The session is driven exactly as the orb drives it: messages in over the
 // socket, messages out over the socket. Only the two things that would reach
 // outside the process are replaced: the session file and the model.
 
@@ -14,6 +14,10 @@ const fake = vi.hoisted(() => ({
   script: [] as unknown[],
   /** What each turn handed the brain. */
   seen: [] as Msg[][],
+  /** Whether this machine has already said Flow may act. */
+  consented: true,
+  /** Consent written back to the config, as `updateFlowConfig` would. */
+  remembered: 0,
 }));
 
 const store = {
@@ -25,7 +29,11 @@ vi.mock("@openlive/flow-store", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
   return {
     ...real,
-    readFlowConfig: () => real.DEFAULT_FLOW_CONFIG,
+    readFlowConfig: () => ({
+      ...(real.DEFAULT_FLOW_CONFIG as Record<string, unknown>),
+      consent: { granted: fake.consented, at: "" },
+    }),
+    updateFlowConfig: async () => { fake.remembered++; fake.consented = true; },
     FlowSession: {
       open: async (opts: { onIdle?: () => void }) => { fake.idle = () => opts.onIdle?.(); return store; },
       resume: async () => store,
@@ -48,7 +56,7 @@ vi.mock("../flow/brain.js", () => ({
   AcpBrain: class { readonly id = "acp"; },
 }));
 
-const { FlowLiveSession } = await import("./flow-ws.js");
+const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
 
 /** Answers the bridge the way the desktop would, so no call sits out its timeout. */
 class FakeSocket extends EventEmitter {
@@ -85,6 +93,8 @@ beforeEach(() => {
   fake.appended = [];
   fake.script = [];
   fake.seen = [];
+  fake.consented = true;
+  fake.remembered = 0;
 });
 
 describe("FlowLiveSession", () => {
@@ -126,6 +136,65 @@ describe("FlowLiveSession", () => {
     expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["and again"]);
   });
 
+  it("takes consent once, out loud, when the machine never gave it", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.say("what is open?");
+
+    const asked = await new Promise<Record<string, any>>((resolve) => {
+      void until(() => {
+        const m = ws.sent.find((x) => x.t === "permission");
+        if (m) resolve(m);
+        return !!m;
+      });
+    });
+    expect(asked.question).toContain("act on this machine");
+    ws.client({ t: "permission_response", reqId: asked.reqId, optionId: "allow" });
+
+    await until(() => turnsDone(ws) === 1);
+    expect(fake.remembered).toBe(1);
+    // And the yes is the last of it: the next turn's tool is not asked about.
+    fake.script = [
+      { type: "tool_start", id: "c2", name: "list_windows" },
+      { type: "tool_end", id: "c2", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.say("and now?");
+    await until(() => turnsDone(ws) === 2);
+    expect(ws.sent.filter((m) => m.t === "permission")).toHaveLength(1);
+  });
+
+  it("refuses an open ask when Flow closes, but not when the person talks over it", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.say("what is open?");
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    const { reqId } = ws.sent.find((m) => m.t === "permission")!;
+
+    ws.client({ t: "flow_cancel" });
+    await tick();
+    expect(ws.sent.some((m) => m.t === "permission_resolved")).toBe(false);
+
+    ws.client({ t: "flow_cancel", close: true });
+    await until(() => turnsDone(ws) === 1);
+    expect(ws.sent.some((m) => m.t === "permission_resolved" && m.reqId === reqId)).toBe(true);
+    expect(fake.remembered).toBe(0);
+  });
+
   it("surfaces what the machine said when it refuses, instead of calling it a timeout", async () => {
     const ws = new FakeSocket();
     ws.device = () => "Couldn't do that: the window server is not answering.";
@@ -143,5 +212,45 @@ describe("FlowLiveSession", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("the window server is not answering");
     expect(result.content[0].text).not.toContain("in time");
+  });
+});
+
+describe("what the coding agent is set to", () => {
+  const meta = (modes: { id: string; name: string }[]) =>
+    ({ models: [], currentModelId: null, modes, currentModeId: null, options: [], resumeAcrossRestart: true });
+
+  it("takes the mode that stops the questions, not the first one that asks fewer", () => {
+    expect(quietModeId(meta([{ id: "default", name: "Ask every time" }, { id: "acceptEdits", name: "Accept edits" }, { id: "bypassPermissions", name: "Bypass permissions" }])))
+      .toBe("bypassPermissions");
+    expect(quietModeId(meta([{ id: "default", name: "Ask" }, { id: "acceptEdits", name: "Accept edits" }]))).toBe("acceptEdits");
+    expect(quietModeId(meta([{ id: "default", name: "Ask every time" }]))).toBe("");
+    expect(quietModeId(null)).toBe("");
+  });
+
+  it("finds how hard it thinks among everything else it exposes", () => {
+    const options = [
+      { id: "cfg-model", label: "Model", category: "model_config", values: [], currentId: null },
+      { id: "cfg-think", label: "Thinking", category: "thought_level", values: [{ id: "low", name: "Low" }], currentId: "low" },
+    ];
+    expect(agentEffortOption({ ...meta([]), options })?.id).toBe("cfg-think");
+    expect(agentEffortOption({ ...meta([]), options: [] })).toBe(null);
+  });
+});
+
+describe("what the header records", () => {
+  const cfg = (brain: Record<string, string>) =>
+    ({ brain: { kind: "api", agentId: "", agentModel: "", agentEffort: "", ...brain } }) as never;
+
+  it("names the coding agent, its model and its effort", () => {
+    expect(brainMeta(cfg({ kind: "acp", agentId: "codex", agentModel: "gpt-5.6-luna", agentEffort: "low" })))
+      .toEqual({ kind: "acp", id: "codex", model: "gpt-5.6-luna", effort: "low" });
+  });
+
+  it("names what Chat resolved in API mode, without borrowing the agent's fields", () => {
+    const live = () => ({ provider: { id: "anthropic" }, model: "opus", apiKey: "k", effort: "high" }) as never;
+    expect(brainMeta(cfg({ agentModel: "gpt-5.6-luna" }), live))
+      .toEqual({ kind: "api", id: "anthropic", model: "opus", effort: "high" });
+    expect(brainMeta(cfg({}), () => ({ provider: { id: "ollama" }, model: "qwen3", apiKey: null }) as never))
+      .toEqual({ kind: "api", id: "ollama", model: "qwen3", effort: "" });
   });
 });

@@ -69,7 +69,7 @@ describe("normalizer", () => {
 
 describe("validation", () => {
   const numeric: Tool = {
-    name: "t", description: "", tier: "read", risk: "safe",
+    name: "t", description: "",
     parameters: { type: "object", properties: { n: { type: "integer" }, ok: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, mode: { type: "string", enum: ["a", "b"] } }, required: ["n"] },
     async execute() { return { content: [], details: null }; },
   };
@@ -171,7 +171,7 @@ describe("dispatch", () => {
   });
 
   it("turns a thrown error into a result", async () => {
-    const boom: Tool = { name: "boom", description: "", parameters: { type: "object", properties: {} }, tier: "read", risk: "safe", async execute() { throw new Error("kaboom"); } };
+    const boom: Tool = { name: "boom", description: "", parameters: { type: "object", properties: {} }, async execute() { throw new Error("kaboom"); } };
     const { results } = await drain(dispatch([{ id: "1", name: "boom", args: {} }], [boom], ctxOf(), { approve: allowAll }));
     expect(results[0]).toMatchObject({ isError: true });
     expect((results[0]!.content[0] as { text: string }).text).toBe("kaboom");
@@ -193,7 +193,7 @@ describe("dispatch", () => {
     const log: string[] = [];
     let open = 0;
     const slow: Tool = {
-      name: "slow", description: "", parameters: { type: "object", properties: { i: { type: "integer" } } }, tier: "read", risk: "confirm",
+      name: "slow", description: "", parameters: { type: "object", properties: { i: { type: "integer" } } },
       async execute(a: { i: number }) {
         open++;
         log.push(`run${a.i}`);
@@ -214,7 +214,7 @@ describe("dispatch", () => {
 
   it("runs one at a time when asked", async () => {
     const seq: string[] = [];
-    const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, tier: "read", risk: "safe", async execute() { seq.push("x"); return { content: [], details: null }; } };
+    const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, async execute() { seq.push("x"); return { content: [], details: null }; } };
     const { order } = await drain(dispatch([{ id: "a", name: "t", args: {} }, { id: "b", name: "t", args: {} }], [t], ctxOf(), { approve: allowAll, parallel: false }));
     expect(order).toEqual(["a", "b"]);
     expect(seq).toHaveLength(2);
@@ -224,7 +224,7 @@ describe("dispatch", () => {
     const ac = new AbortController();
     ac.abort();
     const execute = vi.fn();
-    const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, tier: "read", risk: "safe", execute };
+    const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, execute };
     const { results } = await drain(dispatch([{ id: "a", name: "t", args: {} }], [t], ctxOf({ signal: ac.signal }), { approve: allowAll }));
     expect(execute).not.toHaveBeenCalled();
     expect(results[0]).toMatchObject({ isError: true });
@@ -235,12 +235,12 @@ describe("dispatch", () => {
 
 describe("normalizing a device call", () => {
   const click: Tool = {
-    name: "click", description: "", tier: "control", risk: "confirm",
+    name: "click", description: "",
     parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, button: { type: "string" } }, required: ["x", "y"] },
     async execute() { return { content: [], details: null }; },
   };
   const keypress: Tool = {
-    name: "keypress", description: "", tier: "control", risk: "confirm",
+    name: "keypress", description: "",
     parameters: { type: "object", properties: { keys: { type: "array", items: { type: "string" } } }, required: ["keys"] },
     async execute() { return { content: [], details: null }; },
   };

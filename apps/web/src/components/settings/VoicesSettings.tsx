@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Loader2, Mic, Pencil, Play, RotateCcw, Square, Trash2, Upload, Volume2 } from "lucide-react";
 import { stt, modelsReady, loadModels } from "@/lib/live/models";
-import { loadPipelineConfig, savePipelineConfig } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, savePipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
+import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { cn } from "@/lib/cn";
+import { Segmented } from "@/lib/seg";
 import { Section } from "./Section";
 import { AudioBar } from "./AudioBar";
 
-// Clone Voice — the standalone Voice Studio. Clone a voice from a short recording
+// Your voices, the cloning half of the Voice tab. Clone a voice from a short recording
 // and manage the results: record → listen back → transcript → save, then
 // preview with any text, rename, export/import, set as the speaking voice.
 // Synthesis runs in the local agent service (ZipVoice, Apache-2.0, sherpa-onnx);
@@ -48,21 +50,29 @@ const b64 = (bytes: Uint8Array) => {
   return btoa(s);
 };
 
+const getJson = async <T,>(url: string): Promise<T> => {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json() as Promise<T>;
+};
+
 /** Float32 PCM → object URL playable by AudioBar. Caller revokes when done. */
 const pcmUrl = (samples: Float32Array, sampleRate: number) =>
   URL.createObjectURL(new Blob([encodeWav(samples, sampleRate) as BlobPart], { type: "audio/wav" }));
 
 export function VoicesSettings() {
   const qc = useQueryClient();
-  const { data: model } = useQuery<ModelState>({ queryKey: ["voice-model"], queryFn: () => fetch("/api/voice/model").then((r) => r.json()) });
-  const { data: profiles = [] } = useQuery<VoiceProfile[]>({ queryKey: ["voice-profiles"], queryFn: () => fetch("/api/voice/profiles").then((r) => r.json()) });
+  const { data: model, isError: modelError, refetch: retryModel } = useQuery<ModelState>({ queryKey: ["voice-model"], queryFn: () => getJson("/api/voice/model"), retry: 1 });
+  const { data: allProfiles = [] } = useQuery<VoiceProfile[]>({ queryKey: ["voice-profiles"], queryFn: () => getJson("/api/voice/profiles") });
+  const pending = usePendingDeletes((s) => s.keys);
+  const profiles = allProfiles.filter((p) => !pending.has(`voice:${p.id}`));
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["voice-model"] }); void qc.invalidateQueries({ queryKey: ["voice-profiles"] }); };
 
   return (
     <div className="flex flex-col gap-7">
       <Section title="Cloning engine"
         desc={<>A one-time, deletable download — ZipVoice (Apache-2.0) running <span className="text-foreground">entirely on this machine</span>. English and Chinese. Only clone your own voice, or one you have clear permission to use.</>}>
-        <ModelCard model={model} onChange={refresh} />
+        <ModelCard model={model} failed={modelError} onRetry={() => void retryModel()} onChange={refresh} />
       </Section>
 
       {model?.installed && (
@@ -81,7 +91,7 @@ export function VoicesSettings() {
 }
 
 // ── model install / remove ───────────────────────────────────────────────────
-function ModelCard({ model, onChange }: { model?: ModelState; onChange: () => void }) {
+function ModelCard({ model, failed, onRetry, onChange }: { model?: ModelState; failed: boolean; onRetry: () => void; onChange: () => void }) {
   const [progress, setProgress] = useState<number | null>(null);
 
   const download = async () => {
@@ -115,6 +125,14 @@ function ModelCard({ model, onChange }: { model?: ModelState; onChange: () => vo
     toast("Cloning engine removed — disk space freed. Your saved profiles remain.");
   };
 
+  if (!model && failed) return (
+    <div className="flex items-center gap-3" role="alert">
+      <span className="text-label text-muted-foreground">Couldn&apos;t reach the voice engine. Is OpenLive&apos;s agent running?</span>
+      <button onClick={onRetry} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+        <RotateCcw className="size-3.5" /> Retry
+      </button>
+    </div>
+  );
   if (!model) return <p className="text-label text-muted-foreground">Checking…</p>;
   if (progress !== null || model.downloading) return (
     <div className="flex max-w-md flex-col gap-1.5">
@@ -272,13 +290,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   if (!take) return (
     <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-1.5">
-        {SCRIPTS.map((s) => (
-          <button key={s.id} onClick={() => setScriptId(s.id)}
-            className={cn("rounded-md px-2.5 py-1 text-caption font-medium transition",
-              scriptId === s.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground")}>
-            {s.label}
-          </button>
-        ))}
+        <Segmented label="Script to read" size="sm" className="bg-transparent shadow-none" options={SCRIPTS} value={scriptId} onChange={setScriptId} />
         <span className="ml-auto text-caption text-faint">or just talk naturally</span>
       </div>
       <p className="rounded-lg bg-surface p-3 text-body leading-relaxed text-foreground">{script.text}</p>
@@ -363,13 +375,16 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
   // original recording. One at a time; swapping revokes the old URL.
   const [clip, setClip] = useState<{ id: string; kind: "preview" | "original"; url: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const cfg = loadPipelineConfig();
+  // Held in state so the active badge moves the moment a voice is chosen or removed.
+  const [cfg, setCfg] = useState(loadPipelineConfig);
   const activeId = cfg.tts.engine === "clone" ? cfg.tts.voice : null;
+  useEffect(() => onPipelineConfig(setCfg), []);
+  const qc = useQueryClient();
 
   useEffect(() => () => { if (clip) URL.revokeObjectURL(clip.url); }, [clip]);
 
   const useVoice = (id: string) => {
-    savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "clone", voice: id } });
+    setCfg(savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "clone", voice: id } }));
     onChange();
     toast("Cloned voice active — it speaks from your next call.");
   };
@@ -426,11 +441,17 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
     } catch (e) { toast(`Import failed: ${String((e as Error)?.message ?? e)}`); }
   };
 
-  const remove = async (p: VoiceProfile) => {
+  // Deferred behind an Undo toast. The speaking voice only falls back to Kokoro
+  // once the delete lands, read fresh then: it may have changed in the meantime.
+  const remove = (p: VoiceProfile) => {
     if (clip?.id === p.id) setClip(null);
-    if (p.id === activeId) savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "kokoro", voice: "af_heart" } });
-    await fetch(`/api/voice/profiles/${p.id}`, { method: "DELETE" }).catch(() => {});
-    onChange();
+    deferDelete(`voice:${p.id}`, `Deleted “${p.name}”`, async () => {
+      const r = await fetch(`/api/voice/profiles/${p.id}`, { method: "DELETE", keepalive: true });
+      if (!r.ok) return false;
+      const now = loadPipelineConfig();
+      if (now.tts.engine === "clone" && now.tts.voice === p.id) savePipelineConfig({ ...now, tts: { ...now.tts, engine: "kokoro", voice: "af_heart" } });
+      await qc.invalidateQueries({ queryKey: ["voice-profiles"] });
+    }, `Couldn’t delete “${p.name}”. It’s back in your voices.`);
   };
 
   return (

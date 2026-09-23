@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePointerDrag } from "@/lib/usePointerDrag";
 import { MonitorUp } from "lucide-react";
 
 // A floating shared-screen tile — like the camera PiP but wider (16:9) and
@@ -30,20 +31,33 @@ export function ScreenTile({ stream }: { stream: MediaStream | null }) {
     return { x: Math.max(8, Math.min(x, p.width - ww - 8)), y: Math.max(8, Math.min(y, p.height - hh - 8)) };
   };
 
+  // Keep the tile on the stage when the window or the side panel changes its size.
+  useEffect(() => {
+    const parent = boxRef.current?.parentElement;
+    if (!parent) return;
+    const ro = new ResizeObserver(() => {
+      const fit = Math.max(240, Math.min(w, parent.clientWidth - 16));
+      if (fit !== w) setW(fit);
+      setPos((p) => (p.x < 0 ? p : clamp(p.x, p.y, fit, Math.round(fit * 9 / 16))));
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w]);
+
+  const drag = usePointerDrag();
   const onDrag = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).dataset.resize) return;
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y;
     const move = (ev: PointerEvent) => setPos(clamp(ox + (ev.clientX - sx), oy + (ev.clientY - sy), w, h));
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    drag(move);
   };
   const onResize = (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
     const sx = e.clientX, ow = w;
     const move = (ev: PointerEvent) => setW(Math.max(240, Math.min(920, ow + (ev.clientX - sx))));
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    drag(move);
   };
 
   return (

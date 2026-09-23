@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, Check, ShieldQuestion } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AGENT_LIST, agentLabel } from "@openlive/shared";
@@ -14,6 +14,7 @@ import { ModalVoiceInput } from "./ModalVoiceInput";
 import { useUi } from "@/lib/uiStore";
 import { useMenuPresence, usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import { useMenuKeys } from "@/lib/useMenuKeys";
 import { Picker } from "./SetupControls";
 import { cn } from "@/lib/cn";
 
@@ -28,7 +29,7 @@ function useNoDrag(): string {
 
 // The built-in assistant + every registry agent, in canonical order.
 const OPTIONS: { id: AgentId | null; label: string }[] = [
-  { id: null, label: "OpenLive" },
+  { id: null, label: "API mode" },
   ...AGENT_LIST.map((a) => ({ id: a.id as AgentId, label: a.label })),
 ];
 
@@ -67,7 +68,7 @@ export function AgentQuickPick() {
       options={options.map((o) => ({
         id: o.id ?? "",
         name: o.label,
-        detail: gapOf(o.id),
+        detail: o.id ? gapOf(o.id) : "BYOK",
         icon: o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />,
       }))}
     />
@@ -84,30 +85,24 @@ export function AgentSelect() {
   const menuRef = useRef<HTMLDivElement>(null);
   const noDrag = useNoDrag();
   const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  useMenuKeys(ref, open, requestClose);
 
   const current = options.find((o) => o.id === boundAgent) ?? options[0]!;
 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
-      <button onClick={toggle}
+      <button onClick={toggle} aria-haspopup="menu" aria-expanded={open}
         className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-body text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
         {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <OpenLiveOrb size={16} />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
       </button>
       {mounted && (
-        <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div ref={menuRef} role="menu" aria-label="Talk to" className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
           {options.map((o) => (
-            <button key={o.id ?? "chat"} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); requestClose(); }}
+            <button key={o.id ?? "chat"} role="menuitemradio" aria-checked={o.id === boundAgent} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); requestClose(); }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-foreground transition hover:bg-foreground/[0.06]">
               {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}
               <span className="flex-1">{o.label}</span>
+              {!o.id && <span className="text-caption text-muted-foreground">BYOK</span>}
               {o.id === boundAgent && <Check className="size-3.5 text-success" />}
             </button>
           ))}
@@ -144,7 +139,10 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
   const permission = live ?? last.current;
   const left = useCountdown(permission?.expiresAt);
   const mounted = usePresence(rootRef, open);
-  useFocusTrap(rootRef, mounted);
+  const titleId = useId();
+  // Esc is a "no": the conservative answer, never an approval.
+  const reject = permission?.options.find((o) => o.id === "deny" || o.kind?.startsWith("reject"));
+  useFocusTrap(rootRef, mounted, () => { if (live && reject) answerPermission(reject.id); });
   if (!mounted || !permission) return null;
   const mmss = left != null ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : null;
   return (
@@ -153,10 +151,10 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
     // answer), card centered in the main view. z-modal keeps it above Settings if
     // that's open mid-call (else the ask renders behind it and auto-denies).
     <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
-      <div className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
         <div className="flex items-start gap-2.5">
-          <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" />
-          <p className="text-body leading-relaxed text-foreground">{permission.question}</p>
+          <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
+          <p id={titleId} className="text-body leading-relaxed text-foreground">{permission.question}</p>
         </div>
         <ModalVoiceInput hint="Say “yes” to allow, or “no” to reject" />
         <div className="flex flex-wrap justify-end gap-2">

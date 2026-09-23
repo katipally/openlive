@@ -30,7 +30,7 @@ pnpm desktop:build:win # build the Windows installer (run on Windows)
 ## Where things live
 
 ```
-apps/desktop     Electron shell: local servers, permissions, window, mini mode,
+apps/desktop     Electron shell: local servers, permissions, window, Flow's orb,
                  tray + notifications, auto-update
 apps/web         Next.js UI + the on-device voice engine in src/lib/live + /api
                  routes (agent install/auth, history discovery, settings)

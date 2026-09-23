@@ -222,7 +222,9 @@ export class LiveSession {
         if (!this.cameraOn && !this.screenOn) this.lastFrame = null;
         return;
       case "frame_response":
-        if (this.lookPending?.reqId === msg.reqId) this.awaitingLookFrame = true;
+        if (this.lookPending?.reqId !== msg.reqId) return;
+        if (msg.failed) { const p = this.lookPending; this.lookPending = null; this.awaitingLookFrame = false; p.resolve(null); }
+        else this.awaitingLookFrame = true;
         return;
       case "tool_bridge_result": {
         const r = this.bridgePending.get(msg.reqId);

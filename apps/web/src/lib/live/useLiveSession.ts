@@ -177,9 +177,10 @@ export function useLiveSession(chatId: string) {
     curChunk.current = null;
   }, [chatId]);
 
-  // Desktop mini mode hides this window, which freezes rAF — snap the in-flight
-  // word reveal to its full chunk so the saved/visible transcript never stalls
-  // mid-word. Voice/TTS are timer-driven and unaffected (backgroundThrottling off).
+  // A minimised or hidden desktop window freezes rAF, and a call keeps running
+  // there: snap the in-flight word reveal to its full chunk so the saved/visible
+  // transcript never stalls mid-word. Voice/TTS are timer-driven and unaffected
+  // (backgroundThrottling off).
   useEffect(() => {
     const onVis = () => {
       if (!document.hidden || revealRaf.current == null) return;
@@ -355,8 +356,8 @@ export function useLiveSession(chatId: string) {
         if (e.type === "done") {
           set({ toolStatus: "" });
           engine.current?.endAgentTurn();
-          // A long-running turn finished while you were in another app (mini-mode
-          // workflow) — quick answers don't notify. Main shows it only if unfocused.
+          // A long-running turn finished while you were in another app; quick
+          // answers don't notify. Main shows it only if unfocused.
           if (turnStartedAt.current && Date.now() - turnStartedAt.current > 5000) {
             notifyDesktop(agentLabel(useLiveStore.getState().boundAgent), "Finished — ready when you are.");
           }
@@ -411,7 +412,9 @@ export function useLiveSession(chatId: string) {
         const st = useLiveStore.getState();
         const src = st.cameraOn ? camRef.current : st.screenOn ? screenRef.current : null;
         if (!src) { client.current?.frameResponse(reqId); return; }
-        const jpeg = await src.captureHiRes();
+        let jpeg: Awaited<ReturnType<typeof src.captureHiRes>>;
+        try { jpeg = await src.captureHiRes(); }
+        catch { client.current?.frameResponse(reqId, true); return; } // answer now, not at the server's timeout
         client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
         if (jpeg) client.current?.sendFrame(jpeg);
       },
@@ -503,7 +506,7 @@ export function useLiveSession(chatId: string) {
           if (!id) return;
           const words = sentence.split(/\s+/).filter(Boolean);
           const base = segText.current;
-          // Hidden window (desktop mini mode): rAF is frozen — write the whole chunk
+          // Hidden or minimised window: rAF is frozen — write the whole chunk
           // at once instead of animating it.
           if (document.hidden) { chatStore.liveText(chatId, id, base ? `${base} ${sentence}` : sentence); return; }
           const dur = durationMs > 0 ? durationMs : words.length * 320;

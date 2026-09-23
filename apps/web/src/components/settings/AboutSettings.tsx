@@ -1,7 +1,9 @@
 "use client";
 
-import { Github, ExternalLink } from "lucide-react";
+import { Github, ExternalLink, RotateCcw } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
+import { resetTours } from "@/components/SpotlightTour";
+import { toast } from "@/lib/toast";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { Section } from "./Section";
 
@@ -13,7 +15,7 @@ export function AboutSettings() {
   ];
   return (
     <div className="flex flex-col gap-7">
-      <Section title="Links" desc="Source, releases, and where to file an issue.">
+      <Section id="set-about-links" title="Links" desc="Source, releases, and where to file an issue.">
         <div className="flex flex-col gap-2">
           {links.map((l) => (
             <a key={l.href} href={l.href} target="_blank" rel="noreferrer"
@@ -24,6 +26,13 @@ export function AboutSettings() {
             </a>
           ))}
         </div>
+      </Section>
+
+      <Section id="set-about-tours" title="Tours" desc="The short walkthroughs each screen shows the first time you open it.">
+        <button type="button" onClick={() => { resetTours(); toast("Tours reset. Each plays again the next time you open its screen.", "info"); }}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+          <RotateCcw className="size-3.5" aria-hidden /> Replay tours
+        </button>
       </Section>
 
       <div className="flex items-center gap-3 pt-1">

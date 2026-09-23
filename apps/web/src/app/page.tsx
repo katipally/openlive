@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { restoreMode, useUi } from "@/lib/uiStore";
@@ -16,7 +17,30 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
 import { ModeSwitch } from "@/components/flow/ModeSwitch";
-import { FlowShell } from "@/components/flow/FlowShell";
+import { flowBridge } from "@/lib/flow/bridge";
+import { FlowShell, SwitchHole } from "@/components/flow/FlowShell";
+import { CommandPalette } from "@/components/CommandPalette";
+import { ShortcutsSheet } from "@/components/ShortcutsSheet";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
+
+// One home for the mode switch: top centre of the window, clear of the traffic
+// lights on the left and the window controls on the right, in every mode.
+const MODE_SWITCH_AT = "fixed left-1/2 top-2 z-[var(--z-nav)] -translate-x-1/2";
+
+// Views slide the way the switch reads: Flow sits right of Chat. `custom` is the
+// direction (1 toward Flow, -1 toward Chat, 0 to only cross-fade).
+type Bezier = [number, number, number, number];
+const VIEW = {
+  variants: {
+    enter: (d: number) => ({ x: `${d * 6}%`, opacity: 0 }),
+    // The leaving view clears out before the arriving one is half in: at equal
+    // speeds both heroes sat on screen at half strength, a double-exposed orb.
+    shown: { x: "0%", opacity: 1, transition: { duration: DUR.base, delay: 0.08, ease: [0.23, 1, 0.32, 1] as Bezier } },
+    exit: (d: number) => ({ x: `${d * -6}%`, opacity: 0, transition: { duration: 0.12, ease: [0, 0, 0.2, 1] as Bezier } }),
+  },
+  initial: "enter", animate: "shown", exit: "exit",
+  transition: { duration: DUR.base, ease: [0.23, 1, 0.32, 1] },
+} as const;
 
 export default function Home() {
   const appVersion = useAppVersion();
@@ -26,8 +50,8 @@ export default function Home() {
   const setHistoryOpen = useUi((s) => s.setHistoryOpen);
   const activeChatId = useUi((s) => s.activeChatId);
   const newConversation = useUi((s) => s.newConversation);
-  const minimized = useUi((s) => s.minimized);
   const mode = useUi((s) => s.mode);
+  const reduce = useReducedMotion();
 
   // The saved mode, applied after mount: this store is evaluated during SSR too,
   // so seeding it from localStorage there would be a hydration mismatch.
@@ -41,15 +65,15 @@ export default function Home() {
     if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
   }, []);
 
-  // Desktop: follow mini-mode changes made from OUTSIDE the renderer (tray menu).
-  // Without this the tray's "Mini mode" hid the window while the renderer still
-  // thought it was expanded — the pill's bridge never mounted and every button
-  // (end, expand, camera, screen) was dead. Also arm the panel-cmd fallback so
-  // expand/end restore the window even when no call is running.
+  // Desktop: route the orb's call controls (mute / end) to the live call.
   useEffect(() => {
-    const api = (window as unknown as { openlive?: { onMinimized?: (cb: (v: boolean) => void) => void } }).openlive;
-    api?.onMinimized?.((v) => useUi.getState().setMinimized(v));
-    wirePanelCmdRouter(() => useUi.getState().setMinimized(false));
+    wirePanelCmdRouter();
+    // Flow's orb asked for the whole window. It opens on Flow, because that is
+    // what the person was already in, and on its settings when the fix is there.
+    flowBridge()?.onShow?.((to) => {
+      useUi.getState().setMode("flow");
+      if (to === "flow-settings") useUi.getState().openSettingsTab("flow");
+    });
   }, []);
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -76,76 +100,83 @@ export default function Home() {
   };
 
   // Flow swaps the whole window rather than sharing the lobby's centred layout.
-  // Its key is armed by the owner renderer either way, so this only changes what
-  // is on screen. A call in progress keeps Chat up: you cannot switch mid-call.
-  if (!minimized && mode === "flow" && !liveOpen) {
-    return (
-      <main className="relative z-10 flex min-h-dvh flex-col text-left">
-        <FlowShell />
-        <SettingsPage />
-      </main>
-    );
-  }
+  // Its gesture is armed by the owner renderer either way, so this only changes
+  // what is on screen. A call in progress keeps Chat up: you cannot switch
+  // mid-call. The switch and Settings sit outside the sliding views, so changing
+  // mode never moves or remounts them.
+  const flow = mode === "flow" && !liveOpen;
+  const dir = reduce ? 0 : flow ? 1 : -1;
 
   return (
-    <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-      {!minimized && (
-        <>
-          {/* Frameless-window drag handle: a top strip clear of the window controls
-              (top-left). Desktop only (.desktop). Settings lives in the hero CTA row
-              below — no duplicate corner gear. */}
-          <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10" />
+    // The one stacking context the views used to own: at rest the views add none,
+    // so Settings, tours and the switch layer exactly as before. x-clip stops the
+    // slide from flashing a horizontal scrollbar.
+    <div className="relative z-10 overflow-x-clip">
+      {!liveOpen && <ModeSwitch className={MODE_SWITCH_AT} />}
+      <AnimatePresence initial={false} mode="popLayout" custom={dir}>
+        {flow ? (
+          <motion.main key="flow" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col text-left">
+            <FlowShell />
+          </motion.main>
+        ) : (
+          <motion.main key="chat" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+            {/* Frameless-window drag handle: a top strip clear of the window controls
+                (top-left). Desktop only (.desktop). Settings lives in the hero CTA row
+                below — no duplicate corner gear. The hole is the mode switch's; see
+                SwitchHole for why the strip has to cut it rather than the switch. */}
+            <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10"><SwitchHole /></div>
 
-          {!liveOpen && <ModeSwitch className="fixed left-1/2 top-3 z-[var(--z-nav)] -translate-x-1/2" />}
 
-          <div ref={heroRef} className="flex flex-col items-center gap-6">
-            <div className="ol-hero-mark"><OpenLiveMark /></div>
-            <div className="space-y-2">
-              <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
-              <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
-                Ears, eyes, and a voice for your AI.
-              </p>
+            <div ref={heroRef} className="flex flex-col items-center gap-6">
+              <div className="ol-hero-mark"><OpenLiveMark /></div>
+              <div className="space-y-2">
+                <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
+                <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
+                  Ears, eyes, and a voice for your AI.
+                </p>
+              </div>
+              <div className="ol-hero-cta flex items-center gap-3">
+                <button onClick={startNew} data-tour="new"
+                  className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
+                  <Plus className="size-5" /> New
+                </button>
+                <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"
+                  className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-callout text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+                  <MessageSquare className="size-4" /> Resume
+                </button>
+                <button onClick={openSettings} title="Settings" aria-label="Settings" data-tour="settings"
+                  className="grid size-[46px] place-items-center rounded-full border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+                  <Settings2 className="size-[18px]" />
+                </button>
+              </div>
+              {/* Choose what a new conversation talks to — the built-in assistant or a
+                  coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
+              <div className="ol-hero-sub flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
+                Talk to <AgentSelect />
+              </div>
             </div>
-            <div className="ol-hero-cta flex items-center gap-3">
-              <button onClick={startNew} data-tour="new"
-                className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
-                <Plus className="size-5" /> New
-              </button>
-              <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"
-                className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-callout text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-                <MessageSquare className="size-4" /> Resume
-              </button>
-              <button onClick={openSettings} title="Settings" aria-label="Settings" data-tour="settings"
-                className="grid size-[46px] place-items-center rounded-full border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-                <Settings2 className="size-[18px]" />
-              </button>
-            </div>
-            {/* Choose what a new conversation talks to — the built-in assistant or a
-                coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-            <div className="ol-hero-sub flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
-              Talk to <AgentSelect />
-            </div>
-          </div>
 
-          <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
-            <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
-              {appVersion ? `v${appVersion}` : "dev"}
-            </a>
-          </footer>
-        </>
-      )}
+            <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
+              <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
+                {appVersion ? `v${appVersion}` : "dev"}
+              </a>
+            </footer>
 
-      {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
-      {!minimized && <SettingsPage />}
-      {!minimized && <HistorySidebar />}
-      {!minimized && (
-        <SpotlightTour id="home" active={!liveOpen} steps={[
-          { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use — locally, under your own login. Pick one here, or keep the built-in assistant." },
-          { target: "new", title: "Start a conversation", body: "New opens the call setup — pick a project folder, check your mic, then just talk. Interrupt any time." },
-          { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder — including sessions from the agent's own CLI." },
-          { target: "settings", title: "Make it yours", body: "Voice pipeline, agent install & sign-in, appearance, and shortcuts all live in Settings." },
-        ]} />
-      )}
-    </main>
+            {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
+            <HistorySidebar />
+            <SpotlightTour id="home" active={!liveOpen} steps={[
+              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
+              { target: "new", title: "Start a conversation", body: "New opens the call setup — pick a project folder, check your mic, then just talk. Interrupt any time." },
+              { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder — including sessions from the agent's own CLI." },
+              { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },
+            ]} />
+          </motion.main>
+        )}
+      </AnimatePresence>
+      <SettingsPage />
+      <CommandPalette onNewChat={startNew} />
+      <ShortcutsSheet />
+      <ConnectionBanner />
+    </div>
   );
 }

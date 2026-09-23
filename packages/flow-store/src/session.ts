@@ -129,6 +129,18 @@ export function resolveAsset(relPath: string): string {
   return abs;
 }
 
+const ASSET_PART = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/** One session's asset, from names a request supplied. Empty when either name is
+ *  not a plain file name or the result would leave that session's own folder:
+ *  checking only against the store root let an id of ".." read the config. */
+export function sessionAssetFile(sessionId: string, name: string): string {
+  if (!ASSET_PART.test(sessionId) || !ASSET_PART.test(name)) return "";
+  const dir = resolve(sessionAssetsDir(sessionId));
+  const abs = resolve(dir, name);
+  return abs.startsWith(dir + sep) ? abs : "";
+}
+
 /** The session's own view of its state. `active` with a dead owner is a crash:
  *  nothing wrote the closing entry, so the log still claims it is running. */
 export function readSessionState(path: string): SessionState {

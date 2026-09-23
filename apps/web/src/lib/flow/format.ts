@@ -31,6 +31,12 @@ export function dayLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(d.getFullYear() === midnight.getFullYear() ? {} : { year: "numeric" }) });
 }
 
+/** "on 4 March 2026", for a stamp read back as part of a sentence. */
+export function dateLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "earlier" : `on ${d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`;
+}
+
 /** "0:09", and "1:05:03" once a session runs past the hour. */
 export function duration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));

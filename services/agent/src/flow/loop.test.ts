@@ -110,15 +110,15 @@ describe("runFlow", () => {
     { type: "turn_done", stop: "tools" },
   ];
 
-  it("types nothing at all when the insert tier is denied", async () => {
+  it("types nothing at all when consent has not been given", async () => {
     const brain = scripted([insertTurn("c1", ["dear ", "dear alice"]), [{ type: "turn_done", stop: "stop" }]]);
-    const { run, chunks } = harness({ brain, approve: async () => ({ block: true, reason: "insert_text is turned off in settings." }) });
+    const { run, chunks } = harness({ brain, approve: async () => ({ block: true, reason: "you have not given Flow permission to act on this machine yet." }) });
     const events = await collect(run);
     expect(chunks).toEqual([]);
     expect(events.find((e) => e.type === "tool_result")).toMatchObject({ isError: true });
   });
 
-  it("types nothing before the user answers an ask, and the whole thing after", async () => {
+  it("types nothing before the user has answered, and the whole thing after", async () => {
     const order: string[] = [];
     let asked = 0;
     const brain = scripted([insertTurn("c1", ["dear ", "dear alice"]), [{ type: "turn_done", stop: "stop" }]]);
@@ -174,7 +174,7 @@ describe("runFlow", () => {
 
   it("fails the WHOLE batch when the model ran out of room mid-call", async () => {
     const executed = vi.fn();
-    const tool: Tool = { name: "insert_text", description: "", parameters: { type: "object", properties: { text: { type: "string" } } }, tier: "insert", risk: "safe", execute: executed };
+    const tool: Tool = { name: "insert_text", description: "", parameters: { type: "object", properties: { text: { type: "string" } } }, execute: executed };
     const brain = scripted([
       [
         { type: "tool_start", id: "c1", name: "insert_text" },
@@ -195,7 +195,7 @@ describe("runFlow", () => {
   });
 
   it("stops when every tool in the batch asks to, and keeps going on a mixed batch", async () => {
-    const stopper: Tool = { name: "stop_now", description: "", parameters: { type: "object", properties: {} }, tier: "read", risk: "safe", async execute() { return { content: [], details: null, terminate: true }; } };
+    const stopper: Tool = { name: "stop_now", description: "", parameters: { type: "object", properties: {} }, async execute() { return { content: [], details: null, terminate: true }; } };
     const batch = (names: string[]): BrainEvent[] => [
       ...names.flatMap((n, i): BrainEvent[] => [
         { type: "tool_start", id: `c${i}`, name: n },

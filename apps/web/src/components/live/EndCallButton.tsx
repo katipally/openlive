@@ -4,12 +4,11 @@ import { useEffect, useRef } from "react";
 import { PhoneOff } from "lucide-react";
 import { useMenuPresence } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
+import { isMac } from "@/lib/platform";
 
 // The red hang-up, gated by a small "End call?" popover so a stray click doesn't
-// drop a live call. Shared by the full-screen control bar and the floating mini
-// pill. `interactive` marks the wrapper so the transparent overlay window in mini
-// mode captures the pointer over it (see MiniBar).
-export function EndCallButton({ onEnd, size = "size-9", interactive }: { onEnd: () => void; size?: string; interactive?: boolean }) {
+// drop a live call.
+export function EndCallButton({ onEnd, size = "size-9" }: { onEnd: () => void; size?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
@@ -25,7 +24,7 @@ export function EndCallButton({ onEnd, size = "size-9", interactive }: { onEnd: 
   }, [open]);
 
   return (
-    <div ref={ref} className="relative" {...(interactive ? { "data-interactive": true } : {})}>
+    <div ref={ref} className="relative">
       {mounted && (
         // Outer div owns the centering transform; inner (menuRef) owns the pop
         // animation, so GSAP's transform tweens don't clobber -translate-x-1/2.
@@ -41,7 +40,7 @@ export function EndCallButton({ onEnd, size = "size-9", interactive }: { onEnd: 
           </div>
         </div>
       )}
-      <button onClick={toggle} title="End call" aria-label="End call" aria-expanded={open}
+      <button onClick={toggle} title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`} aria-label="End call" aria-expanded={open}
         className={cn("grid place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-[0.98]", size)}>
         <PhoneOff className="size-4" />
       </button>

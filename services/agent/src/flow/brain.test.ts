@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderEvent } from "@openlive/harness";
 import type { SseEvent } from "@openlive/shared";
-import { DEFAULT_FLOW_CONFIG } from "@openlive/flow-store";
-import { acpEventToBrain, acpTurnInput, createProviderMapper, LocalBrain, resolveFlowBrain } from "./brain.js";
-import type { ResolvedLive } from "../providers.js";
+import { acpEventToBrain, acpTurnInput, createProviderMapper, LocalBrain } from "./brain.js";
 import type { BrainEvent } from "./types.js";
 
 const run = (events: ProviderEvent[]): BrainEvent[] => {
@@ -94,23 +92,6 @@ describe("LocalBrain", () => {
     ac.abort();
     const brain = new LocalBrain(() => { throw new Error("aborted"); });
     expect(await collect(brain, ac.signal)).toEqual([{ type: "turn_error", message: "aborted", aborted: true }]);
-  });
-});
-
-describe("flow brain resolution", () => {
-  const base = { provider: { id: "anthropic", name: "Anthropic", protocol: "anthropic", baseURL: "x" }, model: "live-model", apiKey: "k" } as ResolvedLive;
-  const cfg = (brain: Partial<typeof DEFAULT_FLOW_CONFIG.brain>) => ({ ...DEFAULT_FLOW_CONFIG, brain: { ...DEFAULT_FLOW_CONFIG.brain, ...brain } });
-
-  it("falls through to live resolution when Flow has no preference", () => {
-    expect(resolveFlowBrain(DEFAULT_FLOW_CONFIG, base)).toBe(base);
-  });
-
-  it("overrides only the model when only a model was chosen", () => {
-    expect(resolveFlowBrain(cfg({ model: "flow-model" }), base)).toEqual({ ...base, model: "flow-model" });
-  });
-
-  it("ignores a provider this build does not know", () => {
-    expect(resolveFlowBrain(cfg({ providerId: "not-a-provider", model: "m" }), base)).toEqual({ ...base, model: "m" });
   });
 });
 

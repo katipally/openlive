@@ -92,6 +92,7 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
   const [denied, setDenied] = useState(false);
   useEffect(() => {
     let stream: MediaStream | null = null, ctx: AudioContext | null = null, raf = 0, stopped = false;
+    const unlock = new AbortController();
     setDenied(false);
     (async () => {
       try {
@@ -102,7 +103,7 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
         void ctx.resume().catch(() => {});
         if (ctx.state === "suspended") {
           const c = ctx;
-          window.addEventListener("pointerdown", () => void c.resume().catch(() => {}), { once: true });
+          window.addEventListener("pointerdown", () => void c.resume().catch(() => {}), { once: true, signal: unlock.signal });
         }
         const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
         ctx.createMediaStreamSource(stream).connect(analyser);
@@ -116,7 +117,7 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
         loop();
       } catch { if (!stopped) setDenied(true); }
     })();
-    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
+    return () => { stopped = true; unlock.abort(); cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
   }, [micId, onGranted]);
   return (
     <div className="flex w-full max-w-[18rem] items-center gap-2">

@@ -15,6 +15,7 @@ export function GET(req: Request) {
   const query = params.get("q")?.trim() ?? "";
   const asked = Number(params.get("limit"));
   const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_LIMIT) : 40;
-  const sessions = query ? searchSessions(query, limit) : listSessions(limit);
+  const offset = Math.max(0, Math.floor(Number(params.get("offset")) || 0));
+  const sessions = query ? searchSessions(query, limit, undefined, offset) : listSessions(limit, offset);
   return NextResponse.json({ sessions, query });
 }

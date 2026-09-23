@@ -6,4 +6,3 @@ export * from "./idle";
 export * from "./lease";
 export * from "./config";
 export * from "./history";
-export * from "./catalogue";
