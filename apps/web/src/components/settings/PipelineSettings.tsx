@@ -132,7 +132,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <EngineCard name="Whisper" desc="OpenAI Whisper via transformers.js — runs on WebGPU with a WASM fallback." />
       <label className="flex flex-col gap-1.5">
         <span className="text-label text-foreground">Model size</span>
-        <select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className={selectClass}>
+        <select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className={selectClass}>
           {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>

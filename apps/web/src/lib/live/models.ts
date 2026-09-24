@@ -3,7 +3,7 @@
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
-import { loadPipelineConfig } from "./pipelineConfig";
+import { loadPipelineConfig, workerTag, tagCached } from "./pipelineConfig";
 
 export type ModelKey = "stt" | "tts" | "turn";
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
@@ -15,7 +15,7 @@ let worker: Worker | null = null;
 let ready = false;
 let turnAvailable = false;
 let seq = 0;
-let loadedTag: string | null = null; // the config (tier:sttSize:ttsEngine) the warm worker actually loaded
+let loadedTag: string | null = null; // the config (tier:stt:ttsEngine) the warm worker actually loaded
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 // keyed by "<model>:<file>" so the same filename under two models never collides.
 const files = new Map<string, { model: ModelKey; loaded: number; total: number }>();
@@ -35,8 +35,8 @@ export function hasWebGPU(): boolean {
 }
 
 export function modelsReady(): boolean { return ready; }
-// Whether the warm worker matches the CURRENT pipeline config. A Whisper-size or
-// TTS-engine change makes this false while `ready` stays true — callers use this to
+// Whether the warm worker matches the CURRENT pipeline config. An STT-engine,
+// Whisper-size or TTS-engine change makes this false while `ready` stays true: callers use this to
 // reload the right weights instead of silently keeping the old ones.
 export function modelsMatchConfig(): boolean { return ready && loadedTag === readyTag(); }
 
@@ -49,10 +49,13 @@ const READY_KEY = "openlive-models-ready-v1";
 const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
 // WASM always uses whisper-tiny.en (size choice only applies on WebGPU), so the
-// cache tag folds the STT size in — changing size re-prompts the download. The
+// cache tag folds the STT size in: changing size re-prompts the download. The
 // TTS engine is folded in too (kokoro vs supertonic download different weights).
 const sttSize = () => (deviceTier() === "wasm" ? "tiny" : loadPipelineConfig().stt.whisperSize);
-const readyTag = () => `${deviceTier()}:${sttSize()}:${loadPipelineConfig().tts.engine}`;
+const readyTag = () => workerTag(loadPipelineConfig(), deviceTier());
+// Every config that finished loading, space-separated (a pre-list value is one tag),
+// so a later switch counts whatever parts of it are already in the cache.
+const loadedTags = () => (localStorage.getItem(READY_KEY) ?? "").split(" ").filter(Boolean);
 export function modelsCached(): boolean {
   // Must be config-AWARE: `ready` alone is true whenever ANY size/engine is loaded,
   // which made the Pipeline UI claim every OTHER Whisper size / TTS engine was
@@ -61,7 +64,7 @@ export function modelsCached(): boolean {
   // config matching the current one instead.
   if (modelsMatchConfig()) return true;
   try {
-    if (localStorage.getItem(READY_KEY) === readyTag()) return true;
+    if (tagCached(readyTag(), loadedTags())) return true;
     // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy
     // weights are in the browser cache — count it as cached so we don't re-prompt.
     const old = localStorage.getItem(OLD_READY_KEY);
@@ -134,7 +137,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
         }
         case "ready":
           ready = true; turnAvailable = !!m.turn; loadedTag = readyTag();
-          try { localStorage.setItem(READY_KEY, readyTag()); } catch { /* private mode */ }
+          try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag()])].join(" ")); } catch { /* private mode */ }
           resolve();
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
