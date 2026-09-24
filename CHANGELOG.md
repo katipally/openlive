@@ -47,6 +47,8 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Cloned voices failed in the desktop app** with "External buffers are not
+  allowed". Cloning now hands audio over the way the packed app accepts.
 - **Flow with a coding agent kept the wrong conversation.** After a new session
   the agent still remembered the old one, and "Carry on from here" left it
   knowing nothing of the session it resumed. Both now start the agent fresh,

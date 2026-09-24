@@ -45,7 +45,7 @@ type Sherpa = {
     sampleRate: number;
   };
   GenerationConfig: new (o: Record<string, unknown>) => unknown;
-  readWave: (path: string) => { samples: Float32Array; sampleRate: number };
+  readWave: (path: string, enableExternalBuffer?: boolean) => { samples: Float32Array; sampleRate: number };
 };
 let sherpa: Sherpa | null = null;
 let engine: InstanceType<Sherpa["OfflineTts"]> | null = null;
@@ -93,11 +93,14 @@ export interface VoiceRef { wavPath: string; transcript: string }
 export function synthesize(text: string, ref: VoiceRef, speed = 1): Promise<{ samples: Float32Array; sampleRate: number }> {
   const run = queue.then(async () => {
     const tts = loadEngine();
-    const wave = sherpa!.readWave(ref.wavPath);
+    // enableExternalBuffer false on both calls: the packed Electron app rejects
+    // external buffers ("External buffers are not allowed"), plain Node does not.
+    const wave = sherpa!.readWave(ref.wavPath, false);
     // The lexicon drops OOV punctuation (em dash etc.) with a warning — strip it.
     const clean = text.replace(/[—–]/g, ", ").trim();
     const audio = await tts.generateAsync({
       text: clean,
+      enableExternalBuffer: false,
       generationConfig: new sherpa!.GenerationConfig({
         speed,
         referenceAudio: wave.samples,
