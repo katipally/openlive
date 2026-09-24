@@ -39,6 +39,7 @@ const ARM_WATCH_MS = 1000;
 // thinking forever with the microphone open and the gesture dead.
 const ANSWER_SILENCE_MS = 90_000;
 const ARM_WATCH_MAX_ERRORS = 5;
+const MIC: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
 function base64(buf: ArrayBuffer): string {
@@ -235,7 +236,7 @@ export function useFlowOwner(): void {
       if (engine.current) return;
       if (starting.current) return starting.current;
       starting.current = (async () => {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        const mic = await navigator.mediaDevices.getUserMedia({ audio: MIC });
         stream.current = mic;
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
@@ -255,6 +256,7 @@ export function useFlowOwner(): void {
           // While an approval chip is up, speech is the ANSWER, never a barge-in;
           // and with barge-in switched off, talking over Flow never cuts it.
           holdBargeIn: () => !!permission.current || settings.current?.voice.bargeIn === false,
+          onMicLost: () => void recoverMic(eng),
         // Flow's own turn-taking, not the one a call runs on: cut off in a call
         // the person sees it and presses a key, and here the half-sentence is
         // already answered and acted on.
@@ -263,6 +265,33 @@ export function useFlowOwner(): void {
         engine.current = eng;
       })().catch((e) => { log.error("flow", "mic:", e); }).finally(() => { starting.current = null; });
       return starting.current;
+    };
+
+    /** The mic went away mid-session: carry on with the default device, or say
+     *  why Flow cannot hear and close the dead one, so "Try again" reopens it. */
+    const recoverMic = async (eng: VoiceEngine) => {
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({ audio: MIC });
+        if (engine.current !== eng) { mic.getTracks().forEach((t) => t.stop()); return; }
+        const old = stream.current;
+        stream.current = mic;
+        await eng.setStream(mic);
+        old?.getTracks().forEach((t) => t.stop());
+      } catch (e) {
+        log.error("flow", "mic lost:", e);
+        if (engine.current !== eng) return;
+        patch({
+          failure: {
+            code: "mic_failed",
+            title: "The microphone went away",
+            detail: "It was unplugged or its access was turned off. Nothing was lost; try again once it is back.",
+            actionLabel: "Try again",
+          },
+        });
+        setPhase("error");
+        teardownMic();
+        armIdleRetire();
+      }
     };
 
     const teardownMic = () => {

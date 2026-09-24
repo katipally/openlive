@@ -546,6 +546,8 @@ export function useLiveSession(chatId: string) {
         // answered. handleUserText routes the utterance to whichever modal is open
         // (yes/no for permission, form-fill for elicitation) — fully hands-free.
         holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
+        // The chosen mic can come back later; the call needs one now.
+        onMicLost: () => { toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
       }, player.current ?? undefined);
       engine.current = eng;
       await eng.start(stream);
@@ -725,7 +727,9 @@ export function useLiveSession(chatId: string) {
       micStream.current = stream;
       await engine.current.setStream(stream);
       old?.getTracks().forEach((t) => t.stop()); // stop the previous mic only after the swap
-    } catch { set({ error: "Couldn't switch microphone." }); }
+    } catch (e) {
+      set({ error: (e as Error)?.name === "NotAllowedError" ? "Microphone access was turned off. Allow it, then pick the mic again." : "Couldn't switch microphone." });
+    }
   }, [set]);
 
   // Devices coming and going mid-call: refresh the pickers, and if the ACTIVE mic

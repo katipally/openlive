@@ -31,6 +31,9 @@ export interface VoiceEngineHandlers {
    *  and the next utterance IS the answer. Cancelling there killed the very ask
    *  the user was answering (the chip vanished the moment they spoke). */
   holdBargeIn?: () => boolean;
+  /** The mic track ended on its own: unplugged, or its permission revoked. The
+   *  surface re-acquires a device and hands it to setStream. */
+  onMicLost?: () => void;
 }
 
 /**
@@ -100,6 +103,9 @@ export class VoiceEngine {
   private ring = new FrameRing(PRE_SPEECH_FRAMES); // recent frames, sent when speech starts
   private uttEngine: SttEngine = "whisper";       // the engine this utterance started on
   private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
+  private micTrack: MediaStreamTrack | null = null;
+  // "ended" fires only when the browser ends a track, never for our own stop().
+  private onMicEnded = () => this.h.onMicLost?.();
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
@@ -145,6 +151,9 @@ export class VoiceEngine {
   }
 
   async start(stream: MediaStream) {
+    this.micTrack?.removeEventListener("ended", this.onMicEnded);
+    this.micTrack = stream.getAudioTracks()[0] ?? null;
+    this.micTrack?.addEventListener("ended", this.onMicEnded);
     this.player.resume();
     // VAD sensitivity + trailing silence come from the user's pipeline config;
     // baked into MicVAD at construction, so edits apply on the next start().
@@ -580,6 +589,8 @@ export class VoiceEngine {
     this.epoch++;
     this.ttsAbort?.abort();
     this.partialAbort?.abort();
+    this.micTrack?.removeEventListener("ended", this.onMicEnded);
+    this.micTrack = null;
     this.asr?.close();
     this.asr = null;
     this.streaming = false;
