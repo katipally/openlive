@@ -39,6 +39,11 @@ Releases before 0.1.9 predate this file — see the
   and Kitten TTS start speaking before the sentence is fully synthesized. An
   engine that is missing or unreachable switches the call to Whisper or Kokoro,
   with one notice; a one-off hiccup falls back for that turn only.
+- **Pick the native engines in Settings → Voice.** Speech-to-text and
+  Text-to-speech list every engine with its size, license and whether it is
+  downloaded, with download progress, cancel and remove in place. Pocket TTS
+  and Kitten TTS get their own voices and a preview. Settings search finds them
+  by name.
 - **Ollama server address.** Settings → Models → Provider takes the address of
   the Ollama server (default `http://localhost:11434`), for Ollama on another
   machine or port. Chat, Flow and the model list use it, and an unreachable

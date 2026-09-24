@@ -49,9 +49,9 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
   { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
-  { label: "Speech-to-text", keywords: "stt whisper model size transcription", tab: "voice", anchor: "set-voice-stage-stt" },
+  { label: "Speech-to-text", keywords: "stt whisper model size transcription speech recognition engine nemotron parakeet moonshine streaming native download", tab: "voice", anchor: "set-voice-stage-stt" },
   { label: "Turn-taking", keywords: "smart-turn end of turn detector mid-thought hold preset", tab: "voice", anchor: "set-voice-stage-turn" },
-  { label: "Text-to-speech", keywords: "tts kokoro supertonic voice preview engine", tab: "voice", anchor: "set-voice-stage-tts" },
+  { label: "Text-to-speech", keywords: "tts kokoro supertonic pocket kitten voice preview engine native download", tab: "voice", anchor: "set-voice-stage-tts" },
   { label: "Reset speech engine", keywords: "defaults pipeline", tab: "voice", anchor: "set-voice-reset" },
   { label: "Your voices", keywords: "clone cloning record upload import export delete zipvoice", tab: "voice", anchor: "set-voice-yours" },
 

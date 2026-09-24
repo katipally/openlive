@@ -285,6 +285,46 @@ async function nativeStt(engine: SttEngine, audio: Float32Array, signal?: AbortS
   return texts.filter(Boolean).join(" ");
 }
 
+export interface NativeEngineStatus {
+  id: string; kind: "asr" | "tts"; name: string; streaming: boolean;
+  installed: boolean; downloading: boolean; bytes: number; sizeBytes: number;
+  voices?: { id: string; name: string; gender?: "female" | "male" }[];
+}
+
+export async function listNativeEngines(): Promise<NativeEngineStatus[]> {
+  const res = await fetch("/api/voice/engines");
+  if (!res.ok) throw await httpError(res);
+  return res.json();
+}
+
+/** Streams the agent's JSON-lines progress; resolves when installed, throws on
+ *  failure or cancel. Aborting `signal` only stops listening: the agent keeps
+ *  going until deleteNativeEngine cancels it. */
+export async function downloadNativeEngine(id: string, onProgress: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`/api/voice/engines/${id}/download`, { method: "POST", signal });
+  if (!res.ok || !res.body) throw await httpError(res);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let rest = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) throw new Error("download ended early");
+    const lines = (rest + value).split("\n");
+    rest = lines.pop()!;
+    for (const line of lines.filter(Boolean)) {
+      const m = JSON.parse(line) as { loaded?: number; total?: number; done?: boolean; error?: string };
+      if (m.error) throw new Error(m.error);
+      if (m.loaded != null && m.total) onProgress(m.loaded, m.total);
+      if (m.done) return;
+    }
+  }
+}
+
+/** Deletes an engine's files on the agent (or cancels its download). */
+export async function deleteNativeEngine(id: string): Promise<void> {
+  const res = await fetch(`/api/voice/engines/${id}`, { method: "DELETE" });
+  if (!res.ok) throw await httpError(res);
+}
+
 /** Transcribe a 16 kHz mono utterance → text, on the selected engine. Aborting
  *  `signal` drops a native request the agent has not started yet (an interim
  *  caption giving way to the final); it rejects and never falls back. */

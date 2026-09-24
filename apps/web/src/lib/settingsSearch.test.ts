@@ -15,6 +15,12 @@ describe("settings search", () => {
     expect(find("whisper")).toEqual(["Speech-to-text"]);
   });
 
+  it("finds the speech engines by name and by what they do", () => {
+    for (const q of ["nemotron", "parakeet", "moonshine", "streaming", "speech recognition engine"]) expect(find(q)).toEqual(["Speech-to-text"]);
+    for (const q of ["pocket", "kitten"]) expect(find(q)).toEqual(["Text-to-speech"]);
+    for (const q of ["silero v6", "vad model"]) expect(find(q)).toEqual(["Voice activity detection"]);
+  });
+
   it("needs every term, in any order", () => {
     expect(find("speed speaking")).toEqual(["Speaking speed"]);
     expect(find("whisper kokoro")).toEqual([]);
