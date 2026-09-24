@@ -6,10 +6,11 @@ import { createWaveOrb, micGate, voiceBands, WAVE_ORB_RADIUS, type WaveOrb, type
 // The OpenLive mark: a glass orb with a spectral wave inside (lib/waveOrb). ONE
 // component everywhere: the live in-call and Flow orbs, the breathing home mark
 // (`pulse`), and small static marks, which draw one frame and then cost nothing.
+// Without a phase it is the logo (the `mark` state).
 //
 // Each state reads by colour and motion: listening rides YOUR mic, speaking
 // rides the AGENT's voice, and only those two read audio at all.
-export function OpenLiveOrb({ phase = "idle", getLevels, getBands, size = 240, pulse = false }: {
+export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, pulse = false }: {
   phase?: WaveOrbState;
   getLevels?: () => { mic: number; agent: number };
   getBands?: () => { mic: number[]; agent: number[] }; // per-octave-band energy → real spectrum
@@ -46,7 +47,9 @@ export function OpenLiveOrb({ phase = "idle", getLevels, getBands, size = 240, p
       const b = bands?.();
       const dt = last ? (now - last) / 1000 : 0;
       last = now;
-      orb.current?.setBands(voiceBands(b && (listening ? gate(b.mic, dt) : b.agent), level));
+      // The mic's raw level carries the room, which the gate takes out of its
+      // bands, so with bands to read it would undo the gate.
+      orb.current?.setBands(voiceBands(b && (listening ? gate(b.mic, dt) : b.agent), listening && b ? 0 : level));
       raf = requestAnimationFrame(read);
     };
     raf = requestAnimationFrame(read);
