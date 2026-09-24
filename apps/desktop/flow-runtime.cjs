@@ -28,8 +28,8 @@ function run(cmd, args, timeout = 1500) {
   });
 }
 
-// The perception exports land with Block 4, so each one is asked for by name and
-// simply absent until it exists. Flow says what it can see and nothing more.
+// Each export is asked for by name, so an addon that failed to load answers null
+// instead of throwing. Flow says what it can see and nothing more.
 function ask(name, fallback = null) {
   try {
     const api = flowInput.load();
@@ -140,7 +140,7 @@ function capabilities() {
 // device tools rely on: this returns a value or it names what went wrong. An
 // empty result is a lie a model cannot recover from.
 
-// A destructive tool that already asked the user. Home is the deliberate cwd:
+// Covered by the one consent Flow takes, like every other tool. Home is the deliberate cwd:
 // Flow belongs to no project, and running a command in the app bundle or in
 // whatever folder Chat last used would be a surprise either way. The login
 // shell is used so the command sees the PATH the person actually has.

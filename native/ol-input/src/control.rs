@@ -2,7 +2,7 @@
 //!
 //! Every coordinate in here is a `ScreenPoint`, so a screenshot pixel cannot
 //! reach the OS without going through `coords`. Text and chords go out
-//! through the injection primitives Block 1 already owns rather than a second
+//! through the injection primitives in `inject` rather than a second
 //! keyboard path.
 //!
 //! Nothing here teleports. The pointer travels to where it was sent along the

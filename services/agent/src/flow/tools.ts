@@ -40,7 +40,7 @@ const NAME_ALIASES: Record<string, string> = {
   copy: "clipboard_write",
   context: "get_context",
   getcontext: "get_context",
-  // Block 4's device actions, under the names models reach for first.
+  // Device actions, under the names models reach for first.
   leftclick: "click",
   mouseclick: "click",
   tap: "click",
@@ -310,7 +310,7 @@ function errText(e: unknown): string {
   return (m || "the tool failed").slice(0, 400);
 }
 
-// ── the Block 3 tool set ────────────────────────────────────────────────────
+// ── the text tool set ───────────────────────────────────────────────────────
 
 /**
  * Forward-only insertion, in one place.

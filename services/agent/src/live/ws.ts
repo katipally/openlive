@@ -47,7 +47,7 @@ export function attachLiveWs(server: Server): WebSocketServer {
       return reject(socket, "403 Forbidden", `origin ${req.headers.origin} is not this machine`);
     }
     const chatId = url.searchParams.get("chat") ?? "";
-    // Flow's pill runtime lives in its own renderer, so it opens its own
+    // Flow's orb runtime lives in its own renderer, so it opens its own
     // connection to this same endpoint. Same schemas, same permission protocol,
     // nothing about a chat session changes.
     const flow = url.searchParams.get("flow") === "1";

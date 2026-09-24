@@ -18,8 +18,8 @@ export interface FlowPermissions {
   postEvents?: boolean;
 }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
-/** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent on
- *  a build that predates Block 4. */
+/** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent
+ *  when the addon could not be loaded. */
 export interface CapabilityReport {
   hook: boolean;
   injection: string;

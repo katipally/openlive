@@ -134,7 +134,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // modal instead of leaking to the agent as a new prompt.
   z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
   // One event of a Flow turn. Wrapped rather than inlined so the client routes
-  // Flow to the pill's reducer and chat to the chat store, unchanged.
+  // Flow to its owner window and chat to the chat store, unchanged.
   z.object({ t: z.literal("flow"), event: flowEventSchema }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);

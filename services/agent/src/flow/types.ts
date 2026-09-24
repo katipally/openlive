@@ -57,8 +57,7 @@ export interface ClipboardPort {
 }
 
 /**
- * Captures the free metadata around a turn. The native providers land in Block 4;
- * this is the seam they plug into. Must not throw: return null instead.
+ * Captures the free metadata around a turn. Must not throw: return null instead.
  */
 export interface ContextProvider {
   capture(signal: AbortSignal): Promise<FlowContext | null>;
