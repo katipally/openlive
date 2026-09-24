@@ -59,7 +59,9 @@ export class VoiceEngine {
   private curBuf: Float32Array[] = [];           // frames since speech start (for partials)
   private curLen = 0;
   private lastPartialAt = 0;
+  private partialMs = 0;                          // how long the last interim transcription took
   private partialBusy = false;
+  private partialAbort: AbortController | null = null; // the interim transcription in flight
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
@@ -201,7 +203,7 @@ export class VoiceEngine {
       this.hush();
     }
     this.clearHold();
-    this.curBuf = []; this.curLen = 0;
+    this.curBuf = []; this.curLen = 0; this.partialMs = 0;
     this.uttEngine = activeSttEngine();
     this.setPhase("listening");
   }
@@ -231,19 +233,26 @@ export class VoiceEngine {
   private async maybePartial() {
     if ((this.uttEngine === "whisper" && !hasWebGPU()) || this.partialBusy || this.finalizing) return;
     const now = Date.now();
-    if (now - this.lastPartialAt < PARTIAL_MS || this.curLen < MIN_UTTER_SAMPLES) return;
+    // Each partial re-transcribes the whole utterance so far, so its cost grows
+    // with it: spacing them by twice that cost keeps a long monologue from
+    // holding the STT engine flat out, with the final queued behind.
+    if (now - this.lastPartialAt < Math.max(PARTIAL_MS, 2 * this.partialMs) || this.curLen < MIN_UTTER_SAMPLES) return;
     this.lastPartialAt = now;
     this.partialBusy = true;
+    const abort = this.partialAbort = new AbortController();
     try {
       const win = this.concat(this.curBuf, this.curLen);
       if (rmsOf(win) < this.gate()) return;
-      const text = await stt(win);
+      const text = await stt(win, abort.signal);
       if (text && !isJunk(text) && this.phase === "listening") this.h.onPartial(text);
     } catch { /* best-effort */ }
-    finally { this.partialBusy = false; }
+    finally { this.partialBusy = false; this.partialMs = Date.now() - now; if (this.partialAbort === abort) this.partialAbort = null; }
   }
 
   private async onSpeechEnd(audio: Float32Array) {
+    // The agent runs one transcription at a time: a caption still queued there
+    // would make the final wait for it.
+    this.partialAbort?.abort();
     // A segment ended while the previous one is still finalizing (STT + turn detection
     // take real time on CPU/WASM). DON'T drop it — defer and re-process below, or the
     // user's words vanish.
@@ -514,6 +523,7 @@ export class VoiceEngine {
     this.ptt = false;
     this.epoch++;
     this.ttsAbort?.abort();
+    this.partialAbort?.abort();
     void this.vad?.destroy().catch(() => { /* */ });
     this.vad = null;
     try { this.micSrc?.disconnect(); } catch { /* */ }
