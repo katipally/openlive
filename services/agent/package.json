@@ -17,7 +17,7 @@
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
     "hono": "^4.12.27",
-    "sherpa-onnx-node": "^1.13.4",
+    "sherpa-onnx-node": "^1.13.8",
     "tar": "^7.5.20",
     "unbzip2-stream": "^1.4.3",
     "undici": "^8.7.0",
