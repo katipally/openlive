@@ -2,7 +2,7 @@ import {
   listProviders, createProvider, updateProvider,
   getProviderApiKey, getSetting, setSetting,
 } from "@openlive/db";
-import { BUILTIN_PROVIDERS, defaultModel, type ProviderInfo, type Effort } from "@openlive/harness";
+import { BUILTIN_PROVIDERS, defaultModel, isReasoningModel, type ChatRequest, type ProviderInfo, type Effort } from "@openlive/harness";
 import { liveRecsFor } from "@openlive/shared";
 
 // Provider-neutral resolution. Keys live in the DB `providers` table (kind =
@@ -81,6 +81,18 @@ export function resolveVision(): ResolvedLive | null {
   const apiKey = getProviderKey(providerId);
   if (!apiKey && !provider.keyless) return null;
   return { provider, model, apiKey };
+}
+
+/**
+ * How hard a spoken turn thinks, in the form its provider accepts. Auto is
+ * thinking off: OpenAI cannot switch it off, so it gets "minimal", and Anthropic
+ * simply gets no thinking block. A model with no reasoning channel gets nothing,
+ * because OpenAI and Ollama both reject a reasoning setting on one.
+ */
+export function liveReasoning({ provider, model, effort }: ResolvedLive): Pick<ChatRequest, "effort" | "reasoningEffort"> {
+  if (!isReasoningModel(model)) return {};
+  if (provider.protocol === "openai") return { reasoningEffort: effort ?? "minimal" };
+  return effort ? { effort } : {};
 }
 
 export function resolveLive(): ResolvedLive {

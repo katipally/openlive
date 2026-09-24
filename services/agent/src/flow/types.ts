@@ -96,6 +96,10 @@ export type BrainEvent =
   /** Best effort: strings may be cut mid-word, arrays may be short, `{}` means nothing parsed yet. Never undefined. */
   | { type: "tool_args_delta"; id: string; argsPartial: Record<string, unknown> }
   | { type: "tool_end"; id: string; name: string; args: Record<string, unknown> }
+  /** Never spoken or shown. Kept only to be handed back: Anthropic refuses a
+   *  tool result whose call lost the signed thinking in front of it. */
+  | { type: "reasoning"; delta: string }
+  | { type: "reasoning_signature"; signature: string }
   | { type: "turn_done"; stop: "stop" | "tools" | "length"; usage?: Usage }
   | { type: "turn_error"; message: string; aborted: boolean };
 

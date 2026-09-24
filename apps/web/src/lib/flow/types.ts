@@ -18,7 +18,11 @@ export type FlowFailureCode =
   | "models_missing"
   | "hook_failed"
   | "mic_failed"
-  | "answer_lost";
+  | "answer_lost"
+  /** The brain refused this turn for a reason that is fixed in settings. */
+  | "brain_setup"
+  /** The brain failed this turn, and nothing in OpenLive fixes it. */
+  | "turn_failed";
 
 export interface FlowFailure {
   code: FlowFailureCode;

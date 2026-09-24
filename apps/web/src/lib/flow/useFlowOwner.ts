@@ -12,7 +12,7 @@ import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
-import { deriveFailure } from "./failure";
+import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { IDLE_FLOW, type FlowPhase, type FlowSnapshot } from "./types";
 
@@ -159,7 +159,8 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       finalizing.current = false;
       stopAnswerWatchdog();
-      patch({ reply: message });
+      // The orb draws a failure, never `reply`, so a reason has to become one.
+      patch(message ? { reply: message, failure: turnFailure(message) } : { reply: message });
       setPhase("error");
       teardownMic();
       armIdleRetire();
@@ -527,7 +528,7 @@ export function useFlowOwner(): void {
           if (c.code === "no_accessibility") void api.init().then(refreshHealth);
           else if (c.code === "mic_failed") void onOpen();
           else if (c.code === "models_missing") void warm().then(refreshHealth);
-          else if (c.code === "no_provider") api.expand("flow-settings");
+          else if (c.code === "no_provider" || c.code === "brain_setup") api.expand("flow-settings");
           // `init` replaces a hook thread that died, and the binding goes back on it.
           else if (c.code === "hook_failed") { armed.current = false; void arm().then(refreshHealth); }
           else void refreshHealth();

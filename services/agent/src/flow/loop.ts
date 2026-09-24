@@ -101,10 +101,12 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefi
 const asText = (content: (TextPart | { type: "image" })[]): string =>
   content.filter((c): c is TextPart => c.type === "text").map((c) => c.text).join("\n") || "(no output)";
 
-function assistantMessage(text: string, calls: FlowToolCall[]): Msg {
+function assistantMessage(text: string, calls: FlowToolCall[], reasoning = "", reasoningSignature?: string): Msg {
   return {
     role: "assistant",
     text: text || undefined,
+    reasoning: reasoning || undefined,
+    reasoningSignature,
     toolCalls: calls.length ? calls.map((c) => ({ id: c.id, name: c.name, arguments: JSON.stringify(c.args) })) : undefined,
   };
 }
@@ -148,6 +150,8 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       const systemPrompt = [await run.getSystemPrompt(), formatContext(context)].filter(Boolean).join("\n\n");
 
       let text = "";
+      let reasoning = "";
+      let signature: string | undefined;
       const calls: FlowToolCall[] = [];
       open = calls;
       // Resolved once per call, by whoever needs it first, and reused by dispatch.
@@ -178,6 +182,8 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
 
       for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs }, signal)) {
         if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
+        if (ev.type === "reasoning") { reasoning += ev.delta; continue; }
+        if (ev.type === "reasoning_signature") { signature = ev.signature; continue; }
         if (ev.type === "tool_start") { calls.push({ id: ev.id, name: ev.name, args: {} }); yield { type: "tool_start", id: ev.id, name: ev.name }; continue; }
         if (ev.type === "tool_args_delta") {
           yield { type: "tool_args_delta", id: ev.id, argsPartial: ev.argsPartial };
@@ -201,7 +207,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
 
       // Whatever the model managed to say before the cut is part of the
       // conversation: barge-in must not erase the half of the answer the user heard.
-      const assistant = assistantMessage(text, calls);
+      const assistant = assistantMessage(text, calls, reasoning, signature);
       if (text || calls.length) messages.push(assistant);
       if (usage) anchor = { index: messages.length - 1, tokens: usage.input + usage.output };
 
