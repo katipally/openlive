@@ -12,6 +12,8 @@ export interface AppSettings {
   /** Optional dedicated vision model (own provider) for when the live model can't see. */
   visionProviderId?: string;
   visionModel?: string;
+  /** Where the local Ollama server listens. Unset is http://localhost:11434. */
+  ollamaBaseUrl?: string;
   /** Working directory a bound coding agent runs in (its file-access scope). */
   agentCwd?: string;
 }

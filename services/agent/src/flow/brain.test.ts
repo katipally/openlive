@@ -108,6 +108,20 @@ describe("LocalBrain", () => {
     expect(await collect(brain)).toEqual([{ type: "turn_error", message: "No API key for OpenAI. Add one in Settings > Models.", aborted: false }]);
   });
 
+  it("names the configured address when the server is not there", async () => {
+    const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
+    const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }));
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?", aborted: false }]);
+  }, 20_000);
+
+  it("hands the model its transcript as prepared for what it can see", async () => {
+    const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
+    const seen: unknown[] = [];
+    const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }), async (messages) => { seen.push(messages); throw new Error("stop here"); });
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "stop here", aborted: false }]);
+    expect(seen).toEqual([[{ role: "user", text: "hi" }]]);
+  });
+
   it("reports an aborted stream as aborted", async () => {
     const ac = new AbortController();
     ac.abort();

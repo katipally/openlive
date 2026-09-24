@@ -84,12 +84,11 @@ function VisionModelPicker() {
 }
 
 export function ModelsSettings() {
-  const { model: fallbackModel } = useApiModeChoice();
+  const { model: fallbackModel, providerId } = useApiModeChoice();
   const qc = useQueryClient();
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
 
-  const providerId = settings?.liveProviderId ?? providers.find((p) => p.isDefault)?.kind ?? providers[0]?.kind ?? PROVIDERS[0]!.id;
   const { data: models = [], error: modelsError } = useQuery({ queryKey: ["models", providerId], queryFn: () => api.models(providerId), enabled: !!providerId, retry: false });
   const [visionOpen, setVisionOpen] = usePersistedOpen("models:vision");
 

@@ -1,6 +1,7 @@
-import { streamProvider, type ProviderEvent } from "@openlive/harness";
+import { isUnreachable, streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
 import type { SseEvent } from "@openlive/shared";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
+import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
 import { parsePartialJson } from "./partial-json.js";
 import type { Brain, BrainEvent, TurnRequest, Usage } from "./types.js";
@@ -73,15 +74,22 @@ const message = (e: unknown) => {
 /** API mode: the same provider, key, model and effort Chat resolves, set once in Settings > Models. */
 export class LocalBrain implements Brain {
   readonly id = "local";
-  constructor(private readonly resolve: () => ResolvedLive = resolveLive) {}
+  /** What the vision model said about each picture, by tool call id. */
+  private readonly described = new Map<string, string>();
+  constructor(
+    private readonly resolve: () => ResolvedLive = resolveLive,
+    private readonly prepare: typeof prepareToolImages = prepareToolImages,
+  ) {}
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     let sawDone = false;
+    let provider: ProviderInfo | null = null;
     try {
       const live = this.resolve();
-      const { provider, model, apiKey } = live;
+      const { model, apiKey } = live;
+      provider = live.provider;
       if (!apiKey && !provider.keyless) throw new Error(`No API key for ${provider.name}. Add one in Settings > Models.`);
-      const messages = [{ role: "system" as const, text: req.systemPrompt }, ...req.messages];
+      const messages = [{ role: "system" as const, text: req.systemPrompt }, ...await this.prepare(req.messages, live, signal, this.described)];
       const gen = streamProvider(provider, apiKey ?? undefined, { model, messages, tools: req.tools, ...liveReasoning(live) }, signal);
       const map = createProviderMapper();
       for await (const ev of gen) {
@@ -92,7 +100,8 @@ export class LocalBrain implements Brain {
       }
       if (!sawDone) yield { type: "turn_done", stop: "stop" };
     } catch (e) {
-      yield { type: "turn_error", message: message(e), aborted: signal.aborted };
+      const unreachable = !!provider && !signal.aborted && isUnreachable(e);
+      yield { type: "turn_error", message: unreachable ? unreachableMessage(provider!) : message(e), aborted: signal.aborted };
     }
   }
 }

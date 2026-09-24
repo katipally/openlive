@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Check, Trash2 } from "lucide-react";
+import { KeyRound, Check, Trash2, Server, RotateCcw } from "lucide-react";
 // Pure subpath only — the barrel pulls in catalog/models (node:fs), which cannot
 // bundle into a client component.
-import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
+import { BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, normalizeOllamaUrl } from "@openlive/harness/registry";
 import { api } from "@/lib/api";
 import { cancelDelete, deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
@@ -36,7 +36,7 @@ export function ProviderKeyField({ kind }: { kind: string }) {
       "Couldn’t remove the key. It’s still saved.");
   };
 
-  if (info?.keyless) return <p className="text-label text-muted-foreground">No key needed — {info.name} is a local provider.</p>;
+  if (info?.keyless) return <OllamaAddressField name={info.name} />;
 
   return (
     <div className="flex flex-col gap-2">
@@ -59,6 +59,54 @@ export function ProviderKeyField({ kind }: { kind: string }) {
           </button>
         )}
       </div>
+      {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
+    </div>
+  );
+}
+
+/** A local provider needs no key, only an address. Saved beside the other API-mode
+ *  settings, and read by every call to it: Chat, Flow and the model list. */
+function OllamaAddressField({ name }: { name: string }) {
+  const qc = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const current = settings?.ollamaBaseUrl || DEFAULT_OLLAMA_URL;
+  const [url, setUrl] = useState("");
+  const typed = url.trim();
+  const invalid = !!typed && !normalizeOllamaUrl(typed);
+  const save = useMutation({
+    mutationFn: (value: string) => api.updateSettings({ ollamaBaseUrl: value }),
+    onSuccess: (s) => {
+      setUrl("");
+      qc.setQueryData(["settings"], s);
+      void qc.invalidateQueries({ queryKey: ["models"] });
+      void qc.invalidateQueries({ queryKey: ["flow-config"] });
+    },
+  });
+  const submit = () => { if (typed && !invalid) save.mutate(typed); };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-label text-muted-foreground">No key needed. {name} runs on a server you point it at.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex h-9 min-w-[9rem] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-label text-muted-foreground">
+          <Server className="size-3.5 shrink-0" /> <span className="truncate" title={current}>{current}</span>
+        </div>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} type="url" name="ollama-base-url" inputMode="url"
+          placeholder={DEFAULT_OLLAMA_URL} aria-label={`${name} server address`} aria-invalid={invalid}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          className="h-9 min-w-[9rem] flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy" />
+        <button onClick={submit} disabled={!typed || invalid || save.isPending}
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-body font-medium text-background transition hover:opacity-90 disabled:opacity-30">
+          {save.isSuccess ? <Check className="size-4" /> : <Server className="size-4" />} Save
+        </button>
+        {!!settings?.ollamaBaseUrl && (
+          <button onClick={() => save.mutate("")} title={`Go back to ${DEFAULT_OLLAMA_URL}`} aria-label="Reset the address"
+            className="grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+            <RotateCcw className="size-4" />
+          </button>
+        )}
+      </div>
+      {invalid && <p className="text-label text-destructive">Enter an http:// or https:// address, like {DEFAULT_OLLAMA_URL}.</p>}
       {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
     </div>
   );

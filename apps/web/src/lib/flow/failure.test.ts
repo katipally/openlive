@@ -71,6 +71,7 @@ describe("turnFailure", () => {
       expect(f.actionLabel).toBeUndefined();
     }
     expect(turnFailure("fetch failed").detail).toContain("Ollama");
+    expect(turnFailure("Could not reach Ollama (local) at http://nas:11434. Is it running?").detail).toBe("Could not reach Ollama (local) at http://nas:11434. Is it running?");
   });
 
   it("never shows an empty card", () => {
