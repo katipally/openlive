@@ -94,12 +94,12 @@ export function Lobby(props: LobbyProps) {
   // Into the call — a short "lift": the lobby rises and fades while InCall's
   // entrance rises to meet it, so start→call reads as one continuous move. The
   // session's start() runs on completion (~0.2 s — noise next to model warm-up).
+  // The page itself stays opaque: fading it showed the home screen through it.
   const handleStart = contextSafe(() => {
     if (!root.current || prefersReduced()) { onStart(); return; }
     gsap.timeline({ onComplete: onStart })
       .to(".ol-lobby-aside", { autoAlpha: 0, x: 14, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(root.current, { autoAlpha: 0, scale: 1.008, duration: DUR.base, ease: EASE.soft }, 0.04);
+      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0);
   });
 
   const cta = downloading ? (

@@ -47,6 +47,24 @@ Releases before 0.1.9 predate this file — see the
   Chat does and keeps the thinking.
 - **Red buttons with white text are readable in dark mode**, and red text clears
   4.5:1 contrast on every surface in both themes.
+- **Flow opened with no brain and listened anyway.** The "No brain is configured
+  yet" card vanished a second after it appeared. It now stays with its fix, and
+  Flow does not open the microphone until there is a brain to think with.
+- **Flow reopened with the last session's card sinking out of it.** Opening Flow
+  now starts clean and shows only a problem that is still true.
+- **Flow's settings buttons opened the wrong page.** A missing, refused or
+  unknown key or model now opens Settings → Models (Agents or Flow for a coding
+  agent), and an unreachable Ollama offers the button to where its address is
+  set, instead of only Close Flow.
+- **The tray's "New Flow session" did nothing while Flow was open.** It now
+  starts a fresh session there, and leaves a turn that is still running alone.
+- **Chat's context meter stayed at "0 ctx" on MiniMax.** Its Anthropic-style
+  stream reports the input only at the end, which is now read.
+- **Saved Chat replies ran two steps together** ("On it.No workspace…"). The
+  space between them is kept.
+- **The home screen flashed through the call as it started.**
+- **Settings → Models' model list ran off the bottom of a short window.** It
+  opens upward when there is more room there, and its height follows the window.
 
 ## [0.2.7] - 2026-08-27
 

@@ -59,8 +59,10 @@ export function InCall(props: InCallProps) {
   // Entrance — a gentle rise + settle when the call becomes active (skipped for
   // reduced-motion, which leaves the element at its final state).
   const { contextSafe } = useGSAP(() => {
-    if (prefersReduced()) return;
-    gsap.fromTo(root.current, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.out });
+    if (prefersReduced() || !root.current) return;
+    // The contents rise, never the page: a see-through page showed the home screen
+    // under the call. A leftover transform would re-anchor fixed menus inside them.
+    gsap.fromTo(root.current.children, { autoAlpha: 0, y: 8, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: DUR.enter, ease: EASE.out, clearProps: "transform" });
   }, { scope: root });
 
   // Exit — a quick settle-down before teardown so ending never feels like a cut.
