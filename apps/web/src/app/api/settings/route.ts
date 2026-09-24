@@ -1,6 +1,7 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getAllSettings, setSetting } from "@openlive/db";
-import { normalizeOllamaUrl } from "@openlive/harness/registry";
+import { getAllSettings, getSetting, setSetting } from "@openlive/db";
+import { isLoopbackUrl, normalizeOllamaUrl } from "@openlive/harness/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,18 @@ function isSafeAcpCommand(v: string): boolean {
   return tokens.every((t) => /^[A-Za-z0-9@._:/+=\[\]~-]+$/.test(t));
 }
 
+// An Ollama address off this computer receives the screen content Flow and Chat
+// send it, and page script (that same canvas) can PUT here. So only the desktop
+// app's main process may store one, after a native dialog the person answered:
+// it sends a per-launch secret that lives in this server's env and never reaches
+// a page (apps/desktop/main.cjs, openlive:confirm-ollama-url). Without that
+// secret (a plain browser, dev), only this computer's own addresses save.
+function confirmedByPerson(req: Request): boolean {
+  const secret = Buffer.from(process.env.OPENLIVE_SETTINGS_SECRET?.trim() || "");
+  const sent = Buffer.from(req.headers.get("x-openlive-confirmed") || "");
+  return secret.length > 0 && sent.length === secret.length && timingSafeEqual(sent, secret);
+}
+
 export function GET() {
   return NextResponse.json({ ...DEFAULTS, ...exposedSettings() });
 }
@@ -62,6 +75,10 @@ export async function PUT(req: Request) {
     if (k === "ollamaBaseUrl" && v.trim()) {
       const url = normalizeOllamaUrl(v);
       if (!url) return NextResponse.json({ error: "Enter an http:// or https:// address, like http://localhost:11434." }, { status: 400 });
+      // Re-saving the address already stored exposes nothing new.
+      if (!isLoopbackUrl(url) && url !== normalizeOllamaUrl(getSetting(k) ?? "") && !confirmedByPerson(req)) {
+        return NextResponse.json({ error: "An address off this computer has to be confirmed in the OpenLive desktop app." }, { status: 403 });
+      }
       await setSetting(k, url);
       continue;
     }

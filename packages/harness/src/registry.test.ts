@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isUnreachable, normalizeOllamaUrl, resolveApiMode, unreachableMessage, withSettings,
+  BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, isUnreachable, normalizeOllamaUrl, resolveApiMode, unreachableMessage, withSettings,
   type StoredProvider,
 } from "./registry"
 
@@ -19,6 +19,27 @@ describe("normalizeOllamaUrl", () => {
     for (const bad of ["", "   ", "localhost:11434", "ftp://host", "file:///etc/passwd", "http://", "http://h?x=1", "http://user:pw@h", "not a url"]) {
       expect(normalizeOllamaUrl(bad), bad).toBeNull()
     }
+  })
+})
+
+describe("isLoopbackUrl", () => {
+  it("counts only this computer's own addresses, in any spelling the URL parser reads as one", () => {
+    for (const local of [
+      "http://localhost:11434", "HTTP://LOCALHOST", "https://localhost/", "  http://localhost  ",
+      "http://127.0.0.1:11434", "http://127.9.8.7", "http://127.0.0.1.", "http://127.1",
+      "http://2130706433", "http://0x7f000001", "http://0x7f.1", "http://0177.0.0.1", "http://%6cocalhost",
+      "http://[::1]:11434", "http://[0:0:0:0:0:0:0:1]",
+    ]) expect(isLoopbackUrl(local), local).toBe(true)
+  })
+
+  it("sends everything else to confirmation", () => {
+    for (const remote of [
+      "http://192.168.1.20:11434", "https://gpu.example.com", "http://10.0.0.1", "http://128.0.0.1",
+      "http://0.0.0.0:11434", "http://[::]", "http://[::ffff:127.0.0.1]", "http://[::ffff:7f00:1]",
+      "http://localhost.", "http://ollama.localhost:11434", "http://a.b.localhost", "http://.localhost", "http://a..localhost", "http://localhost.evil.com",
+      "http://127.0.0.1.nip.io", "http://localhost@evil.com", "http://evil.com#@localhost", "http://evil.com/localhost",
+      "http://mylocalhost", "localhost:11434", "", "not a url", "http://127.0.0.256",
+    ]) expect(isLoopbackUrl(remote), remote).toBe(false)
   })
 })
 

@@ -25,7 +25,9 @@ Releases before 0.1.9 predate this file — see the
 - **Ollama server address.** Settings → Models → Provider takes the address of
   the Ollama server (default `http://localhost:11434`), for Ollama on another
   machine or port. Chat, Flow and the model list use it, and an unreachable
-  server is named by that address.
+  server is named by that address. An address on this computer saves at once;
+  any other asks first in a native dialog in the desktop app, since it receives
+  screen content, and cannot be set from a plain browser.
 - **Screenshots reach models that see, on every provider.** Groq, Gemini,
   OpenRouter, xAI and the other Chat Completions providers now get the pictures
   a tool returns. A model that cannot see gets the vision model's description
