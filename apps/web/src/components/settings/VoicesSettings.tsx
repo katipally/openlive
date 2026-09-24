@@ -297,7 +297,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
       <div className="flex items-center gap-3">
         <button onClick={recording ? stop : start}
           className={cn("flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-label font-medium transition",
-            recording ? "bg-danger text-white" : "bg-accent text-accent-foreground hover:opacity-90")}>
+            recording ? "bg-destructive-fill text-white" : "bg-accent text-accent-foreground hover:opacity-90")}>
           {recording ? <Square className="size-4" /> : <Mic className="size-4" />}
           {recording ? "Stop" : "Start recording"}
         </button>

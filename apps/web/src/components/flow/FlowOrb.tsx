@@ -214,7 +214,7 @@ export function FlowOrb() {
                 {ask.permission.options.map((o) => (
                   <button key={o.id} onClick={() => cmd({ t: "permission", optionId: o.id })}
                     className={cn(PILL_BTN,
-                      o.kind === "allow_always" ? "bg-danger text-white hover:opacity-90"
+                      o.kind === "allow_always" ? "bg-destructive-fill text-white hover:opacity-90"
                         : o.kind === "allow_once" ? "bg-accent text-accent-foreground hover:opacity-90"
                           : "border border-border bg-card text-foreground hover:bg-foreground/10")}>
                     {o.label}
@@ -323,7 +323,7 @@ function CallOrb({ call }: { call: CallOrbState }) {
         <Maximize2 className="size-[15px]" />
       </button>
       <button type="button" onClick={() => cmd("end")} aria-label="End call" title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`}
-        className={cn(btn, "bg-danger text-white hover:opacity-90")}>
+        className={cn(btn, "bg-destructive-fill text-white hover:opacity-90")}>
         <PhoneOff className="size-4" />
       </button>
     </div>

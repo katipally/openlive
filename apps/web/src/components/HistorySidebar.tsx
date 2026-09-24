@@ -379,7 +379,7 @@ function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete
           <button onClick={onCancel} disabled={busy}
             className="rounded-lg border border-border px-3.5 py-2 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
           <button onClick={() => { setBusy(true); onConfirm(); }} disabled={busy}
-            className="rounded-lg bg-danger px-3.5 py-2 text-label font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
+            className="rounded-lg bg-destructive-fill px-3.5 py-2 text-label font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
         </div>
       </div>
     </div>
