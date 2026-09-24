@@ -1,7 +1,9 @@
 /// <reference lib="webworker" />
 // Runs the heavy on-device voice models OFF the main thread so the orb/UI stay
 // smooth: Whisper (STT) + Kokoro (TTS) on WebGPU/WASM via transformers.js.
-// Smart-Turn runs in turn.worker.ts, so end-of-turn never waits here. GPU work is
+// Smart-Turn runs in turn.worker.ts, so end-of-turn never waits here. A native
+// TTS engine on the agent leaves Kokoro unloaded until it is needed as the
+// fallback. GPU work is
 // serialized. Models download from the hub on first load, then the browser Cache
 // API keeps them across sessions.
 import { pipeline, env } from "@huggingface/transformers";
@@ -87,10 +89,10 @@ self.onmessage = async (e: MessageEvent) => {
       // Load only the SELECTED TTS engine up front; the other lazy-loads on a
       // mid-call engine switch (its first sentence pays the download).
       if (msg.ttsEngine === "supertonic") await ensureSupertonic();
-      else await ensureKokoro();
+      else if (!msg.ttsNative) await ensureKokoro();
       // Warm up (compiles WebGPU shaders) so the first real turn isn't janky.
       try { await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
-      try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1"); else await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
+      try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1"); else if (tts) await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
       post({ type: "ready" });
     } else if (msg.type === "stt") {
       const opts = asrMultilingual ? { language: "en", task: "transcribe" } : undefined;

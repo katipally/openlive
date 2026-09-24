@@ -1,7 +1,7 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
-import { stt, tts, hasWebGPU, turnComplete, turnModelReady } from "./models";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker } from "./voiceText";
+import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, resetNativeFallbacks, isNativeTts } from "./models";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker, STREAMED_FIRST_CHARS } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig } from "./pipelineConfig";
@@ -85,11 +85,13 @@ export class VoiceEngine {
   // Audio segments that arrived while the previous one was still finalizing (slow STT
   // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
   private deferred: Float32Array[] = [];
+  private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
   constructor(private h: VoiceEngineHandlers, player?: AudioPlayer, private tuning: TurnTuning = {}) {
     this.player = player ?? new AudioPlayer();
+    resetNativeFallbacks();
   }
 
   /** The user's saved turn-taking, with this surface's overrides on top. */
@@ -371,7 +373,8 @@ export class VoiceEngine {
   feedAgentDelta(text: string) {
     if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     perf.firstToken(); // no-op after the first delta of a turn
-    for (const s of this.chunker.push(text)) this.enqueueSpeak(s, this.epoch);
+    const firstMin = isNativeTts(loadPipelineConfig().tts.engine) ? STREAMED_FIRST_CHARS : undefined;
+    for (const s of this.chunker.push(text, firstMin)) this.enqueueSpeak(s, this.epoch);
   }
   /** A tool is about to run: voice everything said so far now. Held for the
    *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
@@ -404,29 +407,45 @@ export class VoiceEngine {
       if (!spoken) return;
       // Read voice/speed per sentence so a settings change applies to the next reply.
       const ttsCfg = loadPipelineConfig().tts;
-      const { audio, sampleRate } = await tts(toSpeech(spoken), { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed });
-      if (this.epoch !== epoch) return;
-      const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
-      if (this.phase !== "speaking") {
-        this.speakingStartAt = Date.now(); this.setPhase("speaking");
-        if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
+      const abort = new AbortController();
+      this.ttsAbort = abort;
+      // A streaming engine hands over the sentence in pieces; the chain still waits
+      // for all of them, so sentences play in order while the next one synthesizes
+      // under the current one's playback.
+      let samples = 0, rate = 24000, synthDone = false, first = true;
+      try {
+        await ttsStream(toSpeech(spoken), { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed }, (audio, sampleRate) => {
+          if (this.epoch !== epoch) return;
+          samples += audio.length; rate = sampleRate;
+          if (this.phase !== "speaking") {
+            this.speakingStartAt = Date.now(); this.setPhase("speaking");
+            if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
+          }
+          // Show the caption for THIS sentence when its first piece actually starts
+          // playing (not now, when it was synthesized: synth runs ahead of the voice),
+          // so the subtitle reads out only the words being spoken right now.
+          const onStart = first ? () => {
+            if (this.epoch !== epoch) return;
+            // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
+            // model's reply: keep them out of `spokenText` (barge-in cutoff) and out of
+            // onAgentText (which the client persists into the transcript), or they get
+            // saved as if the assistant said them and contaminate the cutoff.
+            if (outOfBand) return;
+            // Accumulate ONLY as each sentence actually begins playing, so on barge-in
+            // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
+            // tail is excluded from the saved history.
+            this.spokenText += (this.spokenText ? " " : "") + spoken;
+            // How long the sentence voices paces the caption reveal: exact once
+            // synthesis is done (always, for a one-piece engine), else estimated.
+            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, ttsCfg.engine, ttsCfg.speed));
+          } : undefined;
+          first = false;
+          this.player.play(audio, epoch, sampleRate, onStart);
+        }, abort.signal);
+      } finally {
+        synthDone = true;
+        if (this.ttsAbort === abort) this.ttsAbort = null;
       }
-      // Show the caption for THIS chunk when it actually starts playing (not now,
-      // when it finished synthesizing — synth runs ahead of the voice), so the
-      // subtitle reads out only the words being spoken right now.
-      this.player.play(audio, epoch, sampleRate, () => {
-        if (this.epoch !== epoch) return;
-        // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
-        // model's reply — keep them out of `spokenText` (barge-in cutoff) and out of
-        // onAgentText (which the client persists into the transcript), or they get
-        // saved as if the assistant said them and contaminate the cutoff.
-        if (outOfBand) return;
-        // Accumulate ONLY as each chunk actually begins playing — so on barge-in
-        // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
-        // tail is excluded from the saved history.
-        this.spokenText += (this.spokenText ? " " : "") + spoken;
-        this.h.onAgentText(spoken, durationMs);
-      });
     }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
   }
 
@@ -443,6 +462,7 @@ export class VoiceEngine {
   // speech must still be voiced (that flag is barge-in only).
   private hush() {
     this.epoch++;
+    this.ttsAbort?.abort();
     this.player.flush(this.epoch);
     this.chunker.flush();
   }
@@ -490,6 +510,7 @@ export class VoiceEngine {
     this.clearHold();
     this.ptt = false;
     this.epoch++;
+    this.ttsAbort?.abort();
     void this.vad?.destroy().catch(() => { /* */ });
     this.vad = null;
     try { this.micSrc?.disconnect(); } catch { /* */ }

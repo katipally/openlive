@@ -15,6 +15,19 @@ export const FIRST_TTS_CHARS = 24; // but the FIRST chunk of a reply speaks at a
                                    // timbre — the "voice suddenly changes" bug —
                                    // so the opening chunk needs enough text to be
                                    // stable while still starting sub-sentence.
+// A streamed engine (Pocket, Kitten) starts voicing as soon as it gets text and
+// has no measured timbre drift on short input, so its opening only needs one
+// clause: "Sure thing, " and not a sentence and a half.
+export const STREAMED_FIRST_CHARS = 12;
+
+// Characters voiced per second at speed 1, measured 2026-09-24: Pocket TTS 16-18,
+// Kitten TTS 10-14. The low end, so a caption never runs ahead of the voice.
+// Only a sentence still streaming when it starts playing needs an estimate.
+const SPOKEN_CHARS_PER_SEC: Record<string, number> = { pocket: 16, kitten: 10 };
+
+/** How long `text` takes `engine` to speak, for pacing a caption before its audio is all in. */
+export const estimateSpeechMs = (text: string, engine: string, speed = 1) =>
+  (text.length / (SPOKEN_CHARS_PER_SEC[engine] ?? 16) / speed) * 1000;
 
 // Whisper hallucinates these on silence/ambient noise — never treat as a turn.
 // Kept tight: only true silence artifacts. Real short answers ("okay", "yeah",
@@ -135,13 +148,15 @@ export class SentenceChunker {
     return out;
   }
 
-  push(t: string): string[] {
+  // `firstMin` is the opening chunk's length bar: STREAMED_FIRST_CHARS for an
+  // engine that streams its audio.
+  push(t: string, firstMin = FIRST_TTS_CHARS): string[] {
     this.buf += this.stripFences(t);
     const out: string[] = [];
     // Fast start — only when nothing is already held (`ready` empty) so we never
     // speak the opening ahead of an earlier short sentence waiting to merge.
     if (!this.started && !this.ready) {
-      const first = this.takeFirst();
+      const first = this.takeFirst(firstMin);
       if (first) { out.push(first); this.started = true; }
     }
     let last = 0;
@@ -153,7 +168,7 @@ export class SentenceChunker {
       last = end;
       // First chunk clears the low bar so even a short single sentence speaks
       // now; every chunk after keeps the stable MIN_TTS_CHARS timbre bar.
-      const bar = this.started ? MIN_TTS_CHARS : FIRST_TTS_CHARS;
+      const bar = this.started ? MIN_TTS_CHARS : firstMin;
       if (this.ready.trim().length >= bar) { out.push(this.ready.trim()); this.ready = ""; this.started = true; }
     }
     if (last) this.buf = this.buf.slice(last);
@@ -163,9 +178,9 @@ export class SentenceChunker {
   // an early clause boundary, else — for a LONG opening sentence with no early
   // pause — the first few words at a word boundary. A short sentence (terminal
   // within reach) is left for the sentence loop to emit whole.
-  private takeFirst(): string | null {
+  private takeFirst(min: number): string | null {
     const s = this.buf;
-    if (s.trim().length < FIRST_TTS_CHARS) return null;
+    if (s.trim().length < min) return null;
     const clause = /^([\s\S]{12,}?[,;:—–])\s/.exec(s);
     if (clause) { this.buf = s.slice(clause[0].length); return clause[1]!.trim(); }
     if (/[.!?](\s|$)/.test(s.slice(0, 90))) return null; // a full sentence ends soon — don't chop it

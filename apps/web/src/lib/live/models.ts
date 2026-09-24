@@ -1,9 +1,14 @@
-// Main-thread facade over the model Web Worker. Downloads happen ONLY when
+// Main-thread facade over the model Web Worker, plus the routing to the native
+// engines on the local agent (/api/voice) when one is selected. Downloads happen ONLY when
 // loadModels() is called (on the user's click in the pre-call screen), reporting
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
-import { loadPipelineConfig, workerTag, tagCached } from "./pipelineConfig";
+import { loadPipelineConfig, workerTag, tagCached, TTS_ENGINES, type TtsEngine } from "./pipelineConfig";
+import { pcmDecoder } from "./pcm";
+import { failureIsLasting } from "./nativeFailure";
+import { toast } from "@/lib/toast";
+import { log } from "@/lib/log";
 
 export type ModelKey = "stt" | "tts" | "turn";
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
@@ -164,7 +169,10 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     const cfg = loadPipelineConfig();
-    w.postMessage({ type: "load", device: tier, whisperSize: sttSize(), ttsEngine: cfg.tts.engine, ttsVoice: cfg.tts.voice });
+    w.postMessage({
+      type: "load", device: tier, whisperSize: sttSize(),
+      ttsEngine: cfg.tts.engine, ttsNative: isNativeTts(cfg.tts.engine), ttsVoice: cfg.tts.voice,
+    });
     tw.postMessage({ type: "load" });
   });
   loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
@@ -196,6 +204,20 @@ function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
     (msg.type === "turn" ? turnWorker : worker)!.postMessage({ ...msg, id }, transfer ?? []);
   });
 }
+
+// ── native engines on the local agent ────────────────────────────────────────
+// A native engine that fails falls back to the in-browser one for that call. A
+// lasting failure (nativeFailure.ts) swaps it out for the rest of the session,
+// with one toast; either way, never a broken call.
+let ttsFallback: TtsEngine | null = null;
+const shortName = (name: string) => name.split(/ \(|,/)[0]!;
+const httpError = async (res: Response) =>
+  Object.assign(new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${res.status}`), { status: res.status });
+
+export const isNativeTts = (id: string | undefined) => !!TTS_ENGINES.find((e) => e.id === id)?.native;
+
+/** A new call gives a failed native engine another chance. */
+export function resetNativeFallbacks() { ttsFallback = null; }
 
 /** Transcribe a 16 kHz mono utterance → text. */
 export async function stt(audio: Float32Array): Promise<string> {
@@ -230,10 +252,79 @@ async function cloneTts(text: string, voice: string, speed?: number): Promise<{ 
   }
 }
 
+type TtsOpts = { engine?: string; voice?: string; speed?: number };
+
+// How long a native engine may go without sending audio before the sentence
+// counts as stalled. Measured 2026-09-24 on Apple Silicon: first chunk 0.3-0.5 s
+// (Pocket) and 0.4-0.85 s (a whole Kitten sentence) for a short sentence, but
+// 1.2-1.5 s and ~2 s for a 200-character chunk with no punctuation (Kitten does
+// it in one piece, ~10 ms a character); a cold load adds ~0.3 s. 4 s plus 50 ms
+// a character is about 5x that for any length, room for a slow CPU, while a hung
+// agent costs one sentence instead of the reply. A gap between chunks is at most
+// the next Kitten sentence of the same text, so the same bound covers it.
+const ttsStallMs = (text: string) => 4000 + 50 * text.length;
+
+/** Speak `text`, handing each piece of audio to `onChunk` as soon as it exists:
+ *  a native engine streams from the agent, the others arrive in one piece. A
+ *  native engine that fails before any audio falls back to Kokoro. Resolves once
+ *  every piece is handed over; aborting `signal` ends it quietly. */
+export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk: (audio: Float32Array, sampleRate: number) => void, signal?: AbortSignal): Promise<void> {
+  const engine = opts?.engine as TtsEngine | undefined;
+  if (isNativeTts(engine) && engine !== ttsFallback) {
+    let voiced = false;
+    // A stalled agent aborts like a failure with no status: this sentence falls
+    // back, the session keeps the engine (failureIsLasting is false for it).
+    const stalled = new AbortController();
+    const stallMs = ttsStallMs(text);
+    let timer = setTimeout(() => stalled.abort(new Error("no audio in time")), stallMs);
+    try {
+      const res = await fetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ engine, text, voice: opts?.voice, speed: opts?.speed }),
+        signal: signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal,
+      });
+      if (!res.ok || !res.body) throw await httpError(res);
+      const rate = Number(res.headers.get("x-sample-rate")) || 24000;
+      const decode = pcmDecoder();
+      const reader = res.body.getReader();
+      for (let r = await reader.read(); !r.done; r = await reader.read()) {
+        const pcm = decode(r.value);
+        if (!pcm.length) continue;
+        clearTimeout(timer);
+        timer = setTimeout(() => stalled.abort(new Error("audio stopped arriving")), stallMs);
+        voiced = true;
+        onChunk(pcm, rate);
+      }
+      return;
+    } catch (e) {
+      if (signal?.aborted) return;
+      // Restarting a half-spoken sentence in another voice is worse than its tail missing.
+      if (voiced) { log.warn("tts", `${engine} stream broke off:`, e); return; }
+      log.error("tts", `${engine} failed, using Kokoro:`, e);
+      if (failureIsLasting(e) && ttsFallback !== engine) {
+        ttsFallback = engine!;
+        toast(`${shortName(TTS_ENGINES.find((x) => x.id === engine)!.name)} unavailable, using Kokoro. Check Settings > Voice pipeline.`);
+      }
+    } finally { clearTimeout(timer); }
+  }
+  if (isNativeTts(engine)) opts = { engine: "kokoro", speed: opts?.speed }; // worker default voice
+  const { audio, sampleRate } = await tts(text, opts);
+  if (!signal?.aborted) onChunk(audio, sampleRate);
+}
+
 /** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
- *  user's pipeline config; a cloned voice routes to the local agent service and
- *  falls back to Kokoro if unavailable. */
-export async function tts(text: string, opts?: { engine?: string; voice?: string; speed?: number }): Promise<{ audio: Float32Array; sampleRate: number }> {
+ *  user's pipeline config; a cloned voice or a native engine routes to the local
+ *  agent service and falls back to Kokoro if unavailable. */
+export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float32Array; sampleRate: number }> {
+  if (isNativeTts(opts?.engine)) {
+    const parts: Float32Array[] = [];
+    let sampleRate = 24000;
+    await ttsStream(text, opts, (a, r) => { parts.push(a); sampleRate = r; });
+    const audio = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+    parts.reduce((off, p) => { audio.set(p, off); return off + p.length; }, 0);
+    return { audio, sampleRate };
+  }
   if (opts?.engine === "clone") {
     const cloned = opts.voice ? await cloneTts(text, opts.voice, opts.speed) : null;
     if (cloned) return cloned;

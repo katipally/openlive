@@ -2,7 +2,7 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS } from "./voiceText.ts";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, STREAMED_FIRST_CHARS, estimateSpeechMs } from "./voiceText.ts";
 
 test("isJunk: silence artifacts dropped, real short answers kept", () => {
   assert.equal(isJunk("thank you for watching"), true);
@@ -165,4 +165,25 @@ test("SentenceChunker: a flush before a tool voices the whole held tail, then th
   assert.deepEqual(c.push("Let me look up the forecast for today."), []); // could still grow into a name
   assert.equal(c.flush(), "Let me look up the forecast for today.");
   assert.deepEqual(c.push("It is sunny all day in the city. "), ["It is sunny all day in the city."]); // fast first chunk again
+});
+
+test("SentenceChunker: a streamed engine opens on the first clause of 12+ characters", () => {
+  const c = new SentenceChunker();
+  assert.deepEqual(c.push("Sure, ", STREAMED_FIRST_CHARS), []);                 // too short to open on
+  assert.deepEqual(c.push("I can help with that, and ", STREAMED_FIRST_CHARS), ["Sure, I can help with that,"]);
+  // Later chunks keep the stable MIN bar, so the rest does not come out choppy.
+  assert.deepEqual(c.push("it is quick. Yes. ", STREAMED_FIRST_CHARS), []);
+  assert.equal(c.flush(), "and it is quick. Yes.");
+  // The default bar is unchanged: the same opening waits for 24 characters.
+  const k = new SentenceChunker();
+  assert.deepEqual(k.push("Sure thing, okay. "), []);
+  assert.deepEqual(new SentenceChunker().push("Sure thing, okay. ", STREAMED_FIRST_CHARS), ["Sure thing, okay."]);
+});
+
+test("estimateSpeechMs: scales with length, inversely with speed, at each engine's rate", () => {
+  assert.equal(estimateSpeechMs("", "pocket"), 0);
+  assert.equal(estimateSpeechMs("x".repeat(32), "pocket"), 2000);
+  assert.equal(estimateSpeechMs("x".repeat(32), "pocket", 2), 1000);
+  assert.equal(estimateSpeechMs("x".repeat(30), "kitten"), 3000);
+  assert.equal(estimateSpeechMs("x".repeat(32), "kokoro"), 2000); // one-piece engines: exact duration is used instead
 });

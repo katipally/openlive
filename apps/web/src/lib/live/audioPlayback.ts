@@ -46,7 +46,8 @@ export class AudioPlayer {
     return this.ctx;
   }
 
-  // On-device TTS (Kokoro) hands us Float32 @ 24 kHz directly. `onStart` fires
+  // TTS hands us Float32 (24 kHz from Kokoro and the native engines), whole or
+  // as streamed pieces that queue back to back. `onStart` fires
   // when THIS chunk actually begins playing (not when it was synthesized) — so a
   // caption can track the voice instead of racing ahead of it.
   play(f32: Float32Array, epoch: number, sampleRate = 24000, onStart?: () => void) {
