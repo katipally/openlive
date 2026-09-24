@@ -27,6 +27,7 @@ uniform vec4 uB; // exposure, edgeGlow, sheen, contourDeform
 uniform vec4 uC; // amp, envW, braid, core
 uniform vec4 uD; // pulse, sweep, ripple, radius
 uniform vec3 uCol[6]; // colorA, colorB, colorC, colorD, highlight, glow
+uniform vec2 uE; // wash, crest
 out vec4 outColor;
 
 const vec3 SHELL_INNER = vec3(1.0);
@@ -81,7 +82,7 @@ vec3 siriFluid(vec2 p) {
   float whiteCore = exp(-mainDistance * mainDistance / 0.0028) * envelope * uC.w;
   vec3 atmosphere = mix(uCol[3], uCol[1], smoothstep(-0.7, 0.7, q.y)) * 0.018;
   vec3 color = atmosphere + spectral * energy * 1.14;
-  color += uCol[4] * whiteCore * (0.18 + 0.1 * low);
+  color += uCol[4] * whiteCore * (0.18 + 0.1 * low) * (1.0 + uE.y);
   color = color / (vec3(1.0) + color * 0.18);
 
   float shade = uA.w;
@@ -152,6 +153,8 @@ void main() {
       fcol = vec3(siriFluid(refracted - normal * split).r, siriFluid(refracted).g,
                   siriFluid(refracted + normal * split).b);
     }
+    // The wash cuts the faint fog between the threads, so the glass stays deep.
+    fcol = max(fcol - vec3(uE.x), 0.0) / (1.0 - uE.x);
     float lum = dot(fcol, vec3(0.213, 0.715, 0.072));
     vec3 clearSat = clamp(vec3(lum) + (fcol - vec3(lum)) * 1.22, 0.0, 1.0);
     // Divided by the exposure applied below, so the body lands as is. The wave
@@ -191,6 +194,9 @@ const TAU = Math.PI * 2;
 // float32 had no fractional digits left for it.
 const RATES = [0.37, 0.51, 0.73, 2.4, 1.9, 1.3, 3.2, 0.62, 0.41, 0.23, 0.35];
 
+/** The wave's phase in the logo art. Every orb starts here, and the mark holds it. */
+export const MARK_POSE = [0, 0.37, 4.18, 0.3, 0, 0, 0, 0, 0, 0, 0];
+
 export function advancePhase(w: number[], by: number) {
   for (let i = 0; i < RATES.length; i++) {
     const period = i === RATES.length - 1 ? 1 : TAU;
@@ -202,13 +208,16 @@ export function advancePhase(w: number[], by: number) {
 // (thinking = the siri preset, the rest derived from it); amp..audio extend the
 // wave so states read by motion and shape, not by colour alone.
 const KEYS = ["speed", "contourDeform", "zoom", "warp", "ridgeAmt", "shade", "exposure", "edgeGlow",
-  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio", "lift"] as const;
+  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio", "lift", "sheen", "wash", "crest"] as const;
 type Key = (typeof KEYS)[number];
 const BASE: Record<Key, number> = { speed: 0.82, contourDeform: 0, zoom: 0.36, warp: 3.2, ridgeAmt: 0.5, shade: 0.12, exposure: 2, edgeGlow: 0,
-  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0, lift: 0 };
+  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0, lift: 0, sheen: 0.28, wash: 0, crest: 0 };
 const CALM = { speed: 0.246, zoom: 0.3384, warp: 1.664, ridgeAmt: 0.24, exposure: 1.36 };
 
 export const WAVE_ORB_STATES = {
+  // The OpenLive logo: the speaking wave held at a peak (MARK_POSE), breathing.
+  mark: { speed: 0, warp: 5, exposure: 1.9, edgeGlow: 0.4, amp: 1.9, breathe: 0.75, sheen: 0.44, wash: 0.1, crest: 1.2,
+    colors: ["#9FD4FF", "#6F8CE6", "#B08CFF", "#5B6CFF", "#FFFFFF", "#6F8CE6"] },
   off: { ...CALM, speed: 0.12, amp: 0.05, core: 0.45, exposure: 0.9,
     colors: ["#5A6272", "#4A5364", "#545B6E", "#414858", "#8A93A6", "#3A4050"] },
   idle: { ...CALM, speed: 0.12, amp: 0.8, breathe: 1,
@@ -356,7 +365,7 @@ function drawFlat(ctx: CanvasRenderingContext2D, w: number, h: number, radius: n
 }
 
 type Orb = { visible: boolean; w: number; h: number; dirty: boolean; wants(): boolean; draw(now: number, dt: number, live: boolean): void };
-type Uniform = "uSize" | "uW" | "uA" | "uB" | "uC" | "uD" | "uCol";
+type Uniform = "uSize" | "uW" | "uA" | "uB" | "uC" | "uD" | "uE" | "uCol";
 const orbs = new Set<Orb>();
 let gl: WebGL2RenderingContext | null = null, glCanvas: HTMLCanvasElement | null = null;
 let prog: WebGLProgram | null = null, loc: Record<Uniform, WebGLUniformLocation | null> | null = null;
@@ -380,7 +389,7 @@ function build(g: WebGL2RenderingContext) {
   }
   g.useProgram(p);
   g.bindVertexArray(g.createVertexArray());
-  loc = Object.fromEntries((["uSize", "uW", "uA", "uB", "uC", "uD", "uCol"] as const).map((n) => [n, g.getUniformLocation(p, n)])) as typeof loc;
+  loc = Object.fromEntries((["uSize", "uW", "uA", "uB", "uC", "uD", "uE", "uCol"] as const).map((n) => [n, g.getUniformLocation(p, n)])) as typeof loc;
   prog = p;
 }
 
@@ -452,7 +461,7 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
   let from = TARGETS[state], to = from, name = state, start = 0, dur = 0, ease = (x: number) => x;
   const target: WaveOrbBands = { low: 0, mid: 0, high: 0, all: 0 };
   const band: WaveOrbBands = { low: 0, mid: 0, high: 0, all: 0 };
-  const w = RATES.map(() => 0);
+  const w = [...MARK_POSE];
   // Seconds this orb has drawn for, paused time excluded, so breathing resumes where it stopped.
   let clock = 0;
   const cols = new Float32Array(18);
@@ -484,7 +493,7 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       const speed = rule(n[K.speed]!, 0, 0.7, 5, band.all) + lift * 1.2 * band.all;
       const warp = rule(n[K.warp]!, 0.85, 0, 7, band.mid) + lift * 2 * band.mid;
       const contour = rule(n[K.contourDeform]!, 0.075, 0, 1, band.low);
-      const sheen = rule(0.28, 0.16, 0, 2, band.high);
+      const sheen = rule(n[K.sheen]!, 0.16, 0, 2, band.high);
       const exposure = rule(n[K.exposure]!, 0, 0.12, 4, band.all);
       clock += dt;
       let amp = n[K.amp]! * Math.min(1.8 + lift * 1.6, 1 + s * (0.7 * band.low + 0.4 * band.all));
@@ -510,6 +519,7 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       g.uniform4f(l.uB, exposure, n[K.edgeGlow]!, sheen, contour);
       g.uniform4f(l.uC, amp, n[K.envW]!, n[K.braid]!, n[K.core]!);
       g.uniform4f(l.uD, n[K.pulse]!, n[K.sweep]!, n[K.ripple]!, radius);
+      g.uniform2f(l.uE, n[K.wash]!, n[K.crest]!);
       g.uniform3fv(l.uCol, cols);
       g.drawArrays(g.TRIANGLES, 0, 3);
       ctx.clearRect(0, 0, o.w, o.h);

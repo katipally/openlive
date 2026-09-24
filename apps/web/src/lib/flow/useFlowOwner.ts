@@ -622,7 +622,7 @@ export function useFlowOwner(): void {
     const bands = setInterval(() => {
       if (!summoned.current) return;
       const e = engine.current;
-      panel.panelState?.({ k: "b", mic: e?.micBands() ?? IDLE_BANDS, agent: e?.agentBands() ?? IDLE_BANDS });
+      panel.panelState?.({ k: "b", mic: e?.micBands() ?? IDLE_BANDS, agent: e?.agentBands() ?? IDLE_BANDS, agentLevel: e?.agentLevel() ?? 0 });
     }, BANDS_MS);
 
     const online = () => void refreshHealth();

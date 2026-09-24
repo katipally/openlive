@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advancePhase, glassBody, lin, micGate, mixFrame, srgb, TARGETS, transitionTo, voiceBands, WAVE_ORB_RADIUS, WAVE_ORB_STATES } from "./waveOrb";
+import { advancePhase, glassBody, lin, MARK_POSE, micGate, mixFrame, srgb, TARGETS, transitionTo, voiceBands, WAVE_ORB_RADIUS, WAVE_ORB_STATES } from "./waveOrb";
 
 describe("wave orb colour", () => {
   it("round-trips sRGB through linear light", () => {
@@ -51,6 +51,29 @@ describe("wave orb transitions", () => {
     const next = mixFrame(shown, TARGETS.error, 0);
     expect(next).toEqual(shown);
     mixFrame(shown, TARGETS.error, 1).n.forEach((v, i) => expect(v).toBeCloseTo(TARGETS.error.n[i]!, 12));
+  });
+});
+
+describe("the mark", () => {
+  it("is the speaking palette held still, breathing, deaf to audio", () => {
+    const { mark, speaking } = WAVE_ORB_STATES;
+    expect(mark.colors).toEqual(speaking.colors);
+    expect(mark.speed).toBe(0);
+    expect(mark.breathe).toBeGreaterThan(0);
+    expect("audio" in mark).toBe(false);
+  });
+
+  it("holds the logo's pose, since no speed means no phase advance", () => {
+    const w = [...MARK_POSE];
+    expect(w).toHaveLength(11);
+    advancePhase(w, 0);
+    expect(w).toEqual(MARK_POSE);
+  });
+
+  it("glides into any other state rather than snapping", () => {
+    expect(transitionTo("idle", false).dur).toBe(650);
+    const half = mixFrame(TARGETS.mark, TARGETS.idle, 0.5);
+    half.n.forEach((v, i) => expect(v).toBeCloseTo((TARGETS.mark.n[i]! + TARGETS.idle.n[i]!) / 2, 12));
   });
 });
 

@@ -54,14 +54,14 @@ export function FlowOrb() {
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [hovered, setHovered] = useState(false);
   const [call, setCall] = useState<CallOrbState | null>(null);
-  const bands = useRef<{ mic: number[]; agent: number[] }>({ mic: NO_BANDS, agent: NO_BANDS });
+  const bands = useRef<{ mic: number[]; agent: number[]; agentLevel: number }>({ mic: NO_BANDS, agent: NO_BANDS, agentLevel: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const cmd = (c: PanelCmd) => openliveBridge()?.panelCmd?.(c);
 
   useEffect(() => {
     openliveBridge()?.onPanelState?.((p: PanelPacket) => {
-      if (p.k === "b") { bands.current = { mic: p.mic, agent: p.agent }; return; }
+      if (p.k === "b") { bands.current = { mic: p.mic, agent: p.agent, agentLevel: p.agentLevel }; return; }
       if (p.k !== "s") return;
       const next = p.s as PanelStateSnapshot;
       setPermission(next.permission);
@@ -272,7 +272,7 @@ export function FlowOrb() {
         <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })}
           className="right-full origin-right" style={{ marginRight: CONTROL_GAP }}><X className="size-4" /></Control>
         <div data-hit>
-          <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: 0 })} getBands={() => bands.current} size={ORB_SIZE} />
+          <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
         </div>
         <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()}
           className="left-full origin-left" style={{ marginLeft: CONTROL_GAP }}><Maximize2 className="size-[15px]" /></Control>
