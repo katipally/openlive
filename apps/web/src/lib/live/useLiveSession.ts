@@ -372,6 +372,7 @@ export function useLiveSession(chatId: string) {
         // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
         // not bundled in after the answer. toolStatus drives the in-call status line.
         if (e.type === "tool_start") {
+          engine.current?.endAgentStep();
           closeSpokenSegment(); // don't let the pre-tool text re-emit after the tool part
           set({ toolStatus: e.tool });
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
@@ -385,6 +386,7 @@ export function useLiveSession(chatId: string) {
         // Rich ACP tool calls (coding agents): same live-cue treatment as
         // tool_start/tool_done, but the full call state flows to the transcript.
         if (e.type === "acp_tool_call") {
+          engine.current?.endAgentStep();
           closeSpokenSegment();
           set({ toolStatus: `${kindMeta(e.call.kind).active} — ${e.call.title}` });
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
