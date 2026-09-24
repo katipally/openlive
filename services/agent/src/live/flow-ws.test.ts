@@ -136,6 +136,28 @@ describe("FlowLiveSession", () => {
     expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["and again"]);
   });
 
+  it("starts the next utterance fresh on a new session, but not under a running turn", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = reply("Paris.");
+    ws.say("capital of France?");
+    await until(() => turnsDone(ws) === 1);
+
+    // Asked mid-turn it is ignored: the turn keeps the transcript it is writing into.
+    fake.script = [async () => { ws.client({ t: "flow_new" }); await tick(); }, ...reply("Berlin.")];
+    ws.say("and Germany?");
+    await until(() => turnsDone(ws) === 2);
+    expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["capital of France?", "Paris.", "and Germany?"]);
+
+    ws.client({ t: "flow_new" });
+    await tick();
+    fake.script = reply("Rome.");
+    ws.say("and Italy?");
+    await until(() => turnsDone(ws) === 3);
+    expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["and Italy?"]);
+  });
+
   it("takes consent once, out loud, when the machine never gave it", async () => {
     const ws = new FakeSocket();
     fake.consented = false;

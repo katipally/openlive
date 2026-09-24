@@ -54,6 +54,9 @@ export function FlowOrb() {
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [hovered, setHovered] = useState(false);
   const [call, setCall] = useState<CallOrbState | null>(null);
+  /** Whether the window is on screen. Nothing rises while it is hidden, so a
+   *  card from before a close can never be caught mid-exit by the next open. */
+  const [shown, setShown] = useState(false);
   const bands = useRef<{ mic: number[]; agent: number[]; agentLevel: number }>({ mic: NO_BANDS, agent: NO_BANDS, agentLevel: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -69,7 +72,7 @@ export function FlowOrb() {
     });
     // Its window hides as the call orb goes, with no `hiding` to say so; a summon
     // that follows is always `shown` after this.
-    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) pauseWaveOrbs(true); });
+    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) { pauseWaveOrbs(true); setShown(false); } });
   }, []);
 
   const stripRef = useRef<HTMLDivElement>(null);
@@ -85,7 +88,7 @@ export function FlowOrb() {
 
   // Not over a turn in flight, where the caption is the thing to see; a failure
   // found as Flow opens is shown while it listens.
-  const failure = s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
+  const failure = shown && s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
   // The two things worth interrupting someone for. Everything else is the orb.
   const asking = !!permission || !!failure;
   if (asking) lastAsk.current = { permission, failure };
@@ -94,7 +97,7 @@ export function FlowOrb() {
   // only thing that tells someone their machine is being driven, and by what.
   // Any other phase that says why it is waiting says so here too.
   const acting = s.phase === "acting" || s.phase === "confirming";
-  const captioned = !asking && (acting || !!s.detail);
+  const captioned = shown && !asking && (acting || !!s.detail);
   // Held through the strip's exit: blanking the words the moment the phase
   // changes empties the strip a beat before it has finished leaving.
   const said = captioned ? s.detail || "Working" : "";
@@ -103,6 +106,8 @@ export function FlowOrb() {
 
   useEffect(() => { if (captioned) setStripUp(true); }, [captioned]);
   useEffect(() => { if (asking) setCardUp(true); }, [asking]);
+  // Gone with the window rather than left sinking in it.
+  useEffect(() => { if (!shown) { setStripUp(false); setCardUp(false); } }, [shown]);
   useRise(stripRef, captioned, stripUp, () => setStripUp(false), 0.2);
   useRise(cardRef, asking, cardUp, () => setCardUp(false), 0.25);
 
@@ -154,19 +159,20 @@ export function FlowOrb() {
     // here too, and overwriting the exit keeps it from ever answering `hidden`.
     api.onShown?.(() => {
       pauseWaveOrbs(false);
+      setShown(true);
       inside = false; at = null; clearTimeout(linger); setHovered(false);
       gsap.to(root, { autoAlpha: 1, y: 0, duration: prefersReduced() ? 0 : 0.2, ease: EASE.out, overwrite: true });
     });
     // The window hides only once this answers, which leaves the orb faded out
     // for the next open to rise from.
     api.onHiding?.(() => {
-      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); api.hidden?.(); } });
+      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); setShown(false); api.hidden?.(); } });
     });
     // Background throttling is off here, so a hidden window would keep drawing
     // the orb: it holds still until shown. The window may have been shown before
     // `onShown` was listening, so it asks.
     pauseWaveOrbs(true);
-    void api.visible?.().then((v) => { if (v) pauseWaveOrbs(false); });
+    void api.visible?.().then((v) => { if (v) { pauseWaveOrbs(false); setShown(true); } });
     window.addEventListener("mousemove", onMove);
     document.addEventListener("mouseleave", onLeave);
     return () => {

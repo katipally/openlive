@@ -32,7 +32,12 @@ export interface FlowFailure {
   detail: string;
   /** The single thing they can do about it. Absent when there is nothing to press. */
   actionLabel?: string;
+  /** The settings page that action opens, when the fix lives in settings. */
+  settings?: FlowSettingsPage;
 }
+
+/** The settings pages a failure's fix can live on. */
+export type FlowSettingsPage = "models" | "flow" | "agents";
 
 export interface FlowSnapshot {
   phase: FlowPhase;

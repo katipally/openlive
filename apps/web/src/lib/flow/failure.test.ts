@@ -59,6 +59,32 @@ describe("turnFailure", () => {
     }
   });
 
+  it("opens the settings page the card's own words name", () => {
+    expect(deriveFailure({ ...HEALTHY, brainReady: false })?.settings).toBe("flow");
+    const key = turnFailure("No API key for OpenAI. Add one in Settings > Models.");
+    expect(key.detail).toContain("Settings > Models");
+    expect(key.settings).toBe("models");
+    expect(turnFailure("HTTP 401: invalid x-api-key").settings).toBe("models");
+    expect(turnFailure('HTTP 404: {"error":{"message":"model not found"}}').settings).toBe("models");
+    // A coding agent signs in under Agents and has its model pinned in Flow.
+    expect(turnFailure("Authentication required", true).settings).toBe("agents");
+    expect(turnFailure("unknown model opus-9", true).settings).toBe("flow");
+  });
+
+  it("sends a model it could not reach at a named address to where the address is set", () => {
+    const f = turnFailure("Could not reach Ollama (local) at http://nas:11434. Is it running?");
+    expect(f.actionLabel).toBeTruthy();
+    expect(f.settings).toBe("models");
+  });
+
+  it("has a page to open for every card whose button is a settings fix", () => {
+    const withButton = [
+      "No API key for OpenAI. Add one in Settings > Models.", "HTTP 403: forbidden", "HTTP 404: model not found",
+      "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?",
+    ];
+    for (const agent of [false, true]) for (const m of withButton) expect(turnFailure(m, agent).settings).toBeTruthy();
+  });
+
   it("reads the provider's own sentence out of a JSON error body", () => {
     expect(turnFailure('HTTP 404: {"error":{"message":"model \\"qwen9\\" not found"}}').detail).toBe('model "qwen9" not found. Pick another in settings.');
     expect(turnFailure('HTTP 401: {"error":{"message":"bad key"}}').detail).toBe("bad key");
