@@ -24,6 +24,11 @@ async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[]
   return turn.text.trim();
 }
 
+/** Each step streams its text on its own, so "On it." and the next step's "No
+ *  workspace…" would run together wherever the turn is stored as one text. */
+export const stepGap = (before: string, next: string): string =>
+  before && next && !/\s$/.test(before) && !/^\s/.test(next) ? " " : "";
+
 // Lower than a text chat's step cap ON PURPOSE. Every tool round before the model
 // speaks is dead air in a live call, so cap the worst case tightly.
 const MAX_STEPS = 6;
@@ -123,11 +128,18 @@ export class LiveTurnRunner {
     // Track assistant text AS it streams, so a barge-in that aborts mid-sentence
     // doesn't lose what we'd started saying.
     let partial = "";
-    const track: Emit = (e) => { if (e.type === "text_delta") partial += e.text; return emit(e); };
+    let before = "";
+    const track: Emit = (e) => {
+      if (e.type !== "text_delta") return emit(e);
+      const text = partial ? e.text : stepGap(before, e.text) + e.text;
+      partial += text;
+      return emit({ ...e, text });
+    };
 
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         if (signal.aborted) return;
+        if (partial) before = partial;
         partial = "";
         const turn = await collectTurn(
           streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: toolDefs, ...reasoning, maxTokens: 4096 }, signal),
