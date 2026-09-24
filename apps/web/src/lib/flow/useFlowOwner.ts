@@ -66,10 +66,6 @@ export function useFlowOwner(): void {
   const settings = useRef<FlowSettings | null>(null);
   const brainReady = useRef(false);
   const turnActive = useRef(false);
-  /** The key is up and the words are still being worked out. The orb must not
-   *  leave and the microphone must not close during this, or the answer arrives
-   *  to a torn-down turn and is never seen. */
-  const finalizing = useRef(false);
   const summoned = useRef(false);
   const disarmed = useRef(false);
   /** Whether the addon currently holds a registration. */
@@ -139,7 +135,6 @@ export function useFlowOwner(): void {
       // teardownMic is what lets the microphone actually close: it declines to
       // close one a turn still claims.
       turnActive.current = false;
-      finalizing.current = false;
       snap.current = { ...IDLE_FLOW, failure: snap.current.failure };
       publish();
       teardownMic();
@@ -158,7 +153,6 @@ export function useFlowOwner(): void {
      */
     const failTurn = (message: string) => {
       turnActive.current = false;
-      finalizing.current = false;
       stopAnswerWatchdog();
       // The orb draws a failure, never `reply`, so a reason has to become one.
       patch(message ? { reply: message, failure: turnFailure(message, settings.current?.brain.kind === "acp") } : { reply: message });
@@ -178,7 +172,7 @@ export function useFlowOwner(): void {
       stopIdleRetire();
       idleTimer.current = setTimeout(() => {
         idleTimer.current = null;
-        if (turnActive.current || finalizing.current) return;
+        if (turnActive.current) return;
         dismiss();
       }, settings.current?.idleWindowMs ?? IDLE_RETIRE_MS);
     };
@@ -233,8 +227,8 @@ export function useFlowOwner(): void {
     };
 
     // ── the cascade ───────────────────────────────────────────────────────
-    // The microphone is held only while a turn is in flight: Flow has no wake
-    // word and never listens between triggers.
+    // The microphone is held only while Flow is open: Flow has no wake word and
+    // never listens while it is closed.
     const ensureEngine = async () => {
       if (engine.current) return;
       if (starting.current) return starting.current;
@@ -270,7 +264,7 @@ export function useFlowOwner(): void {
     };
 
     const teardownMic = () => {
-      if (turnActive.current || finalizing.current) return;
+      if (turnActive.current) return;
       try { engine.current?.stop(); } catch { /* */ }
       engine.current = null;
       try { stream.current?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
@@ -282,7 +276,7 @@ export function useFlowOwner(): void {
       if (p === "speaking") return setPhase("speaking");
       // The session is still open and the microphone is still on: the resting
       // state between turns is listening, not gone.
-      if (p === "idle" && !turnActive.current && !finalizing.current) backToListening();
+      if (p === "idle" && !turnActive.current) backToListening();
     };
 
     /** A turn ended and the session did not. Flow waits for the next sentence. */
@@ -633,9 +627,9 @@ export function useFlowOwner(): void {
     });
 
     // The tray's "New Flow session" with Flow already open. A turn still running
-    // or finishing, or a question waiting on an answer, is left to finish.
+    // or a question waiting on an answer is left to finish.
     const offNew = api.onNewSession?.(() => {
-      if (turnActive.current || finalizing.current || permission.current) return;
+      if (turnActive.current || permission.current) return;
       client.current?.flowNew();
       void onOpen();
       setPhase("listening", "Started a new session.");
