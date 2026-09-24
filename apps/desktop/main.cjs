@@ -1055,6 +1055,8 @@ function checkForUpdatesNow() {
 }
 
 async function boot() {
+  // The packaged app takes its dock icon from icon.icns; the dev binary would show Electron's.
+  if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, "build", "icon.png"));
   buildMenu();
   createTray();
   wirePermissions();
