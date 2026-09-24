@@ -55,19 +55,23 @@ describe("wave orb transitions", () => {
 });
 
 describe("the mark", () => {
-  it("is the speaking palette held still, breathing, deaf to audio", () => {
-    const { mark, speaking } = WAVE_ORB_STATES;
-    expect(mark.colors).toEqual(speaking.colors);
-    expect(mark.speed).toBe(0);
-    expect(mark.breathe).toBeGreaterThan(0);
-    expect("audio" in mark).toBe(false);
+  it("is the speaking orb at half pace, humming a steady voice in place of audio, breathing", () => {
+    const { mark, speaking } = TARGETS;
+    expect(mark.c).toEqual(speaking.c);
+    const differ = mark.n.map((v, i) => (v === speaking.n[i] ? -1 : i)).filter((i) => i >= 0);
+    expect(differ).toHaveLength(3); // speed, breathe and hum; audio included, it answers the hum
+    expect(WAVE_ORB_STATES.mark.speed).toBe(WAVE_ORB_STATES.speaking.speed / 2);
+    expect(WAVE_ORB_STATES.mark.hum).toBeGreaterThan(0);
+    expect(WAVE_ORB_STATES.mark.breathe).toBeGreaterThan(0);
   });
 
-  it("holds the logo's pose, since no speed means no phase advance", () => {
-    const w = [...MARK_POSE];
-    expect(w).toHaveLength(11);
-    advancePhase(w, 0);
-    expect(w).toEqual(MARK_POSE);
+  it("rests on a real frame of the speaking wave, and holds it with no time passing", () => {
+    const w = new Array(11).fill(0);
+    advancePhase(w, 37.7);
+    w.forEach((v, i) => expect(MARK_POSE[i]).toBeCloseTo(v, 2));
+    const still = [...MARK_POSE];
+    advancePhase(still, 0);
+    expect(still).toEqual(MARK_POSE);
   });
 
   it("glides into any other state rather than snapping", () => {
