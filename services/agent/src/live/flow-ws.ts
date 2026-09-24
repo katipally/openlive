@@ -67,6 +67,14 @@ export function transcriptOf(entries: { type: string; [k: string]: unknown }[]):
   return out;
 }
 
+/** What a coding agent is seeded with: everything before the words it is about
+ *  to be sent, which reach it as the turn itself. */
+export function priorTurns(messages: Msg[]): Msg[] {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1]!.role === "user") end--;
+  return messages.slice(0, end);
+}
+
 /**
  * The agent's own word for "stop asking me", most permissive first.
  *
@@ -373,6 +381,9 @@ export class FlowLiveSession {
       this.opening = Promise.resolve(this.store);
       this.messages = transcriptOf(loaded.entries);
       this.assetCount = loaded.assets.length;
+      // A coding agent keeps its own conversation, so it has to be rebuilt and
+      // seeded with this one, or it answers from the session it was last in.
+      void this.dropAgent();
     } catch (e) {
       log.error("flow", "resume:", e);
     }
@@ -403,12 +414,14 @@ export class FlowLiveSession {
     this.rollSession();
   }
 
-  /** Let go of the archived session and its transcript, so the next utterance opens a fresh one. */
+  /** Let go of the archived session, its transcript and the coding agent that
+   *  remembers it, so the next utterance opens a fresh one. */
   private rollSession(): void {
     this.store = null;
     this.opening = null;
     this.messages = [];
     this.assetCount = 0;
+    void this.dropAgent();
   }
 
   /** One rolling session. On idle expiry it archives itself and the next utterance
@@ -478,7 +491,9 @@ export class FlowLiveSession {
       (question, options, toolCallId) => this.answerForAgent(question, options, toolCallId, signal),
       { startMs: 60_000 },
     );
-    await agent.start(signal);
+    try { await agent.start(signal); }
+    catch (e) { await agent.dispose().catch(() => {}); throw e; }
+    agent.seed(priorTurns(this.messages));
     this.agent = agent;
     this.agentModel = "";
     this.agentEffort = "";

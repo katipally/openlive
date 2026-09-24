@@ -35,6 +35,10 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Flow with a coding agent kept the wrong conversation.** After a new session
+  the agent still remembered the old one, and "Carry on from here" left it
+  knowing nothing of the session it resumed. Both now start the agent fresh,
+  seeded with the conversation on screen.
 - **Long Flow tasks ran out of context.** A single request that took many steps
   was never trimmed, so it grew until the model refused it. Older steps are now
   dropped and the request is kept.
