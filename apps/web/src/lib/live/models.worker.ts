@@ -155,11 +155,6 @@ self.onmessage = async (e: MessageEvent) => {
     } else if (msg.type === "turn") {
       const complete = await serial(() => turnComplete(msg.audio, msg.threshold));
       post({ type: "result", id: msg.id, complete });
-    } else if (msg.type === "dispose") {
-      asr = null; tts = null; supertonic = null;
-      try { await turnSession?.release?.(); } catch { /* */ }
-      turnSession = null; turnProc = null;
-      self.close();
     }
   } catch (err: any) {
     post({ type: "error", id: msg?.id ?? null, message: String(err?.message ?? err) });
