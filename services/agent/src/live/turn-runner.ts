@@ -68,6 +68,25 @@ export class LiveTurnRunner {
     } catch { /* cold first turn is the fallback */ }
   }
 
+  /** Keep only what the voice said of the latest reply, so the model never
+   *  remembers saying what the user cut off before hearing. */
+  truncateReply(spoken: string) {
+    let from = this.messages.length;
+    while (from > 1 && this.messages[from - 1]!.role !== "user") from--;
+    if (from <= 1) return;
+    let placed = false;
+    for (let i = from; i < this.messages.length; i++) {
+      const m = this.messages[i]!;
+      if (m.role !== "assistant") continue;
+      m.text = placed ? undefined : spoken.trim() || undefined;
+      placed = true;
+    }
+    for (let i = this.messages.length - 1; i >= from; i--) {
+      const m = this.messages[i]!;
+      if (m.role === "assistant" && !m.text && !m.toolCalls?.length) this.messages.splice(i, 1);
+    }
+  }
+
   // Bound the per-call history so a long conversation doesn't grow `messages`
   // unboundedly (Anthropic caching helps but doesn't cap it, and OpenAI has no cache
   // on this path). Cut only at a USER boundary so an assistant tool_use is never

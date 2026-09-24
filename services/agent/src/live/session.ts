@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema, agentLabel, type AgentMetaWire } from "@openlive/shared";
-import { createChat, addMessage, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
+import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
@@ -80,6 +80,9 @@ export class LiveSession {
   // doesn't lose what the user was showing.
   private queued: { text: string; frames: TurnFrame[] } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
+  // The last saved reply, while the client may still be voicing it: a model streams
+  // its text far faster than speech, so most barge-ins land after the turn is over.
+  private lastReply: { id: string; blocks: MessageBlock[]; byRunner: boolean } | null = null;
   private startup: Promise<void> = Promise.resolve();
   private bindEpoch = 0;                      // guards applyBind against re-entrant/overlapping binds
   private expectReplay = false;               // this chat was empty when a resume began → persist recovered turns
@@ -215,7 +218,8 @@ export class LiveSession {
         // interrupt (that cancelled the very ask being answered). Real cancellation
         // goes through the modal's own "cancel"/"no" path.
         if (this.modalPending()) return;
-        if (this.turnActive) this.bargeSpoken = msg.spoken ?? null;
+        if (this.turnActive) this.bargeSpoken = msg.spoken ?? "";
+        else if (msg.spoken != null) this.cutSavedReply(msg.spoken);
         return this.interrupt();
       case "control":
         if (msg.action === "camera_on") this.cameraOn = true;
@@ -277,6 +281,7 @@ export class LiveSession {
       return;
     }
     this.turnActive = true;
+    this.lastReply = null;
     const ac = new AbortController();
     this.ac = ac;
     // A reconnect flushes a queued utterance right behind the bind: wait for the
@@ -332,14 +337,21 @@ export class LiveSession {
       // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
       // one was actually pending.
       this.cancelPendingPermissions();
+      const byRunner = !this.agent && !this.boundId;
       // On barge-in, persist only what was actually SPOKEN.
-      if (ac.signal.aborted && this.bargeSpoken != null) truncateSpokenText(blocks, this.bargeSpoken);
+      if (ac.signal.aborted && this.bargeSpoken != null) {
+        truncateSpokenText(blocks, this.bargeSpoken);
+        if (byRunner) this.runner.truncateReply(this.bargeSpoken);
+      }
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
       // Snapshot live terminal output into its tool calls + settle unfinished
       // statuses (pending/in_progress → canceled) before the turn is persisted.
       finalizeToolBlocks(blocks, foldCtx);
-      if (this.chatId && blocks.length) { await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => log.error("live", "persist assistant turn:", e)); }
+      if (this.chatId && blocks.length) {
+        const saved = await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => { log.error("live", "persist assistant turn:", e); return null; });
+        if (saved && !ac.signal.aborted) this.lastReply = { id: saved.id, blocks, byRunner };
+      }
       this.send({ t: "sse", event: { type: "done" } });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queued; this.queued = null;
@@ -355,6 +367,17 @@ export class LiveSession {
       foldBlock(blocks, e, ctx);
       this.send({ t: "sse", event: e });
     };
+  }
+
+  /** A barge-in after the reply was saved: cut it, and the model's memory of it,
+   *  back to what the voice had said. */
+  private cutSavedReply(spoken: string) {
+    const r = this.lastReply;
+    this.lastReply = null;
+    if (!r) return;
+    truncateSpokenText(r.blocks, spoken);
+    if (r.byRunner) this.runner.truncateReply(spoken);
+    try { updateMessageContent(r.id, r.blocks); } catch (e) { log.error("live", "cut saved reply:", e); }
   }
 
   private interrupt() {

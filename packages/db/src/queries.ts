@@ -226,6 +226,12 @@ export async function addMessage(chatId: string, role: MessageRole, content: Mes
   return { id, chatId, role, content, live, createdAt: now };
 }
 
+/** Rewrites a saved message's blocks: a live reply cut back to what was voiced. */
+export function updateMessageContent(id: string, content: MessageBlock[]): void {
+  const db = getDb();
+  withBusyRetry(() => { db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(JSON.stringify(content), id); });
+}
+
 export function listMessages(chatId: string): ChatMessage[] {
   const rows = getDb().prepare(
     "SELECT id, chat_id, role, content, live, created_at FROM messages WHERE chat_id = ? ORDER BY seq",
