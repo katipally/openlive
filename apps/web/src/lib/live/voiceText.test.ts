@@ -25,6 +25,11 @@ test("endsMidThought: trailing filler = keep listening; a complete clause = go",
   assert.equal(endsMidThought("what's the duty cycle at"), true);   // trails on "at"
   assert.equal(endsMidThought("it's 240 volts"), false);            // complete, ends on a real word
   assert.equal(endsMidThought("connect the ground clamp to the"), true); // trails on "the"
+  assert.equal(endsMidThought("What time is it?"), false);          // a question is finished, whatever its last word
+  assert.equal(endsMidThought("What are you working on?"), false);
+  assert.equal(endsMidThought("I want to..."), true);
+  assert.equal(endsMidThought("what time is it"), false);           // unpunctuated streaming final
+  assert.equal(endsMidThought("what is this"), false);
 });
 
 test("stripMarkdown: symbols gone, citations gone, photo-narration scrubbed", () => {

@@ -44,8 +44,12 @@ export function isJunk(text: string): boolean {
 }
 
 // Words that, at the very end of an utterance, usually mean "I'm not done yet".
-const TRAILING = new Set(["to","the","a","an","and","but","so","or","of","for","with","my","your","is","are","it","that","this","on","at","in","because","if","when","then","like","about","into","um","uh"]);
+// Not "it" or "this": "what time is it" and "what is this" are whole questions,
+// and the streaming engines write no question mark to tell them apart.
+const TRAILING = new Set(["to","the","a","an","and","but","so","or","of","for","with","my","your","is","are","that","on","at","in","because","if","when","then","like","about","into","um","uh"]);
 export function endsMidThought(text: string): boolean {
+  // A question mark closes the thought: "what time is it?" ends on "it" and is done.
+  if (/\?\s*$/.test(text)) return false;
   // Keep digits — "set it to 250" ends on "250", NOT on the filler "to" (stripping
   // numbers first made a complete sentence look unfinished and stalled the turn).
   const w = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim().split(/\s+/);
