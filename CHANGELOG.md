@@ -65,6 +65,16 @@ Releases before 0.1.9 predate this file — see the
 - **The home screen flashed through the call as it started.**
 - **Settings → Models' model list ran off the bottom of a short window.** It
   opens upward when there is more room there, and its height follows the window.
+- **A reply with file names lost words in the Activity panel and the voice.**
+  "alpha.txt, beta.md, and gamma.json" showed as "json." The dot in a file
+  name, version, web address, number or "Dr." no longer ends a sentence, the
+  transcript shows names as written, and the voice says them ("alpha dot txt")
+  instead of "that file". Chat and Flow both.
+- **A sentence before a tool was cut in half by it.** Its end was held back
+  until the tool finished; it is now spoken before the tool runs.
+- **A web lookup's "Still searching for…" was saved as part of the answer.**
+  It is spoken while the lookup runs and no longer lands in the reply.
+- **Settings → Models showed a 1M context as "1.048576M".**
 
 ## [0.2.7] - 2026-08-27
 
