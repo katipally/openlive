@@ -67,8 +67,10 @@ describe("the mark", () => {
 
   it("rests on a real frame of the speaking wave, and holds it with no time passing", () => {
     const w = new Array(11).fill(0);
-    advancePhase(w, 37.7);
+    advancePhase(w, 37.961);
     w.forEach((v, i) => expect(MARK_POSE[i]).toBeCloseTo(v, 2));
+    // Drift at half a turn: the crest, sin(x + drift), rises on the left and falls on the right.
+    expect(MARK_POSE[3]).toBeCloseTo(Math.PI, 2);
     const still = [...MARK_POSE];
     advancePhase(still, 0);
     expect(still).toEqual(MARK_POSE);

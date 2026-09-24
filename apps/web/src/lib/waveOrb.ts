@@ -199,9 +199,11 @@ const TAU = Math.PI * 2;
 // float32 had no fractional digits left for it.
 const RATES = [0.37, 0.51, 0.73, 2.4, 1.9, 1.3, 3.2, 0.62, 0.41, 0.23, 0.35];
 
-/** The logo's frame: the speaking wave 37.7 s in, threads spread under a tall
- *  crest. Every orb starts here; the still marks and the brand art hold it. */
-export const MARK_POSE = [1.383, 0.377, 2.388, 2.515, 2.515, 5.028, 1.259, 4.524, 2.891, 2.388, 0.195];
+/** The logo's frame: the speaking wave 37.961 s in, where its drift is half a
+ *  turn and the crest is one whole sine, rising on the left and falling on the
+ *  right, the threads braided either side. Every orb starts here; the still
+ *  marks and the brand art hold it. */
+export const MARK_POSE = [1.479, 0.511, 2.579, 3.142, 3.011, 5.367, 2.095, 4.686, 2.998, 2.448, 0.286];
 
 export function advancePhase(w: number[], by: number) {
   for (let i = 0; i < RATES.length; i++) {
