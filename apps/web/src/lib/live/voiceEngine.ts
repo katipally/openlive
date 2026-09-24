@@ -164,7 +164,7 @@ export class VoiceEngine {
   async setStream(stream: MediaStream) {
     this.clearHold();
     this.pending = null;
-    try { this.vad?.destroy(); } catch { /* */ }
+    void this.vad?.destroy().catch(() => { /* */ });
     this.vad = null;
     await this.start(stream);
   }
@@ -490,7 +490,7 @@ export class VoiceEngine {
     this.clearHold();
     this.ptt = false;
     this.epoch++;
-    try { this.vad?.destroy(); } catch { /* */ }
+    void this.vad?.destroy().catch(() => { /* */ });
     this.vad = null;
     try { this.micSrc?.disconnect(); } catch { /* */ }
     try { void this.specCtx?.close(); } catch { /* */ }

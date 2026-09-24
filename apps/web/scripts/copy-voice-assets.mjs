@@ -4,6 +4,7 @@
 // the repo, versions track package.json).
 import { copyFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -11,10 +12,13 @@ const out = join(here, "..", "public", "vad");
 mkdirSync(out, { recursive: true });
 
 // Resolved via the app's node_modules symlinks (pnpm); realpath for good measure.
-// require.resolve can't be used — onnxruntime-web doesn't export ./package.json.
 const nm = (pkg) => realpathSync(join(here, "..", "node_modules", pkg));
-const vadDist = join(nm("@ricky0123/vad-web"), "dist");
-const ortDist = join(nm("onnxruntime-web"), "dist");
+const vadPkg = nm("@ricky0123/vad-web");
+const vadDist = join(vadPkg, "dist");
+// The ort wasm pair must match the onnxruntime-web copy vad-web itself imports,
+// which can differ from the app's own; resolve it from vad-web's location. The
+// ./wasm subpath is used because onnxruntime-web doesn't export ./package.json.
+const ortDist = dirname(createRequire(join(vadPkg, "package.json")).resolve("onnxruntime-web/wasm"));
 
 const files = [
   [vadDist, "silero_vad_v5.onnx"],

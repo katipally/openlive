@@ -20,6 +20,10 @@ Releases before 0.1.9 predate this file — see the
   had no key, Chat and Flow used to answer from another provider that had one,
   while Flow said it was not set up. Now every screen and every turn resolve the
   choice the same way: no key means not ready, with the fix in Settings.
+- **Newer on-device voice runtimes.** Live voice now runs on ONNX Runtime Web
+  1.30, Transformers.js 4.3 and voice activity detection 0.0.31, and voice
+  cloning on sherpa-onnx 1.13.8. The files the voice detector loads now always
+  match the runtime it was built against.
 
 ### Added
 - **Ollama server address.** Settings → Models → Provider takes the address of
