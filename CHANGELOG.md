@@ -24,6 +24,9 @@ Releases before 0.1.9 predate this file — see the
   1.30, Transformers.js 4.3 and voice activity detection 0.0.31, and voice
   cloning on sherpa-onnx 1.13.8. The files the voice detector loads now always
   match the runtime it was built against.
+- **Voice detection runs Silero v6.2.** It makes fewer mistakes on noisy
+  rooms, soft or unusual voices and phone-quality mics, at the same speed.
+  Settings → Voice → VAD can switch back to v5.
 
 ### Added
 - **Ollama server address.** Settings → Models → Provider takes the address of

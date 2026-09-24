@@ -48,7 +48,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent", tab: "flow", anchor: "set-flow-access" },
 
   { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
-  { label: "Voice activity detection", keywords: "vad silero sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
+  { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
   { label: "Speech-to-text", keywords: "stt whisper model size transcription", tab: "voice", anchor: "set-voice-stage-stt" },
   { label: "Turn-taking", keywords: "smart-turn end of turn detector mid-thought hold preset", tab: "voice", anchor: "set-voice-stage-turn" },
   { label: "Text-to-speech", keywords: "tts kokoro supertonic voice preview engine", tab: "voice", anchor: "set-voice-stage-tts" },

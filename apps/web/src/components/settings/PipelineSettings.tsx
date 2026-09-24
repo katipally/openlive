@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2 } from "lucide-react";
 import {
-  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, TURN_ENGINES, TTS_ENGINES,
+  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_ENGINES,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
   DEFAULT_PIPELINE_CONFIG, mergePipelineConfig, type PipelineConfig, type TtsEngine,
 } from "@/lib/live/pipelineConfig";
@@ -109,6 +109,12 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
     <div className="space-y-4">
       <StageHead title="Voice activity detection" desc="Silero VAD segments your speech — it decides when you start and stop talking. Applies when you next start a conversation." />
       <EngineCard name="Silero VAD" desc="Tiny on-device voice detector — decides when you're speaking and enables instant barge-in." />
+      <label className="flex flex-col gap-1.5">
+        <span className="text-label text-foreground">Model</span>
+        <select value={cfg.vad.model} onChange={(e) => update({ ...cfg, vad: { ...cfg.vad, model: e.target.value as PipelineConfig["vad"]["model"] } })} className={selectClass}>
+          {VAD_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </label>
       <Slider label="Speech sensitivity" value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
         fmt={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, speechThreshold: v } })} />
       <p className="-mt-2 text-caption text-faint">Lower picks up softer speech and barges in faster.</p>

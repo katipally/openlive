@@ -32,6 +32,14 @@ test("out-of-range numbers clamp", () => {
   assert.equal(clampPipelineConfig(full({ vad: { speechThreshold: 0.5, redemptionMs: 99999 } })).vad.redemptionMs, 1500);
 });
 
+test("vad model: v6 by default and for old saved configs; v5 sticks; unknown falls back", () => {
+  assert.equal(DEFAULT_PIPELINE_CONFIG.vad.model, "v6");
+  assert.equal(mergePipelineConfig({ vad: { speechThreshold: 0.4, redemptionMs: 550 } }).vad.model, "v6");
+  assert.equal(mergePipelineConfig({ vad: { model: "v5" } }).vad.model, "v5");
+  assert.equal(mergePipelineConfig({ vad: { model: "v4" } }).vad.model, "v6");
+  assert.equal(clampPipelineConfig(full({})).vad.model, "v6");
+});
+
 test("mid-thought hold clamps to 1–8 s; missing/garbage falls back to the default", () => {
   assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: 0.5, holdMs: 100 } })).turn.holdMs, 1000);
   assert.equal(clampPipelineConfig(full({ turn: { engine: "smart-turn", threshold: 0.5, holdMs: 60000 } })).turn.holdMs, 8000);

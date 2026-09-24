@@ -21,6 +21,7 @@ const vadDist = join(vadPkg, "dist");
 const ortDist = dirname(createRequire(join(vadPkg, "package.json")).resolve("onnxruntime-web/wasm"));
 
 const files = [
+  [vadDist, "silero_vad_v6.onnx"],
   [vadDist, "silero_vad_v5.onnx"],
   [vadDist, "vad.worklet.bundle.min.js"],
   // The VAD runs on the plain CPU wasm backend — only the threaded-simd pair is loaded.

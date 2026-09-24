@@ -109,7 +109,7 @@ export class VoiceEngine {
     // baked into MicVAD at construction, so edits apply on the next start().
     const vadCfg = { ...loadPipelineConfig().vad, redemptionMs: this.turnCfg().redemptionMs };
     this.vad = await MicVAD.new({
-      model: "v5",
+      model: vadCfg.model,
       // Silero worklet + onnx + ort wasm are vendored into /public/vad by
       // scripts/copy-voice-assets.mjs (predev/prebuild) — served same-origin,
       // no CDN dependency, versions track package.json.

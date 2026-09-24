@@ -7,6 +7,8 @@
 
 export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
 export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
+export type VadModel = "v6" | "v5";
+export const VAD_MODEL_IDS: readonly VadModel[] = ["v6", "v5"];
 export type TurnEngine = "smart-turn" | "silence";
 export type TtsEngine = "kokoro" | "supertonic" | "clone";
 export const TTS_ENGINE_IDS: readonly TtsEngine[] = ["kokoro", "supertonic", "clone"];
@@ -15,14 +17,14 @@ export interface PipelineConfig {
   stt: { whisperSize: WhisperSize };                        // Whisper.en model size (applies on reload)
   tts: { engine: TtsEngine; voice: string; speed: number }; // TTS engine + voice id + speaking rate
   turn: { engine: TurnEngine; threshold: number; holdMs: number }; // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1); max mid-thought hold before auto-send
-  vad: { speechThreshold: number; redemptionMs: number };   // Silero sensitivity + trailing silence before a turn ends
+  vad: { model: VadModel; speechThreshold: number; redemptionMs: number }; // Silero weights + sensitivity + trailing silence before a turn ends
 }
 
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   stt: { whisperSize: "base" },
   tts: { engine: "kokoro", voice: "af_heart", speed: 1 },
   turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000 },
-  vad: { speechThreshold: 0.5, redemptionMs: 550 },
+  vad: { model: "v6", speechThreshold: 0.5, redemptionMs: 550 },
 };
 
 // Menus for the Pipeline settings UI. STT engines beyond Whisper (Moonshine) and
@@ -36,6 +38,12 @@ export const WHISPER_SIZES: { id: WhisperSize; name: string }[] = [
   { id: "base", name: "Base — balanced, default (~290 MB)" },
   { id: "small", name: "Small — more accurate, heavier (~950 MB)" },
   { id: "large-v3-turbo", name: "Large v3 Turbo — best accuracy, multilingual (~1.6 GB)" },
+];
+// vad-web ships Silero v6.2 as "v6"; same network and frame size as v5, only
+// retrained weights, so v5 stays selectable for A/B on hardware where v6 misbehaves.
+export const VAD_MODELS: { id: VadModel; name: string }[] = [
+  { id: "v6", name: "Silero v6.2 (default): fewer errors on noise, soft and phone-quality voices" },
+  { id: "v5", name: "Silero v5: the previous model" },
 ];
 export const TURN_ENGINES: { id: TurnEngine; name: string }[] = [
   { id: "smart-turn", name: "Smart-Turn v3 — semantic end-of-turn" },
@@ -118,6 +126,7 @@ export function clampPipelineConfig(c: PipelineConfig): PipelineConfig {
     },
     turn: { engine: oneOf(c.turn.engine, ["smart-turn", "silence"], d.turn.engine), threshold: clamp(c.turn.threshold, 0, 1), holdMs: clamp(Math.round(num(c.turn.holdMs, d.turn.holdMs)), 1000, 8000) },
     vad: {
+      model: oneOf(c.vad.model, VAD_MODEL_IDS, d.vad.model),
       speechThreshold: clamp(c.vad.speechThreshold, 0.1, 0.9),
       redemptionMs: clamp(Math.round(c.vad.redemptionMs), 200, 1500),
     },
@@ -132,7 +141,7 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
     stt: { whisperSize: oneOf(p.stt?.whisperSize, WHISPER_SIZE_IDS, d.stt.whisperSize) },
     tts: { engine: oneOf(p.tts?.engine, TTS_ENGINE_IDS, d.tts.engine), voice: typeof p.tts?.voice === "string" ? p.tts.voice : d.tts.voice, speed: num(p.tts?.speed, d.tts.speed) },
     turn: { engine: oneOf(p.turn?.engine, ["smart-turn", "silence"], d.turn.engine), threshold: num(p.turn?.threshold, d.turn.threshold), holdMs: num(p.turn?.holdMs, d.turn.holdMs) },
-    vad: { speechThreshold: num(p.vad?.speechThreshold, d.vad.speechThreshold), redemptionMs: num(p.vad?.redemptionMs, d.vad.redemptionMs) },
+    vad: { model: oneOf(p.vad?.model, VAD_MODEL_IDS, d.vad.model), speechThreshold: num(p.vad?.speechThreshold, d.vad.speechThreshold), redemptionMs: num(p.vad?.redemptionMs, d.vad.redemptionMs) },
   });
 }
 
