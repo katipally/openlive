@@ -15,3 +15,33 @@ export function pcmDecoder(): (bytes: Uint8Array) => Float32Array {
     return new Float32Array(all.buffer, 0, whole / 4);
   };
 }
+
+/** The last `size` mic frames, so speech the VAD only recognised a few frames in
+ *  can still be sent from its true start. push is O(1); drain is O(samples held). */
+export class FrameRing {
+  private frames: (Float32Array | undefined)[];
+  private next = 0;
+  private count = 0;
+
+  constructor(size: number) { this.frames = new Array(size); }
+
+  push(frame: Float32Array) {
+    this.frames[this.next] = frame;
+    this.next = (this.next + 1) % this.frames.length;
+    this.count = Math.min(this.count + 1, this.frames.length);
+  }
+
+  /** Every held frame, oldest first, as one array; the ring is left empty. */
+  drain(): Float32Array {
+    const n = this.frames.length;
+    const held: Float32Array[] = [];
+    for (let i = this.count; i > 0; i--) held.push(this.frames[(this.next - i + n) % n]!);
+    const out = new Float32Array(held.reduce((s, f) => s + f.length, 0));
+    let off = 0;
+    for (const f of held) { out.set(f, off); off += f.length; }
+    this.clear();
+    return out;
+  }
+
+  clear() { this.frames.fill(undefined); this.count = 0; }
+}

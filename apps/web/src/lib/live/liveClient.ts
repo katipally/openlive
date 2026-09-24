@@ -17,7 +17,7 @@ export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "
 
 /** Where the live socket is. The desktop app hands over the agent's port, chosen
  *  at launch; the web build uses its baked URL (dev) or same-origin (container proxy). */
-function liveWsBase(): string {
+export function liveWsBase(): string {
   const port = (window as { openlive?: { agentPort?: number } }).openlive?.agentPort;
   if (port) return `ws://localhost:${port}`;
   return process.env.NEXT_PUBLIC_LIVE_WS_URL || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
