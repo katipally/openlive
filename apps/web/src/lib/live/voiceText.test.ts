@@ -2,7 +2,7 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, STREAMED_FIRST_CHARS, estimateSpeechMs } from "./voiceText.ts";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, STREAMED_FIRST_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs } from "./voiceText.ts";
 
 test("isJunk: silence artifacts dropped, real short answers kept", () => {
   assert.equal(isJunk("thank you for watching"), true);
@@ -178,6 +178,35 @@ test("SentenceChunker: a streamed engine opens on the first clause of 12+ charac
   const k = new SentenceChunker();
   assert.deepEqual(k.push("Sure thing, okay. "), []);
   assert.deepEqual(new SentenceChunker().push("Sure thing, okay. ", STREAMED_FIRST_CHARS), ["Sure thing, okay."]);
+});
+
+test("SentenceChunker: line breaks end a chunk, so a list without periods still streams", () => {
+  const c = new SentenceChunker();
+  const out = c.push("Here is what changed:\n- the parser handles empty input\n- the cache expires after an hour\n- logs are quieter\n");
+  assert.ok(out.length >= 2, `got ${JSON.stringify(out)}`);
+  assert.ok(out.every((x) => x.length <= MAX_CHUNK_CHARS));
+});
+
+test("SentenceChunker: text with no boundary at all never builds a chunk over the cap", () => {
+  const words = Array.from({ length: 1500 }, (_, i) => `word${i}`).join(" "); // ~13k chars, no punctuation
+  for (const size of [1, 7, 64, 20_000]) {
+    const out = chunked(words, size);
+    assert.ok(out.every((x) => x.length <= MAX_CHUNK_CHARS + MIN_TTS_CHARS), `size ${size}`);
+    assert.equal(out.join(" "), words, `size ${size}`);
+  }
+  const blob = "x".repeat(1000); // one "word" longer than the cap
+  assert.ok(chunked(blob, 50).every((x) => x.length <= MAX_CHUNK_CHARS));
+  assert.equal(chunked(blob, 50).join(""), blob);
+  // A giant sentence arriving in one delta is cut too.
+  assert.ok(new SentenceChunker().push(words + ". ").every((x) => x.length <= MAX_CHUNK_CHARS));
+});
+
+test("splitLong: word boundaries, empty input, and exact fits", () => {
+  assert.deepEqual(splitLong(""), []);
+  assert.deepEqual(splitLong("  hi  "), ["hi"]);
+  assert.deepEqual(splitLong("a".repeat(MAX_CHUNK_CHARS)), ["a".repeat(MAX_CHUNK_CHARS)]);
+  const two = `${"a".repeat(150)} ${"b".repeat(150)}`;
+  assert.deepEqual(splitLong(two), ["a".repeat(150), "b".repeat(150)]);
 });
 
 test("estimateSpeechMs: scales with length, inversely with speed, at each engine's rate", () => {

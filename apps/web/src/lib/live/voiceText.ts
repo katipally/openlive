@@ -19,6 +19,10 @@ export const FIRST_TTS_CHARS = 24; // but the FIRST chunk of a reply speaks at a
 // has no measured timbre drift on short input, so its opening only needs one
 // clause: "Sure thing, " and not a sentence and a half.
 export const STREAMED_FIRST_CHARS = 12;
+// kokoro-js truncates its input to 510 phoneme tokens, and spoken numbers and
+// "dot" names can more than double a chunk's length in phonemes. 200 characters
+// stays clear of that for every engine and far under the agent's /tts cap.
+export const MAX_CHUNK_CHARS = 200;
 
 // Characters voiced per second at speed 1, measured 2026-09-24: Pocket TTS 16-18,
 // Kitten TTS 10-14. The low end, so a caption never runs ahead of the voice.
@@ -98,10 +102,10 @@ export function toSpeech(s: string): string {
 }
 
 // A sentence ends at . ! or ? (and any closing quote or bracket) followed by
-// whitespace. A dot glued to the next character (alpha.txt, v0.2.4, example.com,
+// whitespace, or at a line break (list items and headings carry no period). A dot glued to the next character (alpha.txt, v0.2.4, example.com,
 // 3.5) never ends one, and neither does the end of the buffer: mid-stream
 // "gamma." may still become "gamma.json".
-const SENTENCE_END = /[.!?]+["')\]]*(?=\s)/g;
+const SENTENCE_END = /[.!?]+["')\]]*(?=\s)|\n/g;
 // "Dr. Smith", "e.g. this", "U.S. law", "A. Lincoln": the dot belongs to the word.
 const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|approx|fig)\.$/i;
 // An odd number of backticks before i opens a code span, unless the last one is far
@@ -110,6 +114,24 @@ const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st
 function inCodeSpan(s: string, i: number): boolean {
   const open = s.lastIndexOf("`", i);
   return open >= 0 && i - open < 80 && s.slice(0, i).split("`").length % 2 === 0;
+}
+
+/** `s` cut at word boundaries into pieces of at most MAX_CHUNK_CHARS; a word
+ *  longer than that is cut inside it. O(n). */
+export function splitLong(s: string): string[] {
+  const t = s.trim();
+  const out: string[] = [];
+  let i = 0;
+  while (t.length - i > MAX_CHUNK_CHARS) {
+    const sp = t.lastIndexOf(" ", i + MAX_CHUNK_CHARS);
+    const cut = sp > i ? sp : i + MAX_CHUNK_CHARS;
+    const piece = t.slice(i, cut).trim();
+    if (piece) out.push(piece);
+    i = cut;
+  }
+  const rest = t.slice(i).trim();
+  if (rest) out.push(rest);
+  return out;
 }
 
 // Split a growing text stream into speakable chunks (keep decimals/abbrevs).
@@ -169,9 +191,16 @@ export class SentenceChunker {
       // First chunk clears the low bar so even a short single sentence speaks
       // now; every chunk after keeps the stable MIN_TTS_CHARS timbre bar.
       const bar = this.started ? MIN_TTS_CHARS : firstMin;
-      if (this.ready.trim().length >= bar) { out.push(this.ready.trim()); this.ready = ""; this.started = true; }
+      if (this.ready.trim().length >= bar) { out.push(...splitLong(this.ready)); this.ready = ""; this.started = true; }
     }
     if (last) this.buf = this.buf.slice(last);
+    // No boundary in sight: speak all but the last piece now, so no chunk, and
+    // no flushed tail beyond one held short sentence, exceeds MAX_CHUNK_CHARS.
+    if (this.buf.length > MAX_CHUNK_CHARS) {
+      const pieces = splitLong(this.ready + this.buf);
+      this.buf = this.buf.slice(this.buf.lastIndexOf(pieces.pop()!)); // keeps a trailing space for the next delta
+      if (pieces.length) { out.push(...pieces); this.ready = ""; this.started = true; }
+    }
     return out;
   }
   // Release the opening of a reply as soon as there's something natural to say:
