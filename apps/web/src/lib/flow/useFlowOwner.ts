@@ -378,7 +378,9 @@ export function useFlowOwner(): void {
      * only thing standing between the model and the machine mid-turn.
      */
     const onStop = () => {
-      client.current?.flowCancel(snap.current.reply);
+      // Spoken, the reply is cut back to what was heard; quiet, all of it was shown.
+      const heard = snap.current.speaking ? engine.current?.cutReply() : undefined;
+      client.current?.flowCancel(heard ?? (snap.current.reply || undefined));
       turnActive.current = false;
       stopAnswerWatchdog();
       backToListening();

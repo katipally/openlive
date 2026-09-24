@@ -42,6 +42,8 @@ Releases before 0.1.9 predate this file — see the
 - **Long Flow tasks ran out of context.** A single request that took many steps
   was never trimmed, so it grew until the model refused it. Older steps are now
   dropped and the request is kept.
+- **Stop left Flow talking.** Speech already queued kept playing after Stop. It
+  now goes quiet at once, and only what was heard is kept.
 - **A coding agent that would not start said only "That turn failed."** The
   failure card now shows its real reason.
 - **Flow in API mode failed with no explanation.** A turn the model refused

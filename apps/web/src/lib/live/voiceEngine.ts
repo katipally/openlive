@@ -448,9 +448,15 @@ export class VoiceEngine {
   }
 
   private bargeIn() {
+    this.h.onBargeIn(this.cutReply());
+  }
+
+  /** Silence the reply and drop the rest of it, returning what was actually
+   *  voiced. Barge-in and a Stop button are the same cut from two directions. */
+  cutReply(): string {
     this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.hush();
-    this.h.onBargeIn(this.spokenText.trim());
+    return this.spokenText.trim();
   }
 
   // ── helpers / lifecycle ────────────────────────────────────────────────
