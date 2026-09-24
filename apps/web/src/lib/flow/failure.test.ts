@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, type FlowHealth } from "./failure";
+import { deriveFailure, turnFailure, type FlowHealth } from "./failure";
 
 const HEALTHY: FlowHealth = {
   platform: "darwin", wayland: false, accessibility: true, secureInput: false,
@@ -42,5 +42,39 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, accessibility: false })?.detail).toContain("Accessibility");
     expect(deriveFailure({ ...HEALTHY, platform: "win32", accessibility: false })?.detail).toContain("input access");
     expect(deriveFailure({ ...HEALTHY, platform: "linux", wayland: true })?.detail).not.toMatch(/tray|command line/);
+  });
+});
+
+describe("turnFailure", () => {
+  it("sends a missing, refused or unknown setting to where it is fixed", () => {
+    const setup = [
+      "No API key for OpenAI. Add one in Settings > Models.",
+      'HTTP 401: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+      'HTTP 404: {"error":{"message":"model \\"qwen9\\" not found, try pulling it first"}}',
+    ];
+    for (const m of setup) {
+      const f = turnFailure(m);
+      expect(f.code).toBe("brain_setup");
+      expect(f.actionLabel).toBeTruthy();
+    }
+  });
+
+  it("reads the provider's own sentence out of a JSON error body", () => {
+    expect(turnFailure('HTTP 404: {"error":{"message":"model \\"qwen9\\" not found"}}').detail).toBe('model "qwen9" not found. Pick another in settings.');
+    expect(turnFailure('HTTP 401: {"error":{"message":"bad key"}}').detail).toBe("bad key");
+  });
+
+  it("offers no button for what only time or the provider can fix", () => {
+    for (const m of ["HTTP 429: rate limit reached", "HTTP 429: You exceeded your current quota", "fetch failed", "Anthropic stream error: overloaded_error"]) {
+      const f = turnFailure(m);
+      expect(f.code).toBe("turn_failed");
+      expect(f.actionLabel).toBeUndefined();
+    }
+    expect(turnFailure("fetch failed").detail).toContain("Ollama");
+  });
+
+  it("never shows an empty card", () => {
+    expect(turnFailure("   ").detail).toBeTruthy();
+    expect(turnFailure("agent died").detail).toBe("agent died");
   });
 });

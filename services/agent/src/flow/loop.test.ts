@@ -59,6 +59,23 @@ describe("runFlow", () => {
     expect(run.messages.at(-1)).toEqual({ role: "assistant", text: "hello", toolCalls: undefined });
   });
 
+  it("keeps a tool call's signed thinking on the assistant message, out of the event stream", async () => {
+    const brain = scripted([
+      [
+        { type: "reasoning", delta: "check the app" },
+        { type: "reasoning_signature", signature: "sig" },
+        { type: "tool_start", id: "c1", name: "get_context" },
+        { type: "tool_end", id: "c1", name: "get_context", args: {} },
+        { type: "turn_done", stop: "tools" },
+      ],
+      [{ type: "text_delta", delta: "done" }, { type: "turn_done", stop: "stop" }],
+    ]);
+    const { run } = harness({ brain });
+    const events = await collect(run);
+    expect(events.map((e) => e.type)).not.toContain("error");
+    expect(run.messages[1]).toMatchObject({ role: "assistant", reasoning: "check the app", reasoningSignature: "sig" });
+  });
+
   it("runs tools, appends results in source order, and keeps going", async () => {
     const brain = scripted([
       [

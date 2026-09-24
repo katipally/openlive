@@ -17,6 +17,20 @@ Releases before 0.1.9 predate this file — see the
   button is now "Back to Chat / Flow / OpenLive / call" at the top of the
   sidebar; Esc and Back still work.
 
+### Fixed
+- **Flow in API mode failed with no explanation.** A turn the model refused
+  turned the orb red and said nothing. It now shows why (no key, key refused,
+  model not available, out of credit, busy, or unreachable, such as Ollama not
+  running) and, where settings fix it, a button that opens them.
+- **Flow in API mode could not see what it did on OpenAI or Ollama.** The
+  screenshot each action returns was dropped before it reached the model.
+- **Flow in API mode sent a reasoning setting to models without one**, which
+  OpenAI and Ollama refuse, and lost the model's signed thinking between tool
+  calls, which Anthropic refuses when thinking is on. It now picks effort the way
+  Chat does and keeps the thinking.
+- **Red buttons with white text are readable in dark mode**, and red text clears
+  4.5:1 contrast on every surface in both themes.
+
 ## [0.2.7] - 2026-08-27
 
 ### Fixed

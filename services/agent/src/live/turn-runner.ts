@@ -1,8 +1,8 @@
-import { streamProvider, isReasoningModel, type Message, type Effort } from "@openlive/harness";
+import { streamProvider, type Message } from "@openlive/harness";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
 import { collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
-import { resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
+import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { runWorker } from "./worker.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" };
@@ -114,11 +114,7 @@ export class LiveTurnRunner {
     // reply — OpenAI can't fully disable it so we ask for "minimal"; Anthropic just
     // omits the thinking block (no reasoning). A user override in Settings raises it.
     // (MiniMax's reasoning is always-on and ignores this — see anthropic.ts.)
-    const reasons = isReasoningModel(model);
-    const reasoning = !reasons ? {}
-      : effort ? (provider.protocol === "openai" ? { reasoningEffort: effort as string } : { effort: effort as Effort })
-        : provider.protocol === "openai" ? { reasoningEffort: "minimal" as const }
-          : {};
+    const reasoning = liveReasoning({ provider, model, apiKey, effort });
 
     // Track assistant text AS it streams, so a barge-in that aborts mid-sentence
     // doesn't lose what we'd started saying.

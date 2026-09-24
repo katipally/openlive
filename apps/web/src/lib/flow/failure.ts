@@ -76,3 +76,35 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
   }
   return null;
 }
+
+/** The provider's own sentence out of an `HTTP 400: {"error":{"message":...}}` body. */
+const said = (message: string): string =>
+  (/"message"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(message)?.[1] ?? message).replace(/\\(.)/g, "$1").trim().slice(0, 240);
+
+/**
+ * A turn the brain failed, as the card it gets. The error text is all that
+ * crosses the socket, so the cause is read from it: the status codes and words
+ * every provider and agent uses for the same four problems.
+ */
+export function turnFailure(message: string): FlowFailure {
+  const m = message;
+  if (/no api key/i.test(m)) {
+    return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings" };
+  }
+  if (/\b40[13]\b|invalid.{0,20}(api.?)?key|authenticat|unauthori[sz]ed|x-api-key|forbidden|permission_denied/i.test(m)) {
+    return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings" };
+  }
+  if (/\b404\b|model.{0,40}(not found|does not exist|not available|unsupported)|unknown model|not_found_error/i.test(m)) {
+    return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings" };
+  }
+  if (/quota|insufficient|billing|credit/i.test(m)) {
+    return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
+  }
+  if (/\b429\b|rate.?limit|too many requests|overloaded|\b529\b/i.test(m)) {
+    return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
+  }
+  if (/fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) {
+    return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
+  }
+  return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
+}
