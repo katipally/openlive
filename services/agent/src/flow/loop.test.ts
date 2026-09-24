@@ -319,6 +319,20 @@ describe("context budget", () => {
     expect(out.some((m) => m.role === "tool")).toBe(false);
   });
 
+  it("compacts one long run of tool steps and keeps what was asked", () => {
+    const step = (id: string): Msg[] => [
+      { role: "assistant", text: "", toolCalls: [{ id, name: "t", arguments: "{}" }] },
+      { role: "tool", callId: id, name: "t", result: "x".repeat(4_000) },
+    ];
+    const run: Msg[] = [{ role: "user", text: "open the PR" }, ...["1", "2", "3", "4", "5", "6"].flatMap(step)];
+    const out = compact(run, { limit: 1_000, reserve: 100, tail: 3 }, null)!;
+    expect(out.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect((out[0] as { text: string }).text).toContain("open the PR");
+    // Compacting again keeps the one note rather than nesting it.
+    const again = compact([...out, ...step("7"), ...step("8")], { limit: 1_000, reserve: 100, tail: 3 }, null)!;
+    expect((again[0] as { text: string }).text).toBe((out[0] as { text: string }).text);
+  });
+
   it("refuses to compact when there is nothing safe to drop", () => {
     const one: Msg[] = [{ role: "user", text: "x".repeat(100_000) }];
     expect(compact(one, { limit: 100, reserve: 10, tail: 1 }, null)).toBe(null);

@@ -35,6 +35,9 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Long Flow tasks ran out of context.** A single request that took many steps
+  was never trimmed, so it grew until the model refused it. Older steps are now
+  dropped and the request is kept.
 - **Flow in API mode failed with no explanation.** A turn the model refused
   turned the orb red and said nothing. It now shows why (no key, key refused,
   model not available, out of credit, busy, or unreachable, such as Ollama not
