@@ -16,6 +16,21 @@ Releases before 0.1.9 predate this file — see the
 - **Settings opens on General and goes back where you came from.** The close
   button is now "Back to Chat / Flow / OpenLive / call" at the top of the
   sidebar; Esc and Back still work.
+- **API mode answers only from the provider you chose.** When the chosen provider
+  had no key, Chat and Flow used to answer from another provider that had one,
+  while Flow said it was not set up. Now every screen and every turn resolve the
+  choice the same way: no key means not ready, with the fix in Settings.
+
+### Added
+- **Ollama server address.** Settings → Models → Provider takes the address of
+  the Ollama server (default `http://localhost:11434`), for Ollama on another
+  machine or port. Chat, Flow and the model list use it, and an unreachable
+  server is named by that address.
+- **Screenshots reach models that see, on every provider.** Groq, Gemini,
+  OpenRouter, xAI and the other Chat Completions providers now get the pictures
+  a tool returns. A model that cannot see gets the vision model's description
+  instead, when one is set in Settings → Models, and otherwise a plain note that
+  a picture was not sent, so it never claims to see it.
 
 ### Fixed
 - **Flow in API mode failed with no explanation.** A turn the model refused

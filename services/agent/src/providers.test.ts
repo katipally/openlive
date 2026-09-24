@@ -20,6 +20,27 @@ describe("resolveLive", () => {
     expect(model).toBe("qwen3:8b");
     expect(apiKey).toBeNull();
   });
+
+  it("reaches Ollama at the configured address", async () => {
+    await setSetting("ollamaBaseUrl", "http://nas.local:11434");
+    expect(resolveLive().provider.baseURL).toBe("http://nas.local:11434/v1");
+    await setSetting("ollamaBaseUrl", "");
+    expect(resolveLive().provider.baseURL).toBe("http://localhost:11434/v1");
+  });
+
+  it("keeps the chosen provider when it has no key, rather than answering from another", async () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "test-not-a-real-key";
+    await setSetting("liveProviderId", "openai");
+    try {
+      const { provider, apiKey } = resolveLive();
+      expect(provider.id).toBe("openai");
+      expect(apiKey).toBeNull();
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved;
+      await setSetting("liveProviderId", "ollama");
+    }
+  });
 });
 
 describe("liveReasoning", () => {

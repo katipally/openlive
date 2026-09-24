@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAllSettings, setSetting } from "@openlive/db";
+import { normalizeOllamaUrl } from "@openlive/harness/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Provider + model are chosen live in Settings; nothing hardcoded. Live effort
 // defaults to "auto" (lowest the model supports → smoothest voice).
 const DEFAULTS = { liveEffort: "auto" };
-const KEYS = ["liveModel", "liveProviderId", "liveEffort", "visionProviderId", "visionModel", "agentCwd", "customInstructions", "narrateProgress"];
+const KEYS = ["liveModel", "liveProviderId", "liveEffort", "ollamaBaseUrl", "visionProviderId", "visionModel", "agentCwd", "customInstructions", "narrateProgress"];
 // Per-agent config keys (acpCommand:<id> ACP override, agentHidden:<id>
 // visibility toggle) are also readable/writable.
 const PREFIXES = ["acpCommand:", "agentHidden:"];
@@ -55,6 +56,14 @@ export async function PUT(req: Request) {
     if (typeof v !== "string" || !isExposed(k)) continue;
     if (k.startsWith("acpCommand:") && v.trim() && !isSafeAcpCommand(v)) {
       return NextResponse.json({ error: `Rejected unsafe command for ${k}` }, { status: 400 });
+    }
+    // Stored as the server root, so every caller appends its own path to one
+    // spelling of it. Empty goes back to the default address.
+    if (k === "ollamaBaseUrl" && v.trim()) {
+      const url = normalizeOllamaUrl(v);
+      if (!url) return NextResponse.json({ error: "Enter an http:// or https:// address, like http://localhost:11434." }, { status: 400 });
+      await setSetting(k, url);
+      continue;
     }
     await setSetting(k, v);
   }

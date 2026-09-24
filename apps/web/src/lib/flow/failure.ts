@@ -103,8 +103,10 @@ export function turnFailure(message: string): FlowFailure {
   if (/\b429\b|rate.?limit|too many requests|overloaded|\b529\b/i.test(m)) {
     return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
   }
-  if (/fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) {
-    return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
+  if (/could not reach|fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) {
+    // The brain names the address it tried when it knows it; that is the thing to check.
+    const detail = /^could not reach/i.test(m) ? said(m) : "Check the connection. For a local model, check that Ollama is running.";
+    return { code: "turn_failed", title: "I could not reach the model", detail };
   }
   return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFlowConfig, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
-import { getSetting, listProviders } from "@openlive/db";
-import { BUILTIN_PROVIDERS } from "@openlive/harness";
+import { getAllSettings, listProviders } from "@openlive/db";
+import { envKeyFor, resolveApiMode } from "@openlive/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,12 +10,9 @@ export const dynamic = "force-dynamic";
 // whether there is a brain to think with.
 
 function brainReady(config: FlowConfig): boolean {
-  const rows = listProviders();
-  const chosen = getSetting("liveProviderId") || rows.find((r) => r.isDefault)?.kind || rows[0]?.kind || "";
-  const provider = BUILTIN_PROVIDERS.find((p) => p.id === chosen);
   return config.brain.kind === "acp"
     ? !!config.brain.agentId
-    : !!provider && (provider.keyless || rows.some((r) => r.kind === chosen && r.hasKey));
+    : resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p)).ready;
 }
 
 const failed = (e: unknown) =>

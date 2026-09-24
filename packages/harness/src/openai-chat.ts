@@ -7,17 +7,29 @@ import { sseLines } from "./sse"
  *  most other hosted providers speak it (OpenAI's own Responses API and Ollama
  *  are handled by the `openai` adapter instead). */
 
+const imageParts = (images: { data: string; mime: string }[]) =>
+  images.map((img) => ({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } }))
+
 function toChatMessages(messages: Message[]): unknown[] {
   const out: Record<string, unknown>[] = []
+  // A tool message carries text only on this wire, so pictures from a run of
+  // tool results follow it as one user message, after the last result: a user
+  // message between two results would split the results from their calls.
+  let shown: { data: string; mime: string }[] = []
+  const flush = () => {
+    if (!shown.length) return
+    out.push({ role: "user", content: [{ type: "text", text: "The pictures the tool results above returned, in order." }, ...imageParts(shown)] })
+    shown = []
+  }
   for (const m of messages) {
+    if (m.role !== "tool") flush()
     if (m.role === "system") {
       out.push({ role: "system", content: m.text })
     } else if (m.role === "user") {
       if (m.images?.length) {
         const content: Record<string, unknown>[] = []
         if (m.text) content.push({ type: "text", text: m.text })
-        for (const img of m.images)
-          content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } })
+        content.push(...imageParts(m.images))
         out.push({ role: "user", content })
       } else out.push({ role: "user", content: m.text })
     } else if (m.role === "assistant") {
@@ -31,12 +43,11 @@ function toChatMessages(messages: Message[]): unknown[] {
       }
       out.push(msg)
     } else if (m.role === "tool") {
-      // ponytail: the tool role is text-only across Chat Completions providers —
-      // tool-result images (computer-use screenshots) are dropped here. Use an
-      // `anthropic`/Responses provider if you need vision-in-tool-results.
       out.push({ role: "tool", tool_call_id: m.callId, content: m.result })
+      if (m.images?.length) shown.push(...m.images)
     }
   }
+  flush()
   return out
 }
 

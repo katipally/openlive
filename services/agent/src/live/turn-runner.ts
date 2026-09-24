@@ -1,9 +1,10 @@
-import { streamProvider, type Message } from "@openlive/harness";
+import { isUnreachable, streamProvider, unreachableMessage, type Message } from "@openlive/harness";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
 import { collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { runWorker } from "./worker.js";
+import { prepareToolImages } from "../tool-images.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" };
 
@@ -31,6 +32,8 @@ const MAX_STEPS = 6;
 // camera frame(s) onto each user turn.
 export class LiveTurnRunner {
   private messages: Message[];
+  /** What the vision model said about each tool's picture, by call id. */
+  private described = new Map<string, string>();
 
   constructor(private extraTools: OpenLiveTool[]) {
     this.messages = [{ role: "system", text: buildLivePrompt() }];
@@ -73,7 +76,8 @@ export class LiveTurnRunner {
   }
 
   async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal): Promise<void> {
-    const { provider, model, apiKey, effort } = resolveLive();
+    const live = resolveLive();
+    const { provider, model, apiKey, effort } = live;
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
     if (!apiKey && !provider.keyless) { await emit({ type: "error", message: `No API key for ${provider.name}. Add one in Settings.` }); return; }
     // Attach frames from any active visual source (camera and/or screen — both can
@@ -126,7 +130,7 @@ export class LiveTurnRunner {
         if (signal.aborted) return;
         partial = "";
         const turn = await collectTurn(
-          streamProvider(provider, apiKey ?? undefined, { model, messages: this.messages, tools: toolDefs, ...reasoning, maxTokens: 4096 }, signal),
+          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: toolDefs, ...reasoning, maxTokens: 4096 }, signal),
           track,
         );
         this.messages.push({
@@ -165,7 +169,8 @@ export class LiveTurnRunner {
         return;
       }
       const raw = String(e?.message ?? e);
-      const msg = /quota|insufficient|billing/i.test(raw)
+      const msg = isUnreachable(e) ? unreachableMessage(provider)
+        : /quota|insufficient|billing/i.test(raw)
         ? `${provider.name}: API quota exhausted — add billing, or pick a different model in Settings.`
         : /invalid api key|authentication|401|403|unauthor|x-api-key|forbidden/i.test(raw)
           ? `${provider.name} rejected the API key — update it in Settings.`
