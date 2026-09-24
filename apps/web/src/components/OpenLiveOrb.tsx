@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { createWaveOrb, micGate, voiceBands, WAVE_ORB_RADIUS, type WaveOrb, type WaveOrbState } from "@/lib/waveOrb";
 
 // The OpenLive mark: a glass orb with a spectral wave inside (lib/waveOrb). ONE
-// component everywhere: the live in-call and Flow orbs, the breathing home mark
+// component everywhere: the live in-call and Flow orbs, the live home mark
 // (`pulse`), and small static marks, which draw one frame and then cost nothing.
 // Without a phase it is the logo (the `mark` state).
 //
@@ -15,7 +15,7 @@ export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, p
   getLevels?: () => { mic: number; agent: number };
   getBands?: () => { mic: number[]; agent: number[] }; // per-octave-band energy → real spectrum
   size?: number;
-  pulse?: boolean; // idle breathing for the static marks (no getLevels)
+  pulse?: boolean; // runs a mark with no getLevels live (the home heroes)
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const orb = useRef<WaveOrb | null>(null);

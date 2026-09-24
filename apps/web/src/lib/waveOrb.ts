@@ -27,7 +27,6 @@ uniform vec4 uB; // exposure, edgeGlow, sheen, contourDeform
 uniform vec4 uC; // amp, envW, braid, core
 uniform vec4 uD; // pulse, sweep, ripple, radius
 uniform vec3 uCol[6]; // colorA, colorB, colorC, colorD, highlight, glow
-uniform vec2 uE; // wash, crest
 out vec4 outColor;
 
 const vec3 SHELL_INNER = vec3(1.0);
@@ -40,12 +39,17 @@ const float SHELL_MID_ALPHA = 0.18;
 const float SHELL_EDGE_ALPHA = 0.18;
 const float GLOSS = 0.24;
 
-vec2 siriBand(vec2 q, float drift, float phaseOffset, float amplitude, float mainY, float envelope, float softness) {
+// One pixel in ball radii, and how icon-sized the ball is: 1 at 24 px across or
+// less, 0 from 64. A thread or the crest thinner than a pixel smears into the
+// fog, so an icon keeps each a pixel wide, two threads crisp and less fog.
+float pixel, tiny;
+
+vec2 siriBand(vec2 q, float drift, float phaseOffset, float amplitude, float mainY, float envelope, float softness, float crisp) {
   float y = amplitude * envelope * sin(q.x + drift + phaseOffset);
   float d = abs(q.y - y);
-  float line = 0.018 / (sqrt(d * d + softness * softness) + 0.026);
+  float line = 0.018 / (sqrt(d * d + softness * softness) + 0.026) + crisp * 0.5 * tiny * exp(-d * d / (0.45 * softness * softness));
   float bandDistance = max(0.0, max(q.y - max(mainY, y), min(mainY, y) - q.y));
-  return vec2(line, 0.018 / (bandDistance + 0.075));
+  return vec2(line, 0.018 / (bandDistance + 0.075) * (1.0 - 0.25 * tiny));
 }
 
 vec3 siriFluid(vec2 p) {
@@ -68,21 +72,22 @@ vec3 siriFluid(vec2 p) {
   float bandAmplitude = mainAmplitude + (mid * 0.025 + high * 0.018) * amp;
   float mainY = mainAmplitude * envelope * sin(q.x * 1.1 + drift);
   float separation = (1.85 + uA.y * 0.2 + mid * 0.28) * mix(1.0, cos(uW[5]), uC.z);
-  float softness = 0.035 + (1.0 - uA.z) * 0.018 + mid * 0.006;
+  float pixelQ = pixel / scale;
+  float softness = max(0.035 + (1.0 - uA.z) * 0.018 + mid * 0.006, pixelQ);
 
-  vec2 b0 = siriBand(q, drift, -separation, bandAmplitude, mainY, envelope, softness);
-  vec2 b1 = siriBand(q, drift, -separation * 0.34, bandAmplitude, mainY, envelope, softness);
-  vec2 b2 = siriBand(q, drift, separation * 0.34, bandAmplitude, mainY, envelope, softness);
-  vec2 b3 = siriBand(q, drift, separation, bandAmplitude, mainY, envelope, softness);
+  vec2 b0 = siriBand(q, drift, -separation, bandAmplitude, mainY, envelope, softness, 0.0);
+  vec2 b1 = siriBand(q, drift, -separation * 0.34, bandAmplitude, mainY, envelope, softness, 1.0);
+  vec2 b2 = siriBand(q, drift, separation * 0.34, bandAmplitude, mainY, envelope, softness, 1.0);
+  vec2 b3 = siriBand(q, drift, separation, bandAmplitude, mainY, envelope, softness, 0.0);
   float w0 = b0.x + b0.y, w1 = b1.x + b1.y, w2 = b2.x + b2.y, w3 = b3.x + b3.y;
   float d0 = w0 * w0, d1 = w1 * w1, d2 = w2 * w2, d3 = w3 * w3;
   vec3 spectral = (uCol[0] * d0 + uCol[2] * d1 + uCol[1] * d2 + uCol[3] * d3) / max(d0 + d1 + d2 + d3, 0.0001);
   float energy = (1.0 - exp(-(w0 + w1 + w2 + w3) * 0.58)) * envelope;
   float mainDistance = abs(q.y - mainY);
-  float whiteCore = exp(-mainDistance * mainDistance / 0.0028) * envelope * uC.w;
+  float whiteCore = exp(-mainDistance * mainDistance / max(0.0028, 0.5 * pixelQ * pixelQ)) * envelope * uC.w;
   vec3 atmosphere = mix(uCol[3], uCol[1], smoothstep(-0.7, 0.7, q.y)) * 0.018;
   vec3 color = atmosphere + spectral * energy * 1.14;
-  color += uCol[4] * whiteCore * (0.18 + 0.1 * low) * (1.0 + uE.y);
+  color += uCol[4] * whiteCore * (0.18 + 0.1 * low) * (1.0 + tiny);
   color = color / (vec3(1.0) + color * 0.18);
 
   float shade = uA.w;
@@ -127,6 +132,8 @@ void main() {
   // atan(0, 0) is undefined in GLSL, and the center pixel of an odd-sized canvas hits it.
   vec2 contour = contourWave(r > 0.0001 ? atan(uv.y, uv.x) : 0.0);
   float contourRad = rad * (1.0 + deform * contour.x);
+  pixel = 2.0 / (contourRad * minSide);
+  tiny = 1.0 - smoothstep(24.0, 64.0, contourRad * minSide);
   // The reference edge is 0.02 radii wide, under a pixel on a small orb, so the
   // limb gets at least a pixel of antialiasing.
   float aa = max(0.01, 1.5 / (contourRad * minSide * 0.5));
@@ -153,8 +160,6 @@ void main() {
       fcol = vec3(siriFluid(refracted - normal * split).r, siriFluid(refracted).g,
                   siriFluid(refracted + normal * split).b);
     }
-    // The wash cuts the faint fog between the threads, so the glass stays deep.
-    fcol = max(fcol - vec3(uE.x), 0.0) / (1.0 - uE.x);
     float lum = dot(fcol, vec3(0.213, 0.715, 0.072));
     vec3 clearSat = clamp(vec3(lum) + (fcol - vec3(lum)) * 1.22, 0.0, 1.0);
     // Divided by the exposure applied below, so the body lands as is. The wave
@@ -162,7 +167,7 @@ void main() {
     vec3 body = bodyColor(p) / max(uB.x, 0.001);
     vec3 col = mix(body, 1.0 - (1.0 - body) * (1.0 - clearSat), clearFa);
 
-    float surfaceBand = (1.0 - smoothstep(0.0, 0.026 + 0.055 * SHELL_EDGE_ALPHA, edgeDepth)) * clearFa;
+    float surfaceBand = (1.0 - smoothstep(0.0, max(0.026 + 0.055 * SHELL_EDGE_ALPHA, 1.6 * pixel), edgeDepth)) * clearFa;
     float rim = pow(surfaceBand, 1.8);
     col = over(col, SHELL_INNER, rim * GLASS_OPACITY * 0.45);
     float dispersion = rim * GLOSS * (0.8 + 0.8 * SHELL_EDGE_ALPHA);
@@ -194,8 +199,9 @@ const TAU = Math.PI * 2;
 // float32 had no fractional digits left for it.
 const RATES = [0.37, 0.51, 0.73, 2.4, 1.9, 1.3, 3.2, 0.62, 0.41, 0.23, 0.35];
 
-/** The wave's phase in the logo art. Every orb starts here, and the mark holds it. */
-export const MARK_POSE = [0, 0.37, 4.18, 0.3, 0, 0, 0, 0, 0, 0, 0];
+/** The logo's frame: the speaking wave 37.7 s in, threads spread under a tall
+ *  crest. Every orb starts here; the still marks and the brand art hold it. */
+export const MARK_POSE = [1.383, 0.377, 2.388, 2.515, 2.515, 5.028, 1.259, 4.524, 2.891, 2.388, 0.195];
 
 export function advancePhase(w: number[], by: number) {
   for (let i = 0; i < RATES.length; i++) {
@@ -208,16 +214,18 @@ export function advancePhase(w: number[], by: number) {
 // (thinking = the siri preset, the rest derived from it); amp..audio extend the
 // wave so states read by motion and shape, not by colour alone.
 const KEYS = ["speed", "contourDeform", "zoom", "warp", "ridgeAmt", "shade", "exposure", "edgeGlow",
-  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio", "lift", "sheen", "wash", "crest"] as const;
+  "amp", "envW", "braid", "core", "pulse", "sweep", "ripple", "breathe", "stutter", "audio", "lift", "hum"] as const;
 type Key = (typeof KEYS)[number];
 const BASE: Record<Key, number> = { speed: 0.82, contourDeform: 0, zoom: 0.36, warp: 3.2, ridgeAmt: 0.5, shade: 0.12, exposure: 2, edgeGlow: 0,
-  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0, lift: 0, sheen: 0.28, wash: 0, crest: 0 };
+  amp: 1, envW: 0.9, braid: 0, core: 1, pulse: 0, sweep: 0, ripple: 0, breathe: 0, stutter: 0, audio: 0, lift: 0, hum: 0 };
 const CALM = { speed: 0.246, zoom: 0.3384, warp: 1.664, ridgeAmt: 0.24, exposure: 1.36 };
+const SPEAKING = { speed: 1, exposure: 2.1, edgeGlow: 0.4, amp: 1.15, audio: 1.25,
+  colors: ["#9FD4FF", "#6F8CE6", "#B08CFF", "#5B6CFF", "#FFFFFF", "#6F8CE6"] };
 
 export const WAVE_ORB_STATES = {
-  // The OpenLive logo: the speaking wave held at a peak (MARK_POSE), breathing.
-  mark: { speed: 0, warp: 5, exposure: 1.9, edgeGlow: 0.4, amp: 1.9, breathe: 0.75, sheen: 0.44, wash: 0.1, crest: 1.2,
-    colors: ["#9FD4FF", "#6F8CE6", "#B08CFF", "#5B6CFF", "#FFFFFF", "#6F8CE6"] },
+  // The OpenLive logo: the speaking orb mid-sentence, a steady voice (hum) in
+  // place of audio, the wave at half pace and breathing.
+  mark: { ...SPEAKING, speed: 0.5, hum: 0.7, breathe: 0.5 },
   off: { ...CALM, speed: 0.12, amp: 0.05, core: 0.45, exposure: 0.9,
     colors: ["#5A6272", "#4A5364", "#545B6E", "#414858", "#8A93A6", "#3A4050"] },
   idle: { ...CALM, speed: 0.12, amp: 0.8, breathe: 1,
@@ -232,8 +240,7 @@ export const WAVE_ORB_STATES = {
     colors: ["#E6FF9E", "#5EF2C2", "#43C286", "#33B7D6", "#F0FFF6", "#43C286"] },
   thinking: { speed: 1.35, edgeGlow: 0.25, braid: 1, pulse: 1,
     colors: ["#FFD86B", "#F0A24A", "#C77DFF", "#8E6CFF", "#FFF3DE", "#F0A24A"] },
-  speaking: { speed: 1, exposure: 2.1, edgeGlow: 0.4, amp: 1.15, audio: 1.25,
-    colors: ["#9FD4FF", "#6F8CE6", "#B08CFF", "#5B6CFF", "#FFFFFF", "#6F8CE6"] },
+  speaking: SPEAKING,
   acting: { speed: 0.9, edgeGlow: 0.3, amp: 0.95, envW: 0.75, sweep: 1,
     colors: ["#FFB199", "#FF7A6B", "#FF5CB8", "#D94BFF", "#FFF0EC", "#FF6B8A"] },
   error: { ...CALM, speed: 0.2, exposure: 1.2, amp: 0.22, envW: 1.3, core: 0.6,
@@ -365,7 +372,7 @@ function drawFlat(ctx: CanvasRenderingContext2D, w: number, h: number, radius: n
 }
 
 type Orb = { visible: boolean; w: number; h: number; dirty: boolean; wants(): boolean; draw(now: number, dt: number, live: boolean): void };
-type Uniform = "uSize" | "uW" | "uA" | "uB" | "uC" | "uD" | "uE" | "uCol";
+type Uniform = "uSize" | "uW" | "uA" | "uB" | "uC" | "uD" | "uCol";
 const orbs = new Set<Orb>();
 let gl: WebGL2RenderingContext | null = null, glCanvas: HTMLCanvasElement | null = null;
 let prog: WebGLProgram | null = null, loc: Record<Uniform, WebGLUniformLocation | null> | null = null;
@@ -389,7 +396,7 @@ function build(g: WebGL2RenderingContext) {
   }
   g.useProgram(p);
   g.bindVertexArray(g.createVertexArray());
-  loc = Object.fromEntries((["uSize", "uW", "uA", "uB", "uC", "uD", "uE", "uCol"] as const).map((n) => [n, g.getUniformLocation(p, n)])) as typeof loc;
+  loc = Object.fromEntries((["uSize", "uW", "uA", "uB", "uC", "uD", "uCol"] as const).map((n) => [n, g.getUniformLocation(p, n)])) as typeof loc;
   prog = p;
 }
 
@@ -484,19 +491,22 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       }
       // The reference's audio rules (speed, separation, contour, shimmer,
       // exposure) with its siri strength, plus amplitude so the wave rides the voice.
-      const s = reduced ? 0 : 0.8 * n[K.audio]!;
+      const s = 0.8 * n[K.audio]!;
+      // Reduced motion drops the audio, which only moves the orb; a steady hum stays.
+      const level = (b: (typeof BANDS)[number]) => Math.max(reduced ? 0 : band[b], n[K.hum]!);
+      const low = level("low"), mid = level("mid"), high = level("high"), all = level("all");
       const rule = (v: number, add: number, prop: number, cap: number, level: number) =>
         Math.min(Math.max(cap, v), v * (1 + prop * level * s) + add * level * s);
       // `lift` is for a state that rests almost still, so a voice has to add
       // motion rather than scale the little there is.
       const lift = s > 0 ? n[K.lift]! : 0;
-      const speed = rule(n[K.speed]!, 0, 0.7, 5, band.all) + lift * 1.2 * band.all;
-      const warp = rule(n[K.warp]!, 0.85, 0, 7, band.mid) + lift * 2 * band.mid;
-      const contour = rule(n[K.contourDeform]!, 0.075, 0, 1, band.low);
-      const sheen = rule(n[K.sheen]!, 0.16, 0, 2, band.high);
-      const exposure = rule(n[K.exposure]!, 0, 0.12, 4, band.all);
+      const speed = rule(n[K.speed]!, 0, 0.7, 5, all) + lift * 1.2 * all;
+      const warp = rule(n[K.warp]!, 0.85, 0, 7, mid) + lift * 2 * mid;
+      const contour = rule(n[K.contourDeform]!, 0.075, 0, 1, low);
+      const sheen = rule(0.28, 0.16, 0, 2, high);
+      const exposure = rule(n[K.exposure]!, 0, 0.12, 4, all);
       clock += dt;
-      let amp = n[K.amp]! * Math.min(1.8 + lift * 1.6, 1 + s * (0.7 * band.low + 0.4 * band.all));
+      let amp = n[K.amp]! * Math.min(1.8 + lift * 1.6, 1 + s * (0.7 * low + 0.4 * all));
       let rate = 0;
       if (!reduced) {
         rate = 1;
@@ -519,7 +529,6 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       g.uniform4f(l.uB, exposure, n[K.edgeGlow]!, sheen, contour);
       g.uniform4f(l.uC, amp, n[K.envW]!, n[K.braid]!, n[K.core]!);
       g.uniform4f(l.uD, n[K.pulse]!, n[K.sweep]!, n[K.ripple]!, radius);
-      g.uniform2f(l.uE, n[K.wash]!, n[K.crest]!);
       g.uniform3fv(l.uCol, cols);
       g.drawArrays(g.TRIANGLES, 0, 3);
       ctx.clearRect(0, 0, o.w, o.h);
