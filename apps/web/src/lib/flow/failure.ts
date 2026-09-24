@@ -18,6 +18,8 @@ export interface FlowHealth {
   online: boolean;
   /** The on-device voice weights are already downloaded. */
   modelsCached: boolean;
+  /** What that download holds for the selected engines (browserModels). */
+  voiceModels: string[];
 }
 
 /**
@@ -71,12 +73,15 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
     return {
       code: "models_missing",
       title: "The voice models are not downloaded yet",
-      detail: "Flow listens and speaks on-device, so it needs them once. It is about a hundred megabytes.",
+      detail: `Flow listens and speaks on-device, so it needs the ${listed(h.voiceModels)} ${h.voiceModels.length > 1 ? "models" : "model"} once.`,
       actionLabel: "Download",
     };
   }
   return null;
 }
+
+/** "a", "a and b", "a, b and c". */
+const listed = (xs: string[]): string => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0] ?? "";
 
 /** The provider's own sentence out of an `HTTP 400: {"error":{"message":...}}` body. */
 const said = (message: string): string =>

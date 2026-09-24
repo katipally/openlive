@@ -5,6 +5,7 @@ import type { FlowContextWire, FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase, type TurnTuning } from "@/lib/live/voiceEngine";
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
+import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
 import { classifyYesNo } from "@/lib/live/modalAnswer";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
@@ -194,6 +195,7 @@ export function useFlowOwner(): void {
           brainReady: brainReady.current,
           online: typeof navigator === "undefined" || navigator.onLine,
           modelsCached: modelsCached(),
+          voiceModels: browserModels(loadPipelineConfig()),
         }),
       });
     };

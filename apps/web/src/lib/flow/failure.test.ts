@@ -3,7 +3,7 @@ import { deriveFailure, turnFailure, type FlowHealth } from "./failure";
 
 const HEALTHY: FlowHealth = {
   platform: "darwin", wayland: false, accessibility: true, secureInput: false,
-  hookError: null, brainReady: true, online: true, modelsCached: true,
+  hookError: null, brainReady: true, online: true, modelsCached: true, voiceModels: ["speech", "voice", "turn-taking"],
 };
 
 describe("deriveFailure", () => {
@@ -42,6 +42,12 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, accessibility: false })?.detail).toContain("Accessibility");
     expect(deriveFailure({ ...HEALTHY, platform: "win32", accessibility: false })?.detail).toContain("input access");
     expect(deriveFailure({ ...HEALTHY, platform: "linux", wayland: true })?.detail).not.toMatch(/tray|command line/);
+  });
+
+  it("names the voice models the selected engines actually download", () => {
+    const missing = { ...HEALTHY, modelsCached: false };
+    expect(deriveFailure(missing)?.detail).toContain("needs the speech, voice and turn-taking models once");
+    expect(deriveFailure({ ...missing, voiceModels: ["turn-taking"] })?.detail).toContain("needs the turn-taking model once");
   });
 });
 

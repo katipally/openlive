@@ -6,6 +6,7 @@ import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
+import { loadPipelineConfig, isNativeStt, browserModels } from "@/lib/live/pipelineConfig";
 import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
@@ -44,7 +45,13 @@ export function Lobby(props: LobbyProps) {
     downloadPct, downloadLoaded, downloadTotal, downloadModels, refreshDevices, onDownload, onStart, onOpenSettings, onExit } = props;
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const boundCwd = useLiveStore((s) => s.boundCwd);
-  const cpu = typeof navigator !== "undefined" && !hasWebGPU();
+  // Only the in-browser models slow down without WebGPU; native engines and a
+  // cloned voice run on the agent's CPU either way.
+  const voice = loadPipelineConfig();
+  const downloads = browserModels(voice);
+  const plural = downloads.length > 1;
+  const cpu = typeof navigator !== "undefined" && !hasWebGPU()
+    && (!isNativeStt(voice.stt.engine) || voice.tts.engine === "kokoro" || voice.tts.engine === "supertonic");
   // A project folder is REQUIRED only for a coding agent (its file-access scope + where
   // its session is filed). The built-in OpenLive assistant needs no folder — a folderless
   // voice chat is valid (History files it under "No folder").
@@ -110,9 +117,9 @@ export function Lobby(props: LobbyProps) {
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
       <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
-        Download AI models
+        {plural ? "Download AI models" : "Download AI model"}
       </button>
-      <p className="max-w-[17rem] text-caption text-faint">A one-time download of 3 small AI models (speech, voice, turn-taking) that run fully on your device — nothing is sent to a server.</p>
+      <p className="max-w-[17rem] text-caption text-faint">A one-time download of {downloads.length} small AI {plural ? "models" : "model"} ({downloads.join(", ")}) that {plural ? "run" : "runs"} fully on your device. Nothing is sent to a server.</p>
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
