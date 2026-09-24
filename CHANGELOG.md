@@ -29,6 +29,11 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **Native speech engines.** The voice service can download and run five
+  optional sherpa-onnx models on this machine: Nemotron (streaming), Parakeet
+  and Moonshine for speech to text, and Pocket TTS and Kitten TTS for speech,
+  streamed as it is generated. Each is its own download and can be deleted
+  again. They run off the main thread, so live calls stay responsive.
 - **Ollama server address.** Settings → Models → Provider takes the address of
   the Ollama server (default `http://localhost:11434`), for Ollama on another
   machine or port. Chat, Flow and the model list use it, and an unreachable

@@ -4,10 +4,14 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
 import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
+import { NATIVE_ENGINES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, speakable } from "./native-models.js";
+import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
+import { speak, transcribe, unloadNative } from "./native.js";
 import { log } from "../log.js";
 
 // Voice Studio REST surface, mounted at /voice (behind the same shared-secret
@@ -158,7 +162,8 @@ voiceRoutes.get("/profiles/:id/export", (c) => {
 
 // ── synthesis ────────────────────────────────────────────────────────────────
 voiceRoutes.post("/tts", async (c) => {
-  const body = await c.req.json().catch(() => null) as { text?: string; profileId?: string; speed?: number } | null;
+  const body = await c.req.json().catch(() => null) as { text?: string; profileId?: string; speed?: number; engine?: string; voice?: string } | null;
+  if (body?.engine !== undefined) return nativeTts(body, c.req.raw.signal);
   const text = body?.text?.trim();
   if (!text) return c.json({ error: "text required" }, 400);
   if (!modelInstalled()) return c.json({ error: "model-not-installed" }, 409);
@@ -177,3 +182,107 @@ voiceRoutes.post("/tts", async (c) => {
     return c.json({ error: String((e as Error)?.message ?? e) }, 500);
   }
 });
+
+// ── native engines (see native-models.ts) ────────────────────────────────────
+const STT_MAX_BYTES = 60 * SAMPLE_RATE * 4; // 60 s of mono Float32
+const TTS_MAX_CHARS = 5_000;
+const engineDownloads = new Map<string, AbortController>();
+const notInstalled = (name: string) => ({ error: "engine-not-installed", message: `${name} is not downloaded yet` });
+
+voiceRoutes.get("/engines", (c) => c.json(NATIVE_ENGINES.map((e) => ({
+  id: e.id, kind: e.kind, name: e.name, streaming: !!e.streaming,
+  installed: engineInstalled(e), downloading: engineDownloads.has(e.id), bytes: engineDiskBytes(e.id), sizeBytes: e.sizeBytes,
+  voices: e.voices?.map(({ id, name, gender }) => ({ id, name, gender })),
+}))));
+
+// Same JSON-lines progress stream as /model/download. DELETE /engines/:id
+// during a download cancels it.
+voiceRoutes.post("/engines/:id/download", (c) => {
+  const e = nativeEngine(c.req.param("id"));
+  if (!e) return c.json({ error: "unknown engine" }, 400);
+  if (engineDownloads.has(e.id)) return c.json({ error: "already downloading" }, 409);
+  if (engineInstalled(e)) return c.json({ error: "already installed" }, 409);
+  const abort = new AbortController();
+  engineDownloads.set(e.id, abort);
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const enc = new TextEncoder();
+      const push = (o: object) => { try { controller.enqueue(enc.encode(JSON.stringify(o) + "\n")); } catch { /* client gone; keep downloading */ } };
+      let loaded = 0;
+      let lastPush = 0;
+      try {
+        await downloadEngine(e, (n) => {
+          loaded += n;
+          if (Date.now() - lastPush > 200) { lastPush = Date.now(); push({ loaded, total: e.sizeBytes }); }
+        }, abort.signal);
+        push({ loaded: e.sizeBytes, total: e.sizeBytes, done: true });
+      } catch (err) {
+        if (!abort.signal.aborted) log.error("voice", `${e.id} download:`, err);
+        push({ error: abort.signal.aborted ? "cancelled" : String((err as Error)?.message ?? err) });
+      } finally {
+        engineDownloads.delete(e.id);
+        try { controller.close(); } catch { /* closed */ }
+      }
+    },
+  });
+  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" } });
+});
+
+voiceRoutes.delete("/engines/:id", (c) => {
+  const e = nativeEngine(c.req.param("id"));
+  if (!e) return c.json({ error: "unknown engine" }, 400);
+  engineDownloads.get(e.id)?.abort();
+  unloadNative(e);
+  rmSync(engineDir(e.id), { recursive: true, force: true });
+  return c.json({ ok: true });
+});
+
+// Body: raw little-endian Float32 PCM, 16 kHz mono.
+voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.json({ error: "audio is longer than 60 s" }, 413) }), async (c) => {
+  const e = nativeEngine(c.req.query("engine"));
+  if (e?.kind !== "asr") return c.json({ error: "unknown speech-to-text engine" }, 400);
+  if (!engineInstalled(e)) return c.json(notInstalled(e.name), 409);
+  const samples = pcmFromBytes(new Uint8Array(await c.req.arrayBuffer()));
+  if (!samples) return c.json({ error: "body must be raw Float32 PCM" }, 400);
+  if (!samples.length) return c.json({ text: "" });
+  try {
+    return c.json({ text: await transcribe(e, samples, c.req.raw.signal) });
+  } catch (err) {
+    log.error("voice", "stt:", err);
+    return c.json({ error: String((err as Error)?.message ?? err) }, 500);
+  }
+});
+
+/** Streams raw Float32 PCM chunks as they are generated; a client that hangs
+ *  up cancels the rest of the synthesis, even one still queued behind another. */
+async function nativeTts(body: { engine?: string; text?: string; voice?: string; speed?: number }, signal: AbortSignal): Promise<Response> {
+  const e = nativeEngine(body.engine);
+  if (e?.kind !== "tts") return Response.json({ error: "unknown text-to-speech engine" }, { status: 400 });
+  if (!body.text?.trim()) return Response.json({ error: "text required" }, { status: 400 });
+  const text = speakable(body.text);
+  if (text.length > TTS_MAX_CHARS) return Response.json({ error: `text is longer than ${TTS_MAX_CHARS} characters` }, { status: 413 });
+  const voice = body.voice === undefined ? e.voices?.[0] : e.voices?.find((v) => v.id === body.voice);
+  if (!voice) return Response.json({ error: "unknown voice" }, { status: 400 });
+  if (!engineInstalled(e)) return Response.json(notInstalled(e.name), { status: 409 });
+  const speed = Math.min(2, Math.max(0.5, Number(body.speed) || 1));
+  // Nothing left to say (a lone emoji): silence, not an error the client would
+  // count against the engine.
+  if (!text) return new Response(new Uint8Array(0), { headers: { "Content-Type": "application/octet-stream" } });
+
+  let out!: ReadableStreamDefaultController<Uint8Array>;
+  const audio = new ReadableStream<Uint8Array>({ start: (ctrl) => { out = ctrl; }, cancel: () => job.cancel() });
+  const job = speak(e, text, voice, speed, (s) => { try { out.enqueue(pcmBytes(s)); } catch { /* client gone */ } });
+  if (signal.aborted) job.cancel();
+  else signal.addEventListener("abort", job.cancel, { once: true });
+  job.done.then(() => { try { out.close(); } catch { /* closed */ } }, (err) => {
+    log.error("voice", "tts:", err);
+    try { out.error(err); } catch { /* closed */ }
+  });
+  try {
+    const sampleRate = await job.started;
+    return new Response(audio, { headers: { "Content-Type": "application/octet-stream", "x-sample-rate": String(sampleRate) } });
+  } catch (err) {
+    return Response.json({ error: String((err as Error)?.message ?? err) }, { status: 500 });
+  }
+}
