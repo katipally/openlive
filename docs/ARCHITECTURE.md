@@ -114,6 +114,19 @@ voice agent does all the talking and delegates web work to a **worker subagent**
 (Exa search, `fetch_url`) whose grind stays out of the main context; other tools:
 `look`, `remember`, `update_todos`, clipboard/open-url via the desktop bridge.
 
+## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
+
+Flow is the voice assistant for the whole machine, summoned with a double tap of
+`Control`. A hidden owner renderer (`/flow-owner`) runs the same voice loop and a
+second `/live` connection (`live/flow-ws.ts`); an always-on-top orb window (`/flow`)
+only draws what the owner publishes. On the server, `runFlow` loops turns and tool
+calls on a `LocalBrain` (provider) or an `AcpBrain` (coding agent, which gets the
+same tools over a local MCP server). Device tools reach the `native/ol-input` Rust
+addon through the owner renderer and `flow-runtime.cjs` in the main process. Config
+and history live in `~/.openlive/flow` via `packages/flow-store`.
+
+Full user and developer guide: [FLOW.md](FLOW.md).
+
 ## Packages
 
 ```

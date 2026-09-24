@@ -55,6 +55,11 @@ mouth, and eyes around it. Nothing you say leaves the machine. The only thing th
 goes out is the final transcript (plus camera or screen frames if you turn them on),
 to whatever brain you picked.
 
+The same ears, mouth, and eyes also work outside a call. **Flow** is OpenLive's
+voice assistant for the whole machine: tap `Control` twice in any app, say what you
+want, and it answers out loud, types where your cursor is, or drives your apps for
+you. More in [Flow](#flow) below.
+
 An honest note on architecture: OpenLive is a cascaded pipeline (speech to text to
 model to speech), not a full-duplex speech-to-speech model like GPT-Live. That's a
 real trade. A speech-native model can overlap talk and listen in ways a cascade
@@ -108,6 +113,57 @@ The integrations that serve it:
 - **Private by design.** Audio never uploads. API keys are encrypted at rest
   (AES-256-GCM) and only the last four digits are ever shown.
 
+Flow, the assistant for the whole machine:
+
+- **Summoned anywhere.** Double tap `Control` in any app, or pick New Flow session
+  from the tray. A small orb rises over the dock and listens; the same gesture
+  closes it.
+- **Acts on your machine.** Types at your cursor, opens apps and links, clicks,
+  scrolls, reads the screen (screenshots and OCR), manages windows, and runs shell
+  commands, checking the screen after every step.
+- **Any brain.** API mode on the provider set in Settings, from MiniMax, OpenAI or
+  Anthropic to a local Ollama, or a coding agent over ACP with the same tools.
+- **You stay in control.** One consent question before it first acts, a caption
+  with Stop the whole time it acts, and a failure card with the fix when
+  something goes wrong.
+
+## Flow
+
+Flow is the voice assistant that lives over your dock, not in a window.
+
+```
+ any app ──▶ tap Control, Control ──▶ orb listens ──▶ thinks ──▶ acts / speaks
+                                          ▲                          │
+                                          └──── next sentence ◀──────┘
+```
+
+- **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
+  tray > **New Flow session**. Hover the orb for close and open-OpenLive buttons.
+- **What it can do.** Answer out loud, type into the app you are in, and drive the
+  machine: open apps and links, click, type, scroll, take screenshots, read text on
+  screen, move and close windows, run shell commands.
+- **Brains.** API mode uses the provider, model, and vision model from Settings >
+  Models (MiniMax, OpenAI, Anthropic, Ollama at any address, and the rest). Or pick
+  a coding agent such as Claude Code, driven over ACP with the same tools. A model
+  that cannot see gets the vision model's description of each screenshot.
+- **Orb states.** Listening (teal), thinking (violet), acting (magenta, with a
+  caption strip), speaking (blue), error (dark red, with a card).
+- **Safety.** Flow asks once before it first acts on the machine and remembers the
+  yes (take it back in Settings > Flow). While it acts, the caption names what it
+  is doing next to a **Stop** button. Every failure shows a card with its fix.
+- **What leaves the machine.** Your voice never does. The transcript, the front
+  app, window title and selection, and tool results, including screenshots, go to
+  the brain you chose. An Ollama address off this computer asks for confirmation
+  first, since it will receive screen content.
+- **Setup.** On macOS, grant Microphone, Accessibility and Screen Recording in
+  Settings > Flow > Access. Windows and Linux have their own backends; Wayland
+  cannot deliver the global key, so use the tray there.
+
+![Orb states](assets/flow-orb-states.png)
+
+The full guide, with every setting, failure card, platform detail, and the
+architecture, is in [docs/FLOW.md](docs/FLOW.md).
+
 ## Screenshots
 
 | Home | In a live call |
@@ -115,8 +171,14 @@ The integrations that serve it:
 | ![Home](assets/home.png) | ![In a live call](assets/hero.png) |
 | **Pre-call setup** | **Settings — agents** |
 | ![Pre-call setup](assets/lobby.png) | ![Settings](assets/settings.png) |
-| **Clone your voice** | |
-| ![Clone Voice](assets/clone-voice.png) | |
+| **Clone your voice** | **Flow home** |
+| ![Clone Voice](assets/clone-voice.png) | ![Flow home](assets/flow-home.png) |
+| **Flow acting, with Stop** | **Flow asks once before it acts** |
+| ![Flow acting with the caption strip and Stop](assets/flow-orb-acting.png) | ![Flow permission card](assets/flow-orb-permission.png) |
+| **Flow speaking** | **Hover controls beside the orb** |
+| ![Flow speaking](assets/flow-orb-speaking.png) | ![Flow hover controls](assets/flow-orb-hover.png) |
+| **A failure card with its fix** | **Settings, Flow** |
+| ![Flow failure card](assets/flow-orb-failure.png) | ![Settings, Flow](assets/flow-settings.png) |
 
 ## Why on-device voice matters
 
@@ -143,6 +205,15 @@ Everything outside "your AI" runs locally in the renderer. The turn goes over a 
 local WebSocket to a small agent server, which either streams a provider reply or
 drives your coding agent's ACP adapter as a child process. The app starts speaking
 sentence by sentence while the reply is still being written.
+
+Flow runs the same voice loop in a hidden window, with a second local socket and
+a tool loop on the agent server:
+
+```
+Control, Control ─▶ orb ─▶ voice loop ─▶ Flow socket ─▶ brain ─▶ tools ─▶ your apps
+                   (over                (flow-ws)     (API      (type, click,
+                    the dock)                          or ACP)   screenshot, OCR…)
+```
 
 ## Get started
 
@@ -176,10 +247,17 @@ packages/shared  the agent registry (single source of agent identity), wire prot
                  shared types
 packages/harness provider-neutral model adapters, live model listing, cost/effort
 packages/db      JSON-file store: encrypted keys, settings, conversations
+packages/flow-store Flow's config and session history in ~/.openlive/flow
+native/ol-input  Rust addon for Flow: the global key, typing, capture, OCR, input
 ```
+
+Flow's pieces: `apps/web/src/components/flow` and `src/lib/flow` (the orb and its
+owner renderer), `services/agent/src/flow` and `src/live/flow-ws.ts` (the tool loop,
+brains, and tools), and `apps/desktop/flow-*.cjs` (the addon bridge).
 
 For how the pieces fit together — the ACP driver, the voice loop, resume, and the
 delegate/worker tool flow — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For Flow, see [docs/FLOW.md](docs/FLOW.md).
 
 ## Contributing
 
