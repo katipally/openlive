@@ -17,7 +17,7 @@ import { Segmented } from "@/lib/seg";
 import { Section } from "./Section";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 
-const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`) : "—");
+const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`) : "—");
 
 // Real image-input capability when the API reports it (models.dev / provider
 // payload); fall back to the name heuristic when it doesn't.
