@@ -80,6 +80,7 @@ export class LiveSession {
   // doesn't lose what the user was showing.
   private queued: { text: string; frames: TurnFrame[] } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
+  private startup: Promise<void> = Promise.resolve();
   private bindEpoch = 0;                      // guards applyBind against re-entrant/overlapping binds
   private expectReplay = false;               // this chat was empty when a resume began → persist recovered turns
   private frameChain: Promise<unknown> = Promise.resolve(); // serialize concurrent `look` frame grabs
@@ -141,7 +142,9 @@ export class LiveSession {
     ws.on("error", () => this.dispose());
   }
 
-  async start() {
+  start(): Promise<void> { return (this.startup = this.boot()); }
+
+  private async boot() {
     // Persist the chat row + rehydrate recent history (so a reconnect mid-call
     // doesn't make the agent forget what was already said).
     if (this.chatId) {
@@ -161,7 +164,8 @@ export class LiveSession {
     // answers fast. Tell the client when it's done (drives the "Warming up…" spinner);
     // always signal ready, even on failure, so the indicator never sticks.
     this.warmAc = new AbortController();
-    void this.runner.warm(this.warmAc.signal)
+    // A turn waiting on this start primes the cache itself; a warm-up would send it twice.
+    void (this.turnActive ? Promise.resolve() : this.runner.warm(this.warmAc.signal))
       .catch(() => {})
       .finally(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); });
   }
@@ -275,6 +279,10 @@ export class LiveSession {
     this.turnActive = true;
     const ac = new AbortController();
     this.ac = ac;
+    // A reconnect flushes a queued utterance right behind the bind: wait for the
+    // history and the bound agent, or the turn is saved into the history it then
+    // loads twice, and goes to the built-in brain instead of the agent.
+    await this.startup.catch(() => {});
 
     const blocks: MessageBlock[] = [];
     const foldCtx = newFoldCtx();
