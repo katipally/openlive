@@ -26,7 +26,9 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path: s
       body: read ? undefined : req.body,
       // @ts-expect-error node fetch needs duplex for streamed request bodies
       duplex: "half",
-      ...(read ? { signal: AbortSignal.timeout(8000) } : {}),
+      // The browser hanging up reaches the agent: a sentence cut by barge-in
+      // while still queued must not be synthesized anyway.
+      signal: read ? AbortSignal.any([req.signal, AbortSignal.timeout(8000)]) : req.signal,
     });
   } catch (e) {
     const timedOut = (e as Error)?.name === "TimeoutError";
