@@ -735,7 +735,9 @@ function quitApp() {
 
 function createTray() {
   try {
-    const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
+    // macOS tints a Template image to suit a light or dark menu bar; elsewhere
+    // templates mean nothing, so the tray gets the colour mark. Both load their @2x.
+    const img = nativeImage.createFromPath(path.join(__dirname, "build", process.platform === "darwin" ? "trayTemplate.png" : "tray.png"));
     tray = new Tray(img);
     tray.setToolTip("OpenLive");
     refreshTray();
