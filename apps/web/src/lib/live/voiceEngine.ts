@@ -396,7 +396,7 @@ export class VoiceEngine {
     if (!p || this.phase !== "idle") return;
     const commit = (t: string) => {
       const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); this.h.onUserText(text); }
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
@@ -433,6 +433,7 @@ export class VoiceEngine {
     const p = this.pending; const cached = this.pendingText;
     this.pending = null;
     if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
+    const perf0 = performance.now();
     try {
       // `pendingText` is always the transcript of exactly `pending`.
       const text = (cached || (await stt(p))).trim();
@@ -441,6 +442,7 @@ export class VoiceEngine {
       this.spokenText = "";
       this.acceptingReply = true;
       this.turnSentAt = performance.now();
+      perf.turnCommitted(this.turnSentAt - perf0);
       this.h.onUserText(text);
     } catch { this.h.onPartial(""); this.setPhase("idle"); }
   }
