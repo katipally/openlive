@@ -288,8 +288,11 @@ export class FlowLiveSession {
       }
     } catch (e) {
       log.error("flow", "turn:", e);
-      this.send({ t: "flow", event: { type: "error", message: "That turn failed.", aborted: false } });
-      this.send({ t: "flow", event: { type: "done", reason: "error" } });
+      // Mostly a coding agent that would not start, and its reason is the fix.
+      const message = (e instanceof Error && e.message.slice(0, 400)) || "That turn failed.";
+      const aborted = ac.signal.aborted;
+      this.send({ t: "flow", event: { type: "error", message, aborted } });
+      this.send({ t: "flow", event: { type: "done", reason: aborted ? "aborted" : "error" } });
     } finally {
       this.turnActive = false;
       this.ac = null;
