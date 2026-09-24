@@ -150,6 +150,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           if (e.target === tw) turnAvailable = !!m.turn; else whisperLoaded = !!m.whisper;
           if (--waiting) break;
           ready = true; loadedTag = readyTag();
+          warmNativeEngines();
           try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag()])].join(" ")); } catch { /* private mode */ }
           resolve();
           break;
@@ -236,6 +237,34 @@ export function nativeSttFailed(engine: SttEngine, err: unknown, lasting = failu
   if (!lasting || sttFallback === engine) return;
   sttFallback = engine;
   toast(`${shortName(STT_ENGINES.find((e) => e.id === engine)!.name)} unavailable, using Whisper. Check Settings > Voice pipeline.`);
+}
+
+// Call start, model load and every Flow open all ask for a warm-up; one per
+// engine a minute keeps the agent's engines loaded (it unloads after 5 idle
+// minutes) without a duplicate "Hi." queueing ahead of the first real sentence.
+const WARM_FRESH_MS = 60_000;
+const warmedAt = new Map<string, number>();
+const warmDue = (engine: string) => {
+  const now = Date.now();
+  if (now - (warmedAt.get(engine) ?? -Infinity) < WARM_FRESH_MS) return false;
+  warmedAt.set(engine, now);
+  return true;
+};
+
+/** Loads the selected native engines on the agent (up to ~1 s each, cold) before
+ *  the first turn needs them. Quiet: a failure here is reported by the first real call. */
+export function warmNativeEngines() {
+  const { stt: s, tts: t } = loadPipelineConfig();
+  if (isNativeStt(s.engine) && s.engine !== sttFallback && warmDue(s.engine)) {
+    void fetch(`/api/voice/stt?engine=${s.engine}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: new Float32Array(1600) }).catch(() => {});
+  }
+  // A cloned voice runs on the agent too (ZipVoice), with the same cold start.
+  const body = isNativeTts(t.engine) && t.engine !== ttsFallback ? { engine: t.engine, voice: t.voice, text: "Hi." }
+    : t.engine === "clone" && t.voice ? { profileId: t.voice, text: "Hi." } : null;
+  if (body && warmDue(t.engine)) {
+    void fetch("/api/voice/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then((r) => r.arrayBuffer()).catch(() => {});
+  }
 }
 
 const STT_WINDOW = 50 * 16000; // the agent refuses more than 60 s per request

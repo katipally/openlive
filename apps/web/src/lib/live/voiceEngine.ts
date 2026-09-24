@@ -1,6 +1,6 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
-import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, isNativeTts } from "./models";
+import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines, isNativeTts } from "./models";
 import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker, STREAMED_FIRST_CHARS } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
@@ -172,6 +172,7 @@ export class VoiceEngine {
       onVADMisfire: () => { this.streaming = false; if (this.phase === "listening") this.setPhase("idle"); },
     });
     this.syncAsr();
+    warmNativeEngines();
     await this.vad.start();
     this.setupMicSpectrum(stream);
     this.setPhase("idle");
