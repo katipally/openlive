@@ -76,12 +76,13 @@ so everything you did in the CLI shows up too.
 
 One turn, end to end:
 
-1. **VAD** (Silero) gates the mic — is anyone talking?
-2. **STT** (Whisper) transcribes speech to text as it streams.
+1. **VAD** (Silero v6.2, v5 selectable) gates the mic: is anyone talking?
+2. **STT** (Whisper in the renderer, or a native engine) transcribes speech to
+   text as it streams.
 3. **End-of-turn** (Smart-Turn v3) decides you actually *finished*, not just paused.
 4. The final text (plus the freshest camera/screen frame) goes out over `/live`.
 5. The reply streams back as text; **TTS** (Kokoro or Supertonic in the renderer,
-   or a cloned voice — see below) voices it sentence by sentence so speaking starts
+   a native engine, or a cloned voice, see below) voices it sentence by sentence so speaking starts
    before the full answer exists.
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
@@ -89,6 +90,16 @@ One turn, end to end:
 The renderer models run on **WebGPU via transformers.js**. They download once
 (roughly 200 MB with Kokoro, more with Supertonic or a bigger Whisper; cached)
 and the worker stays warm for the tab's life.
+
+The **native engines** (`services/agent/src/voice/native*.ts`) are optional
+sherpa-onnx models that the agent service downloads into `data/models/<id>` from
+Settings → Voice: Nemotron (streaming), Parakeet and Moonshine for speech to
+text, Pocket TTS and Kitten TTS for speech. They run on the agent's CPU in worker
+threads. Batch transcription and synthesis go through `/api/voice`, and speech
+streams back as raw Float32 PCM while it is generated. Nemotron takes mic frames
+over the `/voice/stream` socket and sends partials while you talk. A missing
+engine or an unreachable agent switches the call to Whisper or Kokoro; a one-off
+failure (a timeout, a 500) falls back for that turn only.
 
 ## Voice cloning (`services/agent/src/voice/`)
 

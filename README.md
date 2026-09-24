@@ -70,9 +70,13 @@ possible.
 
 The core, the ears / mouth / eyes:
 
-- **On-device voice loop.** Silero VAD, Whisper STT, Smart-Turn end-of-turn, and
-  your pick of two TTS engines: Kokoro (28 voices, light) or Supertonic (10 voices,
-  44.1 kHz). All of it runs in the app on WebGPU.
+- **On-device voice loop.** Silero VAD, speech to text, Smart-Turn end-of-turn,
+  and text to speech, all on this machine. Speech to text is Whisper on WebGPU, or
+  a native engine: Nemotron (transcribes while you talk), Parakeet or Moonshine.
+  Text to speech is Kokoro (28 voices, light), Supertonic (10 voices, 44.1 kHz), or
+  a native Pocket TTS or Kitten TTS that starts speaking before the sentence is
+  done. The native engines are optional downloads in Settings → Voice, run by the
+  local agent service on CPU, and fall back to Whisper or Kokoro when missing.
 - **Speak as yourself.** Settings → Voice records 5 to 30 seconds of you
   (with a seekable listen-back before anything is saved) and your assistant speaks
   in your voice from then on. Zero-shot cloning (ZipVoice, Apache-2.0) running
@@ -195,9 +199,9 @@ at all; it runs under the login you already have.
 
 ```
 mic ─▶ VAD ─▶ streaming STT ─▶ end-of-turn ─▶ your AI ──────────▶ streaming TTS ─▶ speaker
-     (Silero)  (Whisper)        (Smart-Turn)  (BYO model, or a     (Kokoro / Supertonic /
-                                    ▲          coding agent over    your cloned voice)
-                camera / screen ────┘          ACP on local stdio)
+     (Silero)  (Whisper or      (Smart-Turn)  (BYO model, or a     (Kokoro / Supertonic /
+               native engines)      ▲          coding agent over    Pocket / Kitten /
+                camera / screen ────┘          ACP on local stdio)  your cloned voice)
                 frames (vision)
 ```
 
