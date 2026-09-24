@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <style>
     .t{stroke-width:0.8;filter:url(#thread)}.c{stroke-width:0;filter:url(#crisp)}.r{stroke-width:0.8}.fog{filter:url(#fog)}
-    @media (max-width:40px){.t{stroke-width:5;filter:none}.b0,.b3{display:none}.c{stroke-width:5.5;filter:none}.r{stroke-width:3.4}.fog{filter:url(#fogS);opacity:.6}.b1{stroke:#b99cff}.b2{stroke:#7f9cff}}
   </style>
   <defs>
     <radialGradient id="halo" cx="50%" cy="50%" r="50%">
@@ -45,7 +44,6 @@
     </linearGradient>
     <mask id="envc" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="url(#envC)"/></mask>
     <filter id="fog" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><feGaussianBlur stdDeviation="4.5"/></filter>
-    <filter id="fogS" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><feGaussianBlur stdDeviation="2.5"/></filter>
     <filter id="thread" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><feGaussianBlur stdDeviation="0.5"/></filter>
     <filter id="crisp" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><feGaussianBlur stdDeviation="0.35"/></filter>
     <filter id="bloom" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><feGaussianBlur stdDeviation="1.8"/></filter>
