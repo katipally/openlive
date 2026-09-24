@@ -39,12 +39,17 @@ export function endsMidThought(text: string): boolean {
 // Strip markdown so the voice never reads out "-", "*", "#", or "[p.18]" symbols,
 // and scrub photo-narration ("the image/photo/…") into natural spoken language as
 // a backstop to the prompt — with the camera on the agent should talk about
-// "what I'm seeing", not "the image".
+// "what I'm seeing", not "the image". The result is what the transcript SHOWS, so
+// words are kept as written: code spans and URLs pass through untouched, and an
+// underscore inside a word (my_file.txt) is not emphasis. toSpeech() then adapts
+// it for the voice.
 export function stripMarkdown(s: string): string {
+  const kept: string[] = [];
+  const keep = (t: string) => `\u0000${kept.push(t) - 1}\u0000`;
   return s
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")   // links → text
-    .replace(/`([^`]*)`/g, "$1")                // inline code
-    .replace(/[*_~#>]+/g, "")                   // bold/italic/heading/quote marks
+    .replace(/`([^`]*)`|\bhttps?:\/\/[^\s)\]]+/gi, (m, code?: string) => keep(code ?? m))
+    .replace(/[*~#>]+|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])/g, "") // bold/italic/heading/quote marks
     .replace(/^\s*[-•]\s+/gm, "")               // list bullets
     .replace(/^\s*\d+\.\s+/gm, "")              // numbered lists
     .replace(/\[p\.\s*\d+\]/gi, "")             // citation tokens
@@ -53,23 +58,45 @@ export function stripMarkdown(s: string): string {
     // prompt forbids symbols — so any that remain after links/citations are junk.
     .replace(/[[\]][a-z0-9~!]{0,3}[[\]]/gi, " ")
     .replace(/[[\]]/g, "")
-    // Agents (esp. coding agents) narrate file paths, filenames and URLs — read
-    // aloud they're symbol soup ("src slash foo dot tsx", "h-t-t-p-s colon…"). Say
-    // them as plain words. The system prompt asks agents to avoid this; this is the
-    // backstop so a leak never reaches the voice. Conservative: paths need a "/…"
-    // shape and filenames a known code extension, so ordinary prose ("and/or",
-    // "24/7", "e.g.") is untouched.
-    .replace(/\bhttps?:\/\/\S+/gi, "a link")
-    .replace(/\/?(?:[\w.-]+\/)+[\w-]+\.\w{1,6}\b/g, "that file")
-    .replace(/\b[\w-]+\.(?:tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb)\b/gi, "that file")
     .replace(/\bin (?:the|this|your) (?:image|photo|picture|frame)\b/gi, "here")
     .replace(/\b(?:the|this|that|your) (?:image|photo|picture|frame)\b/gi, "this")
     // Repair a missing space at a sentence join ("now.Right" → "now. Right"): a
     // lowercase word, sentence punctuation, then a capital. Narrow enough to leave
     // "e.g.", "U.S.", and decimals alone.
     .replace(/([a-z])([.!?])([A-Z])/g, "$1$2 $3")
+    .replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[+i]!)
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Agents (esp. coding agents) narrate file paths, filenames and URLs. Read aloud
+// they're symbol soup ("src slash foo dot tsx", "h-t-t-p-s colon…"), and Kokoro
+// turns "alpha.txt" into "alpha txt". Say a URL as its site, a path as its file
+// name, and the dot in a file name or domain as "dot". Conservative: a name needs a
+// known extension or domain ending, so versions (v0.2.4), decimals and "e.g." are
+// left for the TTS engine's own number and abbreviation reading.
+const NAME_END = "tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb|pdf|png|jpe?g|com|org|net|io|dev|ai|app|co|edu|gov";
+const DOTTED_NAME = new RegExp(`\\b[\\w-]+(?:\\.[\\w-]+)*\\.(?:${NAME_END})\\b`, "gi");
+export function toSpeech(s: string): string {
+  return s
+    .replace(/\bhttps?:\/\/(?:www\.)?([^\s/?#]+)\S*/gi, "$1")
+    .replace(/\/?(?:[\w.-]+\/)+([\w-]+\.\w{1,6})\b/g, "$1")
+    .replace(DOTTED_NAME, (m) => m.replace(/\./g, " dot "));
+}
+
+// A sentence ends at . ! or ? (and any closing quote or bracket) followed by
+// whitespace. A dot glued to the next character (alpha.txt, v0.2.4, example.com,
+// 3.5) never ends one, and neither does the end of the buffer: mid-stream
+// "gamma." may still become "gamma.json".
+const SENTENCE_END = /[.!?]+["')\]]*(?=\s)/g;
+// "Dr. Smith", "e.g. this", "U.S. law", "A. Lincoln": the dot belongs to the word.
+const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|approx|fig)\.$/i;
+// An odd number of backticks before i opens a code span, unless the last one is far
+// back: code spans are short, and a stray backtick must not hold the rest of the
+// reply unspoken until the turn ends.
+function inCodeSpan(s: string, i: number): boolean {
+  const open = s.lastIndexOf("`", i);
+  return open >= 0 && i - open < 80 && s.slice(0, i).split("`").length % 2 === 0;
 }
 
 // Split a growing text stream into speakable chunks (keep decimals/abbrevs).
@@ -117,11 +144,13 @@ export class SentenceChunker {
       const first = this.takeFirst();
       if (first) { out.push(first); this.started = true; }
     }
-    const re = /[^.!?]+[.!?]+(?:\s|$)/g;
-    let m: RegExpExecArray | null, last = 0;
-    while ((m = re.exec(this.buf))) {
-      this.ready += m[0];
-      last = re.lastIndex;
+    let last = 0;
+    for (const m of this.buf.matchAll(SENTENCE_END)) {
+      const end = m.index + m[0].length;
+      if (m[0][0] === "." && ABBREVIATION.test(this.buf.slice(last, m.index + 1))) continue;
+      if (inCodeSpan(this.buf, m.index)) continue;
+      this.ready += this.buf.slice(last, end);
+      last = end;
       // First chunk clears the low bar so even a short single sentence speaks
       // now; every chunk after keeps the stable MIN_TTS_CHARS timbre bar.
       const bar = this.started ? MIN_TTS_CHARS : FIRST_TTS_CHARS;

@@ -418,6 +418,7 @@ export function useFlowOwner(): void {
           else setPhase("thinking");
           return;
         case "tool_start":
+          if (snap.current.speaking) engine.current?.endAgentStep();
           return setPhase("acting", toolMeta(e.name).active);
         case "tool_result":
           // Deliberately nothing. A run of tool calls is one continuous piece of

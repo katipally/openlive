@@ -1,7 +1,7 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
 import { stt, tts, hasWebGPU, turnComplete, turnModelReady } from "./models";
-import { isJunk, endsMidThought, stripMarkdown, SentenceChunker } from "./voiceText";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig } from "./pipelineConfig";
@@ -373,6 +373,13 @@ export class VoiceEngine {
     perf.firstToken(); // no-op after the first delta of a turn
     for (const s of this.chunker.push(text)) this.enqueueSpeak(s, this.epoch);
   }
+  /** A tool is about to run: voice everything said so far now. Held for the
+   *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
+  endAgentStep() {
+    if (!this.acceptingReply) return;
+    const said = this.chunker.flush();
+    if (said) this.enqueueSpeak(said, this.epoch);
+  }
   endAgentTurn() {
     if (!this.acceptingReply) return; // the barged reply's `done` — no tail to flush/voice
     const tail = this.chunker.flush();
@@ -397,7 +404,7 @@ export class VoiceEngine {
       if (!spoken) return;
       // Read voice/speed per sentence so a settings change applies to the next reply.
       const ttsCfg = loadPipelineConfig().tts;
-      const { audio, sampleRate } = await tts(spoken, { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed });
+      const { audio, sampleRate } = await tts(toSpeech(spoken), { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed });
       if (this.epoch !== epoch) return;
       const durationMs = (audio.length / sampleRate) * 1000; // how long THIS chunk voices — paces the caption reveal
       if (this.phase !== "speaking") {
