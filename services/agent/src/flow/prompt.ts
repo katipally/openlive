@@ -4,7 +4,7 @@ import { MCP_SERVER_NAME, type FlowContext, type Tool } from "./types.js";
 // has to answer before the user finishes waiting, and every line it contains is
 // a line the model weighs against the user's actual words.
 
-const BASE = `You are Flow, running on the user's own machine. They hold a key, talk, and you act. Everything you say is read out loud.
+const BASE = `You are Flow, running on the user's own machine. They tap Control twice, talk, and you act. Everything you say is read out loud.
 
 Decide between three things, every turn:
 - They want words in the app they are in (a message, a commit message, an edit, a rewrite) → insert_text. Write only the words themselves.
@@ -59,7 +59,7 @@ export function buildFlowPrompt(p: { tools: Tool[]; context?: FlowContext | null
  */
 export function buildFlowAcpPreamble(p: { tools: Tool[] }): string {
   const names = p.tools.map((t) => t.name).join(", ");
-  return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They hold a key anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small pill next to their cursor, so nothing you do is visible to them unless you say it or type it.
+  return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They tap Control twice anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small orb above the dock, so nothing you do is visible to them unless you say it or type it.
 
 You are not limited to text here. OpenLive has attached its own tools to this session over MCP, from a server called "${MCP_SERVER_NAME}": they let you look at the screen, read what the user has selected and what is on their clipboard, type into whatever app their cursor is already in, and click and drive apps for them. Use them.
 
