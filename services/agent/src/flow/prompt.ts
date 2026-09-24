@@ -37,15 +37,9 @@ export function formatContext(c: FlowContext | null): string {
 }
 
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
-export function buildFlowPrompt(p: { tools: Tool[]; context?: FlowContext | null; custom?: string }): string {
+export function buildFlowPrompt(p: { tools: Tool[] }): string {
   const guidelines = p.tools.flatMap((t) => t.promptGuidelines ?? []);
-  const parts = [
-    BASE,
-    guidelines.length ? guidelines.map((g) => `- ${g}`).join("\n") : "",
-    p.custom?.trim() ? `How the user wants you to behave, in their own words:\n${p.custom.trim().slice(0, 2000)}` : "",
-    formatContext(p.context ?? null),
-  ];
-  return parts.filter(Boolean).join("\n\n");
+  return [BASE, guidelines.map((g) => `- ${g}`).join("\n")].filter(Boolean).join("\n\n");
 }
 
 /**
