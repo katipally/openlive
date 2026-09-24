@@ -65,6 +65,17 @@ describe("/live upgrade gate", () => {
     expect(await attempt(`/live?flow=1&token=${SECRET}`)).toBe("accepted");
     expect(flowConnections).toBe(before + 1);
   });
+  it("gates /voice/stream the same way and routes it to the ASR socket", async () => {
+    expect(await attempt("/voice/stream?engine=nemotron")).toMatch(/rejected 401|error.*401/);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/voice/stream?engine=parakeet&token=${SECRET}`);
+    const [msg, code] = await new Promise<[string, number]>((res) => {
+      let first = "";
+      ws.on("message", (d) => { first ||= String(d); });
+      ws.on("close", (c) => res([first, c]));
+    });
+    expect(JSON.parse(msg)).toEqual({ type: "error", error: "unknown streaming engine" });
+    expect(code).toBe(1008);
+  });
 });
 
 describe("the dev gate with no secret", () => {

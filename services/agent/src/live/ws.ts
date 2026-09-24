@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { LiveSession } from "./session.js";
 import { FlowLiveSession } from "./flow-ws.js";
+import { upgradeAsrStream } from "../voice/native.js";
 
 // Constant-time equality that also hides length differences.
 function secretMatches(given: string | undefined, expected: string): boolean {
@@ -32,7 +33,7 @@ export function attachLiveWs(server: Server): WebSocketServer {
   server.on("upgrade", (req, socket, head) => {
     let url: URL;
     try { url = new URL(req.url ?? "", "http://localhost"); } catch { socket.destroy(); return; }
-    if (url.pathname !== "/live") { socket.destroy(); return; }
+    if (url.pathname !== "/live" && url.pathname !== "/voice/stream") { socket.destroy(); return; }
     // Two trusted callers: the web proxy (holds the secret, sends the header)
     // and the desktop renderer (browser WebSocket can't set headers → ?token=).
     if (AGENT_SECRET
@@ -46,6 +47,7 @@ export function attachLiveWs(server: Server): WebSocketServer {
     if (!AGENT_SECRET && !loopbackOrigin(req.headers.origin)) {
       return reject(socket, "403 Forbidden", `origin ${req.headers.origin} is not this machine`);
     }
+    if (url.pathname === "/voice/stream") { upgradeAsrStream(req, socket, head, url.searchParams.get("engine")); return; }
     const chatId = url.searchParams.get("chat") ?? "";
     // Flow's orb runtime lives in its own renderer, so it opens its own
     // connection to this same endpoint. Same schemas, same permission protocol,

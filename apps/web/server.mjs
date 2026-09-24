@@ -20,11 +20,11 @@ const upgrade = app.getUpgradeHandler(); // Next's own HMR/websocket upgrade han
 const server = createServer((req, res) => { const r = handle(req, res); keepOnlyOurUpgrade(); return r; });
 const wss = new WebSocketServer({ noServer: true });
 
-// Route WebSocket upgrades: /live → the agent proxy, everything else → Next.
+// Route WebSocket upgrades: /live and /voice/stream → the agent proxy, everything else → Next.
 const onUpgrade = (req, socket, head) => {
   let pathname = "/", search = "";
   try { const u = new URL(req.url ?? "", "http://localhost"); pathname = u.pathname; search = u.search; } catch { /* keep defaults */ }
-  if (pathname === "/live") wss.handleUpgrade(req, socket, head, (client) => proxyLive(client, search));
+  if (pathname === "/live" || pathname === "/voice/stream") wss.handleUpgrade(req, socket, head, (client) => proxyLive(client, pathname, search));
   else upgrade(req, socket, head);
 };
 // Next LAZILY attaches its OWN 'upgrade' listener to our server on the first HTTP
@@ -42,8 +42,8 @@ server.on("upgrade", onUpgrade);
 // connects the browser straight to the agent) — so it logs which side drops first
 // (with code+reason+timing) to make otherwise-blind failures diagnosable, and it
 // tells the browser WHY before closing so the UI can show a real error.
-function proxyLive(client, search) {
-  const target = AGENT_URL.replace(/^http/, "ws") + "/live" + search;
+function proxyLive(client, pathname, search) {
+  const target = AGENT_URL.replace(/^http/, "ws") + pathname + search;
   const upstream = new WebSocket(target, { headers: { "x-openlive-secret": SECRET } });
   const t0 = Date.now();
   const queue = [];
