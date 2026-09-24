@@ -21,7 +21,7 @@ const fake = vi.hoisted(() => ({
 }));
 
 const store = {
-  append: async (type: string, data: Record<string, unknown>) => { fake.appended.push({ type, data }); },
+  append: async (type: string, data: Record<string, unknown>) => ({ id: `entry-${fake.appended.push({ type, data })}` }),
   archive: async () => {},
 };
 
@@ -117,6 +117,29 @@ describe("FlowLiveSession", () => {
 
     const asked = fake.seen.at(-1)!;
     expect(asked.some((m) => m.role === "assistant" && m.text === "It's 18 and clear in Berlin.")).toBe(true);
+  });
+
+  it("cuts a finished reply back to what was voiced when the user cuts in while it plays", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = reply("One. Two. Three.");
+    ws.say("count to three");
+    await until(() => turnsDone(ws) === 1);
+    ws.client({ t: "flow_cancel", spoken: "One." });
+    await tick();
+    // A second cancel for the same reply, or a close, changes nothing more.
+    ws.client({ t: "flow_cancel", spoken: "" });
+    ws.client({ t: "flow_cancel", spoken: "", close: true });
+    await tick();
+
+    fake.script = reply("Four.");
+    ws.say("go on");
+    await until(() => turnsDone(ws) === 2);
+    expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["count to three", "One.", "go on"]);
+    // The file keeps the whole reply, so the cut is written after it, naming it.
+    const replyAt = fake.appended.findIndex((e) => e.data.text === "One. Two. Three.");
+    expect(fake.appended.filter((e) => e.type === "cut")).toEqual([{ type: "cut", data: { target: `entry-${replyAt + 1}`, text: "One." } }]);
   });
 
   it("keeps the transcript a running turn is writing into when the session goes idle", async () => {

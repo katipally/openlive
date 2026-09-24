@@ -107,7 +107,18 @@ export function loadSession(id: string): LoadedFlowSession | null {
   const path = join(sessionsDir(), hit.name);
   const { text, complete } = safeHead(path, Number.MAX_SAFE_INTEGER);
   const { header, entries, truncated } = parseSession(text, complete);
-  return { header, entries, truncated, assets: listAssets(id) };
+  // Cuts resolve in two passes over the log, O(n): a reply the user talked over
+  // reads as what they heard, and one cut before a word of it was heard is gone.
+  const cuts = new Map<unknown, string>();
+  for (const e of entries) if (e.type === "cut") cuts.set(e.target, typeof e.text === "string" ? e.text : "");
+  const heard: SessionEntry[] = [];
+  for (const e of entries) {
+    const cut = cuts.get(e.id);
+    if (e.type === "cut") continue;
+    if (cut === undefined) heard.push(e);
+    else if (cut.trim()) heard.push({ ...e, text: cut });
+  }
+  return { header, entries: heard, truncated, assets: listAssets(id) };
 }
 
 /** The file a session id names, or "" when nothing on disk answers to it. */

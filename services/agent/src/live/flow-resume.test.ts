@@ -2,7 +2,11 @@
 // more than a conversation: state markers, captured context and tool activity
 // whose results are long stale. Only the words go back.
 import assert from "node:assert";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
+import { FlowSession, loadSession } from "@openlive/flow-store";
 import { priorTurns, transcriptOf } from "./flow-ws.ts";
 
 test("only the said and spoken lines come back, in order", () => {
@@ -43,4 +47,27 @@ test("a coding agent is seeded with what came before the words it is about to be
   ];
   assert.deepEqual(priorTurns(said), said.slice(0, 2));
   assert.deepEqual(priorTurns(said.slice(2)), []);
+});
+
+test("a resumed session remembers only what was heard of a reply cut off after it was written", async () => {
+  const home = mkdtempSync(join(tmpdir(), "flow-resume-"));
+  process.env.OPENLIVE_FLOW_HOME = home;
+  try {
+    const s = await FlowSession.open();
+    await s.append("message", { role: "user", text: "count to three" });
+    const reply = await s.append("message", { role: "assistant", text: "One. Two. Three." });
+    await s.append("cut", { target: reply.id, text: "One." });
+    await s.append("message", { role: "user", text: "what's next?" });
+    const unheard = await s.append("message", { role: "assistant", text: "Four." });
+    await s.append("cut", { target: unheard.id, text: "" });
+    await s.archive();
+    assert.deepEqual(transcriptOf(loadSession(s.id)!.entries), [
+      { role: "user", text: "count to three" },
+      { role: "assistant", text: "One." },
+      { role: "user", text: "what's next?" },
+    ]);
+  } finally {
+    delete process.env.OPENLIVE_FLOW_HOME;
+    rmSync(home, { recursive: true, force: true });
+  }
 });

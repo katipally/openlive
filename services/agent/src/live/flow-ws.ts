@@ -124,6 +124,13 @@ export class FlowLiveSession {
   /** An idle expiry that landed mid-turn: the transcript is the running loop's until it ends. */
   private archived = false;
   private spoken: string | null = null;
+  /** Where the last finished turn starts in `messages`, while its reply may still
+   *  be playing: a reply streams far faster than it is spoken, so most barge-ins
+   *  land after the turn is over. -1 once it can no longer be cut. */
+  private voicedFrom = -1;
+  /** That turn's reply as written to the session file, its id filled in once the
+   *  write lands, so a cut arriving after it can name the line it shortens. */
+  private savedReply: { id: string } | null = null;
   /** Utterances that arrived mid-run: the loop drains them between turns. */
   private steering: Msg[] = [];
   private messages: Msg[] = [];
@@ -224,6 +231,14 @@ export class FlowLiveSession {
         if (msg.close) this.cancelPendingPermissions();
         else if (this.permPending.size) return;
         if (this.turnActive) this.spoken = msg.spoken ?? "";
+        else if (!msg.close && msg.spoken != null && this.voicedFrom >= 0) {
+          truncateToSpoken(this.messages, msg.spoken, this.voicedFrom);
+          // The file is append-only, so the reply stays whole there and a `cut`
+          // naming it tells every reader to keep only what was heard.
+          const saved = this.savedReply, text = msg.spoken.trim();
+          if (saved) this.write(async () => { if (saved.id) await this.persist("cut", { target: saved.id, text }); });
+        }
+        this.voicedFrom = -1;
         this.ac?.abort();
         return;
       case "tool_bridge_result": {
@@ -259,6 +274,7 @@ export class FlowLiveSession {
 
   private async run() {
     this.turnActive = true;
+    this.voicedFrom = -1;
     const startedAt = this.messages.length;
     const ac = new AbortController();
     this.ac = ac;
@@ -300,10 +316,17 @@ export class FlowLiveSession {
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
       if (ac.signal.aborted && this.spoken !== null) truncateToSpoken(this.messages, this.spoken, startedAt);
+      else if (!ac.signal.aborted) this.voicedFrom = startedAt;
       this.spoken = null;
       const last = this.messages[this.messages.length - 1];
+      this.savedReply = null;
       if (last?.role === "assistant" && (last.text || last.toolCalls?.length)) {
-        this.write(() => this.persist("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "" }));
+        const saved = { id: "" };
+        this.savedReply = saved;
+        this.write(async () => {
+          try { saved.id = (await (await this.session()).append("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "" })).id; }
+          catch (e) { log.error("flow", "persist:", e); }
+        });
       }
       if (this.archived) { this.archived = false; this.rollSession(); }
       if (this.steering.length && !this.closed) {
@@ -356,7 +379,7 @@ export class FlowLiveSession {
     }
   }
 
-  private async persist(type: "message" | "context" | "tool_call" | "tool_result", data: Record<string, unknown>): Promise<void> {
+  private async persist(type: "message" | "context" | "tool_call" | "tool_result" | "cut", data: Record<string, unknown>): Promise<void> {
     try { await (await this.session()).append(type, data); }
     catch (e) { log.error("flow", "persist:", e); }
   }
@@ -423,6 +446,7 @@ export class FlowLiveSession {
     this.store = null;
     this.opening = null;
     this.messages = [];
+    this.voicedFrom = -1;
     this.assetCount = 0;
     void this.dropAgent();
   }

@@ -7,6 +7,9 @@ export type EntryType =
   | "session_state"
   | "context"
   | "compaction"
+  // `{ target, text }`: the message `target` was cut off after `text` was heard.
+  // Appended, since the log never rewrites a line; loadSession applies it.
+  | "cut"
   | "custom";
 
 /** Line 1 of a session file. */

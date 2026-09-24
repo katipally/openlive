@@ -109,3 +109,27 @@ test("a session can be renamed, and cleared back to what was said", async () => 
   expect(renameSession("no-such-session", "x")).toBe(false);
   deleteSession(s.id);
 });
+
+test("a cut reply loads as what was heard, and a file without cuts loads as written", async () => {
+  const s = await FlowSession.open();
+  await s.append("message", { role: "user", text: "count to three" });
+  const heard = await s.append("message", { role: "assistant", text: "One. Two. Three." });
+  await s.append("message", { role: "user", text: "stop" });
+  const unheard = await s.append("message", { role: "assistant", text: "Sure, stopping now." });
+  await s.append("message", { role: "user", text: "thanks" });
+  const kept = await s.append("message", { role: "assistant", text: "Any time." });
+  await s.append("cut", { target: heard.id, text: "One." });
+  await s.append("cut", { target: unheard.id, text: "" });
+  await s.archive();
+  const said = (id: string) => loadSession(id)!.entries.filter((e) => e.type !== "session_state").map((e) => [e.type, e.text]);
+  expect(said(s.id)).toEqual([
+    ["message", "count to three"], ["message", "One."], ["message", "stop"], ["message", "thanks"], ["message", "Any time."],
+  ]);
+  expect(loadSession(s.id)!.entries.find((e) => e.id === kept.id)).toMatchObject({ text: "Any time." });
+
+  const old = await FlowSession.open();
+  await old.append("message", { role: "user", text: "hi" });
+  await old.append("message", { role: "assistant", text: "Hello." });
+  await old.archive();
+  expect(said(old.id)).toEqual([["message", "hi"], ["message", "Hello."]]);
+});
