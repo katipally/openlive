@@ -69,10 +69,11 @@ export default function Home() {
   useEffect(() => {
     wirePanelCmdRouter();
     // Flow's orb asked for the whole window. It opens on Flow, because that is
-    // what the person was already in, and on its settings when the fix is there.
+    // what the person was already in, and on the settings page the fix is on.
     flowBridge()?.onShow?.((to) => {
       useUi.getState().setMode("flow");
-      if (to === "flow-settings") useUi.getState().openSettingsTab("flow");
+      const tab = /^([a-z]+)-settings$/.exec(to)?.[1];
+      if (tab) useUi.getState().openSettingsTab(tab);
     });
   }, []);
 

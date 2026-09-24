@@ -24,7 +24,15 @@ function toResponsesInput(messages: Message[]): { instructions?: string; input: 
         input.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: tc.arguments || "{}" })
       }
     } else if (m.role === "tool") {
-      input.push({ type: "function_call_output", call_id: m.callId, output: m.result })
+      // A string when there is nothing to see: Ollama took only strings here
+      // before its April 2026 release, and a text result is most of them.
+      const output = m.images?.length
+        ? [
+            { type: "input_text", text: m.result },
+            ...m.images.map((img) => ({ type: "input_image", image_url: `data:${img.mime};base64,${img.data}` })),
+          ]
+        : m.result
+      input.push({ type: "function_call_output", call_id: m.callId, output })
     }
   }
   return { instructions, input }

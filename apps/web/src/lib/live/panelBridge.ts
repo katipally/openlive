@@ -24,7 +24,7 @@ export const NO_CALL: PanelStateSnapshot = {
 
 export type PanelPacket =
   | { k: "s"; s: PanelStateSnapshot }                    // store state (on change)
-  | { k: "b"; mic: number[]; agent: number[] };          // orb spectrum (~15 fps)
+  | { k: "b"; mic: number[]; agent: number[]; agentLevel: number }; // orb spectrum (~15 fps)
 
 export type PanelCmd =
   // The call's, forwarded by the main process from the orb's call controls.

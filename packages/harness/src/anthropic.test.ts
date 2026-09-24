@@ -28,10 +28,11 @@ const SSE = [
   ``,
 ].join("\n") + "\n";
 
+let body = SSE;
 vi.mock("./retry", () => ({
   fetchWithRetry: async () => new Response(
     new ReadableStream({
-      start(c) { c.enqueue(new TextEncoder().encode(SSE)); c.close(); },
+      start(c) { c.enqueue(new TextEncoder().encode(body)); c.close(); },
     }),
     { status: 200 },
   ),
@@ -61,5 +62,27 @@ describe("streamAnthropic wire adapter", () => {
       // connection cut mid-turn can never leave collectTurn hanging.
       { type: "done", stopReason: "stop" },
     ]);
+  });
+
+  // MiniMax's Anthropic endpoint says 0 at message_start and the real input only at
+  // message_delta; Anthropic repeats its cumulative input there, which must not double.
+  it("reads the input count from message_delta without counting it twice", async () => {
+    const { streamAnthropic } = await import("./anthropic");
+    const usage = async (start: string, delta: string) => {
+      body = [start, delta].map((u, i) => `data: {"type":"${i ? "message_delta" : "message_start"}",${i ? "" : `"message":{"usage":${u}}`}${i ? `"usage":${u}` : ""}}`).join("\n\n") + "\n\n";
+      const out: ProviderEvent[] = [];
+      for await (const e of streamAnthropic({
+        baseURL: "https://api.minimax.io/anthropic/v1",
+        apiKey: "sk-test",
+        req: { model: "MiniMax-M3", messages: [{ role: "user", text: "hi" }], tools: [] },
+        signal: new AbortController().signal,
+      })) if (e.type === "usage") out.push(e);
+      body = SSE;
+      return out;
+    };
+    expect(await usage(`{"input_tokens":0,"output_tokens":0}`, `{"input_tokens":41,"output_tokens":3,"cache_read_input_tokens":128}`))
+      .toEqual([{ type: "usage", input: 0, output: 0 }, { type: "usage", input: 169, output: 3 }]);
+    expect(await usage(`{"input_tokens":42}`, `{"input_tokens":42,"output_tokens":7}`))
+      .toEqual([{ type: "usage", input: 42, output: 0 }, { type: "usage", input: 0, output: 7 }]);
   });
 });

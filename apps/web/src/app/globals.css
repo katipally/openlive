@@ -25,10 +25,12 @@
   --color-danger: var(--destructive);
   --color-success: var(--success);
   --color-link-foreground: var(--link-foreground);
-  /* Text-safe siblings of the status colours. --success and --destructive are
-     tuned as FILLS (dots, chips, bars); at body size on a light surface they
-     land under 4.5:1, so anything that spells a status out in words uses these
-     instead. --destructive-fill is the one darker fill white text sits on. */
+  /* Text-safe siblings of the status colours. --success is tuned as a FILL
+     (dots, chips, bars); at body size on a light surface it lands under 4.5:1,
+     so anything that spells a status out in words uses these instead.
+     --destructive is also read as words (text-danger) and clears 4.5:1 on every
+     surface in both themes. Dark cannot hold one red that white text sits on
+     AND that reads on near-black, so white text sits on --destructive-fill. */
   --color-success-text: var(--success-text);
   --color-destructive-text: var(--destructive-text);
   --color-destructive-fill: var(--destructive-fill);
@@ -109,7 +111,8 @@
   --accent-soft: rgba(47, 111, 237, 0.10);
   --arc: #e2701f;
   --arc-soft: rgba(226, 112, 31, 0.12);
-  --destructive: #dc2626;
+  /* As words: 5.10:1 on --surface, 4.71:1 on its own /10 tint over --background. */
+  --destructive: #b91c1c;
   --success: #16a34a;
   --link-foreground: #2563eb;
   --success-text: #15803d;
@@ -171,14 +174,16 @@
   --accent-soft: rgba(91, 157, 255, 0.14);
   --arc: #ff8a3d;
   --arc-soft: rgba(255, 138, 61, 0.16);
-  --destructive: #fa423e;
+  /* As words: 4.89:1 on its own /10 tint over --card, the lowest pairing in use. */
+  --destructive: #fb5854;
   --success: #40c977;
   --link-foreground: #8fbcff;
   /* Dark inverts the problem: the fills are already bright enough to read, and
      what needs lifting is the body-length secondary copy. */
   --success-text: #5ddb8d;
   --destructive-text: #ff8b88;
-  --destructive-fill: #e0403c;
+  /* White text on it: 4.59:1. */
+  --destructive-fill: #dc3430;
   --icon-info: #9db8ff;
   --muted-strong: #c9c9c4;
   --arc-text: var(--arc);
@@ -228,6 +233,9 @@ html.chromeless .ol-toasts { display: none; }
    windows the page IS the floating surface, so in dev it drew itself next to
    the orb as if it were part of it. */
 html.chromeless nextjs-portal { display: none; }
+/* Every button on these windows is a pill or a circle; the app's 6px focus
+   radius squared them off while focused. */
+html.chromeless button:focus-visible { border-radius: 9999px; }
 
 /* ─── Desktop shell (frameless window) ──────────────────────────────────────
    The window has no native frame; drag it from any surface tagged .app-drag,

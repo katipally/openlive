@@ -70,6 +70,21 @@ describe("provider mapping", () => {
     expect(out.some((e) => e.type === "text_delta")).toBe(false);
   });
 
+  it("ends a turn once, so Anthropic's trailing message_stop cannot erase a truncation", () => {
+    const out = run([{ type: "done", stopReason: "max_tokens" }, { type: "done", stopReason: "stop" }]);
+    expect(out).toEqual([{ type: "turn_done", stop: "length", usage: { input: 0, output: 0 } }]);
+  });
+
+  it("passes signed thinking through for replay, never as speech", () => {
+    expect(run([
+      { type: "reasoning", delta: "look first" },
+      { type: "reasoning_signature", signature: "sig" },
+    ])).toEqual([
+      { type: "reasoning", delta: "look first" },
+      { type: "reasoning_signature", signature: "sig" },
+    ]);
+  });
+
   it("ignores deltas for a call it never saw start", () => {
     expect(run([{ type: "tool_delta", index: 7, argsDelta: "{}" }, { type: "tool_stop", index: 7 }])).toEqual([]);
   });
@@ -85,6 +100,26 @@ describe("LocalBrain", () => {
   it("encodes a resolution failure as a terminal event instead of throwing", async () => {
     const brain = new LocalBrain(() => { throw new Error("no provider configured"); });
     expect(await collect(brain)).toEqual([{ type: "turn_error", message: "no provider configured", aborted: false }]);
+  });
+
+  it("names the missing key instead of sending a request that can only be refused", async () => {
+    const provider = { id: "openai", name: "OpenAI", protocol: "openai" as const, baseURL: "http://x" };
+    const brain = new LocalBrain(() => ({ provider, model: "gpt-5", apiKey: null }));
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "No API key for OpenAI. Add one in Settings > Models.", aborted: false }]);
+  });
+
+  it("names the configured address when the server is not there", async () => {
+    const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
+    const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }));
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?", aborted: false }]);
+  }, 20_000);
+
+  it("hands the model its transcript as prepared for what it can see", async () => {
+    const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
+    const seen: unknown[] = [];
+    const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }), async (messages) => { seen.push(messages); throw new Error("stop here"); });
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "stop here", aborted: false }]);
+    expect(seen).toEqual([[{ role: "user", text: "hi" }]]);
   });
 
   it("reports an aborted stream as aborted", async () => {

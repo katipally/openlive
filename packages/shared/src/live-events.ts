@@ -194,5 +194,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // Continue an archived Flow session: the next utterance appends to that file
   // and the brain is given the turns it already holds, instead of starting over.
   z.object({ t: z.literal("flow_resume"), sessionId: z.string() }),
+  // Start a fresh Flow session: the next utterance opens a new file and transcript.
+  z.object({ t: z.literal("flow_new") }),
 ]);
 export type LiveClientMsg = z.infer<typeof liveClientMsgSchema>;

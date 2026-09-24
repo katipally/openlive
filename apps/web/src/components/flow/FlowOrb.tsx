@@ -8,6 +8,7 @@ import { flowBridge } from "@/lib/flow/bridge";
 import { IDLE_FLOW, type FlowFailure, type FlowSnapshot } from "@/lib/flow/types";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
+import { pauseWaveOrbs, WAVE_ORB_RADIUS } from "@/lib/waveOrb";
 import { cn } from "@/lib/cn";
 import { isMac } from "@/lib/platform";
 
@@ -33,30 +34,45 @@ const CARD_W = 392;
 /** How long the hover controls outlast the pointer: long enough to cross from
  *  the orb to a button at an unhurried pace, short enough not to feel stuck. */
 const CONTROLS_LINGER_MS = 600;
+const ORB_SIZE = 64;
+/** How far the orb's glow reaches past it. The window's bottom edge would cut
+ *  it off, so the orb sits at least this far above that edge. */
+const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
+/** The hover controls sit this far off the ball, inside its faint outer glow. */
+const CONTROL_GAP = 10;
 
-/** Flow's phases onto the orb's palette: acting and confirming are both work. */
-const orbPhase = (p: FlowSnapshot["phase"]) =>
-  p === "listening" ? "listening" : p === "speaking" ? "speaking" : p === "idle" || p === "error" ? "idle" : "thinking";
+/** One solid surface for every panel in the window. */
+const PANEL = "border border-border bg-surface shadow-[var(--shadow-card)]";
+/** The one button shape here; the focus ring follows it (html.chromeless in globals.css). */
+const PILL_BTN = "rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
+
+/** Flow's phases onto the orb's states: acting and confirming are both work on the machine. */
+const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "acting" : p);
 
 export function FlowOrb() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [hovered, setHovered] = useState(false);
   const [call, setCall] = useState<CallOrbState | null>(null);
-  const bands = useRef<{ mic: number[]; agent: number[] }>({ mic: NO_BANDS, agent: NO_BANDS });
+  /** Whether the window is on screen. Nothing rises while it is hidden, so a
+   *  card from before a close can never be caught mid-exit by the next open. */
+  const [shown, setShown] = useState(false);
+  const bands = useRef<{ mic: number[]; agent: number[]; agentLevel: number }>({ mic: NO_BANDS, agent: NO_BANDS, agentLevel: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const cmd = (c: PanelCmd) => openliveBridge()?.panelCmd?.(c);
 
   useEffect(() => {
     openliveBridge()?.onPanelState?.((p: PanelPacket) => {
-      if (p.k === "b") { bands.current = { mic: p.mic, agent: p.agent }; return; }
+      if (p.k === "b") { bands.current = { mic: p.mic, agent: p.agent, agentLevel: p.agentLevel }; return; }
       if (p.k !== "s") return;
       const next = p.s as PanelStateSnapshot;
       setPermission(next.permission);
       if (next.flow) setS(next.flow);
     });
-    openliveBridge()?.onCallOrb?.(setCall);
+    // Its window hides as the call orb goes, with no `hiding` to say so; a summon
+    // that follows is always `shown` after this.
+    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) { pauseWaveOrbs(true); setShown(false); } });
   }, []);
 
   const stripRef = useRef<HTMLDivElement>(null);
@@ -72,7 +88,7 @@ export function FlowOrb() {
 
   // Not over a turn in flight, where the caption is the thing to see; a failure
   // found as Flow opens is shown while it listens.
-  const failure = s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
+  const failure = shown && s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
   // The two things worth interrupting someone for. Everything else is the orb.
   const asking = !!permission || !!failure;
   if (asking) lastAsk.current = { permission, failure };
@@ -81,7 +97,7 @@ export function FlowOrb() {
   // only thing that tells someone their machine is being driven, and by what.
   // Any other phase that says why it is waiting says so here too.
   const acting = s.phase === "acting" || s.phase === "confirming";
-  const captioned = !asking && (acting || !!s.detail);
+  const captioned = shown && !asking && (acting || !!s.detail);
   // Held through the strip's exit: blanking the words the moment the phase
   // changes empties the strip a beat before it has finished leaving.
   const said = captioned ? s.detail || "Working" : "";
@@ -90,6 +106,8 @@ export function FlowOrb() {
 
   useEffect(() => { if (captioned) setStripUp(true); }, [captioned]);
   useEffect(() => { if (asking) setCardUp(true); }, [asking]);
+  // Gone with the window rather than left sinking in it.
+  useEffect(() => { if (!shown) { setStripUp(false); setCardUp(false); } }, [shown]);
   useRise(stripRef, captioned, stripUp, () => setStripUp(false), 0.2);
   useRise(cardRef, asking, cardUp, () => setCardUp(false), 0.25);
 
@@ -140,14 +158,21 @@ export function FlowOrb() {
     // controls would draw and do nothing when clicked. A summon mid-exit lands
     // here too, and overwriting the exit keeps it from ever answering `hidden`.
     api.onShown?.(() => {
+      pauseWaveOrbs(false);
+      setShown(true);
       inside = false; at = null; clearTimeout(linger); setHovered(false);
       gsap.to(root, { autoAlpha: 1, y: 0, duration: prefersReduced() ? 0 : 0.2, ease: EASE.out, overwrite: true });
     });
     // The window hides only once this answers, which leaves the orb faded out
     // for the next open to rise from.
     api.onHiding?.(() => {
-      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => api.hidden?.() });
+      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); setShown(false); api.hidden?.(); } });
     });
+    // Background throttling is off here, so a hidden window would keep drawing
+    // the orb: it holds still until shown. The window may have been shown before
+    // `onShown` was listening, so it asks.
+    pauseWaveOrbs(true);
+    void api.visible?.().then((v) => { if (v) { pauseWaveOrbs(false); setShown(true); } });
     window.addEventListener("mousemove", onMove);
     document.addEventListener("mouseleave", onLeave);
     return () => {
@@ -171,7 +196,7 @@ export function FlowOrb() {
   }
 
   return (
-    <div ref={rootRef} className="fixed inset-0 flex flex-col items-center justify-end gap-2.5 p-3">
+    <div ref={rootRef} className="fixed inset-0 flex flex-col items-center justify-end gap-2.5 p-3" style={{ paddingBottom: Math.max(12, ORB_GLOW) }}>
       {/* Always mounted, so a card appearing is a change a screen reader hears.
           Only an approval interrupts; a failure waits its turn. */}
       <span className="sr-only" aria-live="assertive">{permission?.question ?? ""}</span>
@@ -179,11 +204,13 @@ export function FlowOrb() {
       {/* Rises out of the orb; past the window's height it scrolls, never clips. */}
       {cardUp && (
         <div ref={cardRef} data-hit style={{ width: CARD_W }}
-          className="flex min-h-0 max-w-full origin-bottom flex-col gap-3 overflow-y-auto overscroll-contain rounded-[22px] border border-border bg-surface p-4">
+          className={cn("flex min-h-0 max-w-full origin-bottom flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-[20px] p-4", PANEL)}>
           {ask.permission ? (
             <>
-              <span className="text-label font-medium leading-snug">{ask.permission.question}</span>
-              {s.detail && <span className="text-caption leading-relaxed text-muted-foreground" role="status">{s.detail}</span>}
+              <div className="flex flex-col gap-1">
+                <span className="break-words text-body font-medium">{ask.permission.question}</span>
+                {s.detail && <span className="break-words text-label text-muted-strong" role="status">{s.detail}</span>}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {/* Red is for what a yes cannot be taken back from. Flow's own
                     questions are ordinary ones — "may I act on this machine" in
@@ -192,34 +219,34 @@ export function FlowOrb() {
                     it. */}
                 {ask.permission.options.map((o) => (
                   <button key={o.id} onClick={() => cmd({ t: "permission", optionId: o.id })}
-                    className={cn("rounded-full px-3.5 py-2 text-label font-medium transition [-webkit-app-region:no-drag]",
-                      o.kind === "allow_always" ? "bg-danger text-white hover:opacity-90"
+                    className={cn(PILL_BTN,
+                      o.kind === "allow_always" ? "bg-destructive-fill text-white hover:opacity-90"
                         : o.kind === "allow_once" ? "bg-accent text-accent-foreground hover:opacity-90"
-                          : "bg-card text-foreground hover:bg-foreground/10")}>
+                          : "border border-border bg-card text-foreground hover:bg-foreground/10")}>
                     {o.label}
                   </button>
                 ))}
-                <span className="min-w-0 flex-1 text-right text-caption text-muted-foreground">or say “yes” / “cancel”</span>
+                <span className="ml-auto whitespace-nowrap text-caption text-muted-strong">or say “yes” / “cancel”</span>
               </div>
             </>
           ) : ask.failure && (
             <>
               <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-danger" />
+                <AlertTriangle className="mt-0.5 size-[18px] shrink-0 text-danger" aria-hidden />
                 <div className="flex min-w-0 flex-col gap-1">
-                  <span className="text-label font-medium leading-snug">{ask.failure.title}</span>
-                  <span className="text-caption leading-relaxed text-muted-foreground">{ask.failure.detail}</span>
+                  <span className="break-words text-body font-medium">{ask.failure.title}</span>
+                  <span className="break-words text-label text-muted-strong">{ask.failure.detail}</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {ask.failure.actionLabel && (
                   <button onClick={() => cmd({ t: "flowFix", code: ask.failure!.code })}
-                    className="rounded-full bg-accent px-4 py-2 text-label font-medium text-white transition hover:opacity-90 [-webkit-app-region:no-drag]">
+                    className={cn(PILL_BTN, "bg-accent text-accent-foreground hover:opacity-90")}>
                     {ask.failure.actionLabel}
                   </button>
                 )}
                 <button onClick={() => cmd({ t: "flowCancel" })}
-                  className="rounded-full bg-card px-4 py-2 text-label font-medium text-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">
+                  className={cn(PILL_BTN, "border border-border bg-card text-foreground hover:bg-foreground/10")}>
                   Close Flow
                 </button>
               </div>
@@ -228,33 +255,33 @@ export function FlowOrb() {
         </div>
       )}
 
-      {/* Reserved whether or not it is shown, so revealing the controls never
-          nudges the orb out from under the pointer that asked for them. Only a
-          hit while drawn, so the empty space above the orb stays click-through. */}
-      <div data-hit={hovered || undefined} className={cn("flex shrink-0 items-center gap-2 transition-opacity duration-150",
-          hovered ? "opacity-100" : "pointer-events-none opacity-0")}>
-        <Control label="Close Flow" onClick={() => cmd({ t: "flowCancel" })}><X className="size-4" /></Control>
-        <Control label="Open OpenLive" onClick={() => flowBridge()?.expand()}><Maximize2 className="size-[15px]" /></Control>
-      </div>
-
       {/* Drawn the whole time Flow is acting, not on hover: someone has to be
           able to see what it is doing without going to look for it. The window
           is click-through until the pointer arrives, which is what makes Stop
           pressable without the orb ever swallowing a click meant for the app
           underneath it. */}
       {stripUp && (
-        <div ref={stripRef} data-hit className="flex max-w-[min(24rem,100%)] shrink-0 items-center gap-2 rounded-[18px] border border-border bg-surface/95 py-1.5 pl-3.5 pr-1.5 shadow-[var(--shadow-card)]">
-          <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
-          <span ref={captionRef} role="status" className="min-w-0 break-words text-label font-medium" title={caption}>{caption}</span>
+        <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
+          <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
+          <span ref={captionRef} role="status" className="min-w-0 flex-1 break-words py-1 text-label font-medium" title={caption}>{caption}</span>
           {s.phase !== "listening" && <button type="button" onClick={() => cmd({ t: "flowStop" })} title="Stop" aria-label="Stop what Flow is doing"
-            className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
             <Square className="size-3 fill-current" aria-hidden /> Stop
           </button>}
         </div>
       )}
 
-      <div data-hit className="shrink-0">
-        <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: 0 })} getBands={() => bands.current} size={64} />
+      {/* The controls flank the orb out of flow, so showing them never moves it
+          out from under the pointer that asked for them. Each is a hit only while
+          drawn, so the air beside the orb stays click-through. */}
+      <div className="relative shrink-0">
+        <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })}
+          className="right-full origin-right" style={{ marginRight: CONTROL_GAP }}><X className="size-4" /></Control>
+        <div data-hit>
+          <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
+        </div>
+        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()}
+          className="left-full origin-left" style={{ marginLeft: CONTROL_GAP }}><Maximize2 className="size-[15px]" /></Control>
       </div>
     </div>
   );
@@ -289,30 +316,33 @@ function CallOrb({ call }: { call: CallOrbState }) {
   const btn = "grid size-9 shrink-0 place-items-center rounded-full transition [-webkit-app-region:no-drag]";
   return (
     <div data-hit role="group" aria-label="OpenLive call"
-      className="flex max-w-full shrink-0 items-center gap-2 rounded-full border border-border bg-surface/95 py-1.5 pl-4 pr-1.5 shadow-[var(--shadow-card)]">
+      className={cn("flex max-w-full shrink-0 items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5", PANEL)}>
       <span className={cn("size-2 shrink-0 rounded-full", call.muted ? "bg-faint" : "bg-success motion-safe:animate-pulse")} aria-hidden />
       <span className="min-w-0 truncate text-label font-medium">{call.muted ? "Muted" : "In call"}</span>
-      <span className="shrink-0 text-label tabular-nums text-muted-foreground" aria-label={`Call time ${elapsed}`}>{elapsed}</span>
+      <span className="shrink-0 text-label tabular-nums text-muted-strong" aria-label={`Call time ${elapsed}`}>{elapsed}</span>
       <button type="button" onClick={() => cmd("mute")} aria-pressed={call.muted} aria-label="Mute" title="Mute (M)"
-        className={cn(btn, "ml-1", call.muted ? "bg-foreground/10 text-foreground" : "bg-card text-muted-foreground hover:bg-foreground/10 hover:text-foreground")}>
+        className={cn(btn, "ml-1", call.muted ? "bg-foreground/10 text-foreground" : "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
         {call.muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
       </button>
       <button type="button" onClick={() => cmd("expand")} aria-label="Open OpenLive" title="Open OpenLive"
-        className={cn(btn, "bg-card text-muted-foreground hover:bg-foreground/10 hover:text-foreground")}>
+        className={cn(btn, "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
         <Maximize2 className="size-[15px]" />
       </button>
       <button type="button" onClick={() => cmd("end")} aria-label="End call" title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`}
-        className={cn(btn, "bg-danger text-white hover:opacity-90")}>
+        className={cn(btn, "bg-destructive-fill text-white hover:opacity-90")}>
         <PhoneOff className="size-4" />
       </button>
     </div>
   );
 }
 
-function Control({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+function Control({ label, shown, onClick, className, style, children }: {
+  label: string; shown: boolean; onClick: () => void; className: string; style: React.CSSProperties; children: React.ReactNode;
+}) {
   return (
-    <button type="button" onClick={onClick} title={label} aria-label={label}
-      className="grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+    <button type="button" onClick={onClick} title={label} aria-label={label} data-hit={shown || undefined} style={style}
+      className={cn("absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-[var(--shadow-card)] transition duration-200 ease-out hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]",
+        shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0", className)}>
       {children}
     </button>
   );

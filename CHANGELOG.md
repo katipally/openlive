@@ -16,6 +16,65 @@ Releases before 0.1.9 predate this file — see the
 - **Settings opens on General and goes back where you came from.** The close
   button is now "Back to Chat / Flow / OpenLive / call" at the top of the
   sidebar; Esc and Back still work.
+- **API mode answers only from the provider you chose.** When the chosen provider
+  had no key, Chat and Flow used to answer from another provider that had one,
+  while Flow said it was not set up. Now every screen and every turn resolve the
+  choice the same way: no key means not ready, with the fix in Settings.
+
+### Added
+- **Ollama server address.** Settings → Models → Provider takes the address of
+  the Ollama server (default `http://localhost:11434`), for Ollama on another
+  machine or port. Chat, Flow and the model list use it, and an unreachable
+  server is named by that address. An address on this computer saves at once;
+  any other asks first in a native dialog in the desktop app, since it receives
+  screen content, and cannot be set from a plain browser.
+- **Screenshots reach models that see, on every provider.** Groq, Gemini,
+  OpenRouter, xAI and the other Chat Completions providers now get the pictures
+  a tool returns. A model that cannot see gets the vision model's description
+  instead, when one is set in Settings → Models, and otherwise a plain note that
+  a picture was not sent, so it never claims to see it.
+
+### Fixed
+- **Flow in API mode failed with no explanation.** A turn the model refused
+  turned the orb red and said nothing. It now shows why (no key, key refused,
+  model not available, out of credit, busy, or unreachable, such as Ollama not
+  running) and, where settings fix it, a button that opens them.
+- **Flow in API mode could not see what it did on OpenAI or Ollama.** The
+  screenshot each action returns was dropped before it reached the model.
+- **Flow in API mode sent a reasoning setting to models without one**, which
+  OpenAI and Ollama refuse, and lost the model's signed thinking between tool
+  calls, which Anthropic refuses when thinking is on. It now picks effort the way
+  Chat does and keeps the thinking.
+- **Red buttons with white text are readable in dark mode**, and red text clears
+  4.5:1 contrast on every surface in both themes.
+- **Flow opened with no brain and listened anyway.** The "No brain is configured
+  yet" card vanished a second after it appeared. It now stays with its fix, and
+  Flow does not open the microphone until there is a brain to think with.
+- **Flow reopened with the last session's card sinking out of it.** Opening Flow
+  now starts clean and shows only a problem that is still true.
+- **Flow's settings buttons opened the wrong page.** A missing, refused or
+  unknown key or model now opens Settings → Models (Agents or Flow for a coding
+  agent), and an unreachable Ollama offers the button to where its address is
+  set, instead of only Close Flow.
+- **The tray's "New Flow session" did nothing while Flow was open.** It now
+  starts a fresh session there, and leaves a turn that is still running alone.
+- **Chat's context meter stayed at "0 ctx" on MiniMax.** Its Anthropic-style
+  stream reports the input only at the end, which is now read.
+- **Saved Chat replies ran two steps together** ("On it.No workspace…"). The
+  space between them is kept.
+- **The home screen flashed through the call as it started.**
+- **Settings → Models' model list ran off the bottom of a short window.** It
+  opens upward when there is more room there, and its height follows the window.
+- **A reply with file names lost words in the Activity panel and the voice.**
+  "alpha.txt, beta.md, and gamma.json" showed as "json." The dot in a file
+  name, version, web address, number or "Dr." no longer ends a sentence, the
+  transcript shows names as written, and the voice says them ("alpha dot txt")
+  instead of "that file". Chat and Flow both.
+- **A sentence before a tool was cut in half by it.** Its end was held back
+  until the tool finished; it is now spoken before the tool runs.
+- **A web lookup's "Still searching for…" was saved as part of the answer.**
+  It is spoken while the lookup runs and no longer lands in the reply.
+- **Settings → Models showed a 1M context as "1.048576M".**
 
 ## [0.2.7] - 2026-08-27
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, type FlowHealth } from "./failure";
+import { deriveFailure, turnFailure, type FlowHealth } from "./failure";
 
 const HEALTHY: FlowHealth = {
   platform: "darwin", wayland: false, accessibility: true, secureInput: false,
@@ -42,5 +42,66 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, accessibility: false })?.detail).toContain("Accessibility");
     expect(deriveFailure({ ...HEALTHY, platform: "win32", accessibility: false })?.detail).toContain("input access");
     expect(deriveFailure({ ...HEALTHY, platform: "linux", wayland: true })?.detail).not.toMatch(/tray|command line/);
+  });
+});
+
+describe("turnFailure", () => {
+  it("sends a missing, refused or unknown setting to where it is fixed", () => {
+    const setup = [
+      "No API key for OpenAI. Add one in Settings > Models.",
+      'HTTP 401: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+      'HTTP 404: {"error":{"message":"model \\"qwen9\\" not found, try pulling it first"}}',
+    ];
+    for (const m of setup) {
+      const f = turnFailure(m);
+      expect(f.code).toBe("brain_setup");
+      expect(f.actionLabel).toBeTruthy();
+    }
+  });
+
+  it("opens the settings page the card's own words name", () => {
+    expect(deriveFailure({ ...HEALTHY, brainReady: false })?.settings).toBe("flow");
+    const key = turnFailure("No API key for OpenAI. Add one in Settings > Models.");
+    expect(key.detail).toContain("Settings > Models");
+    expect(key.settings).toBe("models");
+    expect(turnFailure("HTTP 401: invalid x-api-key").settings).toBe("models");
+    expect(turnFailure('HTTP 404: {"error":{"message":"model not found"}}').settings).toBe("models");
+    // A coding agent signs in under Agents and has its model pinned in Flow.
+    expect(turnFailure("Authentication required", true).settings).toBe("agents");
+    expect(turnFailure("unknown model opus-9", true).settings).toBe("flow");
+  });
+
+  it("sends a model it could not reach at a named address to where the address is set", () => {
+    const f = turnFailure("Could not reach Ollama (local) at http://nas:11434. Is it running?");
+    expect(f.actionLabel).toBeTruthy();
+    expect(f.settings).toBe("models");
+  });
+
+  it("has a page to open for every card whose button is a settings fix", () => {
+    const withButton = [
+      "No API key for OpenAI. Add one in Settings > Models.", "HTTP 403: forbidden", "HTTP 404: model not found",
+      "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?",
+    ];
+    for (const agent of [false, true]) for (const m of withButton) expect(turnFailure(m, agent).settings).toBeTruthy();
+  });
+
+  it("reads the provider's own sentence out of a JSON error body", () => {
+    expect(turnFailure('HTTP 404: {"error":{"message":"model \\"qwen9\\" not found"}}').detail).toBe('model "qwen9" not found. Pick another in settings.');
+    expect(turnFailure('HTTP 401: {"error":{"message":"bad key"}}').detail).toBe("bad key");
+  });
+
+  it("offers no button for what only time or the provider can fix", () => {
+    for (const m of ["HTTP 429: rate limit reached", "HTTP 429: You exceeded your current quota", "fetch failed", "Anthropic stream error: overloaded_error"]) {
+      const f = turnFailure(m);
+      expect(f.code).toBe("turn_failed");
+      expect(f.actionLabel).toBeUndefined();
+    }
+    expect(turnFailure("fetch failed").detail).toContain("Ollama");
+    expect(turnFailure("Could not reach Ollama (local) at http://nas:11434. Is it running?").detail).toBe("Could not reach Ollama (local) at http://nas:11434. Is it running?");
+  });
+
+  it("never shows an empty card", () => {
+    expect(turnFailure("   ").detail).toBeTruthy();
+    expect(turnFailure("agent died").detail).toBe("agent died");
   });
 });

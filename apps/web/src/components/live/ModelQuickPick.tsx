@@ -7,6 +7,7 @@ import { allowedEfforts } from "@openlive/harness/types";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useUi } from "@/lib/uiStore";
+import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT, effortName } from "./SetupControls";
 
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless, protocol: p.protocol }));
@@ -20,14 +21,11 @@ const compact = (n: number): string =>
 // liveModel settings as full Settings.
 export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void }) {
   const qc = useQueryClient();
-  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
 
-  const providerId = settings?.liveProviderId ?? providers.find((p) => p.isDefault)?.kind ?? providers[0]?.kind ?? PROVIDERS[0]!.id;
+  const { providerId, usable: hasKey } = useApiModeChoice();
   const { data: models = [], isLoading: modelsLoading, error: modelsError } = useQuery({ queryKey: ["models", providerId], queryFn: () => api.models(providerId), enabled: !!providerId, retry: false });
-  const row = providers.find((p) => p.kind === providerId);
   const provider = PROVIDERS.find((p) => p.id === providerId);
-  const hasKey = provider?.keyless || row?.hasKey;
 
   const save = useMutation({
     mutationFn: (b: Record<string, string>) => api.updateSettings(b),

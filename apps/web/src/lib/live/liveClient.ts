@@ -171,6 +171,8 @@ export class LiveClient {
   flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken ? { spoken } : {}), ...(close ? { close } : {}) }); }
   /** Continue an archived Flow session on the next utterance. */
   flowResume(sessionId: string) { this.sendJson({ t: "flow_resume", sessionId }); }
+  /** Start a fresh Flow session on the next utterance. */
+  flowNew() { this.sendJson({ t: "flow_new" }); }
   control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
   frameResponse(reqId: string, failed?: boolean) { this.sendJson({ t: "frame_response", reqId, ...(failed ? { failed } : {}) }); }
   toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }

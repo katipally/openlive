@@ -35,13 +35,13 @@ export function EndCallButton({ onEnd, size = "size-9" }: { onEnd: () => void; s
               <button onClick={() => requestClose()}
                 className="flex-1 rounded-lg px-2 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10">Cancel</button>
               <button onClick={() => { requestClose(); onEnd(); }}
-                className="flex-1 rounded-lg bg-danger px-2 py-1.5 text-label font-medium text-white transition hover:opacity-90">End</button>
+                className="flex-1 rounded-lg bg-destructive-fill px-2 py-1.5 text-label font-medium text-white transition hover:opacity-90">End</button>
             </div>
           </div>
         </div>
       )}
       <button onClick={toggle} title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`} aria-label="End call" aria-expanded={open}
-        className={cn("grid place-items-center rounded-full bg-danger text-white transition hover:opacity-90 active:scale-[0.98]", size)}>
+        className={cn("grid place-items-center rounded-full bg-destructive-fill text-white transition hover:opacity-90 active:scale-[0.98]", size)}>
         <PhoneOff className="size-4" />
       </button>
     </div>

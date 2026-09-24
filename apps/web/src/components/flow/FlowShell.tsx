@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop } from "@/lib/platform";
 import { flowBridge } from "@/lib/flow/bridge";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
-import { useUi } from "@/lib/uiStore";
 import { FlowHome } from "./FlowHome";
 import { FlowOnboarding } from "./FlowOnboarding";
 
@@ -75,14 +73,6 @@ export function FlowShell() {
         // An open session covers this bar, and a drag region under an overlay still eats its clicks.
         isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && !sessionId && "app-drag")}>
         {isDesktop && <SwitchHole />}
-        <div className="flex-1" />
-
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <button type="button" onClick={() => useUi.getState().openSettingsTab("flow")} aria-label="Flow settings"
-            className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
-            <Settings2 className="size-[18px]" />
-          </button>
-        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col animate-fade-in">

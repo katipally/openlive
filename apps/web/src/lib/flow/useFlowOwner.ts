@@ -12,7 +12,7 @@ import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
-import { deriveFailure } from "./failure";
+import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { IDLE_FLOW, type FlowPhase, type FlowSnapshot } from "./types";
 
@@ -49,6 +49,7 @@ function base64(buf: ArrayBuffer): string {
 
 interface FlowSettings {
   idleWindowMs: number;
+  brain: { kind: string };
   insertion: { method: string };
   voice: { speakReplies: boolean; bargeIn: boolean; autoQuiet: QuietRules; turn: TurnTuning };
 }
@@ -159,7 +160,8 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       finalizing.current = false;
       stopAnswerWatchdog();
-      patch({ reply: message });
+      // The orb draws a failure, never `reply`, so a reason has to become one.
+      patch(message ? { reply: message, failure: turnFailure(message, settings.current?.brain.kind === "acp") } : { reply: message });
       setPhase("error");
       teardownMic();
       armIdleRetire();
@@ -302,13 +304,22 @@ export function useFlowOwner(): void {
       summon();
       const ticket = ++openTicket;
       setPhase("listening");
-      void refreshHealth();
+      const health = refreshHealth();
       // Cold start: the weights are downloaded but not compiled yet. Show honest
       // progress; the utterance is captured either way and transcribed when the
       // worker is ready, so nothing said here is lost.
       if (!modelsMatchConfig() && modelsCached()) void warm();
       await decideVoice();
+      await health;
       if (ticket !== openTicket) return;
+      // Nothing to think with, so listening would only take words to nowhere. The
+      // failure health just set stays up with its fix instead.
+      if (!brainReady.current) {
+        setPhase("error");
+        teardownMic();
+        armIdleRetire();
+        return;
+      }
       patch({ reply: "" });
       await ensureEngine();
       if (ticket !== openTicket) { teardownMic(); return; }
@@ -327,7 +338,6 @@ export function useFlowOwner(): void {
         armIdleRetire();
         return;
       }
-      patch({ failure: null });
       engine.current.setMuted(false);
       armIdleRetire();
     };
@@ -408,6 +418,7 @@ export function useFlowOwner(): void {
           else setPhase("thinking");
           return;
         case "tool_start":
+          if (snap.current.speaking) engine.current?.endAgentStep();
           return setPhase("acting", toolMeta(e.name).active);
         case "tool_result":
           // Deliberately nothing. A run of tool calls is one continuous piece of
@@ -527,7 +538,7 @@ export function useFlowOwner(): void {
           if (c.code === "no_accessibility") void api.init().then(refreshHealth);
           else if (c.code === "mic_failed") void onOpen();
           else if (c.code === "models_missing") void warm().then(refreshHealth);
-          else if (c.code === "no_provider") api.expand("flow-settings");
+          else if (snap.current.failure?.settings) api.expand(`${snap.current.failure.settings}-settings`);
           // `init` replaces a hook thread that died, and the binding goes back on it.
           else if (c.code === "hook_failed") { armed.current = false; void arm().then(refreshHealth); }
           else void refreshHealth();
@@ -619,10 +630,19 @@ export function useFlowOwner(): void {
       setPhase("listening", "Carrying on from that session.");
     });
 
+    // The tray's "New Flow session" with Flow already open. A turn still running
+    // or finishing, or a question waiting on an answer, is left to finish.
+    const offNew = api.onNewSession?.(() => {
+      if (turnActive.current || finalizing.current || permission.current) return;
+      client.current?.flowNew();
+      void onOpen();
+      setPhase("listening", "Started a new session.");
+    });
+
     const bands = setInterval(() => {
       if (!summoned.current) return;
       const e = engine.current;
-      panel.panelState?.({ k: "b", mic: e?.micBands() ?? IDLE_BANDS, agent: e?.agentBands() ?? IDLE_BANDS });
+      panel.panelState?.({ k: "b", mic: e?.micBands() ?? IDLE_BANDS, agent: e?.agentBands() ?? IDLE_BANDS, agentLevel: e?.agentLevel() ?? 0 });
     }, BANDS_MS);
 
     const online = () => void refreshHealth();
@@ -630,7 +650,7 @@ export function useFlowOwner(): void {
     window.addEventListener("offline", online);
 
     return () => {
-      for (const off of [offPower, offCmd, offEffect, offSecure, offArmed, offSettings, offResume]) off?.();
+      for (const off of [offPower, offCmd, offEffect, offSecure, offArmed, offSettings, offResume, offNew]) off?.();
       clearInterval(bands);
       clearInterval(armWatch);
       window.removeEventListener("online", online);

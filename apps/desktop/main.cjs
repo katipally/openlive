@@ -57,6 +57,11 @@ const DARK_BG = "#0b0b0c";
 // OPENLIVE_AGENT_SECRET (both already honor it) and to the renderer via argv.
 // Dev keeps the open no-secret path (servers come from `pnpm dev`).
 const AGENT_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
+// Per-launch proof, for the settings route, that a person confirmed an Ollama
+// address off this computer in a native dialog. Only the web server's env and
+// this process hold it; unlike AGENT_TOKEN it never reaches a renderer. Dev has
+// none, so there only this computer's own addresses save.
+const SETTINGS_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
 
 let mainWin = null;
 let splashWin = null;
@@ -273,6 +278,7 @@ async function startServers() {
     OPENLIVE_DATA_DIR: dataDir,
     AGENT_PORT: String(AGENT_PORT),
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
+    OPENLIVE_SETTINGS_SECRET: SETTINGS_TOKEN,
   });
   return true;
 }
@@ -585,17 +591,21 @@ async function expandFlow(to) {
   if (mainWin && !mainWin.isDestroyed()) {
     // A window created just now has no page listening yet; the ask waits for it.
     const wc = mainWin.webContents;
-    const show = () => wc.send("openlive:flow-show", to === "flow-settings" ? to : "");
+    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings$/.test(to) ? to : "");
     if (wc.isLoading()) wc.once("did-finish-load", show); else show();
   }
 }
 
 /** The tray's "New Flow session": the gesture itself, fired from here, so the
  *  owner renderer opens Flow exactly as a double tap would. The addon's trigger
- *  is a toggle, so an open Flow is left alone rather than closed. */
+ *  is a toggle, so an open Flow is not sent it: the owner starts the fresh
+ *  session there instead, and leaves a turn that is still running alone. */
 const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
 function startFlowFromTray() {
-  if (flowSummoned) return;
+  if (flowSummoned) {
+    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session");
+    return;
+  }
   try { flowInput.load().triggerExternal(FLOW_BINDING, true); }
   catch (e) { console.error("[main] tray flow:", e); }
 }
@@ -612,6 +622,7 @@ function wireFlowIpc() {
   });
   // A reply after a summon cancelled the exit finds no pending hide and is dropped.
   ipcMain.on("openlive:flow-hidden", () => { if (flowHiding) finishDismissFlow(); });
+  ipcMain.handle("openlive:flow-visible", () => !!flowWin && !flowWin.isDestroyed() && flowWin.isVisible());
   ipcMain.on("openlive:flow-expand", (_e, to) => expandFlow(to));
   for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, reclampFlow);
   // "Continue this session" in the Flow window: only the owner renderer holds the
@@ -734,7 +745,9 @@ function quitApp() {
 
 function createTray() {
   try {
-    const img = nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")).resize({ height: 18 });
+    // macOS tints a Template image to suit a light or dark menu bar; elsewhere
+    // templates mean nothing, so the tray gets the colour mark. Both load their @2x.
+    const img = nativeImage.createFromPath(path.join(__dirname, "build", process.platform === "darwin" ? "trayTemplate.png" : "tray.png"));
     tray = new Tray(img);
     tray.setToolTip("OpenLive");
     refreshTray();
@@ -848,6 +861,45 @@ function wireWindowIpc() {
     // left the two disagreeing until the next launch.
     if (typeof v === "boolean") { loginItem(v); buildMenu(); }
     return loginItem();
+  });
+  // Settings → Models: an Ollama address off this computer. Page script can call
+  // this too, so the person answers a native dialog naming the host, and only
+  // then does this process write it, with the secret the route asks for. One
+  // dialog at a time, so a script cannot stack them.
+  let confirmingOllama = false;
+  ipcMain.handle("openlive:confirm-ollama-url", async (e, raw) => {
+    if (!SETTINGS_TOKEN) return { error: "Only the installed OpenLive app can use an Ollama address off this computer." };
+    if (confirmingOllama) return { cancelled: true };
+    const value = String(raw ?? "").trim();
+    let u = null;
+    try { u = new URL(value); } catch {}
+    if (u?.protocol !== "http:" && u?.protocol !== "https:") return { error: "Enter an http:// or https:// address, like http://localhost:11434." };
+    confirmingOllama = true;
+    try {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const opts = {
+        type: "warning",
+        buttons: ["Cancel", "Use This Server"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: `Send Ollama requests to ${u.host}?`,
+        detail: `${u.protocol}//${u.host} is not on this computer. Flow and Chat will send it what you say and type, and screen content, including screenshots from tools.`,
+      };
+      const { response } = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts));
+      if (response !== 1) return { cancelled: true };
+      const res = await fetch(`${WEB_URL}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-openlive-confirmed": SETTINGS_TOKEN },
+        body: JSON.stringify({ ollamaBaseUrl: value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      return res.ok ? { settings: body } : { error: body.error || "Couldn't save the address." };
+    } catch {
+      return { error: "Couldn't save the address." };
+    } finally {
+      confirmingOllama = false;
+    }
   });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
@@ -1003,6 +1055,8 @@ function checkForUpdatesNow() {
 }
 
 async function boot() {
+  // The packaged app takes its dock icon from icon.icns; the dev binary would show Electron's.
+  if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, "build", "icon.png"));
   buildMenu();
   createTray();
   wirePermissions();

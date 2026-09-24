@@ -1,6 +1,7 @@
-import { streamProvider, type ProviderEvent } from "@openlive/harness";
+import { isUnreachable, streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
 import type { SseEvent } from "@openlive/shared";
-import { resolveLive, type ResolvedLive } from "../providers.js";
+import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
+import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
 import { parsePartialJson } from "./partial-json.js";
 import type { Brain, BrainEvent, TurnRequest, Usage } from "./types.js";
@@ -18,18 +19,24 @@ function mapStop(stopReason: string, sawTools: boolean): "stop" | "tools" | "len
  *
  * Stateful only in the way the wire is: tool calls arrive as an index-keyed
  * start / arg-fragment / stop triple, so the accumulated JSON per index lives
- * here. Reasoning is dropped: Flow speaks its replies, and a thinking channel
- * read aloud is noise.
+ * here. Reasoning is passed on only to be replayed to the provider: Flow speaks
+ * its replies, and a thinking channel read aloud is noise. One `turn_done` per
+ * turn: Anthropic says `done` twice, and the second would erase a `length`.
  */
 export function createProviderMapper(): (ev: ProviderEvent) => BrainEvent[] {
   const calls = new Map<number, { id: string; name: string; raw: string }>();
   const usage: Usage = { input: 0, output: 0 };
   let sawTools = false;
+  let done = false;
 
   return (ev) => {
     switch (ev.type) {
       case "text":
         return ev.delta ? [{ type: "text_delta", delta: ev.delta }] : [];
+      case "reasoning":
+        return ev.delta ? [{ type: "reasoning", delta: ev.delta }] : [];
+      case "reasoning_signature":
+        return [{ type: "reasoning_signature", signature: ev.signature }];
       case "tool_start":
         calls.set(ev.index, { id: ev.id, name: ev.name, raw: "" });
         sawTools = true;
@@ -50,6 +57,8 @@ export function createProviderMapper(): (ev: ProviderEvent) => BrainEvent[] {
         usage.output += ev.output;
         return [];
       case "done":
+        if (done) return [];
+        done = true;
         return [{ type: "turn_done", stop: mapStop(ev.stopReason, sawTools), usage: { ...usage } }];
       default:
         return [];
@@ -65,14 +74,23 @@ const message = (e: unknown) => {
 /** API mode: the same provider, key, model and effort Chat resolves, set once in Settings > Models. */
 export class LocalBrain implements Brain {
   readonly id = "local";
-  constructor(private readonly resolve: () => ResolvedLive = resolveLive) {}
+  /** What the vision model said about each picture, by tool call id. */
+  private readonly described = new Map<string, string>();
+  constructor(
+    private readonly resolve: () => ResolvedLive = resolveLive,
+    private readonly prepare: typeof prepareToolImages = prepareToolImages,
+  ) {}
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     let sawDone = false;
+    let provider: ProviderInfo | null = null;
     try {
-      const { provider, model, apiKey, effort } = this.resolve();
-      const messages = [{ role: "system" as const, text: req.systemPrompt }, ...req.messages];
-      const gen = streamProvider(provider, apiKey ?? undefined, { model, messages, tools: req.tools, effort }, signal);
+      const live = this.resolve();
+      const { model, apiKey } = live;
+      provider = live.provider;
+      if (!apiKey && !provider.keyless) throw new Error(`No API key for ${provider.name}. Add one in Settings > Models.`);
+      const messages = [{ role: "system" as const, text: req.systemPrompt }, ...await this.prepare(req.messages, live, signal, this.described)];
+      const gen = streamProvider(provider, apiKey ?? undefined, { model, messages, tools: req.tools, ...liveReasoning(live) }, signal);
       const map = createProviderMapper();
       for await (const ev of gen) {
         for (const out of map(ev)) {
@@ -82,7 +100,8 @@ export class LocalBrain implements Brain {
       }
       if (!sawDone) yield { type: "turn_done", stop: "stop" };
     } catch (e) {
-      yield { type: "turn_error", message: message(e), aborted: signal.aborted };
+      const unreachable = !!provider && !signal.aborted && isUnreachable(e);
+      yield { type: "turn_error", message: unreachable ? unreachableMessage(provider!) : message(e), aborted: signal.aborted };
     }
   }
 }

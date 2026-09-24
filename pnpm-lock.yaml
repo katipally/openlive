@@ -181,6 +181,10 @@ importers:
         version: 5.9.3
 
   packages/harness:
+    dependencies:
+      '@openlive/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: ^22.10.5

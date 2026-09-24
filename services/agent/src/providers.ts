@@ -1,15 +1,18 @@
 import {
   listProviders, createProvider, updateProvider,
-  getProviderApiKey, getSetting, setSetting,
+  getProviderApiKey, getSetting, setSetting, getAllSettings,
 } from "@openlive/db";
-import { BUILTIN_PROVIDERS, defaultModel, type ProviderInfo, type Effort } from "@openlive/harness";
-import { liveRecsFor } from "@openlive/shared";
+import {
+  BUILTIN_PROVIDERS, envKeyFor, isReasoningModel, resolveApiMode, withSettings,
+  type ChatRequest, type ProviderInfo, type Effort,
+} from "@openlive/harness";
 
 // Provider-neutral resolution. Keys live in the DB `providers` table (kind =
 // harness provider id) or fall back to the provider's declared env vars.
 
 export function providerInfo(id: string): ProviderInfo | undefined {
-  return BUILTIN_PROVIDERS.find((p) => p.id === id);
+  const p = BUILTIN_PROVIDERS.find((b) => b.id === id);
+  return p && withSettings(p, { ollamaBaseUrl: getSetting("ollamaBaseUrl") });
 }
 
 // Seed a DB provider row for every builtin whose env key is present, so a host
@@ -48,28 +51,6 @@ export interface ResolvedLive {
   effort?: Effort;
 }
 
-// Can this provider actually run a turn? A local provider (Ollama) is keyless —
-// gating it on a key silently discards the user's pick and falls through to a
-// keyed default they never chose.
-function usable(id: string): boolean {
-  const info = providerInfo(id);
-  return !!info && (!!info.keyless || !!getProviderKey(id));
-}
-
-// Which provider powers LIVE voice. The `liveProviderId` setting if it's usable;
-// else camera-first — prefer a keyed provider whose fast live model can SEE.
-function liveProviderId(): string {
-  const explicit = getSetting("liveProviderId");
-  if (explicit && usable(explicit)) return explicit;
-  for (const id of ["anthropic", "openai", "minimax"]) {
-    if (!getProviderKey(id)) continue;
-    const rec = liveRecsFor(id).find((r) => r.default) ?? liveRecsFor(id)[0];
-    if (rec?.vision) return id;
-  }
-  // No vision provider keyed → first usable provider at all.
-  return BUILTIN_PROVIDERS.find((p) => usable(p.id))?.id ?? BUILTIN_PROVIDERS[0]!.id;
-}
-
 // Optional dedicated vision model (its own provider), used to SEE for a live
 // model that can't. Null unless the user configured one AND it's usable.
 export function resolveVision(): ResolvedLive | null {
@@ -83,17 +64,22 @@ export function resolveVision(): ResolvedLive | null {
   return { provider, model, apiKey };
 }
 
+/**
+ * How hard a spoken turn thinks, in the form its provider accepts. Auto is
+ * thinking off: OpenAI cannot switch it off, so it gets "minimal", and Anthropic
+ * simply gets no thinking block. A model with no reasoning channel gets nothing,
+ * because OpenAI and Ollama both reject a reasoning setting on one.
+ */
+export function liveReasoning({ provider, model, effort }: ResolvedLive): Pick<ChatRequest, "effort" | "reasoningEffort"> {
+  if (!isReasoningModel(model)) return {};
+  if (provider.protocol === "openai") return { reasoningEffort: effort ?? "minimal" };
+  return effort ? { effort } : {};
+}
+
+/** API mode as the whole app resolves it: the provider the person chose, even
+ *  one that cannot run yet, so the turn fails naming the fix instead of quietly
+ *  answering from a provider they never picked. */
 export function resolveLive(): ResolvedLive {
-  const providerId = liveProviderId();
-  const provider = providerInfo(providerId) ?? BUILTIN_PROVIDERS[0]!;
-  const recs = liveRecsFor(provider.id);
-  const rec = recs.find((r) => r.default) ?? recs[0];
-  const explicitProvider = getSetting("liveProviderId");
-  const liveModel = getSetting("liveModel");
-  const model = (explicitProvider === providerId && liveModel) ? liveModel : (rec?.model || defaultModel(provider.id));
-  // Effort default is lowest (auto → undefined here; turn-runner picks lowest).
-  // A user override in Settings raises it for depth over latency.
-  const eff = getSetting("liveEffort");
-  const effort = eff && eff !== "none" && eff !== "auto" ? (eff as Effort) : undefined;
+  const { provider, model, effort } = resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p));
   return { provider, model, apiKey: getProviderKey(provider.id), effort };
 }

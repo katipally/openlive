@@ -13,6 +13,7 @@ import { AgentQuickPick, agentLabel } from "./AgentControls";
 import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT } from "./SetupControls";
 import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
+import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename, bridge } from "@/lib/platform";
@@ -64,11 +65,9 @@ export function Lobby(props: LobbyProps) {
   });
   const folderGap = !!boundCwd && folderCheck !== undefined && !folderCheck.ok;
   // Built-in brain: its provider needs an API key (unless keyless, e.g. local Ollama).
-  const { data: lobbySettings } = useQuery({ queryKey: ["settings"], queryFn: api.settings, enabled: !boundAgent });
-  const { data: provRows = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers, enabled: !boundAgent });
-  const providerId = boundAgent ? null : lobbySettings?.liveProviderId ?? provRows.find((p) => p.isDefault)?.kind ?? provRows[0]?.kind ?? BUILTIN_PROVIDERS[0]!.id;
-  const provDef = providerId ? BUILTIN_PROVIDERS.find((p) => p.id === providerId) : null;
-  const keyGap = !boundAgent && !!provDef && !provDef.keyless && provRows.length > 0 && !provRows.some((r) => r.kind === providerId && r.hasKey);
+  const choice = useApiModeChoice();
+  const provDef = boundAgent ? null : BUILTIN_PROVIDERS.find((p) => p.id === choice.providerId);
+  const keyGap = !boundAgent && !choice.loading && !choice.usable;
   // No audio input at all (nothing enumerated) — the call can't hear you. Warn, don't
   // block: a transiently-empty list right after mount shouldn't dead-lock Start.
   const micGap = mics.length === 0;
@@ -95,12 +94,12 @@ export function Lobby(props: LobbyProps) {
   // Into the call — a short "lift": the lobby rises and fades while InCall's
   // entrance rises to meet it, so start→call reads as one continuous move. The
   // session's start() runs on completion (~0.2 s — noise next to model warm-up).
+  // The page itself stays opaque: fading it showed the home screen through it.
   const handleStart = contextSafe(() => {
     if (!root.current || prefersReduced()) { onStart(); return; }
     gsap.timeline({ onComplete: onStart })
       .to(".ol-lobby-aside", { autoAlpha: 0, x: 14, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(root.current, { autoAlpha: 0, scale: 1.008, duration: DUR.base, ease: EASE.soft }, 0.04);
+      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0);
   });
 
   const cta = downloading ? (

@@ -1,4 +1,5 @@
-import type { ProviderInfo } from "./types"
+import { liveRecsFor } from "@openlive/shared"
+import { EFFORTS, type Effort, type ProviderInfo } from "./types"
 
 /**
  * The built-in providers (15 at last count — see BUILTIN_PROVIDERS below).
@@ -49,7 +50,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     id: "ollama",
     name: "Ollama (local)",
     protocol: "openai",
-    baseURL: "http://localhost:11434/v1",
+    baseURL: "http://localhost:11434/v1", // replaced by the `ollamaBaseUrl` setting, see withSettings
     keyless: true,
   },
   {
@@ -181,4 +182,103 @@ export const MODEL_SNAPSHOT: Record<string, string[]> = {
   fireworks: ["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/deepseek-v3"],
   cerebras: ["gemma-4-31b", "zai-glm-4.7", "gpt-oss-120b"],
   perplexity: ["sonar", "sonar-pro", "sonar-reasoning"],
+}
+
+/** Where a local Ollama listens unless the `ollamaBaseUrl` setting says otherwise. */
+export const DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
+/**
+ * An Ollama address as the server root, or null when it is not an http(s) URL.
+ * A trailing slash and a pasted `/v1` or `/api` are tolerated, because those are
+ * the two paths people copy out of Ollama's own docs.
+ */
+export function normalizeOllamaUrl(input: string): string | null {
+  const raw = input.trim()
+  if (!raw) return null
+  let u: URL
+  try { u = new URL(raw) } catch { return null }
+  if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.hostname) return null
+  if (u.search || u.hash || u.username || u.password) return null
+  const path = u.pathname.replace(/\/+$/, "").replace(/\/(v1|api)$/, "")
+  return `${u.protocol}//${u.host}${path}`
+}
+
+/**
+ * Whether an address stays on this computer: `localhost`, 127.0.0.0/8 or ::1.
+ * Decided on the host as the URL parser writes it, so
+ * `0x7f.1` and `2130706433` count as the 127.0.0.1 they reach. Anything else,
+ * even `*.localhost`, which Node may hand to DNS, is treated as off this computer.
+ */
+export function isLoopbackUrl(input: string): boolean {
+  let host: string
+  try { host = new URL(input.trim()).hostname } catch { return false }
+  return host === "[::1]" || host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host)
+}
+
+/** The settings that change how a built-in provider is reached. */
+export interface ProviderSettings { ollamaBaseUrl?: string }
+
+/** A built-in provider as this install reaches it: local Ollama at the configured address. */
+export function withSettings<P extends ProviderInfo>(p: P, s: ProviderSettings): P {
+  if (p.id !== "ollama") return p
+  return { ...p, baseURL: `${normalizeOllamaUrl(s.ollamaBaseUrl ?? "") ?? DEFAULT_OLLAMA_URL}/v1` }
+}
+
+/** The address to name in an error: what the person typed, not the API path under it. */
+export const providerAddress = (p: ProviderInfo): string => p.baseURL.replace(/\/v1$/, "")
+
+/** The request never reached the server: nothing listens there, or the network is down. */
+export function isUnreachable(e: unknown): boolean {
+  const err = e as { message?: string; cause?: { code?: string } } | null
+  return /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET|ETIMEDOUT|socket hang up/i.test(`${err?.message ?? e} ${err?.cause?.code ?? ""}`)
+}
+
+/** What to say when `isUnreachable`: where it was tried, so a wrong address is visible. */
+export const unreachableMessage = (p: ProviderInfo): string =>
+  `Could not reach ${p.name} at ${providerAddress(p)}.${p.keyless ? " Is it running?" : ""}`
+
+/** A key from the provider's declared env vars. Server-side only. */
+export function envKeyFor(p: ProviderInfo): string | null {
+  return p.envKeys?.map((k) => process.env[k]?.trim()).find(Boolean) || null
+}
+
+/** A provider row as the DB lists it, without its secret. */
+export interface StoredProvider { kind: string; hasKey: boolean; isDefault: boolean }
+
+export interface ApiModeSettings extends ProviderSettings {
+  liveProviderId?: string
+  liveModel?: string
+  liveEffort?: string
+}
+
+export interface ApiMode {
+  provider: BuiltinProvider
+  model: string
+  /** undefined is auto: the lowest the model takes. */
+  effort?: Effort
+  /** The chosen provider can run a turn: it is local, or it has a key. */
+  ready: boolean
+}
+
+/**
+ * The one answer to "what does API mode run on, and can it". Chat, Flow, the
+ * readiness checks and every settings summary call this, so none of them can
+ * disagree about it.
+ *
+ * The chosen provider is honoured even when it cannot run: a turn sent to a
+ * provider nobody picked, because the picked one had no key, answers in a voice
+ * the person did not choose and hides the thing they need to fix.
+ */
+export function resolveApiMode(s: ApiModeSettings, stored: StoredProvider[], envKey: (p: ProviderInfo) => boolean = () => false): ApiMode {
+  const id = s.liveProviderId || stored.find((r) => r.isDefault)?.kind || stored[0]?.kind || BUILTIN_PROVIDERS[0]!.id
+  const known = BUILTIN_PROVIDERS.find((p) => p.id === id)
+  const provider = withSettings(known ?? BUILTIN_PROVIDERS[0]!, s)
+  const recs = liveRecsFor(provider.id)
+  const rec = recs.find((r) => r.default) ?? recs[0]
+  // A model is only ever picked together with its provider; one left without a
+  // provider belongs to whichever provider was chosen when it was picked.
+  const model = (s.liveProviderId && s.liveModel) || rec?.model || defaultModel(provider.id)
+  const effort = EFFORTS.find((e) => e === s.liveEffort)
+  const ready = !!known && (!!provider.keyless || stored.some((r) => r.kind === provider.id && r.hasKey) || envKey(provider))
+  return { provider, model, effort, ready }
 }

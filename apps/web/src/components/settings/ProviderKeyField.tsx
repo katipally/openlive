@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Check, Trash2 } from "lucide-react";
+import { KeyRound, Check, Trash2, Server, RotateCcw } from "lucide-react";
 // Pure subpath only — the barrel pulls in catalog/models (node:fs), which cannot
 // bundle into a client component.
-import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
-import { api } from "@/lib/api";
+import { BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, normalizeOllamaUrl } from "@openlive/harness/registry";
+import { api, type AppSettings } from "@/lib/api";
 import { cancelDelete, deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
 // API-key entry bound to one provider, by registry id. The same row serves the
@@ -36,7 +36,7 @@ export function ProviderKeyField({ kind }: { kind: string }) {
       "Couldn’t remove the key. It’s still saved.");
   };
 
-  if (info?.keyless) return <p className="text-label text-muted-foreground">No key needed — {info.name} is a local provider.</p>;
+  if (info?.keyless) return <OllamaAddressField name={info.name} />;
 
   return (
     <div className="flex flex-col gap-2">
@@ -59,6 +59,72 @@ export function ProviderKeyField({ kind }: { kind: string }) {
           </button>
         )}
       </div>
+      {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
+    </div>
+  );
+}
+
+type ConfirmResult = { settings?: AppSettings & Record<string, string>; cancelled?: boolean; error?: string };
+const confirmOllamaUrl = () =>
+  typeof window !== "undefined" ? (window as unknown as { openlive?: { confirmOllamaUrl?: (url: string) => Promise<ConfirmResult> } }).openlive?.confirmOllamaUrl : undefined;
+
+/** A local provider needs no key, only an address. Saved beside the other API-mode
+ *  settings, and read by every call to it: Chat, Flow and the model list. */
+function OllamaAddressField({ name }: { name: string }) {
+  const qc = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const current = settings?.ollamaBaseUrl || DEFAULT_OLLAMA_URL;
+  // A hand-written settings.json can hold one too; it is honoured, and named here.
+  const offMachine = !!normalizeOllamaUrl(current) && !isLoopbackUrl(current);
+  const [url, setUrl] = useState("");
+  const typed = url.trim();
+  const invalid = !!typed && !normalizeOllamaUrl(typed);
+  const save = useMutation({
+    // Off this computer, the desktop app asks in a native dialog and saves it
+    // itself; the settings route refuses such an address from a page. Cancel
+    // resolves to null and leaves the saved address alone.
+    mutationFn: async (value: string) => {
+      if (!value || isLoopbackUrl(value)) return api.updateSettings({ ollamaBaseUrl: value });
+      const confirm = confirmOllamaUrl();
+      if (!confirm) throw new Error("An address off this computer can only be set in the OpenLive desktop app.");
+      const r = await confirm(value);
+      if (r.error) throw new Error(r.error);
+      return r.settings ?? null;
+    },
+    onSuccess: (s) => {
+      if (!s) return;
+      setUrl("");
+      qc.setQueryData(["settings"], s);
+      void qc.invalidateQueries({ queryKey: ["models"] });
+      void qc.invalidateQueries({ queryKey: ["flow-config"] });
+    },
+  });
+  const submit = () => { if (typed && !invalid) save.mutate(typed); };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-label text-muted-foreground">No key needed. {name} runs on a server you point it at.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex h-9 min-w-[9rem] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-label text-muted-foreground">
+          <Server className="size-3.5 shrink-0" /> <span className="truncate" title={current}>{current}</span>
+        </div>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} type="url" name="ollama-base-url" inputMode="url"
+          placeholder={DEFAULT_OLLAMA_URL} aria-label={`${name} server address`} aria-invalid={invalid}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          className="h-9 min-w-[9rem] flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy" />
+        <button onClick={submit} disabled={!typed || invalid || save.isPending}
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-body font-medium text-background transition hover:opacity-90 disabled:opacity-30">
+          {save.data ? <Check className="size-4" /> : <Server className="size-4" />} Save
+        </button>
+        {!!settings?.ollamaBaseUrl && (
+          <button onClick={() => save.mutate("")} title={`Go back to ${DEFAULT_OLLAMA_URL}`} aria-label="Reset the address"
+            className="grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
+            <RotateCcw className="size-4" />
+          </button>
+        )}
+      </div>
+      {offMachine && <p className="break-words text-label text-muted-foreground">{current} is not on this computer. Flow and Chat send it what you say and type, and screen content.</p>}
+      {invalid && <p className="text-label text-destructive">Enter an http:// or https:// address, like {DEFAULT_OLLAMA_URL}.</p>}
       {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
     </div>
   );

@@ -18,12 +18,12 @@ function narrationFor(toolCalls: { name: string; arguments: string }[], count: n
   if (search) {
     const q = String(safeParseArgs(search.arguments)?.query ?? "").split(/\s+/).slice(0, 7).join(" ").trim();
     if (!q) return null;
-    return count === 0 ? ` Still searching for ${q}.` : ` Give me one more sec on ${q}.`;
+    return count === 0 ? `Still searching for ${q}.` : `Give me one more sec on ${q}.`;
   }
   if (fetch) {
     let host = "";
     try { host = new URL(String(safeParseArgs(fetch.arguments)?.url ?? "")).hostname.replace(/^www\./, ""); } catch { /* skip */ }
-    return host ? ` Reading through ${host} now.` : null;
+    return host ? `Reading through ${host} now.` : null;
   }
   return null;
 }
@@ -60,11 +60,13 @@ export async function runWorker(task: string, emit: Emit, signal: AbortSignal): 
     if (!turn.toolCalls.length) return turn.text.trim() || "(no findings)";
 
     // If this step's tools take a while, speak ONE true line about what's happening
-    // (the real query/page) so the main voice isn't dead-silent while we work.
+    // (the real query/page) so the main voice isn't dead-silent while we work. It is
+    // `say`, not reply text: the commentary gate holds reply text after a tool until
+    // the answer, so a text line arrived glued to the answer and was saved with it.
     let narrateTimer: ReturnType<typeof setTimeout> | undefined;
     if (narrations < MAX_NARRATIONS) {
       const line = narrationFor(turn.toolCalls, narrations);
-      if (line) narrateTimer = setTimeout(() => { if (!signal.aborted) { narrations++; void emit({ type: "text_delta", text: line }); } }, NARRATE_AFTER_MS);
+      if (line) narrateTimer = setTimeout(() => { if (!signal.aborted) { narrations++; void emit({ type: "say", text: line }); } }, NARRATE_AFTER_MS);
     }
     const results = await Promise.all(turn.toolCalls.map(async (tc) => {
       const tool = tools.find((t) => t.name === tc.name);

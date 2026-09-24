@@ -18,7 +18,11 @@ export type FlowFailureCode =
   | "models_missing"
   | "hook_failed"
   | "mic_failed"
-  | "answer_lost";
+  | "answer_lost"
+  /** The brain refused this turn for a reason that is fixed in settings. */
+  | "brain_setup"
+  /** The brain failed this turn, and nothing in OpenLive fixes it. */
+  | "turn_failed";
 
 export interface FlowFailure {
   code: FlowFailureCode;
@@ -28,7 +32,12 @@ export interface FlowFailure {
   detail: string;
   /** The single thing they can do about it. Absent when there is nothing to press. */
   actionLabel?: string;
+  /** The settings page that action opens, when the fix lives in settings. */
+  settings?: FlowSettingsPage;
 }
+
+/** The settings pages a failure's fix can live on. */
+export type FlowSettingsPage = "models" | "flow" | "agents";
 
 export interface FlowSnapshot {
   phase: FlowPhase;

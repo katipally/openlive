@@ -25,9 +25,9 @@ files:
   - flow-cursor-preload.cjs
   - flow-cursor.html
   - splash.html
-  # Packed INTO the asar so the menu-bar tray (main.cjs loads build/icon.png via
+  # Packed INTO the asar so the menu-bar tray (main.cjs loads build/tray*.png via
   # __dirname) has its image in installed builds — without this the tray was blank.
-  - build/icon.png
+  - build/tray*.png
 
 extraResources:
   - from: dist/web
@@ -96,7 +96,10 @@ win:
     - target: nsis
       arch: [x64]
   artifactName: ${productName}-${version}-windows.${ext}
-  icon: build/icon.png
+  # Unpadded: Windows and Linux draw no tile of their own, unlike macOS's grid.
+  # A multi-size .ico whose 16-64 entries are drawn at their own size, so the
+  # taskbar and title bar don't downscale the 1024 into a smear.
+  icon: build/icon.ico
 
 nsis:
   oneClick: false
@@ -107,12 +110,12 @@ nsis:
 # ── Linux ─────────────────────────────────────────────────────────────────────
 # One AppImage (download → chmod +x → run) so users don't have to match a distro
 # package format. Unsigned, like every Linux AppImage. The linux-<arch> sherpa
-# package is shipped by pack-agent.cjs (its default branch). electron-builder
-# derives the icon set from the 1024×1024 build/icon.png automatically.
+# package is shipped by pack-agent.cjs (its default branch). The icon set is
+# build/icons/NxN.png, the small sizes drawn at their own size like the .ico.
 linux:
   target:
     - target: AppImage
       arch: [x64]
   category: AudioVideo
   artifactName: ${productName}-${version}-linux.${ext}
-  icon: build/icon.png
+  icon: build/icons

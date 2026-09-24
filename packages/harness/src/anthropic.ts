@@ -74,6 +74,9 @@ function toTools(tools: ToolDef[], noCacheControl?: boolean): unknown[] {
   }))
 }
 
+const inputTokens = (u: any): number =>
+  (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+
 export async function* streamAnthropic(opts: {
   baseURL: string
   apiKey?: string
@@ -140,6 +143,8 @@ export async function* streamAnthropic(opts: {
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 400) || res.statusText}`)
   }
 
+  // Input counted so far. Usage counts are cumulative, so a later report only adds what is new.
+  let inputSeen = 0
   for await (const line of sseLines(res.body)) {
     if (!line.startsWith("data:")) continue
     let json: any
@@ -154,7 +159,8 @@ export async function* streamAnthropic(opts: {
         if (u) {
           // Include cache read/creation so a fully-cached turn (input_tokens===0) still reports a
           // real context size — needed for the token bar and compaction trigger.
-          const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+          const input = inputTokens(u)
+          inputSeen = input
           yield { type: "usage", input, output: 0 }
         }
         break
@@ -178,10 +184,15 @@ export async function* streamAnthropic(opts: {
       case "content_block_stop":
         yield { type: "tool_stop", index: json.index }
         break
-      case "message_delta":
-        if (json.usage?.output_tokens) yield { type: "usage", input: 0, output: json.usage.output_tokens }
+      case "message_delta": {
+        // MiniMax's Anthropic endpoint reports 0 input at message_start and the real count only here.
+        const u = json.usage
+        const input = u ? Math.max(0, inputTokens(u) - inputSeen) : 0
+        inputSeen += input
+        if (input || u?.output_tokens) yield { type: "usage", input, output: u?.output_tokens ?? 0 }
         if (json.delta?.stop_reason) yield { type: "done", stopReason: json.delta.stop_reason }
         break
+      }
       case "message_stop":
         yield { type: "done", stopReason: "stop" }
         return
