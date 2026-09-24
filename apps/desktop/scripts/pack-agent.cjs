@@ -57,12 +57,18 @@ function copySherpa() {
 }
 
 esbuild.build({
-  entryPoints: [path.join(root, "services/agent/src/server.ts")],
+  // The native speech worker is its own entry: native.ts loads it by URL
+  // (./native-worker.mjs next to agent.mjs), so it cannot live inside agent.mjs.
+  entryPoints: {
+    agent: path.join(root, "services/agent/src/server.ts"),
+    "native-worker": path.join(root, "services/agent/src/voice/native-worker.ts"),
+  },
   bundle: true,
   platform: "node",
   target: "node20",
   format: "esm",
-  outfile: path.join(outdir, "agent.mjs"),
+  outdir,
+  outExtension: { ".js": ".mjs" },
   // ws pulls these optional native speedups; it works fine without them.
   // sherpa-onnx-node is a native addon shipped as node_modules (see above).
   external: ["bufferutil", "utf-8-validate", "sherpa-onnx-node"],
@@ -71,5 +77,5 @@ esbuild.build({
   logLevel: "info",
 }).then(() => {
   copySherpa();
-  console.log("[pack-agent] wrote dist/agent/agent.mjs");
+  console.log("[pack-agent] wrote dist/agent/agent.mjs + native-worker.mjs");
 }).catch((e) => { console.error(e); process.exit(1); });
