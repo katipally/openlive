@@ -1,9 +1,9 @@
 /// <reference lib="webworker" />
 // Runs the heavy on-device voice models OFF the main thread so the orb/UI stay
 // smooth: Whisper (STT) + Kokoro (TTS) on WebGPU/WASM via transformers.js.
-// Smart-Turn runs in turn.worker.ts, so end-of-turn never waits here. A native
-// TTS engine on the agent leaves Kokoro unloaded until it is needed as the
-// fallback. GPU work is
+// Smart-Turn runs in turn.worker.ts, so end-of-turn never waits here. When a
+// native engine on the agent is selected, its in-browser counterpart is not
+// loaded up front, only lazily as the fallback. GPU work is
 // serialized. Models download from the hub on first load, then the browser Cache
 // API keeps them across sessions.
 import { pipeline, env } from "@huggingface/transformers";
@@ -44,15 +44,25 @@ const VOICE = "af_heart";
 type Device = "webgpu" | "wasm";
 let asr: any = null;
 let asrMultilingual = false; // multilingual models take (and need) a pinned language
+let whisperSize = "base";
 let tts: any = null;              // Kokoro (lazy when Supertonic is the pick)
 let supertonic: Supertonic | null = null;
 let deviceTier: Device = "wasm";
 
 // One in-flight loader per engine so a mid-call engine switch never races two
 // downloads of the same weights.
+let whisperLoading: Promise<void> | null = null;
 let kokoroLoading: Promise<void> | null = null;
 let supertonicLoading: Promise<void> | null = null;
 const taggedTts = (p: any) => post({ type: "progress", data: { ...p, model: "tts" } });
+function ensureWhisper(progress_callback?: (p: any) => void): Promise<void> {
+  if (asr) return Promise.resolve();
+  const id = sttModel(deviceTier, whisperSize);
+  asrMultilingual = sttIsMultilingual(id);
+  whisperLoading ??= pipeline("automatic-speech-recognition", id, { device: deviceTier, dtype: sttDtype(id, deviceTier === "webgpu" ? "fp32" : "q8") as never, progress_callback })
+    .then((p: any) => { asr = p; }).finally(() => { whisperLoading = null; });
+  return whisperLoading;
+}
 function ensureKokoro(): Promise<void> {
   if (tts) return Promise.resolve();
   kokoroLoading ??= KokoroTTS.from_pretrained(TTS_MODEL, { device: deviceTier, dtype: deviceTier === "webgpu" ? "fp32" : "q8", progress_callback: taggedTts })
@@ -77,24 +87,22 @@ self.onmessage = async (e: MessageEvent) => {
   const msg = e.data;
   try {
     if (msg.type === "load") {
-      const device: Device = msg.device;
-      deviceTier = device;
-      const dtype = device === "webgpu" ? "fp32" : "q8";
+      deviceTier = msg.device;
+      whisperSize = msg.whisperSize;
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts") => (p: any) => post({ type: "progress", data: { ...p, model } });
-      const sttId = sttModel(device, msg.whisperSize);
-      asrMultilingual = sttIsMultilingual(sttId);
-      asr = await pipeline("automatic-speech-recognition", sttId, { device, dtype: sttDtype(sttId, dtype) as never, progress_callback: tagged("stt") });
+      if (msg.whisper) await ensureWhisper(tagged("stt"));
       // Load only the SELECTED TTS engine up front; the other lazy-loads on a
       // mid-call engine switch (its first sentence pays the download).
       if (msg.ttsEngine === "supertonic") await ensureSupertonic();
       else if (!msg.ttsNative) await ensureKokoro();
       // Warm up (compiles WebGPU shaders) so the first real turn isn't janky.
-      try { await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
+      try { if (asr) await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
       try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1"); else if (tts) await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
-      post({ type: "ready" });
+      post({ type: "ready", whisper: !!asr });
     } else if (msg.type === "stt") {
+      await ensureWhisper(); // outside `serial`: a fallback download must not stall speech
       const opts = asrMultilingual ? { language: "en", task: "transcribe" } : undefined;
       const text = await serial(async () => String((await asr(msg.audio, opts))?.text ?? "").trim());
       post({ type: "result", id: msg.id, text });

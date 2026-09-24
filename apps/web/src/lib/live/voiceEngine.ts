@@ -1,10 +1,10 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
-import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, resetNativeFallbacks, isNativeTts } from "./models";
+import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, resetNativeFallbacks, isNativeTts } from "./models";
 import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker, STREAMED_FIRST_CHARS } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
-import { loadPipelineConfig } from "./pipelineConfig";
+import { loadPipelineConfig, type SttEngine } from "./pipelineConfig";
 import { log } from "@/lib/log";
 
 // The on-device conversation loop (replaces the old server pipeline). Silero VAD
@@ -85,6 +85,7 @@ export class VoiceEngine {
   // Audio segments that arrived while the previous one was still finalizing (slow STT
   // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
   private deferred: Float32Array[] = [];
+  private uttEngine: SttEngine = "whisper";       // the engine this utterance started on
   private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
@@ -201,6 +202,7 @@ export class VoiceEngine {
     }
     this.clearHold();
     this.curBuf = []; this.curLen = 0;
+    this.uttEngine = activeSttEngine();
     this.setPhase("listening");
   }
 
@@ -224,9 +226,10 @@ export class VoiceEngine {
   // (whichever is higher), capped so it can't rise enough to reject real speech.
   private gate(): number { return Math.min(0.03, Math.max(RMS_GATE, this.noiseFloor * 1.6)); }
 
-  // Interim caption while speaking (WebGPU only — too slow to be useful on WASM).
+  // Interim caption while speaking. Whisper only on WebGPU (too slow to be useful
+  // on WASM); a native batch engine runs on the agent's CPU, fast either way.
   private async maybePartial() {
-    if (!hasWebGPU() || this.partialBusy || this.finalizing) return;
+    if ((this.uttEngine === "whisper" && !hasWebGPU()) || this.partialBusy || this.finalizing) return;
     const now = Date.now();
     if (now - this.lastPartialAt < PARTIAL_MS || this.curLen < MIN_UTTER_SAMPLES) return;
     this.lastPartialAt = now;

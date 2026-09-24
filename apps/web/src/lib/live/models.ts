@@ -4,7 +4,7 @@
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
-import { loadPipelineConfig, workerTag, tagCached, TTS_ENGINES, type TtsEngine } from "./pipelineConfig";
+import { loadPipelineConfig, isNativeStt, workerTag, tagCached, STT_ENGINES, TTS_ENGINES, type SttEngine, type TtsEngine } from "./pipelineConfig";
 import { pcmDecoder } from "./pcm";
 import { failureIsLasting } from "./nativeFailure";
 import { toast } from "@/lib/toast";
@@ -22,6 +22,7 @@ let ready = false;
 let turnAvailable = false;
 let seq = 0;
 let loadedTag: string | null = null; // the config (tier:stt:ttsEngine) the warm worker actually loaded
+let whisperLoaded = false; // false while a native STT engine is selected, until a fallback loads Whisper
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 // keyed by "<model>:<file>" so the same filename under two models never collides.
 const files = new Map<string, { model: ModelKey; loaded: number; total: number }>();
@@ -32,7 +33,7 @@ const files = new Map<string, { model: ModelKey; loaded: number; total: number }
 function resetWorker() {
   try { worker?.terminate(); } catch { /* already gone */ }
   try { turnWorker?.terminate(); } catch { /* already gone */ }
-  worker = null; turnWorker = null; ready = false; loadedTag = null; turnAvailable = false;
+  worker = null; turnWorker = null; ready = false; loadedTag = null; whisperLoaded = false; turnAvailable = false;
   files.clear();
   for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
 }
@@ -146,7 +147,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           break;
         }
         case "ready":
-          if (e.target === tw) turnAvailable = !!m.turn;
+          if (e.target === tw) turnAvailable = !!m.turn; else whisperLoaded = !!m.whisper;
           if (--waiting) break;
           ready = true; loadedTag = readyTag();
           try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag()])].join(" ")); } catch { /* private mode */ }
@@ -170,7 +171,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     const cfg = loadPipelineConfig();
     w.postMessage({
-      type: "load", device: tier, whisperSize: sttSize(),
+      type: "load", device: tier, whisperSize: sttSize(), whisper: !isNativeStt(cfg.stt.engine),
       ttsEngine: cfg.tts.engine, ttsNative: isNativeTts(cfg.tts.engine), ttsVoice: cfg.tts.voice,
     });
     tw.postMessage({ type: "load" });
@@ -186,13 +187,17 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
 // utterance; short enough that a real stall self-heals in seconds.
 const CALL_TIMEOUT_MS = 12000;
 // TTS gets a longer leash: a mid-call ENGINE SWITCH lazy-downloads the new
-// engine's weights inside the first tts call (Cache API after that).
+// engine's weights inside the first tts call (Cache API after that). So does the
+// first Whisper call when a native STT engine was loaded instead of it.
 const TTS_TIMEOUT_MS = 120000;
 
-function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
-  if (!worker) return Promise.reject(new Error("models not loaded"));
+async function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
+  // A native engine that fails before the worker ever loaded (Flow with native
+  // engines opens no worker) falls back here: load it now, so the same utterance
+  // or sentence still goes through instead of being dropped.
+  if (!worker) await loadModels(() => {});
   const id = ++seq;
-  const timeoutMs = msg.type === "tts" ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS;
+  const timeoutMs = msg.type === "tts" || (msg.type === "stt" && !whisperLoaded) ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${timeoutMs}ms`));
@@ -209,6 +214,7 @@ function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
 // A native engine that fails falls back to the in-browser one for that call. A
 // lasting failure (nativeFailure.ts) swaps it out for the rest of the session,
 // with one toast; either way, never a broken call.
+let sttFallback: SttEngine | null = null;
 let ttsFallback: TtsEngine | null = null;
 const shortName = (name: string) => name.split(/ \(|,/)[0]!;
 const httpError = async (res: Response) =>
@@ -217,11 +223,50 @@ const httpError = async (res: Response) =>
 export const isNativeTts = (id: string | undefined) => !!TTS_ENGINES.find((e) => e.id === id)?.native;
 
 /** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { ttsFallback = null; }
+export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; }
 
-/** Transcribe a 16 kHz mono utterance → text. */
-export async function stt(audio: Float32Array): Promise<string> {
+/** The STT engine this session really uses: the selection, or Whisper once it failed. */
+export function activeSttEngine(): SttEngine {
+  const e = loadPipelineConfig().stt.engine;
+  return e === sttFallback ? "whisper" : e;
+}
+
+export function nativeSttFailed(engine: SttEngine, err: unknown, lasting = failureIsLasting(err)) {
+  log.error("stt", `${engine} failed, using Whisper:`, err);
+  if (!lasting || sttFallback === engine) return;
+  sttFallback = engine;
+  toast(`${shortName(STT_ENGINES.find((e) => e.id === engine)!.name)} unavailable, using Whisper. Check Settings > Voice pipeline.`);
+}
+
+const STT_WINDOW = 50 * 16000; // the agent refuses more than 60 s per request
+
+/** O(samples); one request per 50 s window, so a long monologue still transcribes. */
+async function nativeStt(engine: SttEngine, audio: Float32Array, signal?: AbortSignal): Promise<string> {
+  const texts: string[] = [];
+  for (let i = 0; i < audio.length; i += STT_WINDOW) {
+    const res = await fetch(`/api/voice/stt?engine=${engine}`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: audio.subarray(i, i + STT_WINDOW) as Float32Array<ArrayBuffer>,
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]) : AbortSignal.timeout(CALL_TIMEOUT_MS),
+    });
+    if (!res.ok) throw await httpError(res);
+    texts.push(((await res.json()) as { text: string }).text.trim());
+  }
+  return texts.filter(Boolean).join(" ");
+}
+
+/** Transcribe a 16 kHz mono utterance → text, on the selected engine. Aborting
+ *  `signal` drops a native request the agent has not started yet (an interim
+ *  caption giving way to the final); it rejects and never falls back. */
+export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<string> {
+  const engine = activeSttEngine();
+  if (isNativeStt(engine)) {
+    try { return await nativeStt(engine, audio, signal); }
+    catch (e) { signal?.throwIfAborted(); nativeSttFailed(engine, e); }
+  }
   const m = await call<{ text: string }>({ type: "stt", audio });
+  whisperLoaded = true;
   return m.text;
 }
 
