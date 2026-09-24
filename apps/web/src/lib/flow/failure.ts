@@ -56,6 +56,7 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       title: "No brain is configured yet",
       detail: "Flow needs a provider key, or a coding agent to think with. Nothing was sent anywhere.",
       actionLabel: "Choose one",
+      settings: "flow",
     };
   }
   if (!h.online) {
@@ -84,18 +85,20 @@ const said = (message: string): string =>
 /**
  * A turn the brain failed, as the card it gets. The error text is all that
  * crosses the socket, so the cause is read from it: the status codes and words
- * every provider and agent uses for the same four problems.
+ * every provider and agent uses for the same four problems. `agent` is whether
+ * the brain is a coding agent, whose sign-in and model are set elsewhere than
+ * API mode's key and model.
  */
-export function turnFailure(message: string): FlowFailure {
+export function turnFailure(message: string, agent = false): FlowFailure {
   const m = message;
   if (/no api key/i.test(m)) {
-    return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings" };
+    return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
   }
   if (/\b40[13]\b|invalid.{0,20}(api.?)?key|authenticat|unauthori[sz]ed|x-api-key|forbidden|permission_denied/i.test(m)) {
-    return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings" };
+    return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
   }
   if (/\b404\b|model.{0,40}(not found|does not exist|not available|unsupported)|unknown model|not_found_error/i.test(m)) {
-    return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings" };
+    return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
   }
   if (/quota|insufficient|billing|credit/i.test(m)) {
     return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
@@ -104,9 +107,10 @@ export function turnFailure(message: string): FlowFailure {
     return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
   }
   if (/could not reach|fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) {
-    // The brain names the address it tried when it knows it; that is the thing to check.
-    const detail = /^could not reach/i.test(m) ? said(m) : "Check the connection. For a local model, check that Ollama is running.";
-    return { code: "turn_failed", title: "I could not reach the model", detail };
+    // The brain names the address it tried when it knows it; that is the thing to
+    // check, and the address is set in Models.
+    if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "I could not reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
+    return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
   }
   return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
 }

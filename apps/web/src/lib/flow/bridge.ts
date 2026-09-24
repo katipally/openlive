@@ -1,5 +1,6 @@
 import type { FlowContextWire } from "@openlive/shared";
 import type { QuietSignals } from "./quiet";
+import type { FlowSettingsPage } from "./types";
 
 // The desktop half of Flow, as the renderer sees it. Every call resolves to a
 // value: a failure inside Rust or inside the main process is `{ ok: false }`,
@@ -63,6 +64,8 @@ export interface FlowBridge {
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): () => void;
+  /** The tray's "New Flow session" while Flow is already open. */
+  onNewSession?(cb: () => void): () => void;
   /** Flow's settings were written, so the runtime should re-read them. */
   settingsChanged?(): void;
   onSettingsChanged?(cb: () => void): () => void;
@@ -100,8 +103,8 @@ export interface FlowBridge {
    *  missed the `onShown` that put it there. */
   visible?(): Promise<boolean>;
   /** Bring the OpenLive window up on Flow, from the orb's full-screen control,
-   *  or on Flow's settings when a failure's fix lives there. */
-  expand(to?: "flow-settings"): void;
+   *  or on the settings page where a failure's fix lives. */
+  expand(to?: `${FlowSettingsPage}-settings`): void;
   /** The main window's side of `expand`: show Flow, because that is where the
    *  person already was. */
   onShow?(cb: (to: string) => void): () => void;

@@ -591,17 +591,21 @@ async function expandFlow(to) {
   if (mainWin && !mainWin.isDestroyed()) {
     // A window created just now has no page listening yet; the ask waits for it.
     const wc = mainWin.webContents;
-    const show = () => wc.send("openlive:flow-show", to === "flow-settings" ? to : "");
+    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings$/.test(to) ? to : "");
     if (wc.isLoading()) wc.once("did-finish-load", show); else show();
   }
 }
 
 /** The tray's "New Flow session": the gesture itself, fired from here, so the
  *  owner renderer opens Flow exactly as a double tap would. The addon's trigger
- *  is a toggle, so an open Flow is left alone rather than closed. */
+ *  is a toggle, so an open Flow is not sent it: the owner starts the fresh
+ *  session there instead, and leaves a turn that is still running alone. */
 const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
 function startFlowFromTray() {
-  if (flowSummoned) return;
+  if (flowSummoned) {
+    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session");
+    return;
+  }
   try { flowInput.load().triggerExternal(FLOW_BINDING, true); }
   catch (e) { console.error("[main] tray flow:", e); }
 }

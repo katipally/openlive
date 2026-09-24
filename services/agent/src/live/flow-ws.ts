@@ -228,6 +228,8 @@ export class FlowLiveSession {
         return;
       case "flow_resume":
         return this.resumeSession(msg.sessionId);
+      case "flow_new":
+        return this.newSession();
       case "control":
         if (msg.action === "end") this.dispose();
         return;
@@ -374,6 +376,17 @@ export class FlowLiveSession {
     } catch (e) {
       log.error("flow", "resume:", e);
     }
+  }
+
+  /**
+   * Archive the current session now rather than at idle, so the next utterance
+   * opens a fresh one. A turn in flight keeps its session, as with a resume.
+   */
+  private async newSession(): Promise<void> {
+    if (this.closed || this.turnActive) return;
+    try { await this.store?.archive(); }
+    catch (e) { log.error("flow", "new session:", e); }
+    this.rollSession();
   }
 
   /**

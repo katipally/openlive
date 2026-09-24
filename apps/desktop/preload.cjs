@@ -114,14 +114,16 @@ contextBridge.exposeInMainWorld("openlive", {
     // The window was just shown, so its mouse state went back to click-through.
     onShown: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-shown"); ipcRenderer.on("openlive:flow-shown", () => cb()); },
     visible: () => ipcRenderer.invoke("openlive:flow-visible"),
-    // The orb's full-screen control: bring OpenLive up, on Flow, or on Flow's
-    // settings when `to` is "flow-settings".
-    expand: (to) => ipcRenderer.send("openlive:flow-expand", to === "flow-settings" ? to : ""),
+    // The orb's full-screen control: bring OpenLive up, on Flow, or on the
+    // settings page `to` names ("models-settings", "flow-settings", ...).
+    expand: (to) => ipcRenderer.send("openlive:flow-expand", /^[a-z]+-settings$/.test(to) ? to : ""),
     onShow: (cb) => listen("openlive:flow-show", (to) => cb(to || "")),
     // Continue an archived session: the main window asks, the owner renderer (the
     // only one holding the Flow socket) does it, so this has to cross windows.
     resumeSession: (sessionId) => ipcRenderer.send("openlive:flow-resume-session", sessionId),
     onResumeSession: (cb) => listen("openlive:flow-resume-session", cb),
+    // The tray's "New Flow session" while Flow is open: the gesture would close it.
+    onNewSession: (cb) => listen("openlive:flow-new-session", () => cb()),
     // Flow's settings were written. The owner renderer holds the registration and
     // the auto-quiet rules, so it has to be told or every change needs a relaunch.
     settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),
