@@ -66,3 +66,15 @@ describe("/live upgrade gate", () => {
     expect(flowConnections).toBe(before + 1);
   });
 });
+
+describe("the dev gate with no secret", () => {
+  it("lets this machine's pages and non-browser clients in, and nobody else", async () => {
+    const { loopbackOrigin } = await import("./ws.js");
+    expect(loopbackOrigin(undefined)).toBe(true);
+    expect(loopbackOrigin("http://localhost:3000")).toBe(true);
+    expect(loopbackOrigin("http://127.0.0.1:47834")).toBe(true);
+    expect(loopbackOrigin("https://example.com")).toBe(false);
+    expect(loopbackOrigin("http://localhost.example.com")).toBe(false);
+    expect(loopbackOrigin("null")).toBe(false);
+  });
+});

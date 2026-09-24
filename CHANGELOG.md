@@ -46,6 +46,8 @@ Releases before 0.1.9 predate this file — see the
   now goes quiet at once, and only what was heard is kept.
 - **A coding agent that would not start said only "That turn failed."** The
   failure card now shows its real reason.
+- **In development, any web page could open a live session.** With no agent
+  secret set, `/live` now accepts only pages from this machine.
 - **Flow in API mode failed with no explanation.** A turn the model refused
   turned the orb red and said nothing. It now shows why (no key, key refused,
   model not available, out of credit, busy, or unreachable, such as Ollama not

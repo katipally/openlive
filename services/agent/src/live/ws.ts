@@ -11,6 +11,13 @@ function secretMatches(given: string | undefined, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** No Origin is a non-browser client (the web proxy, a test); a browser always sends one. */
+export function loopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname); }
+  catch { return false; }
+}
+
 // Attach the /live WebSocket to the agent's existing http.Server (the one
 // @hono/node-server's serve() returns), leaving every HTTP route untouched.
 export function attachLiveWs(server: Server): WebSocketServer {
@@ -32,6 +39,12 @@ export function attachLiveWs(server: Server): WebSocketServer {
       && !secretMatches(req.headers["x-openlive-secret"] as string | undefined, AGENT_SECRET)
       && !secretMatches(url.searchParams.get("token") ?? undefined, AGENT_SECRET)) {
       return reject(socket, "401 Unauthorized", "bad or missing secret/token");
+    }
+    // With no secret (local dev) the port is the only gate, and any web page open
+    // in a browser can reach loopback. A page from anywhere else would get a
+    // session that spends the user's keys and drives their coding agent.
+    if (!AGENT_SECRET && !loopbackOrigin(req.headers.origin)) {
+      return reject(socket, "403 Forbidden", `origin ${req.headers.origin} is not this machine`);
     }
     const chatId = url.searchParams.get("chat") ?? "";
     // Flow's pill runtime lives in its own renderer, so it opens its own
