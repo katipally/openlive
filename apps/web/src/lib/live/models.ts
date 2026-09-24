@@ -12,6 +12,7 @@ export type LoadProgress = { pct: number; loaded: number; total: number; models:
 const MODEL_NAMES: Record<ModelKey, string> = { stt: "Speech recognition", tts: "Voice", turn: "Turn-taking" };
 
 let worker: Worker | null = null;
+let turnWorker: Worker | null = null; // Smart-Turn on its own thread (turn.worker.ts)
 let ready = false;
 let turnAvailable = false;
 let seq = 0;
@@ -25,7 +26,8 @@ const files = new Map<string, { model: ModelKey; loaded: number; total: number }
 // config change requires reloading different weights.
 function resetWorker() {
   try { worker?.terminate(); } catch { /* already gone */ }
-  worker = null; ready = false; loadedTag = null;
+  try { turnWorker?.terminate(); } catch { /* already gone */ }
+  worker = null; turnWorker = null; ready = false; loadedTag = null; turnAvailable = false;
   files.clear();
   for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
 }
@@ -111,8 +113,11 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
   try { navigator.storage?.persist?.(); } catch { /* not supported */ }
   loading = new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
+    const tw = new Worker(new URL("./turn.worker.ts", import.meta.url), { type: "module" });
     worker = w;
-    w.onmessage = (e: MessageEvent) => {
+    turnWorker = tw;
+    let waiting = 2; // both workers say "ready"
+    w.onmessage = tw.onmessage = (e: MessageEvent) => {
       const m = e.data;
       switch (m.type) {
         case "progress": {
@@ -136,7 +141,9 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           break;
         }
         case "ready":
-          ready = true; turnAvailable = !!m.turn; loadedTag = readyTag();
+          if (e.target === tw) turnAvailable = !!m.turn;
+          if (--waiting) break;
+          ready = true; loadedTag = readyTag();
           try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag()])].join(" ")); } catch { /* private mode */ }
           resolve();
           break;
@@ -147,7 +154,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
           break;
       }
     };
-    w.onerror = (e) => {
+    w.onerror = tw.onerror = (e) => {
       const err = new Error(e.message || "model worker crashed");
       // Terminate the dead worker + reject every in-flight inference (resetWorker),
       // so a retry starts clean instead of awaiting a corpse with stale progress.
@@ -158,6 +165,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     const cfg = loadPipelineConfig();
     w.postMessage({ type: "load", device: tier, whisperSize: sttSize(), ttsEngine: cfg.tts.engine, ttsVoice: cfg.tts.voice });
+    tw.postMessage({ type: "load" });
   });
   loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
   return loading;
@@ -185,7 +193,7 @@ function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
       resolve: (v) => { clearTimeout(timer); resolve(v); },
       reject: (e) => { clearTimeout(timer); reject(e); },
     });
-    worker!.postMessage({ ...msg, id }, transfer ?? []);
+    (msg.type === "turn" ? turnWorker : worker)!.postMessage({ ...msg, id }, transfer ?? []);
   });
 }
 
