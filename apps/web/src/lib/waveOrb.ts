@@ -40,22 +40,24 @@ const float SHELL_EDGE_ALPHA = 0.18;
 const float GLOSS = 0.24;
 
 // One pixel in ball radii, and how icon-sized the ball is: 1 at 24 px across or
-// less, 0 from 64. A thread or the crest thinner than a pixel smears into the
-// fog, so an icon keeps each a pixel wide, two threads crisp and less fog.
+// less, 0 from 64. At icon size the fog and threads smear the crest into a
+// blob, so an icon draws the crest wider and brighter, its sine a little taller
+// and longer, faint threads, almost no fog and a softer rim: the logo's sine
+// still reads at 16 px. Larger orbs are untouched.
 float pixel, tiny;
 
 vec2 siriBand(vec2 q, float drift, float phaseOffset, float amplitude, float mainY, float envelope, float softness, float crisp) {
   float y = amplitude * envelope * sin(q.x + drift + phaseOffset);
   float d = abs(q.y - y);
-  float line = 0.018 / (sqrt(d * d + softness * softness) + 0.026) + crisp * 0.5 * tiny * exp(-d * d / (0.45 * softness * softness));
+  float line = 0.018 / (sqrt(d * d + softness * softness) + 0.026) + crisp * 0.2 * tiny * exp(-d * d / (0.45 * softness * softness));
   float bandDistance = max(0.0, max(q.y - max(mainY, y), min(mainY, y) - q.y));
-  return vec2(line, 0.018 / (bandDistance + 0.075) * (1.0 - 0.25 * tiny));
+  return vec2(line, 0.018 / (bandDistance + 0.075) * (1.0 - 0.95 * tiny));
 }
 
 vec3 siriFluid(vec2 p) {
   float scale = 0.74 + uA.x * 0.34;
   vec2 q = p / scale;
-  float envelopeBase = cos(1.57079633 * min(abs(uC.y * q.x), 1.0));
+  float envelopeBase = cos(1.57079633 * min(abs(uC.y * (1.0 - 0.25 * tiny) * q.x), 1.0));
   float envelope = envelopeBase * envelopeBase;
   float low = 0.5 + 0.5 * cos(uW[0]);
   float mid = 0.5 + 0.5 * sin(uW[1] + 1.2);
@@ -67,7 +69,7 @@ vec3 siriFluid(vec2 p) {
   float sx = (q.x - (uW[10] * 3.4 - 1.7)) / 0.35;
   float lift = 1.0 + uD.x * 1.1 * exp(-px * px) + uD.y * 0.9 * exp(-sx * sx);
   float ripple = mix(1.0, 0.3 + 0.35 * (1.0 + cos(abs(q.x) * 5.5 - uW[6])), uD.z);
-  float amp = uC.x * lift * ripple;
+  float amp = uC.x * lift * ripple * (1.0 + 0.2 * tiny);
   float mainAmplitude = (0.25 + uA.z * 0.075 + low * 0.018) * amp;
   float bandAmplitude = mainAmplitude + (mid * 0.025 + high * 0.018) * amp;
   float mainY = mainAmplitude * envelope * sin(q.x * 1.1 + drift);
@@ -84,10 +86,10 @@ vec3 siriFluid(vec2 p) {
   vec3 spectral = (uCol[0] * d0 + uCol[2] * d1 + uCol[1] * d2 + uCol[3] * d3) / max(d0 + d1 + d2 + d3, 0.0001);
   float energy = (1.0 - exp(-(w0 + w1 + w2 + w3) * 0.58)) * envelope;
   float mainDistance = abs(q.y - mainY);
-  float whiteCore = exp(-mainDistance * mainDistance / max(0.0028, 0.5 * pixelQ * pixelQ)) * envelope * uC.w;
+  float whiteCore = exp(-mainDistance * mainDistance / max(0.0028, (0.5 + 0.9 * tiny) * pixelQ * pixelQ)) * envelope * uC.w;
   vec3 atmosphere = mix(uCol[3], uCol[1], smoothstep(-0.7, 0.7, q.y)) * 0.018;
   vec3 color = atmosphere + spectral * energy * 1.14;
-  color += uCol[4] * whiteCore * (0.18 + 0.1 * low) * (1.0 + tiny);
+  color += uCol[4] * whiteCore * (0.18 + 0.1 * low) * (1.0 + 1.6 * tiny);
   color = color / (vec3(1.0) + color * 0.18);
 
   float shade = uA.w;
@@ -168,7 +170,7 @@ void main() {
     vec3 col = mix(body, 1.0 - (1.0 - body) * (1.0 - clearSat), clearFa);
 
     float surfaceBand = (1.0 - smoothstep(0.0, max(0.026 + 0.055 * SHELL_EDGE_ALPHA, 1.6 * pixel), edgeDepth)) * clearFa;
-    float rim = pow(surfaceBand, 1.8);
+    float rim = pow(surfaceBand, 1.8) * (1.0 - 0.7 * tiny);
     col = over(col, SHELL_INNER, rim * GLASS_OPACITY * 0.45);
     float dispersion = rim * GLOSS * (0.8 + 0.8 * SHELL_EDGE_ALPHA);
     col = over(col, SHELL_MID, dispersion * lobe(normal, normalize(vec2(0.84, 0.54)), -0.32, 1.8));
