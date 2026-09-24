@@ -36,7 +36,7 @@ export function WindowControls() {
         <button aria-label="Maximize window" title="Maximize" onClick={() => ol()?.winZoom?.()} className={btn}>
           <svg viewBox="0 0 10 10" className="size-2.5" fill="none"><rect x="0.6" y="0.6" width="8.8" height="8.8" stroke="currentColor" strokeWidth="1.2" /></svg>
         </button>
-        <button aria-label="Close window" title="Close" onClick={() => ol()?.winClose?.()} className={`${btn} hover:bg-danger hover:text-white`}>
+        <button aria-label="Close window" title="Close" onClick={() => ol()?.winClose?.()} className={`${btn} hover:bg-destructive-fill hover:text-white`}>
           <svg viewBox="0 0 10 10" className="size-2.5"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1.2" /></svg>
         </button>
       </div>
