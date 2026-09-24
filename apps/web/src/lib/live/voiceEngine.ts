@@ -23,7 +23,7 @@ export interface VoiceEngineHandlers {
   onPartial: (text: string) => void;      // interim user caption (greyed)
   onUserText: (text: string) => void;      // final user turn → send to server
   onAgentText: (sentence: string, durationMs: number) => void; // agent caption chunk + how long it plays (for word-timed reveal)
-  onBargeIn: (spoken: string) => void;      // cancel the LLM stream; `spoken` = what was actually voiced so far
+  onBargeIn: (spoken?: string) => void;     // cancel the LLM stream; `spoken` = what was actually voiced so far, undefined before this reply arrived
   // A mid-thought pause is being held: `until` = when it auto-sends (UI shows a
   // "waiting for you… tap to send" affordance); null = hold resolved/cancelled.
   onHold: (h: { until: number } | null) => void;
@@ -90,6 +90,9 @@ export class VoiceEngine {
   private speakingStartAt = 0;
   private turnSentAt = 0;                         // perf: when the final user text went out
   private spokenText = "";                         // what the agent has actually VOICED this reply (for barge-in cutoff)
+  // Until this reply's first delta, a barge-in has nothing of it to cut: the server
+  // may not even have the utterance yet, and an empty cut would wipe the reply before.
+  private replyFed = false;
   // After a barge-in, IGNORE the interrupted reply's late deltas/done (they cross the
   // wire after the local cancel) until the next user turn re-arms — otherwise a
   // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
@@ -358,6 +361,7 @@ export class VoiceEngine {
       this.clearHold();
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
+      this.replyFed = false;
       this.acceptingReply = true; // re-arm: this turn's reply should be voiced
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
@@ -396,7 +400,7 @@ export class VoiceEngine {
     if (!p || this.phase !== "idle") return;
     const commit = (t: string) => {
       const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
@@ -440,6 +444,7 @@ export class VoiceEngine {
       if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
       this.setPhase("thinking");
       this.spokenText = "";
+      this.replyFed = false;
       this.acceptingReply = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
@@ -451,6 +456,7 @@ export class VoiceEngine {
   // ── agent reply → speech ───────────────────────────────────────────────
   feedAgentDelta(text: string) {
     if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
+    this.replyFed = true;
     perf.firstToken(); // no-op after the first delta of a turn
     const firstMin = isNativeTts(loadPipelineConfig().tts.engine) ? STREAMED_FIRST_CHARS : undefined;
     for (const s of this.chunker.push(text, firstMin)) this.enqueueSpeak(s, this.epoch);
@@ -552,10 +558,10 @@ export class VoiceEngine {
 
   /** Silence the reply and drop the rest of it, returning what was actually
    *  voiced. Barge-in and a Stop button are the same cut from two directions. */
-  cutReply(): string {
+  cutReply(): string | undefined {
     this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.hush();
-    return this.spokenText.trim();
+    return this.replyFed ? this.spokenText.trim() : undefined;
   }
 
   // ── helpers / lifecycle ────────────────────────────────────────────────

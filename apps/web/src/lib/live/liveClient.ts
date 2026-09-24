@@ -163,12 +163,12 @@ export class LiveClient {
   userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[]) {
     this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
   }
-  cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken ? { spoken } : {}) }); }
+  cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken !== undefined ? { spoken } : {}) }); }
   /** A completed Flow utterance, with the metadata captured as it was spoken. */
   flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}) }); }
   /** Barge-in on a Flow turn. `spoken` is what the voice actually got through;
    *  `close` also refuses any ask still open, because Flow itself is going away. */
-  flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken ? { spoken } : {}), ...(close ? { close } : {}) }); }
+  flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken !== undefined ? { spoken } : {}), ...(close ? { close } : {}) }); }
   /** Continue an archived Flow session on the next utterance. */
   flowResume(sessionId: string) { this.sendJson({ t: "flow_resume", sessionId }); }
   /** Start a fresh Flow session on the next utterance. */

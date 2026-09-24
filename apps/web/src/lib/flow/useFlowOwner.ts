@@ -586,7 +586,7 @@ export function useFlowOwner(): void {
         turnActive.current = false;
         armed.current = false;
         void api.suspend();
-        client.current?.flowCancel(snap.current.reply);
+        client.current?.flowCancel(snap.current.reply || undefined);
         dismiss();
         teardownMic();
       } else {
