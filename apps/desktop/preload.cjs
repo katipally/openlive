@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("openlive", {
   notify: (title, body) => ipcRenderer.send("openlive:notify", { title, body }),
   // Settings → General: launch-at-login (boolean sets, undefined reads).
   loginItem: (v) => ipcRenderer.invoke("openlive:login-item", v),
+  // Settings → Models: an Ollama address off this computer. Main asks in a native
+  // dialog and writes it itself. Resolves to { settings } | { cancelled } | { error }.
+  confirmOllamaUrl: (url) => ipcRenderer.invoke("openlive:confirm-ollama-url", url),
   // True when running inside the desktop app.
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).

@@ -57,6 +57,11 @@ const DARK_BG = "#0b0b0c";
 // OPENLIVE_AGENT_SECRET (both already honor it) and to the renderer via argv.
 // Dev keeps the open no-secret path (servers come from `pnpm dev`).
 const AGENT_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
+// Per-launch proof, for the settings route, that a person confirmed an Ollama
+// address off this computer in a native dialog. Only the web server's env and
+// this process hold it; unlike AGENT_TOKEN it never reaches a renderer. Dev has
+// none, so there only this computer's own addresses save.
+const SETTINGS_TOKEN = DEV ? "" : crypto.randomBytes(24).toString("base64url");
 
 let mainWin = null;
 let splashWin = null;
@@ -273,6 +278,7 @@ async function startServers() {
     OPENLIVE_DATA_DIR: dataDir,
     AGENT_PORT: String(AGENT_PORT),
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
+    OPENLIVE_SETTINGS_SECRET: SETTINGS_TOKEN,
   });
   return true;
 }
@@ -851,6 +857,45 @@ function wireWindowIpc() {
     // left the two disagreeing until the next launch.
     if (typeof v === "boolean") { loginItem(v); buildMenu(); }
     return loginItem();
+  });
+  // Settings → Models: an Ollama address off this computer. Page script can call
+  // this too, so the person answers a native dialog naming the host, and only
+  // then does this process write it, with the secret the route asks for. One
+  // dialog at a time, so a script cannot stack them.
+  let confirmingOllama = false;
+  ipcMain.handle("openlive:confirm-ollama-url", async (e, raw) => {
+    if (!SETTINGS_TOKEN) return { error: "Only the installed OpenLive app can use an Ollama address off this computer." };
+    if (confirmingOllama) return { cancelled: true };
+    const value = String(raw ?? "").trim();
+    let u = null;
+    try { u = new URL(value); } catch {}
+    if (u?.protocol !== "http:" && u?.protocol !== "https:") return { error: "Enter an http:// or https:// address, like http://localhost:11434." };
+    confirmingOllama = true;
+    try {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const opts = {
+        type: "warning",
+        buttons: ["Cancel", "Use This Server"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: `Send Ollama requests to ${u.host}?`,
+        detail: `${u.protocol}//${u.host} is not on this computer. Flow and Chat will send it what you say and type, and screen content, including screenshots from tools.`,
+      };
+      const { response } = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts));
+      if (response !== 1) return { cancelled: true };
+      const res = await fetch(`${WEB_URL}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-openlive-confirmed": SETTINGS_TOKEN },
+        body: JSON.stringify({ ollamaBaseUrl: value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      return res.ok ? { settings: body } : { error: body.error || "Couldn't save the address." };
+    } catch {
+      return { error: "Couldn't save the address." };
+    } finally {
+      confirmingOllama = false;
+    }
   });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });

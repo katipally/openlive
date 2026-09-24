@@ -203,6 +203,18 @@ export function normalizeOllamaUrl(input: string): string | null {
   return `${u.protocol}//${u.host}${path}`
 }
 
+/**
+ * Whether an address stays on this computer: `localhost`, 127.0.0.0/8 or ::1.
+ * Decided on the host as the URL parser writes it, so
+ * `0x7f.1` and `2130706433` count as the 127.0.0.1 they reach. Anything else,
+ * even `*.localhost`, which Node may hand to DNS, is treated as off this computer.
+ */
+export function isLoopbackUrl(input: string): boolean {
+  let host: string
+  try { host = new URL(input.trim()).hostname } catch { return false }
+  return host === "[::1]" || host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host)
+}
+
 /** The settings that change how a built-in provider is reached. */
 export interface ProviderSettings { ollamaBaseUrl?: string }
 
