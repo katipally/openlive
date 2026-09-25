@@ -12,6 +12,29 @@ import { AGENT_IDS } from "./agent-registry";
 //   • BINARY frames — a 1-byte tag. Only camera JPEGs travel this way now.
 //   • TEXT frames — the JSON discriminated unions below.
 
+// ── language ──────────────────────────────────────────────────────────────
+// The one language a voice session runs in: the browser transcribes and speaks
+// it, and each turn carries it so the model answers in it too.
+export const LANGUAGE_CODES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] as const;
+export type LanguageCode = (typeof LANGUAGE_CODES)[number];
+export const languageSchema = z.enum(LANGUAGE_CODES);
+/** How the model is told to write it. Mandarin, simplified: the voices and
+ *  transcribers for "zh" are Mandarin, and they read simplified characters. */
+const REPLY_LANGUAGE: Record<LanguageCode, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian", pt: "Portuguese",
+  hi: "Hindi", zh: "Mandarin Chinese, in simplified characters", ja: "Japanese", ko: "Korean",
+};
+/** The one instruction a non-English session adds; "" for English, so an
+ *  English prompt stays exactly what it was. */
+export const replyLanguageLine = (lang?: LanguageCode): string =>
+  !lang || lang === "en" ? "" : `Always reply in ${REPLY_LANGUAGE[lang]}.`;
+/** A coding agent over ACP takes no system prompt per turn, so the line rides
+ *  at the head of what the user said. */
+export const withReplyLanguage = (text: string, lang?: LanguageCode): string => {
+  const line = replyLanguageLine(lang);
+  return line ? `[${line}]\n\n${text}` : text;
+};
+
 /** First byte of a binary WS message. */
 export const LIVE_TAG = {
   FRAME_IN: 0x02, // client→server: JPEG camera frame (freshest-per-turn or `look`)
@@ -158,6 +181,9 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
     t: z.literal("user_text"),
     text: z.string(),
     frames: z.array(z.object({ data: z.string(), mime: z.string(), source: z.enum(["camera", "screen"]) })).optional(),
+    // The session language, read as the turn is sent, so a change applies from
+    // the next turn. Absent means English.
+    lang: languageSchema.optional(),
   }),
   // Barge-in: the user started talking over the agent — abort the in-flight LLM
   // stream. Audio is stopped locally; this only stops the server generating.
@@ -185,7 +211,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
   // A completed Flow utterance, with the metadata the desktop captured as the
   // user spoke it. Approval answers reuse `permission_response`.
-  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional() }),
+  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional(), lang: languageSchema.optional() }),
   // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
   // turn on the same socket can never abort each other. `spoken` is what the
   // on-device TTS actually voiced before the cut, so only that is persisted.
