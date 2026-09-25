@@ -637,8 +637,9 @@ export function useFlowOwner(): void {
       onPermission,
       onPermissionResolved: () => { permission.current = null; publish(); },
       // A spoken answer that raced its own chip comes back from the server, which
-      // is the authority on what is still pending.
-      onModalVoiceAnswer: (text) => answerByVoice(text),
+      // is the authority on what is still pending. With no chip here it was never
+      // an answer, so it goes out again as the sentence it is.
+      onModalVoiceAnswer: (text) => (permission.current ? answerByVoice(text) : client.current?.flowText(text)),
       onError: (message) => failTurn(message),
     }, { flow: true });
     client.current.connect("");

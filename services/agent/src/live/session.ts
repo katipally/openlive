@@ -210,12 +210,16 @@ export class LiveSession {
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
       case "user_text":
-        // A permission/elicitation is awaiting the user — a spoken utterance is its
-        // ANSWER, never a new turn. The client routes it when its modal is set, but if
-        // the ask reached the server before the client applied the modal, the raced
-        // utterance lands here as a user_text; bounce it back to be answered instead of
-        // starting/queuing a coding turn (which is how it used to leak to the agent).
-        if (this.modalPending()) { this.replyTurn = msg.turn; this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        // A permission/elicitation is awaiting the user. A client showing it answers it
+        // there, so a numbered sentence landing here was said before the ask reached
+        // the client, which then drops the ask as an older turn's: nobody can answer
+        // it. It is refused, and the sentence is a turn like any other. Only a client
+        // that numbers no turns shows every ask, so only its sentence is bounced back.
+        if (this.modalPending()) {
+          if (msg.turn === undefined) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+          this.cancelPendingPermissions();
+          this.cancelPendingElicitations();
+        }
         return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn);
       case "cancel":
         // While a modal is open, the "barge-in" IS the user answering it — never
@@ -394,8 +398,7 @@ export class LiveSession {
   }
 
   /** A permission ask or elicitation is awaiting the user's answer. While one is, a
-   *  spoken utterance is that answer (routed to the modal), never a new turn or an
-   *  interrupt. */
+   *  barge-in is taken as the user answering it, never as an interrupt. */
   private modalPending(): boolean {
     return this.permPending.size > 0 || this.elicitPending.size > 0;
   }

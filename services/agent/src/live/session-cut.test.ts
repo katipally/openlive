@@ -132,3 +132,25 @@ test("an agent's ask carries its turn's number, and one arriving after the turn 
   expect(ws.sent.filter((m) => m.t === "permission")).toHaveLength(1);
   ws.emit("close");
 });
+
+test("a numbered sentence refuses an ask the client never showed and runs as a turn; an unnumbered one is bounced to it", async () => {
+  const { ws, say, until, done, started, session } = connect("cut-unseen");
+  const ask = () => (session as any).askPermission("Run it?", [{ id: "ok", label: "Allow", kind: "allow_once" }]) as Promise<string>;
+  say({ t: "user_text", text: "Count slowly.", turn: 1 });
+  await started;
+  await until(() => ws.sent.some((m) => m.event?.type === "text_delta"));
+  const bounced = ask();
+  await until(() => ws.sent.some((m) => m.t === "permission"));
+  say({ t: "user_text", text: "Is it done?" });
+  await until(() => ws.sent.some((m) => m.t === "modal_voice_answer"));
+  const refused = ask();
+  await until(() => ws.sent.filter((m) => m.t === "permission").length === 2);
+  // Said before the ask reached the client, which drops an older turn's ask.
+  say({ t: "user_text", text: "Also count to five.", turn: 2 });
+  expect(await bounced).toBe("__acp_cancelled__");
+  expect(await refused).toBe("__acp_cancelled__");
+  await done(2);
+  expect(ws.sent.filter((m) => m.t === "modal_voice_answer")).toHaveLength(1);
+  expect(JSON.stringify(inputs.at(-1))).toContain("Also count to five.");
+  ws.emit("close");
+});

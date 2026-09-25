@@ -278,6 +278,33 @@ describe("FlowLiveSession", () => {
     expect(fake.remembered).toBe(0);
   });
 
+  it("takes a numbered sentence said over an unseen ask as a steer, and bounces an unnumbered one to the chip", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.client({ t: "flow_text", text: "what is open?", turn: 1 });
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    const { reqId } = ws.sent.find((m) => m.t === "permission")!;
+
+    ws.say("hm?");
+    await until(() => ws.sent.some((m) => m.t === "modal_voice_answer"));
+    expect(ws.sent.some((m) => m.t === "permission_resolved")).toBe(false);
+
+    fake.script = reply("Never mind then.");
+    ws.client({ t: "flow_text", text: "actually, skip that", turn: 2 });
+    await until(() => turnsDone(ws) === 1);
+    expect(ws.sent.some((m) => m.t === "permission_resolved" && m.reqId === reqId)).toBe(true);
+    expect(ws.sent.filter((m) => m.t === "modal_voice_answer")).toHaveLength(1);
+    expect(fake.seen.at(-1)!.some((m) => m.role === "user" && m.text === "actually, skip that")).toBe(true);
+    expect(fake.remembered).toBe(0);
+  });
+
   it("surfaces what the machine said when it refuses, instead of calling it a timeout", async () => {
     const ws = new FakeSocket();
     ws.device = () => "Couldn't do that: the window server is not answering.";

@@ -158,10 +158,10 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // the client can reconcile its optimistic chips — a folder shown in the top bar
   // that the session never received is exactly the bug this closes.
   z.object({ t: z.literal("bound_state"), agentId: z.enum(AGENT_IDS).nullable(), cwd: z.string(), agentActive: z.boolean() }),
-  // A raced spoken answer: the user answered a permission/elicitation before its
-  // modal event reached the client, so the client sent it as a user_text. The server
-  // (the authority on what's pending) bounces it back here to be routed to the open
-  // modal instead of leaking to the agent as a new prompt.
+  // A spoken sentence that reached the server while a permission/elicitation was
+  // pending, from a client that numbers no turns and so shows every ask: bounced
+  // back to be routed to the open modal. A numbered sentence refuses the ask instead
+  // (the client drops an older turn's ask), and runs as a turn.
   z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
   // One event of a Flow turn. Wrapped rather than inlined so the client routes
   // Flow to its owner window and chat to the chat store, unchanged.

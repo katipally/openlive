@@ -307,10 +307,10 @@ export function useLiveSession(chatId: string) {
       onElicitationResolved: (reqId) => {
         if (useLiveStore.getState().elicitation?.reqId === reqId) set({ elicitation: null });
       },
-      // A raced spoken answer the server bounced back (the user answered before the
-      // ask's modal reached this client): route it to the open modal — same hands-free
-      // resolution as a mic utterance — so it never leaks to the agent as a new prompt.
-      onModalVoiceAnswer: (text) => { answerModalByVoice(text); },
+      // A spoken sentence the server bounced back as a modal's answer: route it to the
+      // open modal, same as a mic utterance. With none open it was never an answer, so
+      // it goes out again as the turn it is (its bubble is already in the transcript).
+      onModalVoiceAnswer: (text) => { if (!answerModalByVoice(text)) client.current?.userText(text); },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
         const agent = useLiveStore.getState().boundAgent;

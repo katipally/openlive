@@ -227,10 +227,14 @@ export class FlowLiveSession {
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
       case "flow_text": {
-        // An ask is awaiting the user, so this utterance is its ANSWER, never a new
-        // turn. The client routes it when its chip is up; a raced one lands here and
-        // is bounced back instead of leaking to the model as a fresh prompt.
-        if (this.permPending.size) { this.turn = this.replyTurn = msg.turn; this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        // An ask is awaiting the user. The orb answers its own chip, so a numbered
+        // sentence landing here was said before the ask reached it, and the orb drops
+        // an older turn's ask: refused, the sentence steers the turn instead. Only an
+        // orb that numbers no turns shows every ask, so only its sentence bounces back.
+        if (this.permPending.size) {
+          if (msg.turn === undefined) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+          this.cancelPendingPermissions();
+        }
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
         this.turn = msg.turn;
