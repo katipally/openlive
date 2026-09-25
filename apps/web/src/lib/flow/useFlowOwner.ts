@@ -260,7 +260,15 @@ export function useFlowOwner(): void {
         // the person sees it and presses a key, and here the half-sentence is
         // already answered and acted on.
         }, undefined, settings.current?.voice.turn ?? {});
-        await eng.start(mic);
+        try { await eng.start(mic); }
+        catch (e) {
+          // A half-started engine already holds an audio context, and "Try again"
+          // opens a new mic rather than reusing this one.
+          eng.stop();
+          mic.getTracks().forEach((t) => t.stop());
+          stream.current = null;
+          throw e;
+        }
         engine.current = eng;
       })().catch((e) => { log.error("flow", "mic:", e); }).finally(() => { starting.current = null; });
       return starting.current;
