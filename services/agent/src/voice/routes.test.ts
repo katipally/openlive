@@ -35,7 +35,7 @@ const install = (id: string) => {
   const e = m.nativeEngine(id)!;
   for (const f of e.files) { const p = join(m.engineDir(e.id), f); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, ""); }
 };
-const stt = (engine: string, body: Uint8Array) => app.request(`/stt?engine=${engine}`, { method: "POST", body, headers: { "content-type": "application/octet-stream" } });
+const stt = (engine: string, body: Uint8Array, lang = "") => app.request(`/stt?engine=${engine}${lang && `&lang=${lang}`}`, { method: "POST", body, headers: { "content-type": "application/octet-stream" } });
 const tts = (body: object) => app.request("/tts", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 
 describe("GET /engines", () => {
@@ -106,6 +106,23 @@ describe("POST /stt", () => {
   });
 });
 
+describe("POST /stt language", () => {
+  it("refuses a language the engine does not speak, before the install check", async () => {
+    const res = await stt("parakeet", new Uint8Array(4), "de");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "language-not-supported" });
+    expect((await stt("canary-180m-flash-int8", new Uint8Array(4), "ja")).status).toBe(400);
+  });
+
+  it("hands the engine the language as a bare ISO code, and nothing when none is asked", async () => {
+    install("canary-180m-flash-int8");
+    await stt("canary-180m-flash-int8", new Uint8Array(4), "de-DE");
+    expect(transcribe.mock.calls[0]![3]).toBe("de");
+    await stt("canary-180m-flash-int8", new Uint8Array(4));
+    expect(transcribe.mock.calls[1]![3]).toBeUndefined();
+  });
+});
+
 describe("POST /stt cancellation", () => {
   it("hands the engine a signal that aborts when the client hangs up", async () => {
     install("parakeet");
@@ -167,6 +184,26 @@ describe("POST /tts (native)", () => {
     expect(cancel).not.toHaveBeenCalled();
     hangUp.abort();
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a language the engine does not speak", async () => {
+    const res = await tts({ engine: "kitten", text: "hola", lang: "es" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "language-not-supported" });
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it("speaks the asked language with the named voice if it can, else with the first voice that can", async () => {
+    install("kokoro-multi-v1_0-int8");
+    const voiceFor = async (body: object) => {
+      await (await tts({ engine: "kokoro-multi-v1_0-int8", text: "hola", ...body })).arrayBuffer();
+      return (speak.mock.calls.at(-1)![2] as { id: string }).id;
+    };
+    expect(await voiceFor({ lang: "es" })).toBe("ef_dora");
+    expect(await voiceFor({ lang: "es", voice: "em_alex" })).toBe("em_alex");
+    expect(await voiceFor({ lang: "es", voice: "af_heart" })).toBe("ef_dora");
+    expect(await voiceFor({ voice: "bf_emma" })).toBe("bf_emma");
+    expect((await tts({ engine: "kokoro-multi-v1_0-int8", text: "hola", lang: "es", voice: "nope" })).status).toBe(400);
   });
 
   it("leaves the cloned-voice path on the same route unchanged", async () => {

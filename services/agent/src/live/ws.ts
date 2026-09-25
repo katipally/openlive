@@ -47,7 +47,7 @@ export function attachLiveWs(server: Server): WebSocketServer {
     if (!AGENT_SECRET && !loopbackOrigin(req.headers.origin)) {
       return reject(socket, "403 Forbidden", `origin ${req.headers.origin} is not this machine`);
     }
-    if (url.pathname === "/voice/stream") { upgradeAsrStream(req, socket, head, url.searchParams.get("engine")); return; }
+    if (url.pathname === "/voice/stream") { upgradeAsrStream(req, socket, head, url.searchParams.get("engine"), url.searchParams.get("lang")); return; }
     const chatId = url.searchParams.get("chat") ?? "";
     // Flow's orb runtime lives in its own renderer, so it opens its own
     // connection to this same endpoint. Same schemas, same permission protocol,

@@ -13,9 +13,9 @@ import type { ModelType } from "./native-models.js";
 // not allowed"), which only shows up in the packed app, not under plain Node.
 
 type Wave = { samples: Float32Array; sampleRate: number };
-type Stream = { acceptWaveform(w: Wave): void; inputFinished(): void };
+type Stream = { acceptWaveform(w: Wave): void; inputFinished(): void; setOption(key: string, value: string): void };
 type Online = { createStream(): Stream; isReady(s: Stream): boolean; decode(s: Stream): void; isEndpoint(s: Stream): boolean; reset(s: Stream): void; getResult(s: Stream): { text: string } };
-type Offline = { createStream(): Stream; decodeAsync(s: Stream): Promise<{ text: string }> };
+type Offline = { config: { modelConfig: { canary?: { srcLang: string; tgtLang: string } } }; setConfig(cfg: unknown): void; createStream(): Stream; decodeAsync(s: Stream): Promise<{ text: string }> };
 type Tts = { sampleRate: number; generateAsync(req: unknown): Promise<Wave> };
 type Sherpa = {
   OnlineRecognizer: new (cfg: unknown) => Online;
@@ -28,9 +28,9 @@ type Sherpa = {
 /** A variant to load: its id keys the loaded handle; config is native-models.ts sherpaConfig. */
 export interface ModelRef { engine: string; type: ModelType; config: object }
 export type WorkerRequest =
-  | ({ op: "stt"; id: number; samples: Float32Array } & ModelRef)
+  | ({ op: "stt"; id: number; samples: Float32Array; lang?: string } & ModelRef)
   | ({ op: "tts"; id: number; text: string; speed: number; sid?: number; wav?: string; espeak?: string } & ModelRef)
-  | ({ op: "open"; id: number } & ModelRef)
+  | ({ op: "open"; id: number; lang?: string } & ModelRef)
   | { op: "audio"; id: number; samples: Float32Array }
   | { op: "end" | "reset" | "close"; id: number }
   | { op: "cancel"; id: number }
@@ -61,8 +61,10 @@ const TAIL_PADDING = new Float32Array(SAMPLE_RATE / 2);
 // nemotron ("Hello there" -> "There"); 0.3 s of leading silence recovers it.
 const LEAD_PADDING = new Float32Array(SAMPLE_RATE * 0.3);
 
-function freshStream(r: Online): Stream {
+/** `lang` pins a multilingual Nemotron to one language; English-only models ignore it. */
+function freshStream(r: Online, lang?: string): Stream {
   const s = r.createStream();
+  if (lang) s.setOption("language", lang);
   s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: LEAD_PADDING });
   return s;
 }
@@ -144,7 +146,7 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
     if (cancelled.has(req.id)) return "";
     if (req.type === "online-transducer") {
       const r = l.handle as Online;
-      const s = freshStream(r);
+      const s = freshStream(r, req.lang);
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples });
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
       s.inputFinished();
@@ -152,6 +154,10 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
       return r.getResult(s).text.trim();
     }
     const r = l.handle as Offline;
+    const canary = r.config.modelConfig.canary;
+    const lang = req.lang ?? "en";
+    // Transcribes, not translates: the output language is the spoken one.
+    if (canary && canary.srcLang !== lang) { canary.srcLang = canary.tgtLang = lang; r.setConfig(r.config); }
     const texts: string[] = [];
     // Canary skipped two sentences of a 38 s clip (measured 2026-09-24); the
     // 8 s windows moonshine needs (pcm.ts) keep it whole.
@@ -199,7 +205,7 @@ async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> 
 }
 
 // ── streaming sessions (nemotron) ────────────────────────────────────────────
-interface Session { engine: string; l: Loaded; r: Online; s: Stream; committed: string; last: string }
+interface Session { engine: string; lang?: string; l: Loaded; r: Online; s: Stream; committed: string; last: string }
 const sessions = new Map<number, Session>();
 // Sockets that closed while their engine was still loading.
 const closedEarly = new Set<number>();
@@ -221,7 +227,7 @@ async function open(req: Extract<WorkerRequest, { op: "open" }>) {
   const r = l.handle as Online;
   if (closedEarly.delete(req.id)) return post({ id: req.id, type: "closed" });
   l.users++;
-  sessions.set(req.id, { engine: req.engine, l, r, s: freshStream(r), committed: "", last: "" });
+  sessions.set(req.id, { engine: req.engine, lang: req.lang, l, r, s: freshStream(r, req.lang), committed: "", last: "" });
   post({ id: req.id, type: "ready" });
 }
 
@@ -237,9 +243,9 @@ function sessionOp(req: Extract<WorkerRequest, { op: "audio" | "end" | "reset" |
     ss.s.inputFinished();
     while (ss.r.isReady(ss.s)) ss.r.decode(ss.s);
     post({ id: req.id, type: "final", text: joinText(ss.committed, ss.r.getResult(ss.s).text.trim()) });
-    Object.assign(ss, { s: freshStream(ss.r), committed: "", last: "" }); // a finished stream takes no more input
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", last: "" }); // a finished stream takes no more input
   } else if (req.op === "reset") {
-    Object.assign(ss, { s: freshStream(ss.r), committed: "", last: "" });
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", last: "" });
   } else {
     sessions.delete(req.id);
     ss.l.users--;

@@ -32,14 +32,18 @@ beforeAll(async () => {
   vi.resetModules();
   models = await import("./native-models.js");
   native = await import("./native.js");
-  const nemotron = models.nativeEngine("nemotron")!;
-  for (const f of nemotron.files) {
-    const p = join(models.engineDir(nemotron.id), f);
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, "");
+  for (const e of [models.nativeEngine("nemotron")!, models.nativeEngine("nemotron-3.5-160ms-int8")!]) {
+    for (const f of e.files) {
+      const p = join(models.engineDir(e.id), f);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, "");
+    }
   }
   server = createServer();
-  server.on("upgrade", (req, socket, head) => native.upgradeAsrStream(req, socket, head, "nemotron"));
+  server.on("upgrade", (req, socket, head) => {
+    const q = new URL(req.url!, "http://x").searchParams;
+    native.upgradeAsrStream(req, socket, head, q.get("engine") ?? "nemotron", q.get("lang"));
+  });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   port = (server.address() as { port: number }).port;
 });
@@ -51,8 +55,8 @@ afterAll(async () => {
 beforeEach(() => { w.posted.length = 0; });
 
 /** Opens a stream and answers its "open" as the worker; resolves once the client is ready. */
-async function openStream() {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/voice/stream`);
+async function openStream(query = "") {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/voice/stream${query}`);
   const messages: string[] = [];
   const closed = new Promise<number>((r) => ws.on("close", r));
   ws.on("error", () => {});
@@ -115,6 +119,24 @@ describe("transcribe", () => {
 });
 
 describe("the streaming ASR socket", () => {
+  it("pins a multilingual engine to the asked language", async () => {
+    const { ws } = await openStream("?engine=nemotron-3.5-160ms-int8&lang=ja-JP");
+    expect(w.posted.find((m) => m.op === "open")).toMatchObject({ engine: "nemotron-3.5-160ms-int8", type: "online-transducer", lang: "ja" });
+    ws.close();
+  });
+
+  it("refuses a language the engine does not speak, before loading anything", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/voice/stream?engine=nemotron&lang=ja`);
+    const [msg, code] = await new Promise<[string, number]>((res) => {
+      let first = "";
+      ws.on("message", (d) => { first ||= String(d); });
+      ws.on("close", (c) => res([first, c]));
+    });
+    expect(JSON.parse(msg)).toEqual({ type: "error", error: "language-not-supported" });
+    expect(code).toBe(1008);
+    expect(w.posted.some((m) => m.op === "open")).toBe(false);
+  });
+
   it("closes on an oversized frame without an uncaught error, and releases the session", async () => {
     const { ws, id, closed } = await openStream();
     ws.send(new Float32Array(100_000)); // 400 KB, over the 256 KiB frame cap

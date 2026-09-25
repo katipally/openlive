@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import { Worker } from "node:worker_threads";
 import { WebSocketServer } from "ws";
 import { join } from "node:path";
-import { engineDir, engineInstalled, nativeEngine, sherpaConfig, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
+import { engineDir, engineInstalled, langCode, nativeEngine, sherpaConfig, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmFromBytes } from "./pcm.js";
 import type { ModelRef, WorkerEvent, WorkerRequest } from "./native-worker.js";
 import { log } from "../log.js";
@@ -49,13 +49,14 @@ function send(e: NativeEngine, req: WorkerRequest, listener?: Listener, transfer
 }
 
 /** Aborting `signal` drops the job if it has not started (it resolves ""), so a
- *  caller that gave up never holds the engine's queue. */
-export function transcribe(e: NativeEngine, samples: Float32Array, signal?: AbortSignal): Promise<string> {
+ *  caller that gave up never holds the engine's queue. `lang` must be one of
+ *  the engine's languages (the routes check); unset, the engine picks. */
+export function transcribe(e: NativeEngine, samples: Float32Array, signal?: AbortSignal, lang?: string): Promise<string> {
   const id = ++nextId;
   let active = true;
   const cancel = () => { if (active) pool(e.kind).worker.postMessage({ op: "cancel", id } satisfies WorkerRequest); };
   return new Promise<string>((resolve, reject) => {
-    send(e, { op: "stt", id, ...model(e), samples }, (ev) => {
+    send(e, { op: "stt", id, ...model(e), samples, lang }, (ev) => {
       if (ev.type === "done") resolve(ev.text ?? "");
       else if (ev.type === "error") reject(new Error(ev.message));
     }, [samples.buffer as ArrayBuffer]);
@@ -93,12 +94,14 @@ export function unloadNative(e: NativeEngine): void {
 // /live. 256 KiB per frame is ~4 s of 16 kHz Float32, far above any mic chunk.
 const streamWss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
 
-export function upgradeAsrStream(req: IncomingMessage, socket: Duplex, head: Buffer, engineId: string | null): void {
+export function upgradeAsrStream(req: IncomingMessage, socket: Duplex, head: Buffer, engineId: string | null, langParam: string | null = null): void {
   streamWss.handleUpgrade(req, socket, head, (ws) => {
     const say = (o: object) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); };
     const e = nativeEngine(engineId ?? "nemotron");
+    const lang = langCode(langParam) ?? undefined;
     const refuse = (error: string) => { say({ type: "error", error }); ws.close(1008, error); };
     if (!e?.streaming) return refuse("unknown streaming engine");
+    if (lang && !e.languages.includes(lang)) return refuse("language-not-supported");
     if (!engineInstalled(e)) return refuse("engine-not-installed");
 
     // Without a listener, a frame over maxPayload surfaces as an uncaught exception.
@@ -107,7 +110,7 @@ export function upgradeAsrStream(req: IncomingMessage, socket: Duplex, head: Buf
     // Set once the worker has let go of this session (it failed, or its worker
     // died): a later op would only spawn a fresh worker to hear about an unknown id.
     let gone = false;
-    send(e, { op: "open", id, ...model(e) }, (ev) => {
+    send(e, { op: "open", id, ...model(e), lang }, (ev) => {
       if (ev.type === "ready") say({ type: "ready" });
       else if (ev.type === "partial" || ev.type === "final") say({ type: ev.type, text: ev.text });
       else if (ev.type === "error") { gone = true; refuse(ev.message); }

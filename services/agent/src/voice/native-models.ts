@@ -275,6 +275,9 @@ for (const e of NATIVE_ENGINES) for (const id of [e.id, e.legacyId]) if (id) byI
 /** A variant by its id, or by the engine id a config saved before variants existed. */
 export const nativeEngine = (id: string | undefined): NativeEngine | undefined => (id ? byId.get(id) : undefined);
 
+/** "en-US" and "EN" read as "en". Null when absent, so the engine picks. */
+export const langCode = (lang: string | undefined | null) => lang?.trim() ? lang.trim().toLowerCase().split(/[-_]/)[0]! : null;
+
 export const engineDir = (id: string) => resolve(DATA_DIR, "models", id);
 
 // Engines downloaded before variants existed live under their old id: move

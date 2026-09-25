@@ -9,7 +9,7 @@ import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
 import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
-import { NATIVE_FAMILIES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, speakable } from "./native-models.js";
+import { NATIVE_FAMILIES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, langCode, speakable, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
 import { speak, transcribe, unloadNative } from "./native.js";
 import { log } from "../log.js";
@@ -162,7 +162,7 @@ voiceRoutes.get("/profiles/:id/export", (c) => {
 
 // ── synthesis ────────────────────────────────────────────────────────────────
 voiceRoutes.post("/tts", async (c) => {
-  const body = await c.req.json().catch(() => null) as { text?: string; profileId?: string; speed?: number; engine?: string; voice?: string } | null;
+  const body = await c.req.json().catch(() => null) as { text?: string; profileId?: string; speed?: number; engine?: string; voice?: string; lang?: string } | null;
   if (body?.engine !== undefined) return nativeTts(body, c.req.raw.signal);
   const text = body?.text?.trim();
   if (!text) return c.json({ error: "text required" }, 400);
@@ -188,6 +188,9 @@ const STT_MAX_BYTES = 60 * SAMPLE_RATE * 4; // 60 s of mono Float32
 const TTS_MAX_CHARS = 5_000;
 const engineDownloads = new Map<string, AbortController>();
 const notInstalled = (name: string) => ({ error: "engine-not-installed", message: `${name} is not downloaded yet` });
+/** An engine asked for a language it does not speak refuses rather than
+ *  transcribing or reading it wrong. */
+const unsupported = (e: NativeEngine, lang: string) => ({ error: "language-not-supported", message: `${e.name} does not support "${lang}"` });
 
 // O(variants + files on disk under the installed ones).
 voiceRoutes.get("/engines", (c) => c.json(NATIVE_FAMILIES.map((f) => ({
@@ -247,12 +250,14 @@ voiceRoutes.delete("/engines/:id", (c) => {
 voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.json({ error: "audio is longer than 60 s" }, 413) }), async (c) => {
   const e = nativeEngine(c.req.query("engine"));
   if (e?.kind !== "asr") return c.json({ error: "unknown speech-to-text engine" }, 400);
+  const lang = langCode(c.req.query("lang")) ?? undefined;
+  if (lang && !e.languages.includes(lang)) return c.json(unsupported(e, lang), 400);
   if (!engineInstalled(e)) return c.json(notInstalled(e.name), 409);
   const samples = pcmFromBytes(new Uint8Array(await c.req.arrayBuffer()));
   if (!samples) return c.json({ error: "body must be raw Float32 PCM" }, 400);
   if (!samples.length) return c.json({ text: "" });
   try {
-    return c.json({ text: await transcribe(e, samples, c.req.raw.signal) });
+    return c.json({ text: await transcribe(e, samples, c.req.raw.signal, lang) });
   } catch (err) {
     log.error("voice", "stt:", err);
     return c.json({ error: String((err as Error)?.message ?? err) }, 500);
@@ -260,14 +265,21 @@ voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.j
 });
 
 /** Streams raw Float32 PCM chunks as they are generated; a client that hangs
- *  up cancels the rest of the synthesis, even one still queued behind another. */
-async function nativeTts(body: { engine?: string; text?: string; voice?: string; speed?: number }, signal: AbortSignal): Promise<Response> {
+ *  up cancels the rest of the synthesis, even one still queued behind another.
+ *  A voice that does not speak `lang` gives way to the first one that does:
+ *  kokoro's af_heart reading Spanish lost its first words (measured 2026-09-24). */
+async function nativeTts(body: { engine?: string; text?: string; voice?: string; speed?: number; lang?: string }, signal: AbortSignal): Promise<Response> {
   const e = nativeEngine(body.engine);
   if (e?.kind !== "tts") return Response.json({ error: "unknown text-to-speech engine" }, { status: 400 });
   if (!body.text?.trim()) return Response.json({ error: "text required" }, { status: 400 });
   const text = speakable(body.text);
   if (text.length > TTS_MAX_CHARS) return Response.json({ error: `text is longer than ${TTS_MAX_CHARS} characters` }, { status: 413 });
-  const voice = body.voice === undefined ? e.voices?.[0] : e.voices?.find((v) => v.id === body.voice);
+  const lang = langCode(body.lang);
+  if (lang && !e.languages.includes(lang)) return Response.json(unsupported(e, lang), { status: 400 });
+  const named = e.voices?.find((v) => v.id === body.voice);
+  if (body.voice !== undefined && !named) return Response.json({ error: "unknown voice" }, { status: 400 });
+  const speaks = (v: EngineVoice) => !lang || v.lang === lang;
+  const voice = named && speaks(named) ? named : e.voices?.find(speaks);
   if (!voice) return Response.json({ error: "unknown voice" }, { status: 400 });
   if (!engineInstalled(e)) return Response.json(notInstalled(e.name), { status: 409 });
   const speed = Math.min(2, Math.max(0.5, Number(body.speed) || 1));

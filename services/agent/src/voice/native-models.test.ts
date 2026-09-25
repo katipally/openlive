@@ -113,6 +113,13 @@ describe("native engine catalog", () => {
     expect(m.nativeEngine("nope")).toBeUndefined();
     expect(m.nativeEngine(undefined)).toBeUndefined();
   });
+
+  it("reads a language code from a tag or any case, and nothing from blank", () => {
+    expect(m.langCode("en-US")).toBe("en");
+    expect(m.langCode(" PT_br ")).toBe("pt");
+    expect(m.langCode("")).toBeNull();
+    expect(m.langCode(undefined)).toBeNull();
+  });
 });
 
 describe("sherpaConfig", () => {
