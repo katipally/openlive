@@ -71,6 +71,26 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A sentence said just as an agent asked for permission vanished.** Said
+  before the ask reached the screen, it was taken as the ask's answer and
+  dropped, and the unseen ask held the agent for two minutes. In calls and Flow
+  the unseen ask is now refused and the sentence goes through.
+- **An agent's leftover question held the next sentence.** A question an agent
+  sent after its turn was over is now refused. A sign-in it asks for while
+  starting still waits for you.
+- **Ending a call mid-sentence started a turn.** Speech still being transcribed
+  at hang-up made an empty reply in the transcript. Switching mics while hanging
+  up also kept the new mic open.
+- **The orb flipped to speaking while you were still talking.** A line spoken
+  over your sentence no longer stops the call from hearing the rest of it.
+- **Flow kept the mic after it failed to start.** "Try again" opened a second
+  one on top. A failed start now lets go of it.
+- **Closing Flow or putting the machine to sleep mid-reply.** Closing saved
+  the whole reply, heard or not, and sleep with an approval open let the turn
+  carry on after wake. Both now end the turn and keep only what was spoken.
+- **A call's voice models could reload mid-call.** Turning on the camera or
+  plugging in a device during a call after changing voice settings restarted
+  the models and failed the sentence being heard.
 - **The call heard itself.** On speakers, the reply's own voice leaking into the
   mic could be sent as a turn, cutting the reply short on screen. It is now
   dropped; talking over the reply still stops it.

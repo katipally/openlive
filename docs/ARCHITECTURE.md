@@ -48,7 +48,10 @@ over stdio ("LSP for agents"). Design points:
 - **No faked capabilities.** OpenLive advertises no fs/terminal capabilities — a
   voice app isn't an editor. The agent uses its own file access and asks permission
   (via `session/request_permission`) before anything risky; the ask is spoken and
-  shown as chips, answerable by voice.
+  shown as chips, answerable by voice. A sentence that crossed an ask on the wire
+  was said before it showed, so the ask is refused and the sentence runs as a turn.
+  Outside a turn only a request-scoped elicitation (sign-in or setup before any
+  session) is shown; a session-scoped one is a finished turn's and is refused.
 - **Sessions belong to the agent.** For Claude, `_meta.claudeCode.options` rides
   `session/new`/`session/load` with `persistSession: true` (sessions land in
   `~/.claude/projects/<cwd-slug>/` where `claude --resume` finds them) and a

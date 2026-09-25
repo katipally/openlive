@@ -130,7 +130,8 @@ claims to see it.
 - **Coding agents.** With consent given, Flow switches the agent into its
   no-questions mode when it has one, and answers the agent's own permission asks
   with its broadest yes. Without consent, the agent's question shows on the orb,
-  and a spoken yes or no answers it.
+  and a spoken yes or no answers it. A sentence said before the question showed
+  refuses it and is taken as said.
 
 ![Permission card](../assets/flow-orb-permission.png)
 
