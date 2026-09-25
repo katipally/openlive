@@ -729,14 +729,17 @@ export function useLiveSession(chatId: string) {
   // just applies on the next start. `id` "" = system default.
   const setMic = useCallback(async (id: string) => {
     set({ micId: id || undefined });
-    if (!useLiveStore.getState().active || !engine.current) return;
+    const eng = engine.current;
+    if (!useLiveStore.getState().active || !eng) return;
     try {
       const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       if (id) audio.deviceId = { exact: id };
       const stream = await navigator.mediaDevices.getUserMedia({ audio });
+      // Hung up while the device opened: teardown already released the call's mic.
+      if (engine.current !== eng) { stream.getTracks().forEach((t) => t.stop()); return; }
       const old = micStream.current;
       micStream.current = stream;
-      await engine.current.setStream(stream);
+      await eng.setStream(stream);
       old?.getTracks().forEach((t) => t.stop()); // stop the previous mic only after the swap
     } catch (e) {
       set({ error: (e as Error)?.name === "NotAllowedError" ? "Microphone access was turned off. Allow it, then pick the mic again." : "Couldn't switch microphone." });

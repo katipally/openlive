@@ -187,7 +187,7 @@ export class VoiceEngine {
     // VAD sensitivity + trailing silence come from the user's pipeline config;
     // baked into MicVAD at construction, so edits apply on the next start().
     const vadCfg = { ...loadPipelineConfig().vad, redemptionMs: this.turnCfg().redemptionMs };
-    this.vad = await MicVAD.new({
+    const vad = await MicVAD.new({
       model: vadCfg.model,
       // Silero worklet + onnx + ort wasm are vendored into /public/vad by
       // scripts/copy-voice-assets.mjs (predev/prebuild) — served same-origin,
@@ -209,12 +209,16 @@ export class VoiceEngine {
       onFrameProcessed: (_p, frame) => this.onFrame(frame),
       onVADMisfire: () => { this.streaming = false; if (this.phase === "listening") this.setPhase("idle"); },
     });
+    // Stopped while the VAD loaded (a mic swap racing hang-up): nothing may keep listening.
+    if (this.stopped) { void vad.destroy().catch(() => { /* */ }); return; }
+    this.vad = vad;
     this.syncAsr();
     warmNativeEngines();
     clearInterval(this.keepWarm);
     this.keepWarm = setInterval(warmNativeEngines, KEEP_WARM_MS);
     // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
-    if (!this.muted || this.ptt) await this.vad.start();
+    if (!this.muted || this.ptt) await vad.start();
+    if (this.stopped) return;
     this.setupMicSpectrum(stream);
     // Only a segment the old VAD was hearing is gone; a reply keeps its phase.
     if (this.phase === "listening") this.setPhase("idle");
