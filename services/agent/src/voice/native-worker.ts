@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { parentPort } from "node:worker_threads";
 import { SAMPLE_RATE, limitPeak, splitAtPauses } from "./pcm.js";
 import type { ModelType } from "./native-models.js";
@@ -43,6 +45,9 @@ export type WorkerEvent =
   | { id: number; type: "error"; message: string };
 
 const IDLE_UNLOAD_MS = 5 * 60_000; // a loaded engine holds hundreds of MB
+// Per worker, so per kind: Parakeet 0.6B v3 and Nemotron 3.5 loaded together
+// held 3.3 GB resident (measured 2026-09-24).
+const MAX_LOADED = 2;
 // Half the slowest speaking rate measured per voice (pocket 16, kitten 10 chars/s):
 // a synthesis running past 2 s plus this pace is a runaway, not speech.
 const MIN_CHARS_PER_SEC: Record<string, number> = { pocket: 8, kitten: 5 };
@@ -72,19 +77,47 @@ async function create(op: WorkerRequest["op"], m: ModelRef): Promise<unknown> {
 }
 
 interface Loaded { handle: unknown; queue: Promise<unknown>; users: number; timer?: ReturnType<typeof setTimeout>; waves: Map<string, Wave> }
+// Map order is recency order (a hit moves its entry to the end), so the first
+// key without a live streaming session is the least recently used.
 const loaded = new Map<string, Promise<Loaded>>();
+
+// A dropped handle frees its native memory only once V8 collects it, and a JS
+// heap this small seldom does: a dropped Parakeet 0.6B v3 held 650 MB until a
+// forced gc() (measured 2026-09-24). Node exposes gc() only behind this flag.
+const gc = (() => {
+  try { setFlagsFromString("--expose-gc"); return runInNewContext("gc") as () => void; } catch { return () => {}; }
+})();
+
+/** Its idle timer would keep the handle reachable; the collection is deferred
+ *  so the handle is off the stack by then. */
+function drop(engine: string) {
+  void loaded.get(engine)?.then((l) => clearTimeout(l.timer), () => {});
+  loaded.delete(engine);
+  setTimeout(gc);
+}
+
+/** Drops least recently used handles until one more fits. A handle still
+ *  finishing a job lives until that job ends. O(loaded x sessions), both tiny. */
+function makeRoom() {
+  for (const engine of loaded.keys()) {
+    if (loaded.size < MAX_LOADED) return;
+    if (![...sessions.values()].some((ss) => ss.engine === engine)) drop(engine);
+  }
+}
 
 function load(op: WorkerRequest["op"], m: ModelRef): Promise<Loaded> {
   let p = loaded.get(m.engine);
-  if (!p) {
+  if (p) loaded.delete(m.engine);
+  else {
+    makeRoom();
     const t = Date.now();
     p = create(op, m).then((handle) => {
       console.error(`[voice] ${m.engine} loaded in ${Date.now() - t}ms`);
       return { handle, queue: Promise.resolve(), users: 0, waves: new Map() };
     });
-    p.catch(() => loaded.delete(m.engine));
-    loaded.set(m.engine, p);
+    p.catch(() => { if (loaded.get(m.engine) === p) loaded.delete(m.engine); });
   }
+  loaded.set(m.engine, p);
   return p.then((l) => { touch(m.engine, l); return l; });
 }
 
@@ -94,7 +127,7 @@ function touch(engine: string, l: Loaded) {
   l.timer = setTimeout(() => {
     if (l.users) return touch(engine, l);
     // Only if still current: an unloaded handle's sessions keep touching it.
-    void loaded.get(engine)?.then((cur) => { if (cur === l) loaded.delete(engine); }, () => {});
+    void loaded.get(engine)?.then((cur) => { if (cur === l) drop(engine); }, () => {});
   }, IDLE_UNLOAD_MS);
 }
 
@@ -223,8 +256,7 @@ port.on("message", (req: WorkerRequest) => {
       case "cancel": cancelled.add(req.id); break;
       case "open": open(req).catch((e) => { closedEarly.delete(req.id); fail(e); }); break;
       case "unload":
-        loaded.get(req.engine)?.then((l) => clearTimeout(l.timer), () => {});
-        loaded.delete(req.engine);
+        drop(req.engine);
         break;
       default: sessionOp(req);
     }
