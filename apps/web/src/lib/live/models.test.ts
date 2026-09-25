@@ -143,6 +143,18 @@ describe("native TTS stall", () => {
   });
 });
 
+describe("no voice for the language", () => {
+  it("says so once per call, and again on the next call", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "engine-not-installed" }, { status: 409 })));
+    await models.ttsStream("One.", { engine: "pocket", lang: "zh" }, () => {});
+    await models.ttsStream("Two.", { engine: "pocket", lang: "zh" }, () => {});
+    expect(toast).toHaveBeenCalledTimes(1);
+    models.resetNativeFallbacks();
+    await models.ttsStream("Three.", { engine: "pocket", lang: "zh" }, () => {});
+    expect(toast).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("keep-warm", () => {
   it("sends no warm-up for an engine that just served a real sentence, and one after a quiet minute", async () => {
     vi.stubGlobal("window", {});

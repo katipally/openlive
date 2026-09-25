@@ -224,7 +224,7 @@ const httpError = async (res: Response) =>
 export const isNativeTts = isNativeVariant;
 
 /** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; }
+export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; }
 
 /** The STT variant this session really uses: the selection, or Whisper once it
  *  failed (Whisper speaks every curated language). */
@@ -387,7 +387,7 @@ async function cloneTts(text: string, voice: string, speed?: number): Promise<{ 
 /** `engine` is a variant id (a browser engine's is its family's). */
 type TtsOpts = { engine?: string; voice?: string; speed?: number; lang?: LanguageCode };
 
-// Nothing in the browser speaks the language (Chinese): said once per session,
+// Nothing in the browser speaks the language (Chinese): said once per call,
 // and the sentence goes unspoken instead of read wrong.
 let noVoiceToasted = false;
 /** The browser engine that stands in for `opts`' engine, or null (after one notice). */
