@@ -71,6 +71,10 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Supertonic paused about a second between sentences.** Each sentence came
+  with its own silence before and after, so every one started over like a new
+  voice. Sentences now join with the model's own pause, about 0.4 s, and the
+  first words of a reply start about 0.3 s sooner.
 - **Talking over an agent's unseen question did not stop the call's turn.** The
   question kept the turn running and the next sentence waited behind it. Talking
   over it now refuses the question and stops the turn.
