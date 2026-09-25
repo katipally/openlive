@@ -101,6 +101,7 @@ export class AudioPlayer {
     this.analyser.getByteFrequencyData(this.freq as Uint8Array<ArrayBuffer>);
     return octaveBands(this.freq, n);
   }
+  playing() { return this.sources.size > 0; }
   resume() { this.ensure(); }
   close() {
     this.flush(Number.MAX_SAFE_INTEGER);

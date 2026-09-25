@@ -556,7 +556,9 @@ export class VoiceEngine {
         await ttsStream(toSpeech(spoken, v.lang), { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate) => {
           if (this.epoch !== epoch) return;
           samples += audio.length; rate = sampleRate;
-          if (this.phase !== "speaking") {
+          // Over the user's sentence the phase stays listening, which is what keeps
+          // gathering their words; setPhase hands it over when the sentence ends.
+          if (this.phase !== "speaking" && this.phase !== "listening") {
             this.speakingStartAt = Date.now(); this.setPhase("speaking");
             if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
           }
@@ -640,7 +642,14 @@ export class VoiceEngine {
   /** Where the turn loop is now. onPhase reports only changes, so a surface that
    *  set its own phase meanwhile reads this to get back in step. */
   currentPhase() { return this.phase; }
-  private setPhase(p: EnginePhase) { if (p !== this.phase) { this.phase = p; this.h.onPhase(p); } }
+  private setPhase(p: EnginePhase) {
+    // A line that began over the user's sentence takes over when the sentence ends;
+    // its reply's end, or its own, found the phase on listening and idled nothing.
+    const handover = p === "idle" && this.phase === "listening" && this.player.playing();
+    if (handover) p = "speaking";
+    if (p !== this.phase) { this.phase = p; this.h.onPhase(p); }
+    if (handover && !this.replyOpen) this.waitDrainThenIdle(this.epoch);
+  }
 
   /** Mute (manual / hands-free toggle): pause listening; a held pending is dropped. */
   setMuted(muted: boolean) {
