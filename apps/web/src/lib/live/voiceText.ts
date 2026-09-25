@@ -28,10 +28,33 @@ export const MAX_CHUNK_CHARS = 200;
 // Kitten TTS 10-14. The low end, so a caption never runs ahead of the voice.
 // Only a sentence still streaming when it starts playing needs an estimate.
 const SPOKEN_CHARS_PER_SEC: Record<string, number> = { pocket: 16, kitten: 10 };
+const ENGLISH_CHARS_PER_SEC = 16;
 
-/** How long `text` takes `engine` to speak, for pacing a caption before its audio is all in. */
-export const estimateSpeechMs = (text: string, engine: string, speed = 1) =>
-  (text.length / (SPOKEN_CHARS_PER_SEC[engine] ?? 16) / speed) * 1000;
+/**
+ * How each language is written, as far as chunking and pacing need it. `rate`
+ * is characters voiced a second (the low end measured below), which also
+ * scales the chunker's length bars: 40 English characters is about 2.5 s of
+ * speech, 40 Chinese ones about 8 s. `spaced`: words are separated by spaces
+ * (Chinese and Japanese are not). `maxChunk`: Supertonic's reference caps a
+ * Japanese or Korean chunk at 120 characters (web/helper.js), and 120 Chinese
+ * characters is already about 400 of Kokoro's 510 phoneme tokens.
+ * Rates measured 2026-09-24 over two to four sentences each: Kokoro v1.0 fp32
+ * on the agent es 18-20, fr 19-23, it 18, pt 18, hi 13, zh 4.6-5.1; Supertonic 3
+ * in the browser es 17, fr 19, de 18, it 16, pt 17, hi 18, ja 7.3-12, ko 8-12.
+ * The languages at or above English's 16 use English's numbers.
+ */
+const LANG_TEXT: Record<string, { rate: number; spaced: boolean; maxChunk: number }> = {
+  en: { rate: ENGLISH_CHARS_PER_SEC, spaced: true, maxChunk: MAX_CHUNK_CHARS },
+  hi: { rate: 13, spaced: true, maxChunk: MAX_CHUNK_CHARS },
+  zh: { rate: 4.5, spaced: false, maxChunk: 120 },
+  ja: { rate: 7, spaced: false, maxChunk: 120 },
+  ko: { rate: 8, spaced: true, maxChunk: 120 },
+};
+const langText = (lang: string) => LANG_TEXT[lang] ?? LANG_TEXT.en!;
+
+/** How long `text` takes `engine` to speak in `lang`, for pacing a caption before its audio is all in. */
+export const estimateSpeechMs = (text: string, engine: string, speed = 1, lang = "en") =>
+  (text.length / (lang === "en" ? SPOKEN_CHARS_PER_SEC[engine] ?? ENGLISH_CHARS_PER_SEC : langText(lang).rate) / speed) * 1000;
 
 // Whisper hallucinates these on silence/ambient noise — never treat as a turn.
 // Kept tight: only true silence artifacts. Real short answers ("okay", "yeah",
@@ -51,7 +74,10 @@ export function isJunk(text: string): boolean {
 // Not "it" or "this": "what time is it" and "what is this" are whole questions,
 // and the streaming engines write no question mark to tell them apart.
 const TRAILING = new Set(["to","the","a","an","and","but","so","or","of","for","with","my","your","is","are","that","on","at","in","because","if","when","then","like","about","into","um","uh"]);
-export function endsMidThought(text: string): boolean {
+/** English only: the word list is English. Every other language leaves a pause
+ *  to Smart-Turn, plus a trailing comma or ellipsis the transcriber wrote. */
+export function endsMidThought(text: string, lang = "en"): boolean {
+  if (lang !== "en") return /(?:[,，、…]|\.\.\.)\s*$/.test(text);
   // A question mark closes the thought: "what time is it?" ends on "it" and is done.
   if (/\?\s*$/.test(text)) return false;
   // Keep digits — "set it to 250" ends on "250", NOT on the filler "to" (stripping
@@ -102,18 +128,23 @@ export function stripMarkdown(s: string): string {
 // left for the TTS engine's own number and abbreviation reading.
 const NAME_END = "tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb|pdf|png|jpe?g|com|org|net|io|dev|ai|app|co|edu|gov";
 const DOTTED_NAME = new RegExp(`\\b[\\w-]+(?:\\.[\\w-]+)*\\.(?:${NAME_END})\\b`, "gi");
-export function toSpeech(s: string): string {
-  return s
+// Outside English the dot stays a dot: "dot" would be read out as an English word.
+export function toSpeech(s: string, lang = "en"): string {
+  const said = s
     .replace(/\bhttps?:\/\/(?:www\.)?([^\s/?#]+)\S*/gi, "$1")
-    .replace(/\/?(?:[\w.-]+\/)+([\w-]+\.\w{1,6})\b/g, "$1")
-    .replace(DOTTED_NAME, (m) => m.replace(/\./g, " dot "));
+    .replace(/\/?(?:[\w.-]+\/)+([\w-]+\.\w{1,6})\b/g, "$1");
+  return lang === "en" ? said.replace(DOTTED_NAME, (m) => m.replace(/\./g, " dot ")) : said;
 }
 
 // A sentence ends at . ! or ? (and any closing quote or bracket) followed by
 // whitespace, or at a line break (list items and headings carry no period). A dot glued to the next character (alpha.txt, v0.2.4, example.com,
 // 3.5) never ends one, and neither does the end of the buffer: mid-stream
-// "gamma." may still become "gamma.json".
-const SENTENCE_END = /[.!?]+["')\]]*(?=\s)|\n/g;
+// "gamma." may still become "gamma.json". The Chinese and Japanese enders and
+// the Devanagari danda end one wherever they are: no space follows them there,
+// and they mean nothing else.
+const SENTENCE_END = /[.!?]+["')\]]*(?=\s)|[。！？．।॥]+["'”’」』）)\]]*|\n/g;
+// Where a sentence of unspaced text may be cut: after a clause mark.
+const CLAUSE_MARK = /[、，；：,;:。！？．]/;
 // "Dr. Smith", "e.g. this", "U.S. law", "A. Lincoln": the dot belongs to the word.
 const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|approx|fig)\.$/i;
 // An odd number of backticks before i opens a code span, unless the last one is far
@@ -124,15 +155,23 @@ function inCodeSpan(s: string, i: number): boolean {
   return open >= 0 && i - open < 80 && s.slice(0, i).split("`").length % 2 === 0;
 }
 
-/** `s` cut at word boundaries into pieces of at most MAX_CHUNK_CHARS; a word
- *  longer than that is cut inside it. O(n). */
-export function splitLong(s: string): string[] {
+/** The last index in `t` before `end` (and after `from`) a piece may end at: a
+ *  space, or in unspaced text just past a clause mark; -1 when there is none. O(end - from). */
+function lastBreak(t: string, from: number, end: number, spaced: boolean): number {
+  if (spaced) return t.lastIndexOf(" ", end);
+  for (let j = end - 1; j > from; j--) if (CLAUSE_MARK.test(t[j]!)) return j + 1;
+  return -1;
+}
+
+/** `s` cut at word boundaries (clause marks, in unspaced text) into pieces of
+ *  at most `max` characters; a word longer than that is cut inside it. O(n). */
+export function splitLong(s: string, max = MAX_CHUNK_CHARS, spaced = true): string[] {
   const t = s.trim();
   const out: string[] = [];
   let i = 0;
-  while (t.length - i > MAX_CHUNK_CHARS) {
-    const sp = t.lastIndexOf(" ", i + MAX_CHUNK_CHARS);
-    const cut = sp > i ? sp : i + MAX_CHUNK_CHARS;
+  while (t.length - i > max) {
+    const sp = lastBreak(t, i, i + max, spaced);
+    const cut = sp > i ? sp : i + max;
     const piece = t.slice(i, cut).trim();
     if (piece) out.push(piece);
     i = cut;
@@ -179,14 +218,18 @@ export class SentenceChunker {
   }
 
   // `firstMin` is the opening chunk's length bar: STREAMED_FIRST_CHARS for an
-  // engine that streams its audio.
-  push(t: string, firstMin = FIRST_TTS_CHARS): string[] {
+  // engine that streams its audio. The bars are English characters, scaled to
+  // `lang` by how fast it is spoken.
+  push(t: string, firstMin = FIRST_TTS_CHARS, lang = "en"): string[] {
     this.buf += this.stripFences(t);
     const out: string[] = [];
+    const { rate, spaced, maxChunk } = langText(lang);
+    const bar = (n: number) => Math.max(1, Math.round((n * rate) / ENGLISH_CHARS_PER_SEC));
+    const split = (x: string) => splitLong(x, maxChunk, spaced);
     // Fast start — only when nothing is already held (`ready` empty) so we never
     // speak the opening ahead of an earlier short sentence waiting to merge.
     if (!this.started && !this.ready) {
-      const first = this.takeFirst(firstMin);
+      const first = this.takeFirst(bar(firstMin), bar, spaced);
       if (first) { out.push(first); this.started = true; }
     }
     let last = 0;
@@ -198,14 +241,13 @@ export class SentenceChunker {
       last = end;
       // First chunk clears the low bar so even a short single sentence speaks
       // now; every chunk after keeps the stable MIN_TTS_CHARS timbre bar.
-      const bar = this.started ? MIN_TTS_CHARS : firstMin;
-      if (this.ready.trim().length >= bar) { out.push(...splitLong(this.ready)); this.ready = ""; this.started = true; }
+      if (this.ready.trim().length >= bar(this.started ? MIN_TTS_CHARS : firstMin)) { out.push(...split(this.ready)); this.ready = ""; this.started = true; }
     }
     if (last) this.buf = this.buf.slice(last);
     // No boundary in sight: speak all but the last piece now, so no chunk, and
-    // no flushed tail beyond one held short sentence, exceeds MAX_CHUNK_CHARS.
-    if (this.buf.length > MAX_CHUNK_CHARS) {
-      const pieces = splitLong(this.ready + this.buf);
+    // no flushed tail beyond one held short sentence, exceeds the chunk cap.
+    if (this.buf.length > maxChunk) {
+      const pieces = split(this.ready + this.buf);
       this.buf = this.buf.slice(this.buf.lastIndexOf(pieces.pop()!)); // keeps a trailing space for the next delta
       if (pieces.length) { out.push(...pieces); this.ready = ""; this.started = true; }
     }
@@ -215,15 +257,18 @@ export class SentenceChunker {
   // an early clause boundary, else — for a LONG opening sentence with no early
   // pause — the first few words at a word boundary. A short sentence (terminal
   // within reach) is left for the sentence loop to emit whole.
-  private takeFirst(min: number): string | null {
+  // Unspaced text (Chinese, Japanese) has no word boundary to cut at: its
+  // opening waits for a clause mark or the sentence's end.
+  private takeFirst(min: number, bar: (n: number) => number, spaced: boolean): string | null {
     const s = this.buf;
     if (s.trim().length < min) return null;
-    const clause = /^([\s\S]{12,}?[,;:—–])\s/.exec(s);
-    if (clause) { this.buf = s.slice(clause[0].length); return clause[1]!.trim(); }
-    if (/[.!?](\s|$)/.test(s.slice(0, 90))) return null; // a full sentence ends soon — don't chop it
-    const window = s.slice(0, 48);
+    const clause = new RegExp(`^([\\s\\S]{${bar(12)},}?(?:[,;:—–](?=\\s)|[、，；：]))`).exec(s);
+    if (clause) { this.buf = s.slice(clause[0].length).replace(/^\s/, ""); return clause[1]!.trim(); }
+    if (/[.!?](\s|$)|[。！？．।]/.test(s.slice(0, bar(90)))) return null; // a full sentence ends soon: don't chop it
+    if (!spaced) return null;
+    const window = s.slice(0, bar(48));
     const sp = window.lastIndexOf(" ");
-    if (sp < FIRST_TTS_CHARS) return null;
+    if (sp < bar(FIRST_TTS_CHARS)) return null;
     this.buf = s.slice(sp + 1);
     return window.slice(0, sp).trim();
   }

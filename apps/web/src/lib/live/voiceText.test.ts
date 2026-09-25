@@ -222,6 +222,69 @@ test("estimateSpeechMs: scales with length, inversely with speed, at each engine
   assert.equal(estimateSpeechMs("x".repeat(32), "kokoro"), 2000); // one-piece engines: exact duration is used instead
 });
 
+// ── languages other than English ────────────────────────────────────────────
+
+// Like chunked(), in a language.
+function chunkedIn(lang: string, text: string, size: number, firstMin?: number): string[] {
+  const c = new SentenceChunker();
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), firstMin, lang));
+  const tail = c.flush();
+  return tail ? [...out, tail] : out;
+}
+
+test("SentenceChunker: Chinese and Japanese end sentences with no space after, and drop nothing", () => {
+  const zh = "好的。我检查了文件，并修复了登录页面的错误。现在可以再试一次吗？谢谢！";
+  const out = chunkedIn("zh", zh, 3);
+  assert.equal(out.join(""), zh);
+  // "好的。" alone is under the opening bar, so it merges with the next sentence.
+  assert.deepEqual(out, ["好的。我检查了文件，并修复了登录页面的错误。", "现在可以再试一次吗？谢谢！"]);
+  const ja = "わかりました。ファイルを確認して、ログインページのバグを直しました。もう一度試してみてください。";
+  const jaOut = chunkedIn("ja", ja, 4);
+  assert.equal(jaOut.join(""), ja);
+  assert.ok(jaOut.length >= 2 && jaOut.every((s) => /[。、]$/.test(s)), JSON.stringify(jaOut));
+});
+
+test("SentenceChunker: the Devanagari danda ends a sentence", () => {
+  const hi = "ठीक है। मैंने फ़ाइल देखी और लॉगिन पेज की गलती ठीक कर दी। अब फिर से कोशिश करें।";
+  const out = chunkedIn("hi", hi, 5);
+  assert.equal(out.join(" "), hi);
+  assert.ok(out.length >= 2 && out.every((s) => s.endsWith("।")), JSON.stringify(out));
+});
+
+test("SentenceChunker: an unspaced reply with no punctuation still never builds a chunk over the cap", () => {
+  const zh = "我".repeat(500);
+  const out = chunkedIn("zh", zh, 7);
+  assert.equal(out.join(""), zh);
+  assert.ok(out.every((s) => s.length <= 120), JSON.stringify(out.map((s) => s.length)));
+});
+
+test("SentenceChunker: English is unchanged by a CJK mark in the reply", () => {
+  const text = "The word for thanks is 谢谢。 And that's all there is to it, really.";
+  assert.equal(chunked(text, 4).join(" "), text);
+});
+
+test("splitLong: unspaced text cuts after a clause mark, else inside the run", () => {
+  assert.deepEqual(splitLong("一二三，四五六七八", 6, false), ["一二三，", "四五六七八"]);
+  assert.deepEqual(splitLong("一二三四五六七八", 6, false), ["一二三四五六", "七八"]);
+});
+
+test("endsMidThought: the English word list applies only to English", () => {
+  assert.equal(endsMidThought("i want to", "en"), true);
+  assert.equal(endsMidThought("quiero ir a", "es"), false);       // "a" is Spanish, not filler
+  assert.equal(endsMidThought("je veux the", "fr"), false);
+  assert.equal(endsMidThought("quiero ir al parque,", "es"), true); // a trailing comma still holds
+  assert.equal(endsMidThought("明日は、", "ja"), true);
+  assert.equal(endsMidThought("我想去...", "zh"), true);
+  assert.equal(endsMidThought("明日は晴れです。", "ja"), false);
+});
+
+test("toSpeech: outside English file names keep their dot", () => {
+  assert.equal(toSpeech("revisa src/app/main.py ahora", "es"), "revisa main.py ahora");
+  assert.equal(toSpeech("ve a https://www.example.com/docs", "es"), "ve a example.com");
+  assert.equal(toSpeech("saved to app/main.py", "en"), "saved to main dot py");
+});
+
 test("isJunk: a one-syllable CJK answer is a turn, multilingual Whisper's silence lines are not", () => {
   assert.equal(isJunk("好"), false);
   assert.equal(isJunk("네"), false);
@@ -230,4 +293,11 @@ test("isJunk: a one-syllable CJK answer is a turn, multilingual Whisper's silenc
   assert.equal(isJunk("ご視聴ありがとうございました。"), true);
   assert.equal(isJunk("字幕由Amara.org社区提供"), true);
   assert.equal(isJunk("a"), true);
+});
+
+test("estimateSpeechMs: a language's own rate, the engine's in English", () => {
+  assert.equal(estimateSpeechMs("x".repeat(9), "kokoro-native", 1, "zh"), 2000);
+  assert.equal(estimateSpeechMs("x".repeat(14), "piper", 2, "ja"), 1000);
+  assert.equal(estimateSpeechMs("x".repeat(32), "pocket", 1, "es"), 2000); // Spanish speaks at English's pace
+  assert.equal(estimateSpeechMs("x".repeat(30), "kitten", 1, "en"), 3000);
 });
