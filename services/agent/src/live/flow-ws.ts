@@ -133,6 +133,13 @@ export class FlowLiveSession {
   private savedReply: { id: string } | null = null;
   /** Utterances that arrived mid-run: the loop drains them between turns. */
   private steering: Msg[] = [];
+  /** The client's number for the latest utterance. */
+  private turn: number | undefined;
+  /** The number the running loop's events carry. It moves to a steering utterance
+   *  only once the loop takes it in, so a cut run's closing events keep the number
+   *  of the turn that was cut. A spoken answer bounced to an open ask moves it too:
+   *  the client numbered that sentence, and the rest of the run is still its reply. */
+  private replyTurn: number | undefined;
   private messages: Msg[] = [];
   private brain: Brain = new LocalBrain();
   /** The coding-agent brain and the MCP server publishing Flow's tools to it. */
@@ -223,9 +230,10 @@ export class FlowLiveSession {
         // An ask is awaiting the user, so this utterance is its ANSWER, never a new
         // turn. The client routes it when its chip is up; a raced one lands here and
         // is bounced back instead of leaking to the model as a fresh prompt.
-        if (this.permPending.size) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        if (this.permPending.size) { this.turn = this.replyTurn = msg.turn; this.send({ t: "modal_voice_answer", text: msg.text }); return; }
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
+        this.turn = msg.turn;
         return this.onUtterance(msg.text);
       }
       case "flow_cancel":
@@ -279,6 +287,7 @@ export class FlowLiveSession {
     this.turnActive = true;
     this.voicedFrom = -1;
     const startedAt = this.messages.length;
+    this.replyTurn = this.turn;
     const ac = new AbortController();
     this.ac = ac;
     const cfg = readFlowConfig();
@@ -300,9 +309,12 @@ export class FlowLiveSession {
         context: this.context,
         approve: (req, signal) => this.approve(req, signal),
         getSystemPrompt: () => buildFlowPrompt({ tools: this.tools, lang: this.lang }),
-        pollSteering: () => this.steering.splice(0),
+        pollSteering: () => {
+          if (this.steering.length) this.replyTurn = this.turn;
+          return this.steering.splice(0);
+        },
       })) {
-        this.send({ t: "flow", event });
+        this.send({ t: "flow", event, turn: this.replyTurn });
         this.write(() => this.record(event));
       }
     } catch (e) {
@@ -310,8 +322,8 @@ export class FlowLiveSession {
       // Mostly a coding agent that would not start, and its reason is the fix.
       const message = (e instanceof Error && e.message.slice(0, 400)) || "That turn failed.";
       const aborted = ac.signal.aborted;
-      this.send({ t: "flow", event: { type: "error", message, aborted } });
-      this.send({ t: "flow", event: { type: "done", reason: aborted ? "aborted" : "error" } });
+      this.send({ t: "flow", event: { type: "error", message, aborted }, turn: this.replyTurn });
+      this.send({ t: "flow", event: { type: "done", reason: aborted ? "aborted" : "error" }, turn: this.replyTurn });
     } finally {
       this.turnActive = false;
       this.ac = null;

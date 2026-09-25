@@ -35,6 +35,10 @@ export const withReplyLanguage = (text: string, lang?: LanguageCode): string => 
   return line ? `[${line}]\n\n${text}` : text;
 };
 
+/** Numbers a user turn, client-side. The server echoes it on every event of the
+ *  reply, so a cancelled turn's late events cannot land in the turn after it. */
+const turnIdSchema = z.number().int();
+
 /** First byte of a binary WS message. */
 export const LIVE_TAG = {
   FRAME_IN: 0x02, // client→server: JPEG camera frame (freshest-per-turn or `look`)
@@ -85,7 +89,8 @@ export type FlowContentWire = z.infer<typeof flowContentSchema>;
 // ── server → client (JSON) ────────────────────────────────────────────────
 export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Wrap an ordinary chat SSE event so the browser reuses the existing reducer.
-  z.object({ t: z.literal("sse"), event: sseEventSchema }),
+  // `turn` echoes the user_text the event answers; absent on events outside a turn.
+  z.object({ t: z.literal("sse"), event: sseEventSchema, turn: turnIdSchema.optional() }),
   // Ask the client for ONE fresh hi-res frame (the `look` tool). The client
   // replies with a frame_response then sends the JPEG as the next binary frame.
   z.object({ t: z.literal("need_frame"), reqId: z.string() }),
@@ -158,7 +163,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("modal_voice_answer"), text: z.string() }),
   // One event of a Flow turn. Wrapped rather than inlined so the client routes
   // Flow to its owner window and chat to the chat store, unchanged.
-  z.object({ t: z.literal("flow"), event: flowEventSchema }),
+  z.object({ t: z.literal("flow"), event: flowEventSchema, turn: turnIdSchema.optional() }),
   z.object({ t: z.literal("error"), message: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
@@ -184,6 +189,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
     // The session language, read as the turn is sent, so a change applies from
     // the next turn. Absent means English.
     lang: languageSchema.optional(),
+    turn: turnIdSchema.optional(),
   }),
   // Barge-in: the user started talking over the agent — abort the in-flight LLM
   // stream. Audio is stopped locally; this only stops the server generating.
@@ -211,7 +217,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
   // A completed Flow utterance, with the metadata the desktop captured as the
   // user spoke it. Approval answers reuse `permission_response`.
-  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional(), lang: languageSchema.optional() }),
+  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional(), lang: languageSchema.optional(), turn: turnIdSchema.optional() }),
   // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
   // turn on the same socket can never abort each other. `spoken` is what the
   // on-device TTS actually voiced before the cut, so only that is persisted.

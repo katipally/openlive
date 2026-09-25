@@ -97,3 +97,17 @@ test("a cut mid-turn with nothing voiced yet saves none of the reply", async () 
   expect(lastReply("cut-mid")).toEqual([{ type: "text", text: "" }]);
   ws.emit("close");
 });
+
+test("a cut turn's closing done carries its own number, and the next turn's reply carries the next", async () => {
+  const { ws, say, until, done, started } = connect("cut-turns");
+  say({ t: "user_text", text: "Count slowly.", turn: 1 });
+  await started;
+  await until(() => ws.sent.some((m) => m.event?.type === "text_delta"));
+  say({ t: "cancel" });
+  say({ t: "user_text", text: "Go on.", turn: 2 });
+  await done(2);
+  const turns = ws.sent.filter((m) => m.t === "sse" && m.turn !== undefined).map((m) => `${m.event.type}:${m.turn}`);
+  expect(turns.filter((t) => t.startsWith("done"))).toEqual(["done:1", "done:2"]);
+  expect(turns.slice(turns.indexOf("done:1") + 1).every((t) => t.endsWith(":2"))).toBe(true);
+  ws.emit("close");
+});

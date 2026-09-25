@@ -119,6 +119,23 @@ describe("FlowLiveSession", () => {
     expect(asked.some((m) => m.role === "assistant" && m.text === "It's 18 and clear in Berlin.")).toBe(true);
   });
 
+  it("closes a cut run under its own number, and answers the next utterance under the next", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = [{ type: "text_delta", delta: "Opening" }, async () => {
+      ws.client({ t: "flow_cancel", spoken: "" });
+      ws.client({ t: "flow_text", text: "no, the other one", turn: 2 });
+      fake.script = reply("Sure.");
+      await tick();
+    }];
+    ws.client({ t: "flow_text", text: "open the file", turn: 1 });
+    await until(() => turnsDone(ws) === 2);
+
+    const events = ws.sent.filter((m) => m.t === "flow" && m.event.type !== "context").map((m) => `${m.event.type}:${m.turn}`);
+    expect(events).toEqual(["text_delta:1", "error:1", "done:1", "text_delta:2", "turn_end:2", "done:2"]);
+  });
+
   it("cuts a finished reply back to what was voiced when the user cuts in while it plays", async () => {
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);

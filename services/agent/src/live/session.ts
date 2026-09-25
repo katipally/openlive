@@ -78,8 +78,12 @@ export class LiveSession {
   // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
   // current turn settles. Frames are queued too so a barge-in with the camera on
   // doesn't lose what the user was showing.
-  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode } | null = null;
+  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
+  // The client's number for the utterance the running turn answers, echoed on its
+  // events. A field, not a closure: a spoken modal answer bounced mid-turn carries
+  // the client's newest number, and the rest of the turn must be sent under it.
+  private replyTurn: number | undefined;
   // The last saved reply, while the client may still be voicing it: a model streams
   // its text far faster than speech, so most barge-ins land after the turn is over.
   private lastReply: { id: string; blocks: MessageBlock[]; byRunner: boolean } | null = null;
@@ -211,8 +215,8 @@ export class LiveSession {
         // the ask reached the server before the client applied the modal, the raced
         // utterance lands here as a user_text; bounce it back to be answered instead of
         // starting/queuing a coding turn (which is how it used to leak to the agent).
-        if (this.modalPending()) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
-        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang);
+        if (this.modalPending()) { this.replyTurn = msg.turn; this.send({ t: "modal_voice_answer", text: msg.text }); return; }
+        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn);
       case "cancel":
         // While a modal is open, the "barge-in" IS the user answering it — never
         // interrupt (that cancelled the very ask being answered). Real cancellation
@@ -268,7 +272,7 @@ export class LiveSession {
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
-  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode) {
+  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode, turn?: number) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
     // queue it (append text, keep the freshest frames) and the finally below drains
@@ -278,10 +282,12 @@ export class LiveSession {
         text: this.queued ? `${this.queued.text} ${text}` : text,
         frames: frames.length ? frames : (this.queued?.frames ?? []),
         lang,
+        turn,
       };
       return;
     }
     this.turnActive = true;
+    this.replyTurn = turn;
     this.lastReply = null;
     const ac = new AbortController();
     this.ac = ac;
@@ -353,10 +359,10 @@ export class LiveSession {
         const saved = await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => { log.error("live", "persist assistant turn:", e); return null; });
         if (saved && !ac.signal.aborted) this.lastReply = { id: saved.id, blocks, byRunner };
       }
-      this.send({ t: "sse", event: { type: "done" } });
+      this.send({ t: "sse", event: { type: "done" }, turn: this.replyTurn });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queued; this.queued = null;
-      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang); // drain a barge-in utterance (with its frames)
+      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang, q.turn); // drain a barge-in utterance (with its frames)
     }
   }
 
@@ -366,7 +372,7 @@ export class LiveSession {
     return async (e: SseEvent) => {
       if (signal.aborted || this.closed) return; // barge-in → drop late events
       foldBlock(blocks, e, ctx);
-      this.send({ t: "sse", event: e });
+      this.send({ t: "sse", event: e, turn: this.replyTurn });
     };
   }
 

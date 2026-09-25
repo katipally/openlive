@@ -68,6 +68,10 @@ export class LiveClient {
   private static HEALTHY_MS = 3000; // a connection must survive this long to "count"
   private static MAX_QUEUE = 8;     // cap queued turns during an outage (drop oldest)
   private queue: string[] = [];     // user turns spoken while the socket was down, flushed on reopen
+  // The latest user turn sent. The server echoes its number on the reply, so a
+  // cancelled turn's done or deltas that cross the wire after the next turn went
+  // out are dropped here instead of ending or voicing that next turn.
+  private turn = 0;
   /** `flow: true` opens the same endpoint for Flow's own runtime: same schemas,
    *  same permission protocol, its own connection because it is its own renderer. */
   constructor(private h: LiveHandlers, private opts: { flow?: boolean } = {}) {}
@@ -142,7 +146,7 @@ export class LiveClient {
       let m: any;
       try { m = JSON.parse(ev.data); } catch { return; }
       switch (m.t) {
-        case "sse": return this.h.onSse?.(m.event);
+        case "sse": return this.current(m.turn) ? this.h.onSse?.(m.event) : undefined;
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
         case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
         case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt, m.toolCallId);
@@ -150,7 +154,7 @@ export class LiveClient {
         case "elicitation": return this.h.onElicitation?.(m);
         case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
         case "modal_voice_answer": return this.h.onModalVoiceAnswer?.(m.text);
-        case "flow": return this.h.onFlow?.(m.event);
+        case "flow": return this.current(m.turn) ? this.h.onFlow?.(m.event) : undefined;
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
@@ -160,6 +164,8 @@ export class LiveClient {
     this.ws = ws;
   }
 
+  /** Events outside any turn (status, agent start errors) carry no number. */
+  private current(turn: unknown) { return turn === undefined || turn === this.turn; }
   private sendJson(m: unknown) { if (this.ready) this.ws!.send(JSON.stringify(m)); }
   /** A user turn is too important to drop: if the socket is mid-reconnect, queue it
    *  and flush on reopen. Other messages (frames, control, cancel) are ephemeral. */
@@ -171,11 +177,11 @@ export class LiveClient {
     if (this.queue.length > LiveClient.MAX_QUEUE) this.queue.shift();
   }
   userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[]) {
-    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField() });
+    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField(), turn: ++this.turn });
   }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken !== undefined ? { spoken } : {}) }); }
   /** A completed Flow utterance, with the metadata captured as it was spoken. */
-  flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}), ...langField() }); }
+  flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}), ...langField(), turn: ++this.turn }); }
   /** Barge-in on a Flow turn. `spoken` is what the voice actually got through;
    *  `close` also refuses any ask still open, because Flow itself is going away. */
   flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken !== undefined ? { spoken } : {}), ...(close ? { close } : {}) }); }
