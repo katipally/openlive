@@ -240,9 +240,11 @@ export function nativeSttFailed(engine: string, err: unknown, lasting = failureI
   toast(`${familyName(engine)} unavailable, using Whisper. Check Settings > Voice pipeline.`);
 }
 
-// Call start, model load and every Flow open all ask for a warm-up; one per
-// engine a minute keeps the agent's engines loaded (it unloads after 5 idle
-// minutes) without a duplicate "Hi." queueing ahead of the first real sentence.
+// Call start, model load, every Flow open and a running call's keep-warm tick
+// all ask for a warm-up; one per engine a minute keeps the agent's engines
+// loaded (it unloads after 5 idle minutes) without a duplicate "Hi." queueing
+// ahead of the first real sentence. A real request counts as one, so a warm-up
+// never lands in the middle of a reply.
 const WARM_FRESH_MS = 60_000;
 const warmedAt = new Map<string, number>();
 const warmDue = (engine: string) => {
@@ -275,6 +277,7 @@ const STT_WINDOW = 50 * 16000; // the agent refuses more than 60 s per request
 async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array, signal?: AbortSignal): Promise<string> {
   const texts: string[] = [];
   for (let i = 0; i < audio.length; i += STT_WINDOW) {
+    warmedAt.set(engine, Date.now());
     const res = await fetch(`/api/voice/stt?engine=${engine}&lang=${lang}`, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
@@ -357,6 +360,7 @@ export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<st
 let cloneFailed = false;
 async function cloneTts(text: string, voice: string, speed?: number): Promise<{ audio: Float32Array; sampleRate: number } | null> {
   for (let attempt = 1; ; attempt++) {
+    warmedAt.set("clone", Date.now());
     try {
       const res = await fetch("/api/voice/tts", {
         method: "POST",
@@ -427,6 +431,7 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
     for (let attempt = 1; ; attempt++) {
       const stalled = new AbortController();
       let timer = setTimeout(() => stalled.abort(new Error("the engine did not start")), TTS_START_MS);
+      warmedAt.set(engine!, Date.now());
       const stallIn = (why: string) => { clearTimeout(timer); timer = setTimeout(() => stalled.abort(new Error(why)), ttsStallMs(text)); };
       try {
         const res = await fetch("/api/voice/tts", {

@@ -143,6 +143,22 @@ describe("native TTS stall", () => {
   });
 });
 
+describe("keep-warm", () => {
+  it("sends no warm-up for an engine that just served a real sentence, and one after a quiet minute", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ stt: { engine: "whisper" }, tts: { engine: "pocket" } }), setItem: () => {} });
+    const fetch = vi.fn(async () => spoken([new Float32Array([0.1])]));
+    vi.stubGlobal("fetch", fetch);
+    await models.ttsStream("Hello.", { engine: "pocket-int8" }, () => {});
+    models.warmNativeEngines();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    models.warmNativeEngines();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodyOf(fetch, 1)).toMatchObject({ engine: "pocket-int8", text: "Hi." });
+  });
+});
+
 describe("cloned voice", () => {
   it("tries the cloned voice again after a 500 instead of reading one sentence in another voice", async () => {
     const pcm = new Float32Array([0.1, 0.2, 0.3]);

@@ -56,6 +56,11 @@ const RMS_GATE = 0.006;      // reject near-silence; low enough to hear a soft t
 // detected, in 512-sample (32 ms) frames: 25 of them plus the frame that tripped it.
 // A streamed utterance sends the same audio from the same point.
 const PRE_SPEECH_FRAMES = Math.floor(800 / 32) + 1;
+// The agent unloads a native engine after 5 idle minutes (native-worker.ts), so
+// a long think or a quiet stretch mid-call would load it cold under the next
+// sentence. A tick well inside that keeps it loaded; warmNativeEngines skips an
+// engine that served a real request in the last minute.
+const KEEP_WARM_MS = 2 * 60_000;
 
 /** The TTS settings one reply is spoken with. */
 type ReplyVoice = { engine: string; family: string; voice: string; speed: number; lang: LanguageCode };
@@ -118,6 +123,7 @@ export class VoiceEngine {
   private uttEngine = "whisper";                  // the STT variant this utterance started on
   private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
   private micTrack: MediaStreamTrack | null = null;
+  private keepWarm: ReturnType<typeof setInterval> | undefined;
   // "ended" fires only when the browser ends a track, never for our own stop().
   private onMicEnded = () => this.h.onMicLost?.();
 
@@ -197,6 +203,8 @@ export class VoiceEngine {
     });
     this.syncAsr();
     warmNativeEngines();
+    clearInterval(this.keepWarm);
+    this.keepWarm = setInterval(warmNativeEngines, KEEP_WARM_MS);
     // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
     if (!this.muted || this.ptt) await this.vad.start();
     this.setupMicSpectrum(stream);
@@ -619,6 +627,7 @@ export class VoiceEngine {
   agentBands(n = 5): number[] { return this.player.agentBands(n); }
 
   stop() {
+    clearInterval(this.keepWarm);
     this.clearHold();
     this.ptt = false;
     this.epoch++;
