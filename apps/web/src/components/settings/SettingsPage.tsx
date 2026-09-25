@@ -21,7 +21,7 @@ export const SECTIONS = [
   { id: "general", label: "General", sub: "Appearance, speech & startup", icon: Settings2, Comp: GeneralSettings },
   { id: "models", label: "Models", sub: "API mode · BYOK", icon: SlidersHorizontal, Comp: ModelsSettings },
   { id: "flow", label: "Flow", sub: "Trigger, voice & typing", icon: Waves, Comp: FlowSettings },
-  { id: "voice", label: "Voice", sub: "Speed, engine, your voices", icon: AudioWaveform, Comp: VoiceSettings },
+  { id: "voice", label: "Voice", sub: "Language, speed, engine, voices", icon: AudioWaveform, Comp: VoiceSettings },
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings },
   { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
 ] as const;
@@ -249,7 +249,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Six focused tabs", body: "General (appearance, style & speech), Models for API mode (BYOK), Flow's trigger, voice & typing, Voice for speed, the on-device engine and your cloned voices, agent install & sign-in under Agents, and About." },
+        { target: "settings-nav", title: "Six focused tabs", body: "General (appearance, style & speech), Models for API mode (BYOK), Flow's trigger, voice & typing, Voice for language, speed, the on-device engine and your cloned voices, agent install & sign-in under Agents, and About." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadPipelineConfig, savePipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
-import { PipelineSettings } from "./PipelineSettings";
+import { PipelineSettings, LanguagePicker } from "./PipelineSettings";
 import { VoicesSettings } from "./VoicesSettings";
 import { Section } from "./Section";
 
@@ -21,11 +21,15 @@ function SpeakingSpeed() {
   );
 }
 
-// One home for everything about how OpenLive hears and speaks: speed first (the
-// knob people reach for most), then the on-device engine, then cloned voices.
+// One home for everything about how OpenLive hears and speaks: the language
+// first (every stage below follows it), then speed (the knob people reach for
+// most), then the on-device engine, then cloned voices.
 export function VoiceSettings() {
   return (
     <div className="flex flex-col gap-7">
+      <Section id="set-voice-language" title="Language" desc="What you speak and what OpenLive answers in. Transcription, the voice and the reply all follow it.">
+        <LanguagePicker />
+      </Section>
       <Section id="set-voice-speaking" title="Speaking" desc="How fast replies are read out, whichever voice is speaking.">
         <SpeakingSpeed />
       </Section>

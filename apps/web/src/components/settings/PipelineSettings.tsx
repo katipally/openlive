@@ -7,9 +7,9 @@ import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, D
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
-  DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, languageSupport,
+  DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, CURATED_LANGUAGES, languageSupport, pickCompatible,
 } from "@/lib/live/pipelineConfig";
-import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName } from "@/lib/live/engineMenu";
+import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName, switchNotice } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
@@ -497,6 +497,71 @@ function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update
         </button>
       </div>
     </label>
+  );
+}
+
+/** The download a switch notice asks for, sharing the stage rows' job store. */
+function NoticeDownload({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const { data } = useNativeEngines();
+  const job = useEngineJobs((s) => s[id]);
+  const e = variantStatus(data, id);
+  if (!e) return <span className="text-caption">Start OpenLive&apos;s agent to download it.</span>;
+  if (e.installed) return <span className="flex items-center gap-1.5 text-success"><Check className="size-3.5" /> Downloaded</span>;
+  if (job?.pct !== undefined || e.downloading) {
+    return <span className="flex items-center gap-1.5 tabular-nums"><Loader2 className="size-3.5 animate-spin" /> Downloading{job?.pct === undefined ? "…" : ` ${Math.round(job.pct * 100)}%`}</span>;
+  }
+  return (
+    <>
+      <button onClick={() => void downloadEngine(e, qc)}
+        className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
+        <Download className="size-3.5" /> Download ({mb(e.sizeBytes)})
+      </button>
+      {job?.error && <span role="alert" className="basis-full text-caption text-danger">{job.error}</span>}
+    </>
+  );
+}
+
+/** The session language, above every stage since each follows it. A change
+ *  swaps any engine that cannot speak it (preferring what is downloaded) and
+ *  says what changed, with a Download for anything that is not on disk yet. */
+export function LanguagePicker() {
+  const [cfg, setCfg] = useState<PipelineConfig>(() => loadPipelineConfig());
+  useEffect(() => onPipelineConfig(setCfg), []);
+  const { data, isError } = useNativeEngines();
+  const [notice, setNotice] = useState<{ lang: LanguageCode; lines: { text: string; download?: string }[] } | null>(null);
+  const choose = (lang: LanguageCode) => {
+    // With the agent unreachable nothing native counts as downloaded; while it is still loading, everything does.
+    const { cfg: picked, changes, unsupported } = pickCompatible(cfg, lang, data ?? (isError ? [] : undefined));
+    // A catalog voice of another language (Kokoro CPU's af_heart after a switch to
+    // Spanish) gives way to the one the agent picks for the language.
+    const voice = variantStatus(data, picked.tts.variant)?.voices?.find((v) => v.id === picked.tts.voice);
+    const next = voice?.lang && voice.lang !== lang ? { ...picked, tts: { ...picked.tts, voice: "" } } : picked;
+    setCfg(savePipelineConfig(next));
+    const lines = switchNotice(lang, changes, unsupported, (id) => engineName(id, data));
+    setNotice(lines.length ? { lang, lines } : null);
+    if (!lines.length) toast(`Language set to ${languageLabel(lang)}. Your engines already speak it.`, "info");
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      <select aria-label="Language" value={cfg.language} onChange={(e) => choose(e.target.value as LanguageCode)} className={cn(selectClass, "max-w-md")}>
+        {CURATED_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{languageLabel(l.code)}</option>)}
+      </select>
+      {notice && (
+        <div role="status" className="flex max-w-xl flex-col gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-label text-arc-text">
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 font-medium">Switched to {languageLabel(notice.lang)}, so some engines changed:</p>
+            <button onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 rounded p-0.5 transition hover:bg-arc/15"><X className="size-3.5" /></button>
+          </div>
+          {notice.lines.map((n) => (
+            <div key={n.text} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="min-w-0 break-words">{n.text}</span>
+              {n.download && <NoticeDownload id={n.download} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
