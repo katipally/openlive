@@ -267,7 +267,7 @@ export class LiveSession {
         if (this.bridgePending.delete(reqId)) resolve("That action timed out.");
       }, 5000);
       this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
-      this.send({ t: "tool_bridge", reqId, op, arg });
+      this.send({ t: "tool_bridge", reqId, op, arg, turn: this.replyTurn });
     });
   }
 
@@ -507,6 +507,9 @@ export class LiveSession {
   private askPermission(question: string, options: PermissionAskOption[], toolCallId?: string): Promise<string> {
     return new Promise((resolve) => {
       if (this.closed) return resolve("deny");
+      // A cut or finished turn's late ask: its number is stale, so the client drops it,
+      // and left pending here it would take the next utterance as its answer.
+      if (!this.ac || this.ac.signal.aborted) return resolve(PERMISSION_CANCELLED);
       const reqId = randomUUID();
       const PERM_TIMEOUT_MS = 120_000;
       const expiresAt = Date.now() + PERM_TIMEOUT_MS; // client renders the countdown + speaks a reminder
@@ -521,7 +524,7 @@ export class LiveSession {
       };
       const timer = setTimeout(() => settle("deny"), PERM_TIMEOUT_MS);
       this.permPending.set(reqId, settle);
-      this.send({ t: "permission", reqId, question, options, expiresAt, toolCallId });
+      this.send({ t: "permission", reqId, question, options, expiresAt, toolCallId, turn: this.replyTurn });
     });
   }
 
@@ -532,7 +535,7 @@ export class LiveSession {
    *  agent-side completion (OAuth landed) auto-accepts the card. */
   private askElicitation(req: ElicitationAsk): Promise<ElicitationAnswer> {
     return new Promise((resolve) => {
-      if (this.closed) return resolve({ action: "cancel" });
+      if (this.closed || this.ac?.signal.aborted) return resolve({ action: "cancel" });
       const reqId = randomUUID();
       const ELICIT_TIMEOUT_MS = 120_000;
       const expiresAt = Date.now() + ELICIT_TIMEOUT_MS;
@@ -546,7 +549,7 @@ export class LiveSession {
       const timer = setTimeout(() => settle({ action: "cancel" }), ELICIT_TIMEOUT_MS);
       this.elicitPending.set(reqId, settle);
       if (req.elicitationId) this.elicitById.set(req.elicitationId, settle);
-      this.send({ t: "elicitation", reqId, mode: req.mode, message: req.message, url: req.url, schema: req.schema, expiresAt });
+      this.send({ t: "elicitation", reqId, mode: req.mode, message: req.message, url: req.url, schema: req.schema, expiresAt, turn: this.replyTurn });
     });
   }
 

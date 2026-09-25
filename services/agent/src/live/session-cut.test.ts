@@ -48,9 +48,10 @@ function connect(chatId: string) {
   const say = (m: unknown) => ws.emit("message", Buffer.from(JSON.stringify(m)), false);
   const until = async (ok: () => boolean) => { while (!ok()) await new Promise((r) => setTimeout(r, 10)); };
   const done = (n: number) => until(() => ws.sent.filter((m) => m.event?.type === "done").length >= n);
-  const started = new LiveSession(ws as never, chatId).start();
+  const session = new LiveSession(ws as never, chatId);
+  const started = session.start();
   say({ t: "bind", agentId: null, cwd: "" });
-  return { ws, say, until, done, started };
+  return { ws, say, until, done, started, session };
 }
 const lastReply = (chatId: string) => listMessages(chatId).filter((m) => m.role === "assistant").at(-1)?.content;
 
@@ -109,5 +110,25 @@ test("a cut turn's closing done carries its own number, and the next turn's repl
   const turns = ws.sent.filter((m) => m.t === "sse" && m.turn !== undefined).map((m) => `${m.event.type}:${m.turn}`);
   expect(turns.filter((t) => t.startsWith("done"))).toEqual(["done:1", "done:2"]);
   expect(turns.slice(turns.indexOf("done:1") + 1).every((t) => t.endsWith(":2"))).toBe(true);
+  ws.emit("close");
+});
+
+test("an agent's ask carries its turn's number, and one arriving after the turn is refused", async () => {
+  const { ws, say, until, done, started, session } = connect("cut-asks");
+  const ask = () => (session as any).askPermission("Run it?", [{ id: "ok", label: "Allow", kind: "allow_once" }]) as Promise<string>;
+  say({ t: "user_text", text: "Count slowly.", turn: 4 });
+  await started;
+  await until(() => ws.sent.some((m) => m.event?.type === "text_delta"));
+  const answered = ask();
+  await until(() => ws.sent.some((m) => m.t === "permission"));
+  const asked = ws.sent.find((m) => m.t === "permission")!;
+  expect(asked.turn).toBe(4);
+  say({ t: "permission_response", reqId: asked.reqId, optionId: "ok" });
+  expect(await answered).toBe("ok");
+  say({ t: "cancel" });
+  await done(1);
+  // Left pending, it would take the next utterance as its answer.
+  expect(await ask()).toBe("__acp_cancelled__");
+  expect(ws.sent.filter((m) => m.t === "permission")).toHaveLength(1);
   ws.emit("close");
 });

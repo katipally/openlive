@@ -103,8 +103,9 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // metadata back as JSON. `flow_device` carries one perception or control call
   // into the ol-input addon (arg is `{"fn","args"}`, the reply is `{"value"}` or
   // `{"error"}`), so the agent service never needs the addon in its own process.
-  // Chat never sends them.
-  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url", "flow_insert", "flow_insert_end", "flow_context", "flow_device"]), arg: z.string().optional() }),
+  // Chat never sends them. `turn`, like on permission and elicitation, is the
+  // reply's number, so a cancelled turn's late ask never reaches the next turn.
+  z.object({ t: z.literal("tool_bridge"), reqId: z.string(), op: z.enum(["clipboard_read", "clipboard_write", "open_url", "flow_insert", "flow_insert_end", "flow_context", "flow_device"]), arg: z.string().optional(), turn: turnIdSchema.optional() }),
   // A bound coding agent (Claude Code / Codex / Cursor) wants permission to do
   // something (run a command, edit files). The client speaks the question and shows
   // approve/deny chips; the answer comes back as permission_response.
@@ -115,7 +116,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("permission"), reqId: z.string(), question: z.string(),
     options: z.array(z.object({ id: z.string(), label: z.string(), kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]).optional() })),
-    expiresAt: z.number().optional(), toolCallId: z.string().optional(),
+    expiresAt: z.number().optional(), toolCallId: z.string().optional(), turn: turnIdSchema.optional(),
   }),
   // A permission ask is no longer awaiting the user (answered, auto-denied, or the
   // turn was cancelled) — the client dismisses its chip so a later utterance isn't
@@ -146,6 +147,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("elicitation"), reqId: z.string(), mode: z.enum(["url", "form"]),
     message: z.string(), url: z.string().optional(), schema: z.unknown().optional(), expiresAt: z.number().optional(),
+    turn: turnIdSchema.optional(),
   }),
   z.object({ t: z.literal("elicitation_resolved"), reqId: z.string() }),
   // A session/load replay just finished and its turns were persisted — the client

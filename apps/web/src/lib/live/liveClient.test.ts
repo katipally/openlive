@@ -57,3 +57,42 @@ it("numbers each turn and drops the reply to any turn but the latest", () => {
   expect(got).toEqual(["status", "text_delta", "flow:done"]);
   client.close();
 });
+
+// A cancelled turn's ask that crossed the next turn on the wire must not open a
+// chip in it, and its machine call is answered at once instead of run.
+it("drops asks from any turn but the latest and answers their machine calls empty", () => {
+  const sockets: FakeWs[] = [];
+  class FakeWs {
+    static OPEN = 1;
+    readyState = 1;
+    sent: Record<string, unknown>[] = [];
+    onmessage: ((e: { data: string }) => void) | null = null;
+    constructor() { sockets.push(this); }
+    send(s: string) { this.sent.push(JSON.parse(s)); }
+    close() {}
+  }
+  vi.stubGlobal("WebSocket", FakeWs);
+  vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
+  vi.stubGlobal("location", { protocol: "http:", host: "localhost" });
+  const got: string[] = [];
+  const client = new LiveClient({
+    onPermission: (reqId) => got.push(`permission:${reqId}`),
+    onElicitation: (e) => got.push(`elicitation:${e.reqId}`),
+    onToolBridge: (reqId) => got.push(`bridge:${reqId}`),
+  });
+  client.connect("chat");
+  const ws = sockets[0]!;
+  const server = (m: unknown) => ws.onmessage!({ data: JSON.stringify(m) });
+
+  client.userText("delete the build folder");
+  client.userText("no, just list it");
+  server({ t: "permission", reqId: "p1", question: "Delete?", options: [], turn: 1 });
+  server({ t: "elicitation", reqId: "e1", mode: "form", message: "Which?", turn: 1 });
+  server({ t: "tool_bridge", reqId: "b1", op: "clipboard_read", turn: 1 });
+  server({ t: "permission", reqId: "p2", question: "List?", options: [], turn: 2 });
+  server({ t: "tool_bridge", reqId: "b2", op: "clipboard_read", turn: 2 });
+
+  expect(got).toEqual(["permission:p2", "bridge:b2"]);
+  expect(ws.sent.filter((m) => m.t === "tool_bridge_result")).toEqual([{ t: "tool_bridge_result", reqId: "b1", output: "" }]);
+  client.close();
+});

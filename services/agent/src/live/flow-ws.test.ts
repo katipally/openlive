@@ -233,6 +233,27 @@ describe("FlowLiveSession", () => {
     expect(ws.sent.filter((m) => m.t === "permission")).toHaveLength(1);
   });
 
+  it("numbers the ask and the machine calls with the turn they belong to", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.client({ t: "flow_text", text: "what is open?", turn: 7 });
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    const asked = ws.sent.find((m) => m.t === "permission")!;
+    expect(asked.turn).toBe(7);
+    ws.client({ t: "permission_response", reqId: asked.reqId, optionId: "allow" });
+    await until(() => turnsDone(ws) === 1);
+    const calls = ws.sent.filter((m) => m.t === "tool_bridge");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((m) => m.turn === 7)).toBe(true);
+  });
+
   it("refuses an open ask when Flow closes, but not when the person talks over it", async () => {
     const ws = new FakeSocket();
     fake.consented = false;

@@ -148,10 +148,12 @@ export class LiveClient {
       switch (m.t) {
         case "sse": return this.current(m.turn) ? this.h.onSse?.(m.event) : undefined;
         case "need_frame": return this.h.onNeedFrame?.(m.reqId);
-        case "tool_bridge": return this.h.onToolBridge?.(m.reqId, m.op, m.arg);
-        case "permission": return this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt, m.toolCallId);
+        // A cancelled turn's action is answered empty at once rather than run, so
+        // the server is not left waiting out its timeout.
+        case "tool_bridge": return this.current(m.turn) ? this.h.onToolBridge?.(m.reqId, m.op, m.arg) : this.toolBridgeResult(m.reqId, "");
+        case "permission": return this.current(m.turn) ? this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt, m.toolCallId) : undefined;
         case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
-        case "elicitation": return this.h.onElicitation?.(m);
+        case "elicitation": return this.current(m.turn) ? this.h.onElicitation?.(m) : undefined;
         case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
         case "modal_voice_answer": return this.h.onModalVoiceAnswer?.(m.text);
         case "flow": return this.current(m.turn) ? this.h.onFlow?.(m.event) : undefined;

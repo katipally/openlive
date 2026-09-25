@@ -491,7 +491,7 @@ export class FlowLiveSession {
       const reqId = randomUUID();
       const timer = setTimeout(() => { if (this.bridgePending.delete(reqId)) resolve(""); }, timeoutMs);
       this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
-      this.send({ t: "tool_bridge", reqId, op, arg });
+      this.send({ t: "tool_bridge", reqId, op, arg, turn: this.replyTurn });
     });
   }
 
@@ -613,7 +613,9 @@ export class FlowLiveSession {
   /** Resolves the option the user picked, or "" when they refused, ran out of time or cut in. */
   private ask(question: string, signal: AbortSignal, options: PermissionAskOption[], toolCallId?: string): Promise<string> {
     return new Promise((resolve) => {
-      if (this.closed || signal.aborted) return resolve("");
+      // A finished turn's late ask is refused: the client drops it, and left pending
+      // here it would take the next utterance as its answer.
+      if (this.closed || signal.aborted || !this.turnActive) return resolve("");
       const reqId = randomUUID();
       const settle = (optionId: string) => {
         if (!this.permPending.delete(reqId)) return;
@@ -624,7 +626,7 @@ export class FlowLiveSession {
       const onAbort = () => settle("");
       signal.addEventListener("abort", onAbort, { once: true });
       this.permPending.set(reqId, (optionId) => settle(options.some((o) => o.id === optionId && !o.kind?.startsWith("reject")) ? optionId : ""));
-      this.send({ t: "permission", reqId, question, options, expiresAt: Date.now() + ASK_TIMEOUT_MS, ...(toolCallId ? { toolCallId } : {}) });
+      this.send({ t: "permission", reqId, question, options, expiresAt: Date.now() + ASK_TIMEOUT_MS, ...(toolCallId ? { toolCallId } : {}), turn: this.replyTurn });
     });
   }
 
