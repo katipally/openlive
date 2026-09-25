@@ -69,6 +69,15 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **The voice changed in the middle of a reply.** In calls and Flow, a sentence
+  the voice engine was slow on, or failed once, was read in the browser voice,
+  and the reply's first few words were spoken on their own in a different
+  pitch. The chosen voice now reads everything: a slow or failed sentence is
+  tried again in the same voice, the engine stays loaded for the whole call,
+  the first chunk is a whole clause, and a settings change applies from the
+  next reply. Only an engine that is missing or unreachable switches the call
+  to the browser voice, once, with a notice. Supertonic also sounds the same
+  from sentence to sentence.
 - **Cloned voices failed in the desktop app** with "External buffers are not
   allowed". Cloning now hands audio over the way the packed app accepts.
 - **Flow with a coding agent kept the wrong conversation.** After a new session
