@@ -390,12 +390,6 @@ export class LiveSession {
     this.cancelPendingElicitations();
   }
 
-  /** A permission ask or elicitation is awaiting the user's answer. While one is, a
-   *  barge-in is taken as the user answering it, never as an interrupt. */
-  private modalPending(): boolean {
-    return this.permPending.size > 0 || this.elicitPending.size > 0;
-  }
-
   /** Answer any in-flight agent permission ask as cancelled (ACP MUST when a turn is
    *  cancelled — barge-in OR a watchdog cut). Idempotent: settle() removes each from
    *  the map (so iterate a copy) and no-ops if already settled. */
