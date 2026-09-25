@@ -137,8 +137,7 @@ export class FlowLiveSession {
   private turn: number | undefined;
   /** The number the running loop's events carry. It moves to a steering utterance
    *  only once the loop takes it in, so a cut run's closing events keep the number
-   *  of the turn that was cut. A spoken answer bounced to an open ask moves it too:
-   *  the client numbered that sentence, and the rest of the run is still its reply. */
+   *  of the turn that was cut. */
   private replyTurn: number | undefined;
   private messages: Msg[] = [];
   private brain: Brain = new LocalBrain();
@@ -227,14 +226,10 @@ export class FlowLiveSession {
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
       case "flow_text": {
-        // An ask is awaiting the user. The orb answers its own chip, so a numbered
-        // sentence landing here was said before the ask reached it, and the orb drops
-        // an older turn's ask: refused, the sentence steers the turn instead. Only an
-        // orb that numbers no turns shows every ask, so only its sentence bounces back.
-        if (this.permPending.size) {
-          if (msg.turn === undefined) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
-          this.cancelPendingPermissions();
-        }
+        // An ask may be awaiting the user. The orb answers its own chip, so a sentence
+        // landing here was said before the ask reached it, and the orb drops an older
+        // turn's ask: refused, the sentence steers the turn instead.
+        this.cancelPendingPermissions();
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
         this.turn = msg.turn;

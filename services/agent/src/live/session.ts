@@ -81,8 +81,7 @@ export class LiveSession {
   private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
   // The client's number for the utterance the running turn answers, echoed on its
-  // events. A field, not a closure: a spoken modal answer bounced mid-turn carries
-  // the client's newest number, and the rest of the turn must be sent under it.
+  // events.
   private replyTurn: number | undefined;
   // The last saved reply, while the client may still be voicing it: a model streams
   // its text far faster than speech, so most barge-ins land after the turn is over.
@@ -210,16 +209,12 @@ export class LiveSession {
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
     switch (msg.t) {
       case "user_text":
-        // A permission/elicitation is awaiting the user. A client showing it answers it
-        // there, so a numbered sentence landing here was said before the ask reached
-        // the client, which then drops the ask as an older turn's: nobody can answer
-        // it. It is refused, and the sentence is a turn like any other. Only a client
-        // that numbers no turns shows every ask, so only its sentence is bounced back.
-        if (this.modalPending()) {
-          if (msg.turn === undefined) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
-          this.cancelPendingPermissions();
-          this.cancelPendingElicitations();
-        }
+        // A permission/elicitation may be awaiting the user. A client showing it answers
+        // it there, so a sentence landing here was said before the ask reached the
+        // client, which then drops the ask as an older turn's: nobody can answer it. It
+        // is refused, and the sentence is a turn like any other.
+        this.cancelPendingPermissions();
+        this.cancelPendingElicitations();
         return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn);
       case "cancel":
         // A client showing an ask holds its barge-in, so a cancel means the ask never

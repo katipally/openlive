@@ -307,10 +307,6 @@ export function useLiveSession(chatId: string) {
       onElicitationResolved: (reqId) => {
         if (useLiveStore.getState().elicitation?.reqId === reqId) set({ elicitation: null });
       },
-      // A spoken sentence the server bounced back as a modal's answer: route it to the
-      // open modal, same as a mic utterance. With none open it was never an answer, so
-      // it goes out again as the turn it is (its bubble is already in the transcript).
-      onModalVoiceAnswer: (text) => { if (!answerModalByVoice(text)) client.current?.userText(text); },
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
         const agent = useLiveStore.getState().boundAgent;
@@ -603,9 +599,7 @@ export function useLiveSession(chatId: string) {
   // Route a spoken utterance to whichever modal (permission / elicitation) is open:
   // classify yes/no for a permission, fill the form / match the option for an
   // elicitation, or a spoken nudge when it's ambiguous. Returns true if it consumed
-  // the utterance. Shared by THIS client's mic (handleUserText) AND the server's
-  // bounce-back (onModalVoiceAnswer) for the race where the ask arrived a beat after
-  // the user already started answering.
+  // the utterance.
   const answerModalByVoice = useCallback((text: string): boolean => {
     const modal = useLiveStore.getState();
     if (!modal.permission && !modal.elicitation) return false;
@@ -667,8 +661,7 @@ export function useLiveSession(chatId: string) {
   const handleUserText = useCallback(async (text: string) => {
     // While a permission ask or an elicitation is pending, EVERY utterance is the
     // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
-    // "mmm" mid-approval must never become a coding turn). The server also bounces a
-    // raced utterance back to answerModalByVoice, so this can't leak either way.
+    // "mmm" mid-approval must never become a coding turn).
     if (answerModalByVoice(text)) return;
     // Attach the freshest frame from every active visual source (camera + screen
     // can both be on), inline with the turn so the model sees exactly this moment.

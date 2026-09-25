@@ -37,8 +37,6 @@ export interface LiveHandlers {
   onPermissionResolved?: (reqId: string) => void;
   onElicitation?: (e: ElicitationWire) => void;
   onElicitationResolved?: (reqId: string) => void;
-  /** A raced spoken answer bounced back by the server — route it to the open modal. */
-  onModalVoiceAnswer?: (text: string) => void;
   onAgentMeta?: (meta: AgentMeta) => void;
   onReloadHistory?: () => void;
   /** Authoritative bind echo: what agent + folder the server session is ACTUALLY
@@ -155,7 +153,6 @@ export class LiveClient {
         case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
         case "elicitation": return this.current(m.turn) ? this.h.onElicitation?.(m) : undefined;
         case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
-        case "modal_voice_answer": return this.h.onModalVoiceAnswer?.(m.text);
         case "flow": return this.current(m.turn) ? this.h.onFlow?.(m.event) : undefined;
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);

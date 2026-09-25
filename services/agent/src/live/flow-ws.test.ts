@@ -274,7 +274,7 @@ describe("FlowLiveSession", () => {
     expect(fake.remembered).toBe(0);
   });
 
-  it("takes a numbered sentence said over an unseen ask as a steer, and bounces an unnumbered one to the chip", async () => {
+  it("takes a sentence said over an unseen ask as a steer", async () => {
     const ws = new FakeSocket();
     fake.consented = false;
     new FlowLiveSession(ws as never);
@@ -288,15 +288,10 @@ describe("FlowLiveSession", () => {
     await until(() => ws.sent.some((m) => m.t === "permission"));
     const { reqId } = ws.sent.find((m) => m.t === "permission")!;
 
-    ws.say("hm?");
-    await until(() => ws.sent.some((m) => m.t === "modal_voice_answer"));
-    expect(ws.sent.some((m) => m.t === "permission_resolved")).toBe(false);
-
     fake.script = reply("Never mind then.");
     ws.client({ t: "flow_text", text: "actually, skip that", turn: 2 });
     await until(() => turnsDone(ws) === 1);
     expect(ws.sent.some((m) => m.t === "permission_resolved" && m.reqId === reqId)).toBe(true);
-    expect(ws.sent.filter((m) => m.t === "modal_voice_answer")).toHaveLength(1);
     expect(fake.seen.at(-1)!.some((m) => m.role === "user" && m.text === "actually, skip that")).toBe(true);
     expect(fake.remembered).toBe(0);
   });
