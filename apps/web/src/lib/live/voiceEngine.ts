@@ -114,6 +114,8 @@ export class VoiceEngine {
   // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
   // new user turn is sent.
   private acceptingReply = true;
+  // The segment in progress started as the agent's own voice through the speakers.
+  private echo = false;
   // Audio segments that arrived while the previous one was still finalizing (slow STT
   // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
   private deferred: { audio: Float32Array; final?: Promise<string> }[] = [];
@@ -275,7 +277,13 @@ export class VoiceEngine {
       // answered (that's why holdBargeIn is set). The utterance still finalizes and
       // routes to the modal.
       this.hush();
+    } else if (speaking) {
+      // The agent's own voice leaking back: not a turn. Nothing is heard, sent or cut,
+      // and the phase stays on the reply; onSpeechEnd drops the segment.
+      this.echo = true;
+      return;
     }
+    this.echo = false;
     this.clearHold();
     this.curBuf = []; this.curLen = 0; this.partialMs = 0;
     this.syncAsr();
@@ -331,6 +339,7 @@ export class VoiceEngine {
 
   // `final` is the streamed transcript of `audio` alone, when it was streamed.
   private async onSpeechEnd(audio: Float32Array, final?: Promise<string>) {
+    if (this.echo) { this.echo = false; return; }
     // The agent runs one transcription at a time: a caption still queued there
     // would make the final wait for it.
     this.partialAbort?.abort();
