@@ -426,10 +426,13 @@ export class VoiceEngine {
   /** Send the held mid-thought utterance NOW (hold timer fired, or the user tapped
    *  "send now" / hit Enter instead of waiting it out). */
   private flushPending() {
+    // Kept, not sent: mid-segment onSpeechEnd folds it in, and over a spoken line it
+    // waits for the engine to go idle.
+    if (this.phase !== "idle") { if (this.pending && this.phase !== "listening") this.scheduleHold(); return; }
     const p = this.pending; const cached = this.pendingText.trim();
     this.pending = null; this.pendingText = "";
     this.clearHold();
-    if (!p || this.phase !== "idle") return;
+    if (!p) return;
     const commit = (t: string) => {
       const text = t.trim();
       if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
