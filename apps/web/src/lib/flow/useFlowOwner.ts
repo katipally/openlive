@@ -339,8 +339,9 @@ export function useFlowOwner(): void {
       const health = refreshHealth();
       // Cold start: the weights are downloaded but not compiled yet. Show honest
       // progress; the utterance is captured either way and transcribed when the
-      // worker is ready, so nothing said here is lost.
-      if (!modelsMatchConfig() && modelsCached()) void warm();
+      // worker is ready, so nothing said here is lost. A session already hearing
+      // keeps its worker: a reload would fail the transcription in flight.
+      if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
       await decideVoice();
       await health;
       if (ticket !== openTicket) return;

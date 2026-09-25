@@ -702,9 +702,10 @@ export function useLiveSession(chatId: string) {
     // the pre-call screen never re-asks after a refresh. If cached but the worker
     // isn't warm in THIS page, silently pre-load it in the background so hitting
     // start is instant — no visible progress bar (it reads from cache, fast).
+    // Never mid-call: a reload replaces the worker and fails the call's STT and TTS.
     const cached = modelsCached();
     set({ modelsDownloaded: cached || modelsMatchConfig() });
-    if (cached && !modelsMatchConfig()) void loadModels(() => {}).catch(() => {});
+    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}).catch(() => {});
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       set({
