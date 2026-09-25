@@ -339,6 +339,8 @@ export function useLiveSession(chatId: string) {
         // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
         if (e.type === "error") {
           set({ error: e.message, agentConnecting: false });
+          // Ends the reply too when no done follows (an agent that failed to start).
+          engine.current?.endAgentTurn();
           // Voice-first users hear the failure/recovery — speak the whole thing
           // (capped), not just the first sentence, so a "…say that again." tail isn't lost.
           if (e.message) engine.current?.say(e.message.slice(0, 200));
