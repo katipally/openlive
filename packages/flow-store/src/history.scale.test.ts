@@ -20,6 +20,7 @@ test("an empty store lists nothing rather than failing", () => {
   expect(loadSession("nothing")).toBeNull();
 });
 
+// Writing twenty thousand files takes ~3 s idle, past the 5 s default under a full parallel run.
 test("twenty thousand sessions still cost one page", () => {
   mkdirSync(sessionsDir(), { recursive: true });
   // One of them is a forty-minute session, so the bounded head read is exercised
@@ -45,4 +46,4 @@ test("twenty thousand sessions still cost one page", () => {
   // every file, not when a machine is slow.
   expect(listMs).toBeLessThan(2000);
   expect(searchMs).toBeLessThan(4000);
-});
+}, 20_000);

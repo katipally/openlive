@@ -11,7 +11,8 @@ afterEach(() => { as(realPlatform); process.env.PATH = realPath; });
 
 // Sign-in/setup flows need a TTY and a browser, so every platform must produce a
 // VISIBLE terminal window — a headless `bash -lc` leaves the user staring at nothing.
-describe("terminalCommand", () => {
+// The Linux cases probe PATH on disk, which under a full parallel run can outlast the 5 s default.
+describe("terminalCommand", { timeout: 20_000 }, () => {
   it("opens Terminal.app on macOS", () => {
     as("darwin");
     expect(terminalCommand("claude auth login").cmd).toBe("osascript");
