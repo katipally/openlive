@@ -6,10 +6,11 @@ import { create } from "zustand";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
-  TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, familyInfo, browserTtsFallback,
-  DEFAULT_PIPELINE_CONFIG, type PipelineConfig,
+  TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
+  DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, languageSupport,
 } from "@/lib/live/pipelineConfig";
-import { voiceMenu } from "@/lib/live/engineMenu";
+import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName } from "@/lib/live/engineMenu";
+import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
   listNativeEngines, downloadNativeEngine, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
@@ -165,21 +166,25 @@ async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
 
 // One engine in a stage's picker. A native engine adds its size and installed
 // state from the agent, which are missing while the agent is unreachable.
-function EngineChoice({ id, active, streaming, note, status, onPick }: {
-  id: string; active: boolean; streaming?: boolean; note?: string; status?: NativeEngineStatus; onPick: () => void;
+// `unsupported` names the languages it does speak when the session's is not
+// among them: the card stays visible, greyed, and cannot be picked.
+function EngineChoice({ id, active, streaming, note, status, unsupported, onPick }: {
+  id: string; active: boolean; streaming?: boolean; note?: string; status?: NativeEngineStatus; unsupported?: string; onPick: () => void;
 }) {
   const meta = [status && mb(status.sizeBytes), note, status?.installed && "Downloaded"].filter(Boolean).join(" · ");
   const copy = ENGINE_COPY[id] ?? { title: id, desc: "" };
   return (
-    <button onClick={onPick} aria-pressed={active}
+    <button onClick={onPick} aria-pressed={active} disabled={!!unsupported && !active}
       className={cn("flex min-w-0 flex-col rounded-xl border p-3 text-left transition",
-        active ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]")}>
+        active ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]",
+        unsupported && "opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[var(--shadow-card)]")}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-semibold text-foreground">
         <span className="min-w-0 break-words">{copy.title}</span>
         {active && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Active</span>}
         {streaming && <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground">Streaming</span>}
       </div>
       <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{copy.desc}</p>
+      {unsupported && <p className="mt-1.5 text-caption font-medium text-foreground">{unsupported}</p>}
       {meta && <p className="mt-1.5 text-micro leading-relaxed text-faint">{meta}</p>}
     </button>
   );
@@ -258,6 +263,50 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
   );
 }
 
+const chip = "max-w-full break-words rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground";
+
+/** The active family's Model menu: every variant with its size, quality,
+ *  latency and install state, grouped by language for Piper. One that cannot
+ *  speak the session language stays listed, disabled, with the ones it can.
+ *  The chosen variant's facts and license follow. */
+function VariantPicker({ cfg, stage, update }: { cfg: PipelineConfig; stage: Stage; update: Update }) {
+  const { data } = useNativeEngines();
+  const family = familyInfo(stage, cfg[stage].family);
+  if (!family || family.variants.length < 2) return null;
+  const rows = family.variants.map((v) => ({ ...v, status: variantStatus(data, v.id) }));
+  const speaks = (v: (typeof rows)[number]) => v.languages.includes(cfg.language);
+  const line = (v: (typeof rows)[number]) => {
+    const s = v.status;
+    const license = s && licenseTag(s.license);
+    return [s?.name ?? engineName(v.id), s && mb(s.sizeBytes), s?.quality, s?.latencyMs && !s.name.includes(`${s.latencyMs} ms`) && `${s.latencyMs} ms`,
+      license?.kind !== "open" && license?.label, s?.installed && "Downloaded", !speaks(v) && languagesNote(v.languages)].filter(Boolean).join(" · ");
+  };
+  const options = (vs: typeof rows) => vs.map((v) => <option key={v.id} value={v.id} disabled={!speaks(v)}>{line(v)}</option>);
+  const cur = rows.find((v) => v.id === cfg[stage].variant)?.status;
+  const license = cur && licenseTag(cur.license);
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-label text-foreground">Model</span>
+        <select value={cfg[stage].variant} onChange={(e) => update(chooseVariant(cfg, stage, e.target.value))} className={selectClass}>
+          {variantGroups(rows, cfg.language).map((g) => (g.lang
+            ? <optgroup key={g.lang} label={languageLabel(g.lang)}>{options(g.variants)}</optgroup>
+            : options(g.variants)))}
+        </select>
+      </label>
+      {cur && license && (
+        <div className="flex flex-wrap gap-1.5">
+          {[cur.quality[0]!.toUpperCase() + cur.quality.slice(1), cur.latencyMs && `${cur.latencyMs} ms chunks`, languagesNote(cur.languages)]
+            .filter(Boolean).map((f) => <span key={String(f)} className={chip}>{f}</span>)}
+          <span title={cur.license} className={cn(chip, license.kind === "restricted" && "bg-danger/10 text-danger", license.kind === "unknown" && "bg-arc/10 text-arc-text")}>
+            {license.label}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
@@ -279,6 +328,9 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   );
 }
 
+const unsupportedNote = (f: EngineFamilyInfo, lang: LanguageCode) =>
+  languageSupport(f.id, lang) ? undefined : languagesNote(f.variants.flatMap((v) => v.languages));
+
 function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const { data: engines } = useNativeEngines();
   const whisper = !isNativeVariant(cfg.stt.variant);
@@ -288,6 +340,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <div className={ENGINE_GRID}>
         {STT_FAMILIES.map((e) => (
           <EngineChoice key={e.id} id={e.id} active={cfg.stt.family === e.id} streaming={e.variants.some((v) => v.streaming)} note={e.note}
+            unsupported={unsupportedNote(e, cfg.language)}
             status={variantStatus(engines, chooseFamily(cfg, "stt", e.id).stt.variant)} onPick={() => update(chooseFamily(cfg, "stt", e.id))} />
         ))}
       </div>
@@ -298,6 +351,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
         </select>
       </label>}
       {whisper && <p className="-mt-2 text-caption text-faint">English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
+      {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} />}
       {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
       {whisper && cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint: expect the best transcription, but drop back to Small if your machine struggles.</p>}
       {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" />}
@@ -376,10 +430,11 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <StageHead title="Text-to-speech" desc="Speaks replies back to you on this device. Engine and voice apply to the next reply. Kokoro and Supertonic download their weights on first use; native engines are a one-time download below. Speaking speed is at the top of this tab." />
       <div className={ENGINE_GRID}>
         {TTS_FAMILIES.map((e) => (
-          <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note}
+          <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note} unsupported={unsupportedNote(e, cfg.language)}
             status={variantStatus(engines, chooseFamily(cfg, "tts", e.id).tts.variant)} onPick={() => setEngine(e.id)} />
         ))}
       </div>
+      <VariantPicker cfg={cfg} stage="tts" update={update} />
       {cfg.tts.family === "clone" ? (
         <CloneVoicePicker cfg={cfg} update={update} />
       ) : (
@@ -449,6 +504,9 @@ export function PipelineSettings() {
   const [cfg, setCfg] = useState<PipelineConfig>(() => loadPipelineConfig());
   const [stage, setStage] = useState<StageId>("mic");
   const update: Update = (next) => setCfg(savePipelineConfig(next));
+  const { data: engines } = useNativeEngines();
+  const onDisk = engines?.flatMap((f) => f.variants).filter((v) => v.installed) ?? [];
+  const diskBytes = onDisk.reduce((n, v) => n + v.bytes, 0);
   useEffect(() => onPipelineConfig(setCfg), []);
   // Local and exactly reversible, so the reset applies now and Undo puts the old
   // config back, rather than deferring like a delete.
@@ -475,6 +533,11 @@ export function PipelineSettings() {
         {stage === "tts" && <TtsStage cfg={cfg} update={update} />}
       </div>
 
+      {onDisk.length > 0 && (
+        <p className="-mb-3 text-caption text-faint">
+          Native models on disk: {diskBytes >= 1e9 ? `${(diskBytes / 1e9).toFixed(1)} GB` : mb(diskBytes)} across {onDisk.length} {onDisk.length === 1 ? "model" : "models"}.
+        </p>
+      )}
       <button id="set-voice-reset" onClick={reset}
         className="flex items-center gap-1.5 self-start rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
         <RotateCcw className="size-3.5" /> Reset to defaults
