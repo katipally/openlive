@@ -7,7 +7,7 @@ import { configPath, ensureDir, flowDir } from "./paths";
 // never fails the parse. Unknown keys survive a write untouched, so an older
 // build cannot silently destroy a newer build's settings.
 
-export const FLOW_CONFIG_VERSION = 5;
+export const FLOW_CONFIG_VERSION = 6;
 
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
@@ -51,8 +51,6 @@ export interface FlowConfig {
    *  on this machine. Nothing is asked per tool, per tier or per call. */
   consent: { granted: boolean; at: string };
   idleWindowMs: number;
-  stt: { whisperSize: string };
-  tts: { engine: string; voice: string; speed: number };
 }
 
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
@@ -67,8 +65,6 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   },
   consent: { granted: false, at: "" },
   idleWindowMs: 5 * 60_000,
-  stt: { whisperSize: "base" },
-  tts: { engine: "kokoro", voice: "af_heart", speed: 1 },
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -105,6 +101,10 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
     const { providerId: _p, model: _m, effort: _e, ...kept } = brain;
     return { ...rest, brain: kept };
   },
+  // v5 kept its own speech-to-text and voice settings. v6 uses the shared voice
+  // pipeline, so both are dropped rather than carried through as settings
+  // nothing reads.
+  5: ({ stt: _s, tts: _t, ...rest }) => rest,
 };
 
 /** Never throws. Anything unrecognised falls back to its default, and any key
@@ -123,8 +123,6 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
   const autoQuiet = obj(voice.autoQuiet);
   const turn = obj(voice.turn);
   const consent = obj(o.consent);
-  const stt = obj(o.stt);
-  const tts = obj(o.tts);
   return {
     ...o,
     version: FLOW_CONFIG_VERSION,
@@ -170,8 +168,6 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       at: str(consent.at, d.consent.at),
     },
     idleWindowMs: num(o.idleWindowMs, d.idleWindowMs, 1),
-    stt: { ...stt, whisperSize: str(stt.whisperSize, d.stt.whisperSize) },
-    tts: { ...tts, engine: str(tts.engine, d.tts.engine), voice: str(tts.voice, d.tts.voice), speed: num(tts.speed, d.tts.speed, 0.1) },
   };
 }
 

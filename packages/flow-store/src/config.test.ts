@@ -19,12 +19,11 @@ test("the frozen v1 fixture still loads", () => {
   expect(cfg.brain.kind).toBe("api");
   expect(cfg.voice.autoQuiet.micContention).toBe(true);
   expect(cfg.idleWindowMs).toBe(300000);
-  expect(cfg.stt.whisperSize).toBe("base");
-  expect(cfg.tts).toEqual({ engine: "kokoro", voice: "af_heart", speed: 1 });
-  // v2 has one gesture and v3 has one permission, so the fields that used to
-  // configure the trigger and the risk tiers are dropped on the way through
-  // rather than left behind as dead settings.
-  for (const gone of ["binding", "activation", "holdThresholdMs", "risk", "toolRisk"]) {
+  // v2 has one gesture, v3 has one permission and v6 shares the voice pipeline,
+  // so the fields that used to configure the trigger, the risk tiers and Flow's
+  // own speech are dropped on the way through rather than left behind as dead
+  // settings.
+  for (const gone of ["binding", "activation", "holdThresholdMs", "risk", "toolRisk", "stt", "tts"]) {
     expect(cfg).not.toHaveProperty(gone);
   }
   expect(cfg.consent).toEqual({ granted: false, at: "" });
@@ -55,13 +54,11 @@ test("missing and invalid keys fall back per field, not per file", () => {
     insertion: { method: "type" },
     consent: { granted: "yes", at: 7 },
     idleWindowMs: -1,
-    tts: { speed: 0 },
   });
   expect(cfg.insertion.method).toBe("type");
   expect(cfg.insertion.modifierHoldMs).toBe(DEFAULT_FLOW_CONFIG.insertion.modifierHoldMs);
   expect(cfg.idleWindowMs).toBe(DEFAULT_FLOW_CONFIG.idleWindowMs);
   expect(cfg.consent).toEqual(DEFAULT_FLOW_CONFIG.consent);
-  expect(cfg.tts.speed).toBe(DEFAULT_FLOW_CONFIG.tts.speed);
 });
 
 test("a newer build's keys survive an older build's write", async () => {
