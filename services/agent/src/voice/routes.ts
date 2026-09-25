@@ -9,7 +9,7 @@ import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
 import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
-import { NATIVE_ENGINES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, speakable } from "./native-models.js";
+import { NATIVE_FAMILIES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, speakable } from "./native-models.js";
 import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
 import { speak, transcribe, unloadNative } from "./native.js";
 import { log } from "../log.js";
@@ -189,10 +189,15 @@ const TTS_MAX_CHARS = 5_000;
 const engineDownloads = new Map<string, AbortController>();
 const notInstalled = (name: string) => ({ error: "engine-not-installed", message: `${name} is not downloaded yet` });
 
-voiceRoutes.get("/engines", (c) => c.json(NATIVE_ENGINES.map((e) => ({
-  id: e.id, kind: e.kind, name: e.name, streaming: !!e.streaming,
-  installed: engineInstalled(e), downloading: engineDownloads.has(e.id), bytes: engineDiskBytes(e.id), sizeBytes: e.sizeBytes,
-  voices: e.voices?.map(({ id, name, gender }) => ({ id, name, gender })),
+// O(variants + files on disk under the installed ones).
+voiceRoutes.get("/engines", (c) => c.json(NATIVE_FAMILIES.map((f) => ({
+  family: f.id, kind: f.kind, name: f.name,
+  variants: f.variants.map((e) => ({
+    id: e.id, legacyId: e.legacyId, name: e.name, sizeBytes: e.sizeBytes, quality: e.quality, languages: e.languages,
+    streaming: !!e.streaming, latencyMs: e.latencyMs, license: e.license,
+    installed: engineInstalled(e), downloading: engineDownloads.has(e.id), bytes: engineDiskBytes(e.id),
+    voices: e.voices?.map(({ id, name, lang, gender }) => ({ id, name, lang, gender })),
+  })),
 }))));
 
 // Same JSON-lines progress stream as /model/download. DELETE /engines/:id

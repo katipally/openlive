@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
-import { join } from "node:path";
 import { parentPort } from "node:worker_threads";
 import { SAMPLE_RATE, limitPeak, splitAtPauses } from "./pcm.js";
+import type { ModelType } from "./native-models.js";
 
 // Worker thread that owns every native speech engine handle (native.ts spawns
 // one for ASR and one for TTS). sherpa's streaming decode() is synchronous, so
@@ -23,10 +23,12 @@ type Sherpa = {
   readWave(path: string, enableExternalBuffer?: boolean): Wave;
 };
 
+/** A variant to load: its id keys the loaded handle; config is native-models.ts sherpaConfig. */
+export interface ModelRef { engine: string; type: ModelType; config: object }
 export type WorkerRequest =
-  | { op: "stt"; id: number; engine: string; dir: string; samples: Float32Array }
-  | { op: "tts"; id: number; engine: string; dir: string; text: string; speed: number; sid?: number; wav?: string }
-  | { op: "open"; id: number; engine: string; dir: string }
+  | ({ op: "stt"; id: number; samples: Float32Array } & ModelRef)
+  | ({ op: "tts"; id: number; text: string; speed: number; sid?: number; wav?: string; espeak?: string } & ModelRef)
+  | ({ op: "open"; id: number } & ModelRef)
   | { op: "audio"; id: number; samples: Float32Array }
   | { op: "end" | "reset" | "close"; id: number }
   | { op: "cancel"; id: number }
@@ -44,6 +46,10 @@ const IDLE_UNLOAD_MS = 5 * 60_000; // a loaded engine holds hundreds of MB
 // Half the slowest speaking rate measured per voice (pocket 16, kitten 10 chars/s):
 // a synthesis running past 2 s plus this pace is a runaway, not speech.
 const MIN_CHARS_PER_SEC: Record<string, number> = { pocket: 8, kitten: 5 };
+// Model types that reach full scale (pcm.ts limitPeak). Measured 2026-09-24:
+// kitten peaks at 1.08, piper es_ES-davefx at 0.994; kokoro, matcha, pocket
+// and the other Piper voices stay under 0.84.
+const PEAK_LIMITED = new Set<ModelType>(["kitten", "vits"]);
 // Upstream nemotron example pads 0.4 s so the last 160 ms chunk flushes; 0.5 s leaves margin.
 const TAIL_PADDING = new Float32Array(SAMPLE_RATE / 2);
 // Measured 2026-09-24: speech starting at sample 0 loses its first word on
@@ -60,62 +66,26 @@ const sherpa = createRequire(import.meta.url)("sherpa-onnx-node") as Sherpa;
 const port = parentPort!;
 const post = (e: WorkerEvent, transfer: ArrayBuffer[] = []) => port.postMessage(e, transfer);
 
-const transducer = (dir: string) => ({
-  encoder: join(dir, "encoder.int8.onnx"), decoder: join(dir, "decoder.int8.onnx"), joiner: join(dir, "joiner.int8.onnx"),
-});
-
-async function create(engine: string, dir: string): Promise<unknown> {
-  const tokens = join(dir, "tokens.txt");
-  switch (engine) {
-    case "nemotron": return new sherpa.OnlineRecognizer({
-      featConfig: { sampleRate: SAMPLE_RATE, featureDim: 128 },
-      modelConfig: { transducer: transducer(dir), tokens, numThreads: 2 },
-      // Endpoints only bound how much audio one stream holds: the text is
-      // committed and the stream reset, and "end" still decides the final.
-      enableEndpoint: true, rule1MinTrailingSilence: 2.4, rule2MinTrailingSilence: 1.2, rule3MinUtteranceLength: 20,
-    });
-    case "parakeet": return sherpa.OfflineRecognizer.createAsync({
-      featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
-      modelConfig: { transducer: transducer(dir), tokens, modelType: "nemo_transducer", numThreads: 2 },
-    });
-    case "moonshine": return sherpa.OfflineRecognizer.createAsync({
-      featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
-      modelConfig: { moonshine: { encoder: join(dir, "encoder_model.ort"), mergedDecoder: join(dir, "decoder_model_merged.ort") }, tokens, numThreads: 2 },
-    });
-    case "pocket": return sherpa.OfflineTts.createAsync({
-      model: {
-        pocket: {
-          lmFlow: join(dir, "lm_flow.int8.onnx"), lmMain: join(dir, "lm_main.int8.onnx"), encoder: join(dir, "encoder.onnx"),
-          decoder: join(dir, "decoder.int8.onnx"), textConditioner: join(dir, "text_conditioner.onnx"),
-          vocabJson: join(dir, "vocab.json"), tokenScoresJson: join(dir, "token_scores.json"), voiceEmbeddingCacheCapacity: 8,
-        },
-        numThreads: 2,
-      },
-      maxNumSentences: 1,
-    });
-    case "kitten": return sherpa.OfflineTts.createAsync({
-      model: { kitten: { model: join(dir, "model.int8.onnx"), voices: join(dir, "voices.bin"), tokens, dataDir: join(dir, "espeak-ng-data") }, numThreads: 2 },
-      maxNumSentences: 1,
-    });
-  }
-  throw new Error(`unknown engine ${engine}`);
+async function create(op: WorkerRequest["op"], m: ModelRef): Promise<unknown> {
+  if (op === "tts") return sherpa.OfflineTts.createAsync(m.config);
+  return m.type === "online-transducer" ? new sherpa.OnlineRecognizer(m.config) : sherpa.OfflineRecognizer.createAsync(m.config);
 }
 
 interface Loaded { handle: unknown; queue: Promise<unknown>; users: number; timer?: ReturnType<typeof setTimeout>; waves: Map<string, Wave> }
 const loaded = new Map<string, Promise<Loaded>>();
 
-function load(engine: string, dir: string): Promise<Loaded> {
-  let p = loaded.get(engine);
+function load(op: WorkerRequest["op"], m: ModelRef): Promise<Loaded> {
+  let p = loaded.get(m.engine);
   if (!p) {
     const t = Date.now();
-    p = create(engine, dir).then((handle) => {
-      console.error(`[voice] ${engine} loaded in ${Date.now() - t}ms`);
+    p = create(op, m).then((handle) => {
+      console.error(`[voice] ${m.engine} loaded in ${Date.now() - t}ms`);
       return { handle, queue: Promise.resolve(), users: 0, waves: new Map() };
     });
-    p.catch(() => loaded.delete(engine));
-    loaded.set(engine, p);
+    p.catch(() => loaded.delete(m.engine));
+    loaded.set(m.engine, p);
   }
-  return p.then((l) => { touch(engine, l); return l; });
+  return p.then((l) => { touch(m.engine, l); return l; });
 }
 
 // Dropping the handle is enough: the addon frees native memory on GC.
@@ -136,10 +106,10 @@ function serialize<T>(l: Loaded, job: () => Promise<T>): Promise<T> {
 }
 
 async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<string> {
-  const l = await load(req.engine, req.dir);
+  const l = await load(req.op, req);
   return serialize(l, async () => {
     if (cancelled.has(req.id)) return "";
-    if (req.engine === "nemotron") {
+    if (req.type === "online-transducer") {
       const r = l.handle as Online;
       const s = freshStream(r);
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples });
@@ -150,7 +120,9 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
     }
     const r = l.handle as Offline;
     const texts: string[] = [];
-    for (const samples of req.engine === "moonshine" ? splitAtPauses(req.samples) : [req.samples]) {
+    // Canary skipped two sentences of a 38 s clip (measured 2026-09-24); the
+    // 8 s windows moonshine needs (pcm.ts) keep it whole.
+    for (const samples of req.type === "moonshine" || req.type === "canary" ? splitAtPauses(req.samples) : [req.samples]) {
       if (cancelled.has(req.id)) break;
       const s = r.createStream();
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples });
@@ -163,28 +135,30 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
 const cancelled = new Set<number>();
 
 async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> {
-  const l = await load(req.engine, req.dir);
+  const l = await load(req.op, req);
   await serialize(l, async () => {
     if (cancelled.has(req.id)) return;
     const tts = l.handle as Tts;
-    let cfg: Record<string, unknown> = { sid: req.sid ?? 0, speed: req.speed };
+    let cfg: Record<string, unknown> = { sid: req.sid ?? 0, speed: req.speed, ...(req.espeak && { extra: { lang: req.espeak } }) };
     if (req.wav) {
       let ref = l.waves.get(req.wav);
-      if (!ref) l.waves.set(req.wav, ref = sherpa.readWave(join(req.dir, req.wav), false));
+      if (!ref) l.waves.set(req.wav, ref = sherpa.readWave(req.wav, false));
       // numSteps and the 12 s reference cap are the upstream pocket example's values.
       cfg = { speed: req.speed, referenceAudio: ref.samples, referenceSampleRate: ref.sampleRate, numSteps: 5, extra: { max_reference_audio_len: 12 } };
     }
     post({ id: req.id, type: "start", sampleRate: tts.sampleRate });
     // Pocket now and then babbles on for 3-10x its text, plain prose included
     // (measured 2026-09-24), and the chain would play all of it.
-    let budget = (tts.sampleRate * (2 + req.text.length / (MIN_CHARS_PER_SEC[req.engine] ?? 5))) / req.speed;
+    let budget = (tts.sampleRate * (2 + req.text.length / (MIN_CHARS_PER_SEC[req.type] ?? 5))) / req.speed;
     await tts.generateAsync({
       text: req.text,
       enableExternalBuffer: false,
       generationConfig: new sherpa.GenerationConfig(cfg),
       onProgress: ({ samples }: { samples: Float32Array }) => {
         if (cancelled.has(req.id)) return 0;
-        post({ id: req.id, type: "chunk", samples: req.engine === "kitten" ? limitPeak(samples) : samples });
+        // kokoro-multi int8 now and then returns all-NaN audio (native-models.ts): play silence, not NaN.
+        if (samples.some(Number.isNaN)) samples.fill(0);
+        post({ id: req.id, type: "chunk", samples: PEAK_LIMITED.has(req.type) ? limitPeak(samples) : samples });
         return (budget -= samples.length) > 0 ? 1 : 0;
       },
     });
@@ -210,7 +184,7 @@ function decodeSession(id: number, ss: Session) {
 }
 
 async function open(req: Extract<WorkerRequest, { op: "open" }>) {
-  const l = await load(req.engine, req.dir);
+  const l = await load(req.op, req);
   const r = l.handle as Online;
   if (closedEarly.delete(req.id)) return post({ id: req.id, type: "closed" });
   l.users++;

@@ -2,9 +2,10 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { Worker } from "node:worker_threads";
 import { WebSocketServer } from "ws";
-import { engineDir, engineInstalled, nativeEngine, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
+import { join } from "node:path";
+import { engineDir, engineInstalled, nativeEngine, sherpaConfig, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmFromBytes } from "./pcm.js";
-import type { WorkerEvent, WorkerRequest } from "./native-worker.js";
+import type { ModelRef, WorkerEvent, WorkerRequest } from "./native-worker.js";
 import { log } from "../log.js";
 
 // Main-thread side of the native speech engines: every model call is a message
@@ -39,6 +40,8 @@ function pool(kind: EngineKind): Pool {
   return p;
 }
 
+const model = (e: NativeEngine): ModelRef => ({ engine: e.id, type: e.type, config: sherpaConfig(e) });
+
 function send(e: NativeEngine, req: WorkerRequest, listener?: Listener, transfer: ArrayBuffer[] = []): void {
   const p = pool(e.kind);
   if (listener && "id" in req) p.listeners.set(req.id, listener);
@@ -52,7 +55,7 @@ export function transcribe(e: NativeEngine, samples: Float32Array, signal?: Abor
   let active = true;
   const cancel = () => { if (active) pool(e.kind).worker.postMessage({ op: "cancel", id } satisfies WorkerRequest); };
   return new Promise<string>((resolve, reject) => {
-    send(e, { op: "stt", id, engine: e.id, dir: engineDir(e.id), samples }, (ev) => {
+    send(e, { op: "stt", id, ...model(e), samples }, (ev) => {
       if (ev.type === "done") resolve(ev.text ?? "");
       else if (ev.type === "error") reject(new Error(ev.message));
     }, [samples.buffer as ArrayBuffer]);
@@ -69,7 +72,7 @@ export function speak(e: NativeEngine, text: string, voice: EngineVoice, speed: 
   let onStart!: (rate: number) => void, onStartFail!: (err: Error) => void;
   const started = new Promise<number>((res, rej) => { onStart = res; onStartFail = rej; });
   const done = new Promise<void>((resolve, reject) => {
-    send(e, { op: "tts", id, engine: e.id, dir: engineDir(e.id), text, speed, sid: voice.sid, wav: voice.wav }, (ev) => {
+    send(e, { op: "tts", id, ...model(e), text, speed, sid: voice.sid, wav: voice.wav && join(engineDir(e.id), voice.wav), espeak: voice.espeak }, (ev) => {
       if (ev.type === "start") onStart(ev.sampleRate);
       else if (ev.type === "chunk") onChunk(ev.samples);
       // A job cancelled while still queued ends without ever starting.
@@ -104,7 +107,7 @@ export function upgradeAsrStream(req: IncomingMessage, socket: Duplex, head: Buf
     // Set once the worker has let go of this session (it failed, or its worker
     // died): a later op would only spawn a fresh worker to hear about an unknown id.
     let gone = false;
-    send(e, { op: "open", id, engine: e.id, dir: engineDir(e.id) }, (ev) => {
+    send(e, { op: "open", id, ...model(e) }, (ev) => {
       if (ev.type === "ready") say({ type: "ready" });
       else if (ev.type === "partial" || ev.type === "final") say({ type: ev.type, text: ev.text });
       else if (ev.type === "error") { gone = true; refuse(ev.message); }

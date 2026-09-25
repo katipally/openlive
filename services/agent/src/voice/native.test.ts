@@ -9,7 +9,7 @@ import { WebSocket } from "ws";
 // every postMessage is recorded, and a test answers as the worker would.
 const w = vi.hoisted(() => {
   const { EventEmitter } = require("node:events") as typeof import("node:events");
-  const posted: Array<{ op: string; id?: number }> = [];
+  const posted: Array<{ op: string; id?: number; [k: string]: unknown }> = [];
   let current: InstanceType<typeof EventEmitter> | null = null;
   class Worker extends EventEmitter {
     constructor() { super(); current = this; }
@@ -32,8 +32,9 @@ beforeAll(async () => {
   vi.resetModules();
   models = await import("./native-models.js");
   native = await import("./native.js");
-  for (const f of models.nativeEngine("nemotron")!.files) {
-    const p = join(models.engineDir("nemotron"), f);
+  const nemotron = models.nativeEngine("nemotron")!;
+  for (const f of nemotron.files) {
+    const p = join(models.engineDir(nemotron.id), f);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, "");
   }
@@ -71,6 +72,17 @@ describe("speak", () => {
     w.reply({ id, type: "done" });
     await expect(job.started).rejects.toThrow("cancelled");
     await expect(job.done).resolves.toBeUndefined();
+  });
+
+  it("hands the worker the variant's config, the voice's wav path and its phonemizer voice", () => {
+    const pocket = models.nativeEngine("pocket")!;
+    native.speak(pocket, "hi", pocket.voices![1]!, 1, () => {});
+    expect(w.posted.find((m) => m.op === "tts")).toMatchObject({
+      engine: "pocket-int8", type: "pocket", wav: join(models.engineDir("pocket-int8"), "test_wavs/loona.wav"), espeak: undefined,
+    });
+    const kokoro = models.nativeEngine("kokoro-multi-v1_0-int8")!;
+    native.speak(kokoro, "hola", kokoro.voices!.find((v) => v.id === "ef_dora")!, 1, () => {});
+    expect(w.posted.filter((m) => m.op === "tts").at(-1)).toMatchObject({ engine: kokoro.id, type: "kokoro", sid: 28, espeak: "es" });
   });
 });
 

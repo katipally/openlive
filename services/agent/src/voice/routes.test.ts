@@ -32,19 +32,36 @@ afterAll(() => {
 beforeEach(() => { transcribe.mockClear(); speak.mockClear(); });
 
 const install = (id: string) => {
-  for (const f of m.nativeEngine(id)!.files) { const p = join(m.engineDir(id), f); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, ""); }
+  const e = m.nativeEngine(id)!;
+  for (const f of e.files) { const p = join(m.engineDir(e.id), f); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, ""); }
 };
 const stt = (engine: string, body: Uint8Array) => app.request(`/stt?engine=${engine}`, { method: "POST", body, headers: { "content-type": "application/octet-stream" } });
 const tts = (body: object) => app.request("/tts", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 
 describe("GET /engines", () => {
-  it("lists every engine with install state and public voice fields", async () => {
-    const list = await (await app.request("/engines")).json() as Array<Record<string, unknown>>;
-    expect(list.map((e) => e.id)).toEqual(["nemotron", "parakeet", "moonshine", "pocket", "kitten"]);
-    const kitten = list.find((e) => e.id === "kitten")!;
-    expect(kitten).toMatchObject({ kind: "tts", installed: false, downloading: false, bytes: 0, sizeBytes: 31_220_690 });
-    expect((kitten.voices as object[])[0]).toEqual({ id: "jasper", name: "Jasper", gender: "male" });
-    expect(list.find((e) => e.id === "parakeet")!.voices).toBeUndefined();
+  type Variant = Record<string, unknown> & { id: string; voices?: object[] };
+  const list = async () => await (await app.request("/engines")).json() as Array<{ family: string; kind: string; name: string; variants: Variant[] }>;
+
+  it("lists every family with its variants, install state and public voice fields", async () => {
+    const families = await list();
+    expect(families.map((f) => f.family)).toEqual(m.NATIVE_FAMILIES.map((f) => f.id));
+    const kitten = families.find((f) => f.family === "kitten")!;
+    expect(kitten).toMatchObject({ kind: "tts", name: "Kitten TTS" });
+    expect(kitten.variants[0]).toMatchObject({
+      id: "kitten-nano-int8", legacyId: "kitten", quality: "fastest", languages: ["en"], streaming: false, license: "Apache-2.0",
+      installed: false, downloading: false, bytes: 0, sizeBytes: 31_220_690,
+    });
+    expect(kitten.variants[0]!.voices![0]).toEqual({ id: "jasper", name: "Jasper", lang: "en", gender: "male" });
+    const parakeet = families.find((f) => f.family === "parakeet")!.variants;
+    expect(parakeet.find((v) => v.id === "parakeet-0.6b-v2-int8")!.voices).toBeUndefined();
+    expect(families.find((f) => f.family === "nemotron-3.5")!.variants[1]).toMatchObject({ streaming: true, latencyMs: 160 });
+  });
+
+  it("shows an engine downloaded under its pre-variant id as installed", async () => {
+    install("moonshine");
+    const moonshine = (await list()).find((f) => f.family === "moonshine")!.variants.find((v) => v.legacyId === "moonshine")!;
+    expect(moonshine).toMatchObject({ id: "moonshine-base-en-int8", installed: true });
+    expect((await app.request("/engines/moonshine", { method: "DELETE" })).status).toBe(200);
   });
 });
 
