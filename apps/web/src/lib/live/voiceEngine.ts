@@ -263,9 +263,13 @@ export class VoiceEngine {
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
-    } catch {
-      // A stalled/failed inference (now time-limited in models.call) must not strand
-      // the turn loop — recover to idle and clear the frozen partial caption.
+    } catch (err) {
+      // Never swallow this. A discarded failure here is indistinguishable from
+      // "nothing was said" — the mic indicator still moves and the call sits on
+      // LISTENING forever — so a completely dead pipeline looks like a quiet user.
+      log.error("voice", "turn finalize failed:", (err as Error)?.message ?? err);
+      // A stalled/failed inference must not strand the turn loop — recover to idle
+      // and clear the frozen partial caption.
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
     } finally {
       this.finalizing = false;

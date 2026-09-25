@@ -113,12 +113,20 @@ self.onmessage = async (e: MessageEvent) => {
       const device: Device = msg.device;
       deviceTier = device;
       const dtype = device === "webgpu" ? "fp32" : "q8";
+      // WASM STT dtype: onnxruntime-web >= ~1.26 hard-fails loading the q8 Whisper
+      // decoder — "qdq_actions.cc TransposeDQWeightsForMatMulNBits Missing required
+      // scale: model.decoder.embed_tokens.weight_merged_0_scale" — and the whole
+      // pipeline rejects with "Can't create a session". apps/web declares
+      // onnxruntime-web "^1.22.0", so a fresh install floats to a version the
+      // quantised weights no longer satisfy. whisper-tiny.en is small enough that
+      // fp32 is affordable on the WASM tier, and it avoids the QDQ optimiser.
+      const sttWasmDtype = "fp32";
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts" | "turn") => (p: any) => post({ type: "progress", data: { ...p, model } });
       const sttId = sttModel(device, msg.whisperSize);
       asrMultilingual = sttIsMultilingual(sttId);
-      asr = await pipeline("automatic-speech-recognition", sttId, { device, dtype: sttDtype(sttId, dtype) as never, progress_callback: tagged("stt") });
+      asr = await pipeline("automatic-speech-recognition", sttId, { device, dtype: sttDtype(sttId, device === "wasm" ? sttWasmDtype : dtype) as never, progress_callback: tagged("stt") });
       // Load only the SELECTED TTS engine up front; the other lazy-loads on a
       // mid-call engine switch (its first sentence pays the download).
       if (msg.ttsEngine === "supertonic") await ensureSupertonic();
