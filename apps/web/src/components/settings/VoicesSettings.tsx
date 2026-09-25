@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Loader2, Mic, Pencil, Play, RotateCcw, Square, Trash2, Upload, Volume2 } from "lucide-react";
 import { stt, modelsReady, loadModels } from "@/lib/live/models";
-import { loadPipelineConfig, savePipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, chooseVariant, LANGUAGE_DEFAULTS } from "@/lib/live/pipelineConfig";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
@@ -377,14 +377,15 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
   const fileInput = useRef<HTMLInputElement>(null);
   // Held in state so the active badge moves the moment a voice is chosen or removed.
   const [cfg, setCfg] = useState(loadPipelineConfig);
-  const activeId = cfg.tts.engine === "clone" ? cfg.tts.voice : null;
+  const activeId = cfg.tts.family === "clone" ? cfg.tts.voice : null;
   useEffect(() => onPipelineConfig(setCfg), []);
   const qc = useQueryClient();
 
   useEffect(() => () => { if (clip) URL.revokeObjectURL(clip.url); }, [clip]);
 
   const useVoice = (id: string) => {
-    setCfg(savePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: "clone", voice: id } }));
+    const clone = chooseVariant(cfg, "tts", "clone");
+    setCfg(savePipelineConfig({ ...clone, tts: { ...clone.tts, voice: id } }));
     onChange();
     toast("Cloned voice active — it speaks from your next call.");
   };
@@ -449,7 +450,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
       const r = await fetch(`/api/voice/profiles/${p.id}`, { method: "DELETE", keepalive: true });
       if (!r.ok) return false;
       const now = loadPipelineConfig();
-      if (now.tts.engine === "clone" && now.tts.voice === p.id) savePipelineConfig({ ...now, tts: { ...now.tts, engine: "kokoro", voice: "af_heart" } });
+      if (now.tts.family === "clone" && now.tts.voice === p.id) savePipelineConfig(chooseVariant(now, "tts", LANGUAGE_DEFAULTS[now.language].tts));
       await qc.invalidateQueries({ queryKey: ["voice-profiles"] });
     }, `Couldn’t delete “${p.name}”. It’s back in your voices.`);
   };

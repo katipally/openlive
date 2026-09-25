@@ -4,7 +4,7 @@ import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngin
 import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker, STREAMED_FIRST_CHARS } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
-import { loadPipelineConfig, STT_ENGINES, type SttEngine } from "./pipelineConfig";
+import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
 import { AsrStream } from "./asrStream";
 import { FrameRing } from "./pcm";
 import { log } from "@/lib/log";
@@ -104,7 +104,7 @@ export class VoiceEngine {
   private asr: AsrStream | null = null;          // open while the active STT engine streams
   private streaming = false;                      // this utterance's frames are going up the socket
   private ring = new FrameRing(PRE_SPEECH_FRAMES); // recent frames, sent when speech starts
-  private uttEngine: SttEngine = "whisper";       // the engine this utterance started on
+  private uttEngine = "whisper";                  // the STT variant this utterance started on
   private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
   private micTrack: MediaStreamTrack | null = null;
   // "ended" fires only when the browser ends a track, never for our own stop().
@@ -121,11 +121,12 @@ export class VoiceEngine {
    *  engine switch or a fallback mid-call applies from the next utterance. */
   private syncAsr() {
     const e = activeSttEngine();
-    if (this.asr?.engine === e) return;
+    const lang = loadPipelineConfig().language;
+    if (this.asr?.engine === e && this.asr.lang === lang) return;
     this.asr?.close();
     this.asr = null;
-    if (!STT_ENGINES.find((x) => x.id === e)?.streaming) return;
-    this.asr = new AsrStream(e, {
+    if (!variantInfo(e)?.variant.streaming) return;
+    this.asr = new AsrStream(e, lang, {
       onPartial: (text) => {
         if (this.streaming && this.phase === "listening" && text && !isJunk(text)) this.h.onPartial(this.pending ? `${this.pendingText} ${text}` : text);
       },
@@ -348,7 +349,7 @@ export class VoiceEngine {
       // Hold through a mid-thought pause (model says "not done", or the words
       // trail off) instead of cutting in — but never longer than the configured
       // hold / 20 s.
-      const done = modelComplete && !endsMidThought(text);
+      const done = modelComplete && !endsMidThought(text, loadPipelineConfig().language);
       if (!done && combined.length < 16000 * 20) {
         this.pending = combined;
         this.pendingText = text;
@@ -458,8 +459,8 @@ export class VoiceEngine {
     if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     this.replyFed = true;
     perf.firstToken(); // no-op after the first delta of a turn
-    const firstMin = isNativeTts(loadPipelineConfig().tts.engine) ? STREAMED_FIRST_CHARS : undefined;
-    for (const s of this.chunker.push(text, firstMin)) this.enqueueSpeak(s, this.epoch);
+    const { tts, language } = loadPipelineConfig();
+    for (const s of this.chunker.push(text, isNativeTts(tts.variant) ? STREAMED_FIRST_CHARS : undefined, language)) this.enqueueSpeak(s, this.epoch);
   }
   /** A tool is about to run: voice everything said so far now. Held for the
    *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
@@ -491,7 +492,7 @@ export class VoiceEngine {
       const spoken = stripMarkdown(sentence);
       if (!spoken) return;
       // Read voice/speed per sentence so a settings change applies to the next reply.
-      const ttsCfg = loadPipelineConfig().tts;
+      const { tts: ttsCfg, language: lang } = loadPipelineConfig();
       const abort = new AbortController();
       this.ttsAbort = abort;
       // A streaming engine hands over the sentence in pieces; the chain still waits
@@ -499,7 +500,7 @@ export class VoiceEngine {
       // under the current one's playback.
       let samples = 0, rate = 24000, synthDone = false, first = true;
       try {
-        await ttsStream(toSpeech(spoken), { engine: ttsCfg.engine, voice: ttsCfg.voice, speed: ttsCfg.speed }, (audio, sampleRate) => {
+        await ttsStream(toSpeech(spoken, lang), { engine: ttsCfg.variant, voice: ttsCfg.voice, speed: ttsCfg.speed, lang }, (audio, sampleRate) => {
           if (this.epoch !== epoch) return;
           samples += audio.length; rate = sampleRate;
           if (this.phase !== "speaking") {
@@ -522,11 +523,16 @@ export class VoiceEngine {
             this.spokenText += (this.spokenText ? " " : "") + spoken;
             // How long the sentence voices paces the caption reveal: exact once
             // synthesis is done (always, for a one-piece engine), else estimated.
-            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, ttsCfg.engine, ttsCfg.speed));
+            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, ttsCfg.family, ttsCfg.speed, lang));
           } : undefined;
           first = false;
           this.player.play(audio, epoch, sampleRate, onStart);
         }, abort.signal);
+        // No voice speaks the language: the words still reach the caption and transcript.
+        if (first && !outOfBand && this.epoch === epoch && !abort.signal.aborted) {
+          this.spokenText += (this.spokenText ? " " : "") + spoken;
+          this.h.onAgentText(spoken, estimateSpeechMs(spoken, ttsCfg.family, ttsCfg.speed, lang));
+        }
       } finally {
         synthDone = true;
         if (this.ttsAbort === abort) this.ttsAbort = null;

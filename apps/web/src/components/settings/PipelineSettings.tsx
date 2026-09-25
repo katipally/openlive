@@ -5,13 +5,14 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { create } from "zustand";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X } from "lucide-react";
 import {
-  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_ENGINES, STT_ENGINES, isNativeStt,
-  TURN_PRESETS, activeTurnPreset, type TurnPresetValues,
-  DEFAULT_PIPELINE_CONFIG, mergePipelineConfig, type PipelineConfig, type SttEngine, type TtsEngine,
+  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
+  TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, familyInfo, browserTtsFallback,
+  DEFAULT_PIPELINE_CONFIG, type PipelineConfig,
 } from "@/lib/live/pipelineConfig";
+import { voiceMenu } from "@/lib/live/engineMenu";
 import {
-  tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, isNativeTts, resetNativeFallbacks,
-  listNativeEngines, downloadNativeEngine, deleteNativeEngine, type NativeEngineStatus,
+  tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
+  listNativeEngines, downloadNativeEngine, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
 } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
 import { Segmented } from "@/lib/seg";
@@ -23,9 +24,9 @@ import { prefersReduced } from "@/lib/gsap";
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
   { id: "mic", label: "VAD", sub: "Silero", icon: Mic },
-  { id: "stt", label: "Speech-to-text", sub: `${STT_ENGINES.length} engines`, icon: Languages },
+  { id: "stt", label: "Speech-to-text", sub: `${STT_FAMILIES.length} engines`, icon: Languages },
   { id: "turn", label: "Turn-taking", sub: "Smart-Turn", icon: Gauge },
-  { id: "tts", label: "Text-to-speech", sub: `${TTS_ENGINES.length} engines`, icon: AudioWaveform },
+  { id: "tts", label: "Text-to-speech", sub: `${TTS_FAMILIES.length} engines`, icon: AudioWaveform },
 ] as const;
 type StageId = (typeof STAGES)[number]["id"];
 
@@ -110,17 +111,22 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
 
 const ENGINE_GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-2";
 
-// Card copy for every STT and TTS engine (their ids never collide).
-const ENGINE_COPY: Record<SttEngine | TtsEngine, { title: string; desc: string }> = {
+// Card copy for every STT and TTS engine family (their ids never collide).
+const ENGINE_COPY: Record<string, { title: string; desc: string }> = {
   whisper: { title: "Whisper", desc: "OpenAI Whisper via transformers.js, in the browser: WebGPU with a WASM fallback. Pick its size below." },
   nemotron: { title: "Nemotron Streaming", desc: "NVIDIA's 0.6B streaming model transcribes while you talk, so your words are ready as you stop." },
-  parakeet: { title: "Parakeet TDT", desc: "NVIDIA's 0.6B English model, run once you stop talking, for high accuracy." },
-  moonshine: { title: "Moonshine Base", desc: "Useful Sensors' small English model: the fastest and lightest native download, less accurate on long speech." },
+  parakeet: { title: "Parakeet TDT", desc: "NVIDIA's models, run once you stop talking, for high accuracy: English, or 25 languages in v3." },
+  moonshine: { title: "Moonshine", desc: "Useful Sensors' small English models: the fastest and lightest native downloads, less accurate on long speech." },
   kokoro: { title: "Kokoro", desc: "82M StyleTTS2: natural, 28 English voices (~82 MB)." },
   supertonic: { title: "Supertonic", desc: "Supertone's 66M flow-matching TTS: quick first word, 10 voices (~400 MB, OpenRAIL-M)." },
   clone: { title: "Your voice", desc: "Cloned from a short recording. Record and manage them under Your voices below (runs locally)." },
   pocket: { title: "Pocket TTS", desc: "Streams speech as it is generated, the quickest to start talking. 2 voices." },
-  kitten: { title: "Kitten TTS Nano", desc: "KittenML's tiny model, streamed as it is generated. 8 voices." },
+  kitten: { title: "Kitten TTS", desc: "KittenML's tiny models, streamed as they are generated. 8 voices." },
+  "nemotron-3.5": { title: "Nemotron 3.5 Streaming", desc: "NVIDIA's multilingual streaming model: 28 languages, transcribed while you talk." },
+  canary: { title: "Canary", desc: "NVIDIA's 180M model for English, Spanish, German and French." },
+  piper: { title: "Piper", desc: "Small, clear voices, one language each." },
+  "kokoro-native": { title: "Kokoro (CPU)", desc: "Kokoro on this machine's CPU, with voices in seven languages." },
+  matcha: { title: "Matcha", desc: "A fast English voice from icefall." },
 };
 
 const mb = (n: number) => `${Math.round(n / 1e6)} MB`; // decimal, as the engine names in pipelineConfig.ts
@@ -129,8 +135,9 @@ const mb = (n: number) => `${Math.round(n / 1e6)} MB`; // decimal, as the engine
 // download this page did not start (one begun before a reload keeps going).
 const useNativeEngines = () => useQuery({
   queryKey: ["native-engines"], queryFn: listNativeEngines, retry: 1,
-  refetchInterval: (q) => (q.state.data?.some((e) => e.downloading) ? 1000 : false),
+  refetchInterval: (q) => (q.state.data?.some((f) => f.variants.some((e) => e.downloading)) ? 1000 : false),
 });
+const variantStatus = (families: NativeFamilyStatus[] | undefined, id: string) => families?.flatMap((f) => f.variants).find((e) => e.id === id);
 
 // A download outlives the stage panel that started it (switching stages
 // unmounts the panel), so its progress and last error live at module scope.
@@ -159,19 +166,20 @@ async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
 // One engine in a stage's picker. A native engine adds its size and installed
 // state from the agent, which are missing while the agent is unreachable.
 function EngineChoice({ id, active, streaming, note, status, onPick }: {
-  id: SttEngine | TtsEngine; active: boolean; streaming?: boolean; note?: string; status?: NativeEngineStatus; onPick: () => void;
+  id: string; active: boolean; streaming?: boolean; note?: string; status?: NativeEngineStatus; onPick: () => void;
 }) {
   const meta = [status && mb(status.sizeBytes), note, status?.installed && "Downloaded"].filter(Boolean).join(" · ");
+  const copy = ENGINE_COPY[id] ?? { title: id, desc: "" };
   return (
     <button onClick={onPick} aria-pressed={active}
       className={cn("flex min-w-0 flex-col rounded-xl border p-3 text-left transition",
         active ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]")}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-semibold text-foreground">
-        <span className="min-w-0 break-words">{ENGINE_COPY[id].title}</span>
+        <span className="min-w-0 break-words">{copy.title}</span>
         {active && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Active</span>}
         {streaming && <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground">Streaming</span>}
       </div>
-      <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{ENGINE_COPY[id].desc}</p>
+      <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{copy.desc}</p>
       {meta && <p className="mt-1.5 text-micro leading-relaxed text-faint">{meta}</p>}
     </button>
   );
@@ -186,7 +194,7 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
   const { data, isError, refetch, isFetching } = useNativeEngines();
   const job = useEngineJobs((s) => s[id]);
   const [removing, setRemoving] = useState(false);
-  const e = data?.find((x) => x.id === id);
+  const e = variantStatus(data, id);
 
   // Also cancels a download: the agent stops it and drops the partial files.
   const remove = async () => {
@@ -273,14 +281,14 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
 
 function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const { data: engines } = useNativeEngines();
-  const whisper = !isNativeStt(cfg.stt.engine);
+  const whisper = !isNativeVariant(cfg.stt.variant);
   return (
     <div className="space-y-4">
       <StageHead title="Speech-to-text" desc="Transcribes your voice on this device: Whisper in the browser, or a native engine on this machine's CPU, downloaded once. Applies on the next call." />
       <div className={ENGINE_GRID}>
-        {STT_ENGINES.map((e) => (
-          <EngineChoice key={e.id} id={e.id} active={cfg.stt.engine === e.id} streaming={e.streaming} note={e.note}
-            status={engines?.find((x) => x.id === e.id)} onPick={() => update({ ...cfg, stt: { ...cfg.stt, engine: e.id } })} />
+        {STT_FAMILIES.map((e) => (
+          <EngineChoice key={e.id} id={e.id} active={cfg.stt.family === e.id} streaming={e.variants.some((v) => v.streaming)} note={e.note}
+            status={variantStatus(engines, chooseFamily(cfg, "stt", e.id).stt.variant)} onPick={() => update(chooseFamily(cfg, "stt", e.id))} />
         ))}
       </div>
       {whisper && <label className="flex flex-col gap-1.5">
@@ -289,9 +297,10 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
           {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>}
+      {whisper && <p className="-mt-2 text-caption text-faint">English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
       {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
       {whisper && cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint: expect the best transcription, but drop back to Small if your machine struggles.</p>}
-      {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.engine} fallback="Whisper" />}
+      {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" />}
     </div>
   );
 }
@@ -336,8 +345,8 @@ const SAMPLE = "Hi! This is how I sound in a live conversation.";
 function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const [busy, setBusy] = useState(false);
   const { data: engines } = useNativeEngines();
-  const native = isNativeTts(cfg.tts.engine);
-  const status = engines?.find((x) => x.id === cfg.tts.engine);
+  const native = isNativeVariant(cfg.tts.variant);
+  const status = variantStatus(engines, cfg.tts.variant);
   // Preview always enabled: it downloads the models itself if needed (spinner
   // shows). A disabled-until-cached gate went stale — modelsCached() isn't
   // reactive, so the button stayed dead right after a download finished.
@@ -345,7 +354,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
     setBusy(true);
     try {
       if (!native && !modelsReady()) await loadModels(() => {});
-      const { audio, sampleRate } = await tts(SAMPLE, { engine: cfg.tts.engine, voice: cfg.tts.voice, speed: cfg.tts.speed });
+      const { audio, sampleRate } = await tts(SAMPLE, { engine: cfg.tts.variant, voice: cfg.tts.voice, speed: cfg.tts.speed, lang: cfg.language });
       const ctx = new AudioContext();
       const buf = ctx.createBuffer(1, audio.length, sampleRate);
       buf.getChannelData(0).set(audio);
@@ -354,30 +363,35 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       src.onended = () => { void ctx.close(); };
     } catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed — try downloading the models first."); } finally { setBusy(false); }
   };
-  const engine = TTS_ENGINES.find((e) => e.id === cfg.tts.engine) ?? TTS_ENGINES[0]!;
-  // Switching engines swaps the voice list too — mergePipelineConfig snaps the
-  // voice to the new engine's default.
-  const setEngine = (id: TtsEngine) => update(mergePipelineConfig({ ...cfg, tts: { ...cfg.tts, engine: id } }));
-  const accents = [...new Set(engine.voices.map((v) => v.accent))];
+  const engine = familyInfo("tts", cfg.tts.family) ?? TTS_FAMILIES[0]!;
+  // Switching engines swaps the voice list too: chooseFamily snaps the voice to
+  // the new engine's default. A native engine without a static list names its
+  // voices in the agent's catalog, cut to the session language.
+  const setEngine = (id: string) => update(chooseFamily(cfg, "tts", id));
+  const voices = engine.voices?.map((v) => ({ id: v.id, name: v.name, group: v.accent, gender: v.gender })) ?? voiceMenu(status?.voices ?? [], cfg.language);
+  const groups = [...new Set(voices.map((v) => v.group))];
+  const standIn = familyInfo("tts", browserTtsFallback(cfg.language) ?? "")?.name ?? "no voice";
   return (
     <div className="space-y-4">
       <StageHead title="Text-to-speech" desc="Speaks replies back to you on this device. Engine and voice apply to the next reply. Kokoro and Supertonic download their weights on first use; native engines are a one-time download below. Speaking speed is at the top of this tab." />
       <div className={ENGINE_GRID}>
-        {TTS_ENGINES.map((e) => (
-          <EngineChoice key={e.id} id={e.id} active={cfg.tts.engine === e.id} note={e.note}
-            status={engines?.find((x) => x.id === e.id)} onPick={() => setEngine(e.id)} />
+        {TTS_FAMILIES.map((e) => (
+          <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note}
+            status={variantStatus(engines, chooseFamily(cfg, "tts", e.id).tts.variant)} onPick={() => setEngine(e.id)} />
         ))}
       </div>
-      {cfg.tts.engine === "clone" ? (
+      {cfg.tts.family === "clone" ? (
         <CloneVoicePicker cfg={cfg} update={update} />
       ) : (
         <label className="flex flex-col gap-1.5">
           <span className="text-label text-foreground">Voice</span>
           <div className="flex items-center gap-2">
             <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
-              {accents.map((accent) => (
-                <optgroup key={accent} label={accent}>
-                  {engine.voices.filter((v) => v.accent === accent).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
+              {!engine.voices && <option value="">Default for the language</option>}
+              {cfg.tts.voice && !voices.some((v) => v.id === cfg.tts.voice) && <option value={cfg.tts.voice}>{cfg.tts.voice}</option>}
+              {groups.map((group) => (
+                <optgroup key={group} label={group}>
+                  {voices.filter((v) => v.group === group).map((v) => <option key={v.id} value={v.id}>{v.gender ? `${v.name} · ${v.gender}` : v.name}</option>)}
                 </optgroup>
               ))}
             </select>
@@ -389,8 +403,8 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
           </div>
         </label>
       )}
-      {native ? <NativeEngineRow id={cfg.tts.engine} fallback="Kokoro" />
-        : <ModelStatus removeKind={cfg.tts.engine === "supertonic" ? "supertonic" : cfg.tts.engine === "kokoro" ? "kokoro" : undefined} />}
+      {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} />
+        : <ModelStatus removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
     </div>
   );
 }

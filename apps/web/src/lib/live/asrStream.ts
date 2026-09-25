@@ -20,7 +20,7 @@ export class AsrStream {
   // One per "end" sent, oldest first: the server answers each with exactly one final.
   private finals: { resolve: (text: string) => void; reject: (e: Error) => void }[] = [];
 
-  constructor(readonly engine: string, private h: { onPartial: (text: string) => void; onRefused: (why: string) => void }) {
+  constructor(readonly engine: string, readonly lang: string, private h: { onPartial: (text: string) => void; onRefused: (why: string) => void }) {
     this.open();
   }
 
@@ -29,7 +29,7 @@ export class AsrStream {
 
   private open() {
     const tok = (window as { openlive?: { agentToken?: string } }).openlive?.agentToken;
-    const ws = new WebSocket(`${liveWsBase()}/voice/stream?engine=${this.engine}${tok ? `&token=${encodeURIComponent(tok)}` : ""}`);
+    const ws = new WebSocket(`${liveWsBase()}/voice/stream?engine=${this.engine}&lang=${this.lang}${tok ? `&token=${encodeURIComponent(tok)}` : ""}`);
     ws.binaryType = "arraybuffer";
     let refused = "";
     ws.onmessage = (ev) => {

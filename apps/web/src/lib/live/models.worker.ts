@@ -15,24 +15,10 @@ env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
 ort.env.wasm.numThreads = 1;  // single-thread → no cross-origin-isolation needed
 
-// English-ONLY variants: same size/speed as the multilingual base/tiny but more
-// accurate on English (incl. product terms) — the assistant is English-only, and
-// the turn model already uses whisper-tiny.en. (.en models reject a `language`
-// arg, so the stt call passes none.)
-// English-only Whisper family; the user picks the size (Pipeline settings). WASM
-// is always tiny (small/base are too slow on CPU). ponytail: `.en` ids only —
-// the assistant is English-only and `.en` rejects a `language` arg.
-const STT_WEBGPU: Record<string, string> = {
-  tiny: "onnx-community/whisper-tiny.en",
-  base: "onnx-community/whisper-base.en",
-  small: "onnx-community/whisper-small.en",
-  // Multilingual (no `.en` variant exists at this size) — best accuracy on capable
-  // machines; the stt call pins `language: "en"` so it never auto-detects wrong.
-  "large-v3-turbo": "onnx-community/whisper-large-v3-turbo",
-};
-const STT_MODEL_WASM = "onnx-community/whisper-tiny.en"; // lighter on the WASM tier
-const sttModel = (device: Device, size: string): string =>
-  device === "wasm" ? STT_MODEL_WASM : (STT_WEBGPU[size] ?? STT_WEBGPU.base!);
+// The Whisper checkpoint comes from the main thread (whisperCheckpoint in
+// pipelineConfig.ts): English-only `.en` builds for English, which reject a
+// `language` arg, and multilingual builds for everything else, which get the
+// session language pinned so they never auto-detect wrong.
 const sttIsMultilingual = (model: string) => !model.endsWith(".en");
 // fp32 for the whole large model would blow past sane GPU memory — the standard
 // transformers.js split (fp16 encoder + q4 decoder) keeps it ~1.6 GB on disk.
@@ -43,8 +29,8 @@ const VOICE = "af_heart";
 
 type Device = "webgpu" | "wasm";
 let asr: any = null;
+let asrModel = "";           // the checkpoint `asr` holds
 let asrMultilingual = false; // multilingual models take (and need) a pinned language
-let whisperSize = "base";
 let tts: any = null;              // Kokoro (lazy when Supertonic is the pick)
 let supertonic: Supertonic | null = null;
 let deviceTier: Device = "wasm";
@@ -55,14 +41,19 @@ let whisperLoading: Promise<void> | null = null;
 let kokoroLoading: Promise<void> | null = null;
 let supertonicLoading: Promise<void> | null = null;
 const taggedTts = (p: any) => post({ type: "progress", data: { ...p, model: "tts" } });
-function ensureWhisper(progress_callback?: (p: any) => void): Promise<void> {
-  if (asr) return Promise.resolve();
-  const id = sttModel(deviceTier, whisperSize);
-  asrMultilingual = sttIsMultilingual(id);
+// A language switch mid-call can ask for another checkpoint: the old one is
+// released once the jobs queued on it are done, before the new one loads, so
+// two Whisper models never share the GPU.
+async function ensureWhisper(id: string, progress_callback?: (p: any) => void): Promise<void> {
+  if (asr && asrModel === id) return;
+  await whisperLoading?.catch(() => {});
+  if (asr && asrModel === id) return;
+  if (asr) { const old = asr; asr = null; asrModel = ""; await serial(async () => old.dispose?.()).catch(() => {}); }
   whisperLoading ??= pipeline("automatic-speech-recognition", id, { device: deviceTier, dtype: sttDtype(id, deviceTier === "webgpu" ? "fp32" : "q8") as never, progress_callback })
-    .then((p: any) => { asr = p; }).finally(() => { whisperLoading = null; });
+    .then((p: any) => { asr = p; asrModel = id; asrMultilingual = sttIsMultilingual(id); }).finally(() => { whisperLoading = null; });
   return whisperLoading;
 }
+const pinned = (lang: string) => (asrMultilingual ? { language: lang, task: "transcribe" } : undefined);
 function ensureKokoro(): Promise<void> {
   if (tts) return Promise.resolve();
   kokoroLoading ??= KokoroTTS.from_pretrained(TTS_MODEL, { device: deviceTier, dtype: deviceTier === "webgpu" ? "fp32" : "q8", progress_callback: taggedTts })
@@ -88,23 +79,22 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     if (msg.type === "load") {
       deviceTier = msg.device;
-      whisperSize = msg.whisperSize;
       // Tag each file's progress with the model it belongs to so the UI can show a
       // per-model breakdown ("Speech recognition", "Voice", "Turn-taking").
       const tagged = (model: "stt" | "tts") => (p: any) => post({ type: "progress", data: { ...p, model } });
-      if (msg.whisper) await ensureWhisper(tagged("stt"));
+      if (msg.whisper) await ensureWhisper(msg.whisperModel, tagged("stt"));
       // Load only the SELECTED TTS engine up front; the other lazy-loads on a
       // mid-call engine switch (its first sentence pays the download).
       if (msg.ttsEngine === "supertonic") await ensureSupertonic();
       else if (!msg.ttsNative) await ensureKokoro();
       // Warm up (compiles WebGPU shaders) so the first real turn isn't janky.
-      try { if (asr) await asr(new Float32Array(16000), asrMultilingual ? { language: "en", task: "transcribe" } : undefined); } catch { /* */ }
-      try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1"); else if (tts) await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
-      post({ type: "ready", whisper: !!asr });
+      try { if (asr) await asr(new Float32Array(16000), pinned(msg.lang)); } catch { /* */ }
+      try { if (supertonic) await supertonic.synthesize("Hi.", msg.ttsVoice || "M1", 1, "en"); else if (tts) await tts.generate("Hi.", { voice: VOICE }); } catch { /* */ }
+      post({ type: "ready", whisper: asrModel });
     } else if (msg.type === "stt") {
-      await ensureWhisper(); // outside `serial`: a fallback download must not stall speech
-      const opts = asrMultilingual ? { language: "en", task: "transcribe" } : undefined;
-      const text = await serial(async () => String((await asr(msg.audio, opts))?.text ?? "").trim());
+      await ensureWhisper(msg.model); // outside `serial`: a fallback download must not stall speech
+      const [run, opts] = [asr, pinned(msg.lang)]; // this checkpoint, even if a later utterance swaps it
+      const text = await serial(async () => String((await run(msg.audio, opts))?.text ?? "").trim());
       post({ type: "result", id: msg.id, text });
     } else if (msg.type === "tts") {
       const { audio, sampleRate } = await serial(async () => {
@@ -112,7 +102,7 @@ self.onmessage = async (e: MessageEvent) => {
         // sentence — an engine switch applies to the very next spoken sentence.
         if (msg.engine === "supertonic") {
           await ensureSupertonic();
-          const audio = await supertonic!.synthesize(msg.text, msg.voice || "M1", msg.speed || 1);
+          const audio = await supertonic!.synthesize(msg.text, msg.voice || "M1", msg.speed || 1, msg.lang || "en");
           return { audio, sampleRate: supertonic!.sampleRate };
         }
         await ensureKokoro();

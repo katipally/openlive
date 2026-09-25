@@ -6,7 +6,7 @@ import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
-import { loadPipelineConfig, isNativeStt, browserModels } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, isNativeVariant, browserModels } from "@/lib/live/pipelineConfig";
 import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
@@ -51,7 +51,7 @@ export function Lobby(props: LobbyProps) {
   const downloads = browserModels(voice);
   const plural = downloads.length > 1;
   const cpu = typeof navigator !== "undefined" && !hasWebGPU()
-    && (!isNativeStt(voice.stt.engine) || voice.tts.engine === "kokoro" || voice.tts.engine === "supertonic");
+    && (!isNativeVariant(voice.stt.variant) || voice.tts.family === "kokoro" || voice.tts.family === "supertonic");
   // A project folder is REQUIRED only for a coding agent (its file-access scope + where
   // its session is filed). The built-in OpenLive assistant needs no folder — a folderless
   // voice chat is valid (History files it under "No folder").
