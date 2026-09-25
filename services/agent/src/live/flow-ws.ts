@@ -241,10 +241,9 @@ export class FlowLiveSession {
         return this.onUtterance(msg.text);
       }
       case "flow_cancel":
-        // While an ask is open the "barge-in" IS the user answering it. Closing
-        // Flow is not an answer, so that refuses the ask and ends the turn.
-        if (msg.close) this.cancelPendingPermissions();
-        else if (this.permPending.size) return;
+        // The orb holds its barge-in while it shows an ask, so a cancel is Stop,
+        // close, or a barge-in over an ask it never showed: each refuses the ask.
+        this.cancelPendingPermissions();
         if (this.turnActive) this.spoken = msg.spoken ?? "";
         else if (!msg.close && msg.spoken != null && this.voicedFrom >= 0) {
           truncateToSpoken(this.messages, msg.spoken, this.voicedFrom);

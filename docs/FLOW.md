@@ -123,8 +123,8 @@ claims to see it.
   **Take it back** withdraws it. No answer in 20 seconds counts as no.
 - **After that, no per-action questions.** Flow does not stop to confirm each
   click. The caption strip and **Stop** are the control: Stop ends what Flow is
-  doing and keeps the mic open; closing Flow also drops the turn and closes the
-  mic.
+  doing, refuses any question it has up, and keeps the mic open; closing Flow
+  also drops the turn and closes the mic.
 - **Talk over it.** Speaking cuts the reply off mid-word and only what was said
   is kept.
 - **Coding agents.** With consent given, Flow switches the agent into its

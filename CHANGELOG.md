@@ -74,6 +74,9 @@ Releases before 0.1.9 predate this file — see the
 - **Talking over an agent's unseen question did not stop the call's turn.** The
   question kept the turn running and the next sentence waited behind it. Talking
   over it now refuses the question and stops the turn.
+- **Flow's Stop did nothing while an approval was up.** The orb went back to
+  listening while the turn waited on the question. Stop now refuses the
+  question and ends the turn, in Flow and on screen alike.
 - **A sentence said just as an agent asked for permission vanished.** Said
   before the ask reached the screen, it was taken as the ask's answer and
   dropped, and the unseen ask held the agent for two minutes. In calls and Flow

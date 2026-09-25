@@ -421,6 +421,8 @@ export function useFlowOwner(): void {
      */
     const onStop = () => {
       cancelTurn();
+      // The server refuses the open ask on Stop, as on close.
+      permission.current = null;
       turnActive.current = false;
       stopAnswerWatchdog();
       backToListening();
@@ -602,8 +604,7 @@ export function useFlowOwner(): void {
         turnActive.current = false;
         armed.current = false;
         void api.suspend();
-        // A close, not a stop: a stop leaves an open ask pending, and the turn
-        // would carry on behind it after wake.
+        // A close, not a stop: a stop would leave the orb up through sleep.
         onClose();
         teardownMic();
       } else {

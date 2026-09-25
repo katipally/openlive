@@ -254,7 +254,7 @@ describe("FlowLiveSession", () => {
     expect(calls.every((m) => m.turn === 7)).toBe(true);
   });
 
-  it("refuses an open ask when Flow closes, but not when the person talks over it", async () => {
+  it("refuses an open ask and ends the turn on Stop", async () => {
     const ws = new FakeSocket();
     fake.consented = false;
     new FlowLiveSession(ws as never);
@@ -269,10 +269,6 @@ describe("FlowLiveSession", () => {
     const { reqId } = ws.sent.find((m) => m.t === "permission")!;
 
     ws.client({ t: "flow_cancel" });
-    await tick();
-    expect(ws.sent.some((m) => m.t === "permission_resolved")).toBe(false);
-
-    ws.client({ t: "flow_cancel", close: true });
     await until(() => turnsDone(ws) === 1);
     expect(ws.sent.some((m) => m.t === "permission_resolved" && m.reqId === reqId)).toBe(true);
     expect(fake.remembered).toBe(0);
