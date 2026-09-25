@@ -44,27 +44,82 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+/** A /tts response that streams `chunks` and then ends. */
+const spoken = (chunks: Float32Array[]) => new Response(new ReadableStream<Uint8Array>({
+  start(ctrl) { for (const c of chunks) ctrl.enqueue(new Uint8Array(c.buffer)); ctrl.close(); },
+}), { headers: { "x-sample-rate": "24000" } });
+const bodyOf = (f: ReturnType<typeof vi.fn>, i: number) => JSON.parse((f.mock.calls[i]![1] as RequestInit).body as string);
+
 describe("native TTS stall", () => {
-  it("falls back to Kokoro for this sentence when no audio arrives in time, without latching", async () => {
+  it("tries the same voice again when no audio arrives in time, then leaves the sentence unspoken", async () => {
     const fetch = stalledTts([]);
     vi.stubGlobal("fetch", fetch);
     const got: number[] = [];
-    const done = models.ttsStream("Hello there.", { engine: "pocket" }, (a) => got.push(a.length));
+    const opts = { engine: "pocket", voice: "bria", lang: "en" as const };
+    const done = models.ttsStream("Hello there.", opts, (a) => got.push(a.length));
     const stallMs = 4000 + 50 * "Hello there.".length;
     await vi.advanceTimersByTimeAsync(stallMs - 1);
-    expect(got).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
-    await done;
     expect((fetch.mock.calls[0]![1] as RequestInit).signal!.aborted).toBe(true);
-    expect(posted.find((m) => m.type === "tts")).toMatchObject({ text: "Hello there.", engine: "kokoro" });
-    expect(got).toEqual([2]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodyOf(fetch, 1)).toEqual(bodyOf(fetch, 0));
+    await vi.advanceTimersByTimeAsync(stallMs);
+    await done;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(got).toEqual([]);
+    expect(posted.some((m) => m.type === "tts")).toBe(false); // never another voice
     expect(toast).not.toHaveBeenCalled();
     // The engine is still tried next time.
-    const again = models.ttsStream("Again.", { engine: "pocket" }, () => {});
+    const again = models.ttsStream("Again.", opts, () => {});
     await vi.advanceTimersByTimeAsync(0);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(20_000);
     await again;
+  });
+
+  it("speaks a sentence in the same voice after a 500", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "boom" }, { status: 500 }))
+      .mockResolvedValueOnce(spoken([new Float32Array([0.1, 0.2, 0.3])]));
+    vi.stubGlobal("fetch", fetch);
+    const got: number[] = [];
+    await models.ttsStream("Hello there.", { engine: "kitten", voice: "luna", lang: "en" }, (a) => got.push(a.length));
+    expect(got).toEqual([3]);
+    expect(bodyOf(fetch, 1)).toMatchObject({ engine: "kitten", voice: "luna" });
+    expect(posted.some((m) => m.type === "tts")).toBe(false);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("counts the stall from when the agent starts, not from a queued or cold start", async () => {
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      await new Promise((r) => setTimeout(r, 8000)); // a cold load, or a warm-up queued ahead
+      return new Response(new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          setTimeout(() => { ctrl.enqueue(new Uint8Array(new Float32Array([0.5, 0.5]).buffer)); ctrl.close(); }, 2000);
+          init.signal?.addEventListener("abort", () => ctrl.error(init.signal!.reason));
+        },
+      }), { headers: { "x-sample-rate": "24000" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const got: number[] = [];
+    const done = models.ttsStream("Hi.", { engine: "pocket" }, (a) => got.push(a.length));
+    await vi.advanceTimersByTimeAsync(10_000);
+    await done;
+    expect(got).toEqual([2]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lasting failure switches the call to the browser voice once, with one toast, and never back", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "engine-not-installed" }, { status: 409 }));
+    vi.stubGlobal("fetch", fetch);
+    const got: number[] = [];
+    await models.ttsStream("One.", { engine: "pocket", lang: "en" }, (a) => got.push(a.length));
+    await models.ttsStream("Two.", { engine: "pocket", lang: "en" }, (a) => got.push(a.length));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(posted.filter((m) => m.type === "tts").map((m) => m.engine)).toEqual(["kokoro", "kokoro"]);
+    expect(got).toEqual([2, 2]);
+    expect(toast).toHaveBeenCalledTimes(1);
   });
 
   it("ends a sentence quietly when audio stops arriving mid-stream", async () => {
@@ -85,6 +140,30 @@ describe("native TTS stall", () => {
     await vi.advanceTimersByTimeAsync(0);
     await done;
     expect(posted.some((m) => m.type === "tts")).toBe(false);
+  });
+});
+
+describe("cloned voice", () => {
+  it("tries the cloned voice again after a 500 instead of reading one sentence in another voice", async () => {
+    const pcm = new Float32Array([0.1, 0.2, 0.3]);
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "boom" }, { status: 500 }))
+      .mockResolvedValueOnce(new Response(pcm.buffer, { headers: { "x-sample-rate": "24000" } }));
+    vi.stubGlobal("fetch", fetch);
+    const out = await models.tts("Hello.", { engine: "clone", voice: "p1", lang: "en" });
+    expect(out.audio.length).toBe(3);
+    expect(bodyOf(fetch, 1)).toMatchObject({ profileId: "p1" });
+    expect(posted.some((m) => m.type === "tts")).toBe(false);
+  });
+
+  it("a deleted profile switches the call to the browser voice once", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "profile-missing" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    await models.tts("One.", { engine: "clone", voice: "p1", lang: "en" });
+    await models.tts("Two.", { engine: "clone", voice: "p1", lang: "en" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(posted.filter((m) => m.type === "tts").map((m) => m.engine)).toEqual(["kokoro", "kokoro"]);
+    expect(toast).toHaveBeenCalledTimes(1);
   });
 });
 

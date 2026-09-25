@@ -103,8 +103,12 @@ at most two loaded models per worker. Batch transcription and synthesis go throu
 streams back as raw Float32 PCM while it is generated. Nemotron takes mic frames
 over the `/voice/stream` socket and sends partials while you talk. A missing
 engine or an unreachable agent switches the call to Whisper or the browser voice
-that speaks the session language (Kokoro for English, Supertonic otherwise); a
-one-off failure (a timeout, a 500) falls back for that turn only.
+that speaks the session language (Kokoro for English, Supertonic otherwise), once
+and for the rest of the call. A one-off failure (a timeout, a 500) falls back to
+Whisper for that utterance; for speech the same voice tries the sentence once
+more and, failing again, leaves it unspoken, so a reply never changes voice
+mid-way. The stall clock for a sentence starts when the agent starts
+synthesizing it, not while it waits on a cold load or another sentence.
 
 A session runs in **one language** (`language` in `pipelineConfig.ts`: en, es, fr,
 de, it, pt, hi, zh, ja, ko) and every stage follows it: STT gets `lang` (Whisper

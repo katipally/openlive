@@ -211,9 +211,9 @@ async function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
 }
 
 // ── native engines on the local agent ────────────────────────────────────────
-// A native engine that fails falls back to the in-browser one that speaks the
-// session language, for that call. A lasting failure (nativeFailure.ts) swaps
-// it out for the rest of the session, with one toast; either way, never a broken call.
+// A native STT engine that fails falls back to Whisper for that call; TTS tries
+// its engine again (ttsStream). A lasting failure (nativeFailure.ts) swaps either
+// out for the rest of the session, with one toast; either way, never a broken call.
 let sttFallback: string | null = null;
 let ttsFallback: string | null = null;
 const familyName = (variant: string) => variantInfo(variant)?.family.name ?? variant;
@@ -224,7 +224,7 @@ const httpError = async (res: Response) =>
 export const isNativeTts = isNativeVariant;
 
 /** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; }
+export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; }
 
 /** The STT variant this session really uses: the selection, or Whisper once it
  *  failed (Whisper speaks every curated language). */
@@ -262,7 +262,7 @@ export function warmNativeEngines() {
   // A cloned voice runs on the agent too (ZipVoice), with the same cold start.
   // The warm-up line is English: it is never played, and every voice reads it.
   const body = isNativeTts(t.variant) && t.variant !== ttsFallback ? { engine: t.variant, voice: t.voice || undefined, text: "Hi." }
-    : t.family === "clone" && t.voice ? { profileId: t.voice, text: "Hi." } : null;
+    : t.family === "clone" && t.voice && !cloneFailed ? { profileId: t.voice, text: "Hi." } : null;
   if (body && warmDue(t.variant)) {
     void fetch("/api/voice/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       .then((r) => r.arrayBuffer()).catch(() => {});
@@ -350,27 +350,33 @@ export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<st
 }
 
 // Cloned-voice synthesis runs in the LOCAL agent service (ZipVoice via
-// sherpa-onnx), reached through the same-origin /api/voice proxy. Falls back to
-// the browser voice for the language if the model/profile is missing or the
-// call fails: one toast per session, never a broken call.
-let cloneFallbackToasted = false;
+// sherpa-onnx), reached through the same-origin /api/voice proxy. A one-off
+// failure is tried again in the same voice; one that would repeat (no model, the
+// profile gone, no agent) switches the session to the browser voice for the
+// language, with one toast, until the next call.
+let cloneFailed = false;
 async function cloneTts(text: string, voice: string, speed?: number): Promise<{ audio: Float32Array; sampleRate: number } | null> {
-  try {
-    const res = await fetch("/api/voice/tts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, profileId: voice, speed }),
-    });
-    if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
-    const buf = await res.arrayBuffer();
-    return { audio: new Float32Array(buf), sampleRate: Number(res.headers.get("x-sample-rate")) || 24000 };
-  } catch (e) {
-    if (!cloneFallbackToasted) {
-      cloneFallbackToasted = true;
-      toast("Cloned voice unavailable, using a built-in voice. Check Settings → Voice.");
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, profileId: voice, speed }),
+      });
+      if (!res.ok) throw await httpError(res);
+      const buf = await res.arrayBuffer();
+      return { audio: new Float32Array(buf), sampleRate: Number(res.headers.get("x-sample-rate")) || 24000 };
+    } catch (e) {
+      if (failureIsLasting(e)) {
+        log.error("tts", "clone synth failed, using the browser voice for this call:", e);
+        cloneFailed = true;
+        toast("Cloned voice unavailable, using a built-in voice. Check Settings → Voice.");
+        return null;
+      }
+      if (attempt < TTS_ATTEMPTS) { log.warn("tts", "clone synth failed, trying again:", e); continue; }
+      log.error("tts", "clone synth failed twice, this sentence goes unspoken:", e);
+      return null;
     }
-    log.error("tts", "clone synth failed, falling back:", e);
-    return null;
   }
 }
 
@@ -392,62 +398,75 @@ function browserStandIn(opts: TtsOpts | undefined): TtsOpts | null {
   return null;
 }
 
-// How long a native engine may go without sending audio before the sentence
-// counts as stalled. Measured 2026-09-24 on Apple Silicon: first chunk 0.3-0.5 s
+// How long a native engine may go without sending audio once it has started on
+// a sentence. Measured 2026-09-24 on Apple Silicon: first chunk 0.3-0.5 s
 // (Pocket) and 0.4-0.85 s (a whole Kitten sentence) for a short sentence, but
 // 1.2-1.5 s and ~2 s for a 200-character chunk with no punctuation (Kitten does
-// it in one piece, ~10 ms a character); a cold load adds ~0.3 s. 4 s plus 50 ms
-// a character is about 5x that for any length, room for a slow CPU, while a hung
-// agent costs one sentence instead of the reply. A gap between chunks is at most
-// the next Kitten sentence of the same text, so the same bound covers it.
+// it in one piece, ~10 ms a character). 4 s plus 50 ms a character is about 5x
+// that for any length, room for a slow CPU. A gap between chunks is at most the
+// next Kitten sentence of the same text, so the same bound covers it.
 const ttsStallMs = (text: string) => 4000 + 50 * text.length;
+// Before it starts (the agent answers when synthesis begins), the sentence may
+// wait on a cold engine load (~0.3 s measured, more for the largest models) or a
+// warm-up queued ahead of it, neither of which is a stall.
+const TTS_START_MS = 10_000;
+// A 500 or a stall is a one-off: the same voice gets one more try before the
+// sentence goes unspoken, since another voice mid-reply is worse than a gap.
+const TTS_ATTEMPTS = 2;
 
 /** Speak `text`, handing each piece of audio to `onChunk` as soon as it exists:
  *  a native engine streams from the agent, the others arrive in one piece. A
- *  native engine that fails before any audio falls back to the browser voice
- *  for the language. Resolves once every piece is handed over; aborting
- *  `signal` ends it quietly. */
+ *  native engine is tried again on a one-off failure and swapped for the
+ *  browser voice for the language, for the rest of the call, only on one that
+ *  would repeat. Resolves once every piece is handed over; aborting `signal`
+ *  ends it quietly. */
 export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk: (audio: Float32Array, sampleRate: number) => void, signal?: AbortSignal): Promise<void> {
   const engine = opts?.engine;
   if (isNativeTts(engine) && engine !== ttsFallback) {
     let voiced = false;
-    // A stalled agent aborts like a failure with no status: this sentence falls
-    // back, the session keeps the engine (failureIsLasting is false for it).
-    const stalled = new AbortController();
-    const stallMs = ttsStallMs(text);
-    let timer = setTimeout(() => stalled.abort(new Error("no audio in time")), stallMs);
-    try {
-      const res = await fetch("/api/voice/tts", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // No voice: the agent picks the engine's first one that speaks `lang`.
-        body: JSON.stringify({ engine, text, voice: opts?.voice || undefined, speed: opts?.speed, lang: opts?.lang }),
-        signal: signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal,
-      });
-      if (!res.ok || !res.body) throw await httpError(res);
-      const rate = Number(res.headers.get("x-sample-rate")) || 24000;
-      const decode = pcmDecoder();
-      const reader = res.body.getReader();
-      for (let r = await reader.read(); !r.done; r = await reader.read()) {
-        const pcm = decode(r.value);
-        if (!pcm.length) continue;
-        clearTimeout(timer);
-        timer = setTimeout(() => stalled.abort(new Error("audio stopped arriving")), stallMs);
-        voiced = true;
-        onChunk(pcm, rate);
-      }
-      return;
-    } catch (e) {
-      if (signal?.aborted) return;
-      // Restarting a half-spoken sentence in another voice is worse than its tail missing.
-      if (voiced) { log.warn("tts", `${engine} stream broke off:`, e); return; }
-      const standIn = browserTtsFallback(opts?.lang ?? "en");
-      log.error("tts", `${engine} failed, using ${standIn ?? "no voice"}:`, e);
-      if (failureIsLasting(e) && ttsFallback !== engine) {
-        ttsFallback = engine!;
-        if (standIn) toast(`${familyName(engine!)} unavailable, using ${familyName(standIn)}. Check Settings > Voice pipeline.`);
-      }
-    } finally { clearTimeout(timer); }
+    for (let attempt = 1; ; attempt++) {
+      const stalled = new AbortController();
+      let timer = setTimeout(() => stalled.abort(new Error("the engine did not start")), TTS_START_MS);
+      const stallIn = (why: string) => { clearTimeout(timer); timer = setTimeout(() => stalled.abort(new Error(why)), ttsStallMs(text)); };
+      try {
+        const res = await fetch("/api/voice/tts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // No voice: the agent picks the engine's first one that speaks `lang`.
+          body: JSON.stringify({ engine, text, voice: opts?.voice || undefined, speed: opts?.speed, lang: opts?.lang }),
+          signal: signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal,
+        });
+        if (!res.ok || !res.body) throw await httpError(res);
+        stallIn("no audio in time");
+        const rate = Number(res.headers.get("x-sample-rate")) || 24000;
+        const decode = pcmDecoder();
+        const reader = res.body.getReader();
+        for (let r = await reader.read(); !r.done; r = await reader.read()) {
+          const pcm = decode(r.value);
+          if (!pcm.length) continue;
+          stallIn("audio stopped arriving");
+          voiced = true;
+          onChunk(pcm, rate);
+        }
+        return;
+      } catch (e) {
+        if (signal?.aborted) return;
+        // Restarting a half-spoken sentence, in any voice, is worse than its tail missing.
+        if (voiced) { log.warn("tts", `${engine} stream broke off:`, e); return; }
+        if (!failureIsLasting(e)) {
+          if (attempt < TTS_ATTEMPTS) { log.warn("tts", `${engine} failed, trying again:`, e); continue; }
+          log.error("tts", `${engine} failed twice, this sentence goes unspoken:`, e);
+          return;
+        }
+        const standIn = browserTtsFallback(opts?.lang ?? "en");
+        log.error("tts", `${engine} failed, using ${standIn ?? "no voice"} for this call:`, e);
+        if (ttsFallback !== engine) {
+          ttsFallback = engine!;
+          if (standIn) toast(`${familyName(engine!)} unavailable, using ${familyName(standIn)}. Check Settings > Voice pipeline.`);
+        }
+        break;
+      } finally { clearTimeout(timer); }
+    }
   }
   if (isNativeTts(engine)) {
     const standIn = browserStandIn(opts);
@@ -460,8 +479,8 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
 
 /** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
  *  user's pipeline config; a cloned voice or a native engine routes to the local
- *  agent service and falls back to the browser voice for the language if
- *  unavailable (silence when there is none). */
+ *  agent service and, once it is unavailable for the call, gives way to the
+ *  browser voice for the language (silence when there is none). */
 export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float32Array; sampleRate: number }> {
   if (isNativeTts(opts?.engine)) {
     const parts: Float32Array[] = [];
@@ -478,9 +497,11 @@ export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float3
     if (!standIn) return { audio: new Float32Array(0), sampleRate: 24000 };
     opts = standIn;
   }
+  if (opts?.engine === "clone" && opts.voice && !cloneFailed) {
+    const cloned = await cloneTts(text, opts.voice, opts.speed);
+    if (cloned || !cloneFailed) return cloned ?? { audio: new Float32Array(0), sampleRate: 24000 };
+  }
   if (opts?.engine === "clone") {
-    const cloned = opts.voice ? await cloneTts(text, opts.voice, opts.speed) : null;
-    if (cloned) return cloned;
     const standIn = browserStandIn(opts);
     if (!standIn) return { audio: new Float32Array(0), sampleRate: 24000 };
     opts = standIn;

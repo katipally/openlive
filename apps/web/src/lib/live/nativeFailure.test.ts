@@ -4,8 +4,9 @@ import { failureIsLasting } from "./nativeFailure.ts";
 
 const http = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status });
 
-test("failureIsLasting: not installed, a bad request, or no agent latches the fallback", () => {
+test("failureIsLasting: not installed, a bad request, a missing profile, or no agent latches the fallback", () => {
   assert.equal(failureIsLasting(http(409)), true);
+  assert.equal(failureIsLasting(http(404)), true);
   assert.equal(failureIsLasting(http(400)), true);
   assert.equal(failureIsLasting(http(502)), true);
 });
