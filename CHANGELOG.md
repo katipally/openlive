@@ -77,6 +77,9 @@ Releases before 0.1.9 predate this file — see the
 - **Flow's Stop did nothing while an approval was up.** The orb went back to
   listening while the turn waited on the question. Stop now refuses the
   question and ends the turn, in Flow and on screen alike.
+- **The orb left speaking in a pause inside a line.** A quiet stretch in the
+  last sentence of a reply read as the voice being done, so the call went idle
+  while it was still talking. It now waits for the line to finish playing.
 - **A sentence said just as an agent asked for permission vanished.** Said
   before the ask reached the screen, it was taken as the ask's answer and
   dropped, and the unseen ask held the agent for two minutes. In calls and Flow

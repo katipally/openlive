@@ -267,7 +267,7 @@ export class VoiceEngine {
     // in-flight turn AND the agent's execution (the server aborts the turn, which
     // fires ACP session/cancel). The onset grace applies only while speaking, so the
     // agent's own first syllable (echoed through the mic) can't self-trigger.
-    const speaking = this.phase === "speaking" || this.player.level() > 0;
+    const speaking = this.phase === "speaking" || this.player.playing();
     const thinking = this.phase === "thinking";
     // Playback-aware gate: on SPEAKERS the browser's AEC leaks some of the agent's
     // own voice back into the mic. While agent audio is playing, require the mic's
@@ -280,7 +280,7 @@ export class VoiceEngine {
     const holding = this.h.holdBargeIn?.();
     if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !holding) {
       this.bargeIn();
-    } else if (holding && echoSafe && (speaking || this.player.level() > 0)) {
+    } else if (holding && echoSafe && speaking) {
       // A permission/elicitation modal is open and the user is answering it — stop the
       // agent's question audio LOCALLY so the mic captures a clean answer (no echo/
       // talk-over), but NEVER send a cancel: barging would kill the very ask being
@@ -470,7 +470,7 @@ export class VoiceEngine {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
-    if ((this.phase === "speaking" || this.phase === "thinking" || this.player.level() > 0) && !this.h.holdBargeIn?.()) this.bargeIn();
+    if ((this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
     if (this.muted) void this.vad.start(); // lift a mute for the hold (restored on release)
   }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
@@ -535,7 +535,7 @@ export class VoiceEngine {
   private waitDrainThenIdle(ep: number) {
     const check = () => {
       if (this.epoch !== ep || this.replyOpen) return;
-      if (this.player.level() > 0) { setTimeout(check, 120); return; }
+      if (this.player.playing()) { setTimeout(check, 120); return; }
       if (this.phase === "speaking") this.setPhase("idle");
     };
     check();
