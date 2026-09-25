@@ -11,6 +11,7 @@ import { KokoroTTS } from "kokoro-js";
 import * as ort from "onnxruntime-web";
 import { Supertonic } from "./supertonic";
 import { whisperMaxTokens } from "./pipelineConfig";
+import { trimSilence } from "./pcm";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
@@ -26,6 +27,13 @@ const sttIsMultilingual = (model: string) => !model.endsWith(".en");
 const sttDtype = (model: string, dtype: string) =>
   model.includes("large-v3-turbo") ? { encoder_model: "fp16", decoder_model_merged: "q4" } : dtype;
 const TTS_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
+// Seconds of silence a render keeps before and after its speech. Each render
+// comes with its own (measured 2026-09-24, -50 dBFS floor: Supertonic M4 ~0.4 s
+// and ~0.5 s, Kokoro af_heart 0.28-0.39 s and 0.39-0.54 s), so sentences played
+// back to back sat 0.8-1.1 s apart and each started over like a new utterance.
+// A short lead-in keeps soft onsets; the tail leaves the pause the model makes
+// between sentences inside one render (Supertonic mean 0.38 s, Kokoro 0.51 s).
+const KEEP_S = { supertonic: [0.05, 0.35], kokoro: [0.05, 0.45] } as const;
 const VOICE = "af_heart";
 
 type Device = "webgpu" | "wasm";
@@ -104,11 +112,11 @@ self.onmessage = async (e: MessageEvent) => {
         if (msg.engine === "supertonic") {
           await ensureSupertonic();
           const audio = await supertonic!.synthesize(msg.text, msg.voice || "M1", msg.speed || 1, msg.lang || "en");
-          return { audio, sampleRate: supertonic!.sampleRate };
+          return { audio: trimSilence(audio, supertonic!.sampleRate, ...KEEP_S.supertonic), sampleRate: supertonic!.sampleRate };
         }
         await ensureKokoro();
         const a = await tts.generate(msg.text, { voice: msg.voice || VOICE, speed: msg.speed || 1 });
-        return { audio: a.audio as Float32Array, sampleRate: a.sampling_rate as number };
+        return { audio: trimSilence(a.audio as Float32Array, a.sampling_rate as number, ...KEEP_S.kokoro), sampleRate: a.sampling_rate as number };
       });
       post({ type: "result", id: msg.id, audio, sampleRate }, [audio.buffer]);
     }

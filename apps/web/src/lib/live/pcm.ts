@@ -1,4 +1,4 @@
-// Raw PCM plumbing for the native voice engines. Pure, so it is unit-tested.
+// Raw PCM plumbing for the voice engines. Pure, so it is unit-tested.
 
 /** Decodes a stream of little-endian Float32 bytes whose network chunks can end
  *  mid-sample: the 1-3 trailing bytes are carried into the next chunk. One copy
@@ -14,6 +14,19 @@ export function pcmDecoder(): (bytes: Uint8Array) => Float32Array {
     carry = all.slice(whole);
     return new Float32Array(all.buffer, 0, whole / 4);
   };
+}
+
+const SILENCE = 10 ** (-50 / 20);
+
+/** `wav` cut to its speech, the first to the last sample above -50 dBFS, keeping
+ *  up to `leadS` seconds before it and `tailS` after. Empty when it is all
+ *  silence. O(n). */
+export function trimSilence(wav: Float32Array, sampleRate: number, leadS: number, tailS: number): Float32Array {
+  let first = 0, last = wav.length - 1;
+  while (first <= last && Math.abs(wav[first]!) < SILENCE) first++;
+  while (last > first && Math.abs(wav[last]!) < SILENCE) last--;
+  if (first > last) return new Float32Array(0);
+  return wav.slice(Math.max(0, first - Math.round(leadS * sampleRate)), Math.min(wav.length, last + 1 + Math.round(tailS * sampleRate)));
 }
 
 /** The last `size` mic frames, so speech the VAD only recognised a few frames in

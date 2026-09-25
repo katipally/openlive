@@ -89,6 +89,9 @@ One turn, end to end:
    before the full answer exists. A chunk only ever ends at a sentence end (or
    at the 200-character cap): every engine voices the end of its text as the
    end of an utterance, so a cut at a comma would pause and restart the voice.
+   The worker trims each Kokoro or Supertonic render to its speech, keeping the
+   pause that engine makes between sentences inside one render, so chunks
+   played back to back join like one render (`KEEP_S` in `models.worker.ts`).
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
    The reply's own voice leaking from the speakers into the mic is dropped, never

@@ -1,7 +1,7 @@
-// Guards the PCM stream decoder (network chunks split samples) and the pre-speech ring.
+// Guards the PCM stream decoder (network chunks split samples), the render trim and the pre-speech ring.
 import assert from "node:assert";
 import { test } from "vitest";
-import { pcmDecoder, FrameRing } from "./pcm.ts";
+import { pcmDecoder, FrameRing, trimSilence } from "./pcm.ts";
 
 const bytesOf = (a: number[]) => new Uint8Array(new Float32Array(a).buffer);
 
@@ -38,4 +38,13 @@ test("FrameRing: keeps the newest frames oldest-first, then empties", () => {
   assert.deepEqual([...ring.drain()], [9]);
   ring.push(new Float32Array([1])); ring.clear();
   assert.equal(ring.drain().length, 0);
+});
+
+test("trimSilence: keeps the speech plus at most the lead and tail asked for", () => {
+  const wav = new Float32Array(100);
+  wav.fill(0.5, 40, 60);                                       // speech at 40..59, silence around it
+  assert.equal(trimSilence(wav, 100, 0.05, 0.1).length, 5 + 20 + 10);
+  assert.equal(trimSilence(wav, 100, 0.05, 0.1)[5], 0.5);       // the speech starts after the 5-sample lead
+  assert.equal(trimSilence(wav, 100, 1, 1).length, 100);         // never pads past what the render has
+  assert.equal(trimSilence(new Float32Array(50), 100, 0.05, 0.1).length, 0);
 });

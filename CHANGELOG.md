@@ -76,6 +76,10 @@ Releases before 0.1.9 predate this file — see the
   pause and fall, then started the rest over at another pitch. The first chunk
   now always ends at a sentence end, with every voice. A reply whose first
   sentence is long starts speaking a little later.
+- **Kokoro paused about 0.8 s between sentences.** Like Supertonic below, each
+  sentence came with its own silence, so the voice restarted on every one.
+  Sentences now join at Kokoro's own pause, about 0.5 s, and a reply's first
+  words start about 0.25 s sooner.
 - **Supertonic paused about a second between sentences.** Each sentence came
   with its own silence before and after, so every one started over like a new
   voice. Sentences now join with the model's own pause, about 0.4 s, and the

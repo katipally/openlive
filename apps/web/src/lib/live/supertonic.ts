@@ -91,23 +91,6 @@ function seededNormal(seed: string): () => number {
   return () => Math.sqrt(-2 * Math.log(Math.max(0.0001, uniform()))) * Math.cos(2 * Math.PI * uniform());
 }
 
-// Every render carries ~0.4 s of silence before the speech and ~0.5 s after
-// (measured 2026-09-24, voice M4, 28 renders), so two sentences spoken back to
-// back sat 0.75-1.1 s apart, against 0.2-0.7 s (mean 0.38) between the same
-// sentences in one render: each sentence restarted like a new utterance. Cut to
-// the speech, plus a short lead-in that keeps soft onsets and a tail that
-// leaves the model's own pause between sentences. The floor is -50 dBFS.
-const SILENCE = 10 ** (-50 / 20);
-const LEAD_S = 0.05;
-const TAIL_S = 0.35;
-function trimSilence(wav: Float32Array, sampleRate: number): Float32Array {
-  let first = 0, last = wav.length - 1;
-  while (first <= last && Math.abs(wav[first]!) < SILENCE) first++;
-  while (last > first && Math.abs(wav[last]!) < SILENCE) last--;
-  if (first > last) return new Float32Array(0);
-  return wav.slice(Math.max(0, first - Math.round(LEAD_S * sampleRate)), Math.min(wav.length, last + 1 + Math.round(TAIL_S * sampleRate)));
-}
-
 interface Cfg { ae: { sample_rate: number; base_chunk_size: number }; ttl: { chunk_compress_factor: number; latent_dim: number } }
 interface Style { ttl: ort.Tensor; dp: ort.Tensor }
 
@@ -203,7 +186,7 @@ export class Supertonic {
     }
 
     const voc = await this.vocoder.run({ latent: new ort.Tensor("float32", xt, [1, latentDim, latentLen]) });
-    return trimSilence(voc.wav_tts!.data as Float32Array, ae.sample_rate);
+    return voc.wav_tts!.data as Float32Array;
   }
 }
 
