@@ -10,6 +10,7 @@ import { pipeline, env } from "@huggingface/transformers";
 import { KokoroTTS } from "kokoro-js";
 import * as ort from "onnxruntime-web";
 import { Supertonic } from "./supertonic";
+import { whisperMaxTokens } from "./pipelineConfig";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
@@ -93,7 +94,7 @@ self.onmessage = async (e: MessageEvent) => {
       post({ type: "ready", whisper: asrModel });
     } else if (msg.type === "stt") {
       await ensureWhisper(msg.model); // outside `serial`: a fallback download must not stall speech
-      const [run, opts] = [asr, pinned(msg.lang)]; // this checkpoint, even if a later utterance swaps it
+      const [run, opts] = [asr, { ...pinned(msg.lang), max_new_tokens: whisperMaxTokens(msg.audio.length) }]; // this checkpoint, even if a later utterance swaps it
       const text = await serial(async () => String((await run(msg.audio, opts))?.text ?? "").trim());
       post({ type: "result", id: msg.id, text });
     } else if (msg.type === "tts") {

@@ -360,6 +360,12 @@ export function whisperCheckpoint(size: WhisperSize, lang: LanguageCode, tier: "
   return `onnx-community/whisper-${s}${lang === "en" && s !== "large-v3-turbo" ? ".en" : ""}`;
 }
 
+/** The most tokens Whisper may decode from `samples` of 16 kHz audio: 16 plus
+ *  32 a second, about twice the densest curated language (Hindi, measured 15
+ *  a second), under the model's 448-token window. A hallucination loop on a
+ *  short clip otherwise runs to that window and holds the worker for seconds. Pure. */
+export const whisperMaxTokens = (samples: number): number => Math.min(440, Math.ceil(16 + (32 * samples) / 16000));
+
 /** The weights the in-browser model worker loads for `c`, as a cache tag. A
  *  native engine loads nothing there, so moving between native engines neither
  *  reloads the worker nor asks for a download. A multilingual Whisper build is

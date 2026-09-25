@@ -6,7 +6,7 @@ import { LANGUAGE_CODES } from "@openlive/shared";
 import {
   mergePipelineConfig, clampPipelineConfig, workerTag, tagCached, browserModels, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
   STT_FAMILIES, TTS_FAMILIES, CURATED_LANGUAGES, LANGUAGE_DEFAULTS, languageSupport, pickCompatible, chooseFamily, chooseVariant,
-  defaultVariant, whisperCheckpoint, browserTtsFallback, familyInfo, variantInfo, type PipelineConfig,
+  defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, type PipelineConfig,
 } from "./pipelineConfig.ts";
 
 test("empty / garbage input → defaults", () => {
@@ -247,6 +247,14 @@ test("whisperCheckpoint: the English build for English, the multilingual build o
   assert.equal(whisperCheckpoint("large-v3-turbo", "zh", "webgpu"), "onnx-community/whisper-large-v3-turbo");
   assert.equal(whisperCheckpoint("small", "en", "wasm"), "onnx-community/whisper-tiny.en");
   assert.equal(whisperCheckpoint("small", "ko", "wasm"), "onnx-community/whisper-tiny");
+});
+
+test("whisperMaxTokens: a short clip cannot loop to Whisper's 448-token limit; real speech still fits", () => {
+  // A 0.26 s partial of German barge-in speech decoded a repeated phrase for 7.6 s (measured 2026-09-24).
+  assert.ok(whisperMaxTokens(4096) <= 32);
+  // Hindi, the densest curated language: 58 tokens in 3.76 s (the whisper-base tokenizer).
+  assert.ok(whisperMaxTokens(3.76 * 16000) >= 2 * 58);
+  assert.equal(whisperMaxTokens(20 * 16000), 440);
 });
 
 test("workerTag: moving between native engines keeps the warm worker; browser weights change it", () => {
