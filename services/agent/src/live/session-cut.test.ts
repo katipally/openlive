@@ -155,6 +155,24 @@ test("a numbered sentence refuses an ask the client never showed and runs as a t
   ws.emit("close");
 });
 
+test("a barge-in over an ask the client never showed refuses it and ends the turn, so the next sentence runs", async () => {
+  const { ws, say, until, done, started, session } = connect("cut-barge-ask");
+  say({ t: "user_text", text: "Count slowly.", turn: 1 });
+  await started;
+  await until(() => ws.sent.some((m) => m.event?.type === "text_delta"));
+  const asked = (session as any).askPermission("Run it?", [{ id: "ok", label: "Allow", kind: "allow_once" }]) as Promise<string>;
+  await until(() => ws.sent.some((m) => m.t === "permission"));
+  say({ t: "cancel" });
+  expect(await asked).toBe("__acp_cancelled__");
+  await done(1);
+  // Aborted, not run to its end behind the refused ask.
+  expect(ws.sent.some((m) => m.turn === 1 && m.event?.type === "text_delta" && JSON.stringify(m.event).includes("Two"))).toBe(false);
+  say({ t: "user_text", text: "Count to three.", turn: 2 });
+  await done(2);
+  expect(ws.sent.filter((m) => m.event?.type === "done").map((m) => m.turn)).toEqual([1, 2]);
+  ws.emit("close");
+});
+
 test("outside a turn only a request-scoped elicitation is shown, unnumbered, and a session-scoped one is refused", async () => {
   const { ws, say, until, done, started, session } = connect("cut-elicit");
   const elicit = (requestScoped?: boolean) => (session as any).askElicitation({ mode: "form", message: "Name?", schema: {}, requestScoped }) as Promise<{ action: string }>;

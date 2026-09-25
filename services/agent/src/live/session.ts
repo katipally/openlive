@@ -222,10 +222,8 @@ export class LiveSession {
         }
         return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn);
       case "cancel":
-        // While a modal is open, the "barge-in" IS the user answering it — never
-        // interrupt (that cancelled the very ask being answered). Real cancellation
-        // goes through the modal's own "cancel"/"no" path.
-        if (this.modalPending()) return;
+        // A client showing an ask holds its barge-in, so a cancel means the ask never
+        // reached it: the ask is refused along with the turn.
         if (this.turnActive) this.bargeSpoken = msg.spoken ?? "";
         else if (msg.spoken != null) this.cutSavedReply(msg.spoken);
         return this.interrupt();
