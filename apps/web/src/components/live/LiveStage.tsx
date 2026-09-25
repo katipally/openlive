@@ -95,7 +95,9 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
     setDenied(false);
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId } } : true });
+        // autoGainControl OFF here too (see useLiveSession): this probe's stream sets
+        // the analog capture gain that the call then inherits.
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(micId ? { deviceId: { exact: micId } } : {}), echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
         if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
         onGranted();
         ctx = new AudioContext();

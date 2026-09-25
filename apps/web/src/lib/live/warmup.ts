@@ -26,7 +26,10 @@ async function run(): Promise<void> {
     const perm = await navigator.permissions?.query?.({ name: "microphone" as PermissionName }).catch(() => null);
     if (perm?.state === "granted") {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Same constraints as a real call (autoGainControl OFF — see useLiveSession):
+        // warming up with `audio: true` lets Chromium's AGC raise the analog gain,
+        // which then persists into the call that follows.
+        const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
         setTimeout(() => s.getTracks().forEach((t) => t.stop()), 250);
       } catch { /* device busy — the call will grab it */ }
     }

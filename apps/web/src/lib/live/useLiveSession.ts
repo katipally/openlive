@@ -472,7 +472,13 @@ export function useLiveSession(chatId: string) {
 
       // 2. Mic stream — chosen device + browser AEC (so the agent's own voice is
       //    cancelled from the mic and can't self-trigger barge-in).
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      // autoGainControl OFF: on a laptop whose ALSA capture path already carries a
+      // large fixed boost, Chromium's AGC drives the *analog* gain to maximum and
+      // pins the input to the rails (measured: 40.5% of samples at +/-32768). A
+      // clipped signal reads to Silero as unbroken speech, so speech START fires
+      // repeatedly and silence is NEVER observed — onSpeechEnd never runs and no
+      // turn is ever sent. Browser AGC cannot see the hardware gain it is fighting.
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: false };
       const micId = useLiveStore.getState().micId;
       if (micId) audio.deviceId = { exact: micId };
       const stream = await navigator.mediaDevices.getUserMedia({ audio });
@@ -720,7 +726,13 @@ export function useLiveSession(chatId: string) {
     set({ micId: id || undefined });
     if (!useLiveStore.getState().active || !engine.current) return;
     try {
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      // autoGainControl OFF: on a laptop whose ALSA capture path already carries a
+      // large fixed boost, Chromium's AGC drives the *analog* gain to maximum and
+      // pins the input to the rails (measured: 40.5% of samples at +/-32768). A
+      // clipped signal reads to Silero as unbroken speech, so speech START fires
+      // repeatedly and silence is NEVER observed — onSpeechEnd never runs and no
+      // turn is ever sent. Browser AGC cannot see the hardware gain it is fighting.
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: false };
       if (id) audio.deviceId = { exact: id };
       const stream = await navigator.mediaDevices.getUserMedia({ audio });
       const old = micStream.current;
