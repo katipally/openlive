@@ -71,6 +71,11 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A reply's first sentence broke in two.** When it had a comma far enough in,
+  the voice spoke up to the comma as a sentence of its own, with a full stop's
+  pause and fall, then started the rest over at another pitch. The first chunk
+  now always ends at a sentence end, with every voice. A reply whose first
+  sentence is long starts speaking a little later.
 - **Supertonic paused about a second between sentences.** Each sentence came
   with its own silence before and after, so every one started over like a new
   voice. Sentences now join with the model's own pause, about 0.4 s, and the
@@ -128,7 +133,7 @@ Releases before 0.1.9 predate this file — see the
   and the reply's first few words were spoken on their own in a different
   pitch. The chosen voice now reads everything: a slow or failed sentence is
   tried again in the same voice, the engine stays loaded for the whole call,
-  the first chunk is a whole clause, and a settings change applies from the
+  the first chunk is a whole sentence, and a settings change applies from the
   next reply. Only an engine that is missing or unreachable switches the call
   to the browser voice, once, with a notice. Supertonic also sounds the same
   from sentence to sentence.

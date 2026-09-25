@@ -118,13 +118,11 @@ test("SentenceChunker: two short sentences merge on flush (no lone tiny fragment
   assert.equal(c.flush(), "Hi. Yeah.");
 });
 
-test("SentenceChunker: fast start: a long first sentence releases its opening clause early", () => {
+test("SentenceChunker: a first sentence with commas is never cut at one, it speaks whole when it ends", () => {
   const c = new SentenceChunker();
   const spoken: string[] = [];
-  for (const d of ["The gas valve", ", which sits", " on the lower left, ", "controls the flow."]) spoken.push(...c.push(d));
-  assert.ok(spoken.length >= 1, "should emit before flush");
-  assert.equal(spoken[0], "The gas valve, which sits on the lower left,"); // the first clause past the bar
-  assert.ok(spoken[0]!.length >= FIRST_TTS_CHARS);
+  for (const d of ["The gas valve", ", which sits", " on the lower left, ", "controls the flow. ", "Turn it"]) spoken.push(...c.push(d));
+  assert.deepEqual(spoken, ["The gas valve, which sits on the lower left, controls the flow."]);
 });
 
 test("SentenceChunker: a single short first sentence speaks whole on completion", () => {
@@ -141,7 +139,7 @@ test("SentenceChunker: an opening sentence with no early pause is never cut mid-
   assert.deepEqual(spoken, ["I'll put a simple labeled diagram of the machine on screen for you now."]);
 });
 
-test("SentenceChunker: the opening chunk always ends on a clause or sentence boundary", () => {
+test("SentenceChunker: the opening chunk always ends on a sentence boundary", () => {
   const replies = [
     "Sure, I can help with that, and it is quick. Yes.",
     "Okay so the thing you want to do first is open the settings panel and then pick voice.",
@@ -151,7 +149,7 @@ test("SentenceChunker: the opening chunk always ends on a clause or sentence bou
   for (const text of replies) for (const size of [1, 3, 8, 500]) {
     const out = chunked(text, size);
     assert.equal(out.join(" ").replace(/\s+/g, " "), text.replace(/\s+/g, " ").trim(), `${size}: ${text}`);
-    assert.match(out[0]!, /[,;:.!?]$/, `${size}: ${JSON.stringify(out)}`);
+    assert.match(out[0]!, /[.!?]$/, `${size}: ${JSON.stringify(out)}`);
     assert.ok(out[0]!.length >= FIRST_TTS_CHARS || out.length === 1, `${size}: ${JSON.stringify(out)}`);
   }
 });
@@ -184,12 +182,13 @@ test("SentenceChunker: a flush before a tool voices the whole held tail, then th
   assert.deepEqual(c.push("It is sunny all day in the city. "), ["It is sunny all day in the city."]); // fast first chunk again
 });
 
-test("SentenceChunker: the opening waits for a clause of 24+ characters, then later chunks keep the MIN bar", () => {
+test("SentenceChunker: the opening waits for a sentence of 24+ characters, then later chunks keep the MIN bar", () => {
   const c = new SentenceChunker();
-  assert.deepEqual(c.push("Sure, "), []);                 // too short to open on
-  assert.deepEqual(c.push("I can help with that, and "), ["Sure, I can help with that,"]);
-  assert.deepEqual(c.push("it is quick. Yes. "), []);
-  assert.equal(c.flush(), "and it is quick. Yes.");
+  assert.deepEqual(c.push("Sure, "), []);
+  assert.deepEqual(c.push("I can help with that, and "), []);  // a comma past the bar is no place to cut
+  assert.deepEqual(c.push("it is quick. Yes. "), ["Sure, I can help with that, and it is quick."]);
+  assert.equal(c.flush(), "Yes.");
+  assert.deepEqual(new SentenceChunker().push("Sure. Okay! "), []); // too short to open on, held for the next sentence
   assert.deepEqual(new SentenceChunker().push("Sure thing, okay. "), []); // held for the next sentence
 });
 

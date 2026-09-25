@@ -5,11 +5,12 @@
 
 export const MIN_TTS_CHARS = 40; // don't hand Kokoro a tiny fragment — short
                                  // snippets render with an unstable timbre.
-// The FIRST chunk of a reply speaks at a lower bar, ending at its first clause
-// or sentence boundary, so the agent starts talking while the rest still
-// streams. Every engine renders a very short or mid-clause opening fragment with
-// its own pitch and timing, which sounds like the voice changing on the next
-// chunk, so the opening is a whole clause of at least this many characters.
+// The FIRST chunk of a reply speaks at a lower bar, so the agent starts talking
+// while the rest still streams, but it still ends at a sentence end: every
+// engine voices the end of its text as the end of an utterance. An opening cut
+// at a comma, measured 2026-09-24 over 14 replies on Supertonic, Kokoro, Kitten
+// and sherpa Kokoro, paused 0.35-0.78 s where one render pauses 0.07-0.33 s,
+// and the words after it came 1.1-2.3 semitones off the pitch one render gives them.
 export const FIRST_TTS_CHARS = 24;
 // kokoro-js truncates its input to 510 phoneme tokens, and spoken numbers and
 // "dot" names can more than double a chunk's length in phonemes. 200 characters
@@ -176,9 +177,9 @@ export function splitLong(s: string, max = MAX_CHUNK_CHARS, spaced = true): stri
 // Split a growing text stream into speakable chunks (keep decimals/abbrevs).
 // Completed sentences shorter than MIN_TTS_CHARS are held and merged with the
 // next one before emitting — so Kokoro always gets enough text to keep a single,
-// consistent voice instead of re-rendering tiny fragments oddly. EXCEPTION: the
-// FIRST chunk of a reply is released at its first clause boundary, so speech
-// begins as text streams, not after the whole reply is generated.
+// consistent voice instead of re-rendering tiny fragments oddly. The FIRST
+// chunk of a reply clears the lower FIRST_TTS_CHARS bar, so speech begins as
+// text streams, not after the whole reply is generated.
 export class SentenceChunker {
   private buf = "";      // text after the last completed sentence
   private ready = "";    // completed sentences not yet long enough to speak
@@ -214,12 +215,6 @@ export class SentenceChunker {
     const { rate, spaced, maxChunk } = langText(lang);
     const bar = (n: number) => Math.max(1, Math.round((n * rate) / ENGLISH_CHARS_PER_SEC));
     const split = (x: string) => splitLong(x, maxChunk, spaced);
-    // Fast start — only when nothing is already held (`ready` empty) so we never
-    // speak the opening ahead of an earlier short sentence waiting to merge.
-    if (!this.started && !this.ready) {
-      const first = this.takeFirst(bar(FIRST_TTS_CHARS));
-      if (first) { out.push(first); this.started = true; }
-    }
     let last = 0;
     for (const m of this.buf.matchAll(SENTENCE_END)) {
       const end = m.index + m[0].length;
@@ -240,16 +235,6 @@ export class SentenceChunker {
       if (pieces.length) { out.push(...pieces); this.ready = ""; this.started = true; }
     }
     return out;
-  }
-  // Release the opening of a reply at its first clause mark past `min`
-  // characters. No cut at a bare word boundary: an opening sentence with no
-  // early pause is spoken whole when it ends (the sentence loop), or at the
-  // chunk cap. O(buffer).
-  private takeFirst(min: number): string | null {
-    const clause = new RegExp(`^([\\s\\S]{${min},}?(?:[,;:\\u2013\\u2014](?=\\s)|[、，；：]))`).exec(this.buf);
-    if (!clause) return null;
-    this.buf = this.buf.slice(clause[0].length).replace(/^\s/, "");
-    return clause[1]!.trim();
   }
   // flush() ends the turn (called on `done` and on barge-in) — reset `started`
   // so the next reply gets its own fast first chunk.

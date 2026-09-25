@@ -86,7 +86,9 @@ One turn, end to end:
 4. The final text (plus the freshest camera/screen frame) goes out over `/live`.
 5. The reply streams back as text; **TTS** (Kokoro or Supertonic in the renderer,
    a native engine, or a cloned voice, see below) voices it sentence by sentence so speaking starts
-   before the full answer exists.
+   before the full answer exists. A chunk only ever ends at a sentence end (or
+   at the 200-character cap): every engine voices the end of its text as the
+   end of an utterance, so a cut at a comma would pause and restart the voice.
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
    The reply's own voice leaking from the speakers into the mic is dropped, never
