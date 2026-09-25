@@ -5,6 +5,7 @@ import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, Sent
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
+import type { LanguageCode } from "@openlive/shared";
 import { AsrStream } from "./asrStream";
 import { FrameRing } from "./pcm";
 import { log } from "@/lib/log";
@@ -56,6 +57,13 @@ const RMS_GATE = 0.006;      // reject near-silence; low enough to hear a soft t
 // A streamed utterance sends the same audio from the same point.
 const PRE_SPEECH_FRAMES = Math.floor(800 / 32) + 1;
 
+/** The TTS settings one reply is spoken with. */
+type ReplyVoice = { engine: string; family: string; voice: string; speed: number; lang: LanguageCode };
+const voiceNow = (): ReplyVoice => {
+  const { tts, language } = loadPipelineConfig();
+  return { engine: tts.variant, family: tts.family, voice: tts.voice, speed: tts.speed, lang: language };
+};
+
 function rmsOf(a: Float32Array): number { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]! * a[i]!; return Math.sqrt(s / a.length); }
 
 export class VoiceEngine {
@@ -93,6 +101,9 @@ export class VoiceEngine {
   // Until this reply's first delta, a barge-in has nothing of it to cut: the server
   // may not even have the utterance yet, and an empty cut would wipe the reply before.
   private replyFed = false;
+  // Fixed at the reply's first delta, so a settings change mid-reply applies
+  // from the next one instead of switching voice between two sentences.
+  private replyVoice: ReplyVoice | null = null;
   // After a barge-in, IGNORE the interrupted reply's late deltas/done (they cross the
   // wire after the local cancel) until the next user turn re-arms — otherwise a
   // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
@@ -365,6 +376,7 @@ export class VoiceEngine {
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
       this.replyFed = false;
+      this.replyVoice = null;
       this.acceptingReply = true; // re-arm: this turn's reply should be voiced
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
@@ -403,7 +415,7 @@ export class VoiceEngine {
     if (!p || this.phase !== "idle") return;
     const commit = (t: string) => {
       const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
@@ -448,6 +460,7 @@ export class VoiceEngine {
       this.setPhase("thinking");
       this.spokenText = "";
       this.replyFed = false;
+      this.replyVoice = null;
       this.acceptingReply = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
@@ -461,20 +474,21 @@ export class VoiceEngine {
     if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     this.replyFed = true;
     perf.firstToken(); // no-op after the first delta of a turn
-    const { tts, language } = loadPipelineConfig();
-    for (const s of this.chunker.push(text, isNativeTts(tts.variant) ? STREAMED_FIRST_CHARS : undefined, language)) this.enqueueSpeak(s, this.epoch);
+    const v = this.replyVoice ??= voiceNow();
+    for (const s of this.chunker.push(text, isNativeTts(v.engine) ? STREAMED_FIRST_CHARS : undefined, v.lang)) this.enqueueSpeak(s, this.epoch, v);
   }
   /** A tool is about to run: voice everything said so far now. Held for the
    *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
   endAgentStep() {
     if (!this.acceptingReply) return;
     const said = this.chunker.flush();
-    if (said) this.enqueueSpeak(said, this.epoch);
+    if (said) this.enqueueSpeak(said, this.epoch, this.replyVoice ?? voiceNow());
   }
   endAgentTurn() {
     if (!this.acceptingReply) return; // the barged reply's `done` — no tail to flush/voice
     const tail = this.chunker.flush();
-    if (tail) this.enqueueSpeak(tail, this.epoch);
+    if (tail) this.enqueueSpeak(tail, this.epoch, this.replyVoice ?? voiceNow());
+    this.replyVoice = null;
     // When the TTS chain drains and audio finishes, drop back to idle.
     const ep = this.epoch;
     void this.ttsChain.then(() => { if (this.epoch === ep && this.phase === "speaking") this.waitDrainThenIdle(ep); if (this.epoch === ep && this.phase === "thinking") this.setPhase("idle"); });
@@ -488,13 +502,11 @@ export class VoiceEngine {
     check();
   }
 
-  private enqueueSpeak(sentence: string, epoch: number, outOfBand = false) {
+  private enqueueSpeak(sentence: string, epoch: number, v: ReplyVoice, outOfBand = false) {
     this.ttsChain = this.ttsChain.then(async () => {
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
       const spoken = stripMarkdown(sentence);
       if (!spoken) return;
-      // Read voice/speed per sentence so a settings change applies to the next reply.
-      const { tts: ttsCfg, language: lang } = loadPipelineConfig();
       const abort = new AbortController();
       this.ttsAbort = abort;
       // A streaming engine hands over the sentence in pieces; the chain still waits
@@ -502,7 +514,7 @@ export class VoiceEngine {
       // under the current one's playback.
       let samples = 0, rate = 24000, synthDone = false, first = true;
       try {
-        await ttsStream(toSpeech(spoken, lang), { engine: ttsCfg.variant, voice: ttsCfg.voice, speed: ttsCfg.speed, lang }, (audio, sampleRate) => {
+        await ttsStream(toSpeech(spoken, v.lang), { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate) => {
           if (this.epoch !== epoch) return;
           samples += audio.length; rate = sampleRate;
           if (this.phase !== "speaking") {
@@ -525,7 +537,7 @@ export class VoiceEngine {
             this.spokenText += (this.spokenText ? " " : "") + spoken;
             // How long the sentence voices paces the caption reveal: exact once
             // synthesis is done (always, for a one-piece engine), else estimated.
-            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, ttsCfg.family, ttsCfg.speed, lang));
+            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, v.family, v.speed, v.lang));
           } : undefined;
           first = false;
           this.player.play(audio, epoch, sampleRate, onStart);
@@ -533,7 +545,7 @@ export class VoiceEngine {
         // No voice speaks the language: the words still reach the caption and transcript.
         if (first && !outOfBand && this.epoch === epoch && !abort.signal.aborted) {
           this.spokenText += (this.spokenText ? " " : "") + spoken;
-          this.h.onAgentText(spoken, estimateSpeechMs(spoken, ttsCfg.family, ttsCfg.speed, lang));
+          this.h.onAgentText(spoken, estimateSpeechMs(spoken, v.family, v.speed, v.lang));
         }
       } finally {
         synthDone = true;
@@ -546,7 +558,8 @@ export class VoiceEngine {
    *  TTS chain — voice-first users hear problems, not just see banners. */
   say(text: string) {
     const t = text.trim();
-    if (t) this.enqueueSpeak(t, this.epoch, true /* out-of-band: voice it, don't persist it */);
+    // In the reply's voice when it lands mid-reply.
+    if (t) this.enqueueSpeak(t, this.epoch, this.replyVoice ?? voiceNow(), true /* out-of-band: voice it, don't persist it */);
   }
 
   // Stop the agent's LOCAL audio without telling the server (no cancel). Used to
@@ -558,6 +571,7 @@ export class VoiceEngine {
     this.ttsAbort?.abort();
     this.player.flush(this.epoch);
     this.chunker.flush();
+    this.replyVoice = null;
     // The new epoch strands the drain that would have idled a speaking or thinking reply.
     if (this.phase !== "listening") this.setPhase("idle");
   }
