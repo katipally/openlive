@@ -391,10 +391,19 @@ export function useFlowOwner(): void {
       patch({ speaking: !quiet });
     };
 
+    /** Ends the turn on the server, keeping only the part of the reply the person got. */
+    const cancelTurn = (close = false) => {
+      // Spoken, the reply is cut back to what was heard; quiet, all of it was shown.
+      // Cut either way: a quiet turn still left the engine thinking.
+      const cut = engine.current?.cutReply();
+      const heard = snap.current.speaking ? cut : undefined;
+      client.current?.flowCancel(heard ?? (snap.current.reply || undefined), close);
+    };
+
     /** The gesture again, or the orb's close button. Whatever was in flight is
      *  let go: the person asked for Flow to be gone, not to finish first. */
     const onClose = () => {
-      client.current?.flowCancel(snap.current.reply, true);
+      cancelTurn(true);
       // The server refuses the open ask on close, so the chip goes with it rather
       // than waiting on a resolution that may never reach a closed orb.
       permission.current = null;
@@ -411,11 +420,7 @@ export function useFlowOwner(): void {
      * only thing standing between the model and the machine mid-turn.
      */
     const onStop = () => {
-      // Spoken, the reply is cut back to what was heard; quiet, all of it was shown.
-      // Cut either way: a quiet turn still left the engine thinking.
-      const cut = engine.current?.cutReply();
-      const heard = snap.current.speaking ? cut : undefined;
-      client.current?.flowCancel(heard ?? (snap.current.reply || undefined));
+      cancelTurn();
       turnActive.current = false;
       stopAnswerWatchdog();
       backToListening();
