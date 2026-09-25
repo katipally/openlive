@@ -12,7 +12,7 @@ import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
 import { kindMeta } from "./toolMeta";
-import { classifyYesNo, buildElicitationAnswer } from "./modalAnswer";
+import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
 import { useLiveStore } from "./liveStore";
 
@@ -603,14 +603,7 @@ export function useLiveSession(chatId: string) {
       const yn = classifyYesNo(text);
       log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
       if (yn) {
-        // Prefer the ACP option kind when present (a spoken "yes" means allow ONCE,
-        // never silently "always"); fall back to id/label matching for asks without
-        // kinds (adapters vary: "allow" / "allow_once" / "approve").
-        const wantKinds = yn === "allow" ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
-        const byKind = wantKinds.map((k) => pend.options.find((o) => o.kind === k)).find(Boolean);
-        const want = yn === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
-        const opt = byKind ?? pend.options.find((o) => want.test(o.id)) ?? pend.options.find((o) => want.test(o.label));
-        answerPermission(opt?.id ?? (yn === "allow" ? pend.options[0]?.id ?? "deny" : "deny"));
+        answerPermission(optionForVerdict(pend.options, yn));
       } else {
         engine.current?.say("Say yes to allow, or no to reject.");
       }

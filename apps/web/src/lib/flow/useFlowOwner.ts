@@ -6,7 +6,7 @@ import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live
 import { VoiceEngine, type EnginePhase, type TurnTuning } from "@/lib/live/voiceEngine";
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
 import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
-import { classifyYesNo } from "@/lib/live/modalAnswer";
+import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
 import { toolMeta } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
@@ -554,7 +554,7 @@ export function useFlowOwner(): void {
         else setPhase("confirming", "Say yes to allow, or no to cancel.");
         return;
       }
-      answer(verdict === "allow" ? "allow" : "deny");
+      answer(optionForVerdict(permission.current?.options ?? [], verdict));
     };
 
     // ── commands from the orb ─────────────────────────────────────────────

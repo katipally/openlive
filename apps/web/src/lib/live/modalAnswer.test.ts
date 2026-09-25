@@ -1,7 +1,7 @@
 // A spoken answer to a permission/elicitation modal must be understood as the answer
 // — never leak to the agent. These interpreters are the core of that routing.
 import { expect, test } from "vitest";
-import { classifyYesNo, buildElicitationAnswer } from "./modalAnswer.ts";
+import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer.ts";
 
 test("permission: clear yes / no, ambiguous stays null", () => {
   expect(classifyYesNo("yes go ahead")).toBe("allow");
@@ -9,6 +9,20 @@ test("permission: clear yes / no, ambiguous stays null", () => {
   expect(classifyYesNo("no, don't")).toBe("deny");
   expect(classifyYesNo("cancel that")).toBe("deny");
   expect(classifyYesNo("hmm what do you think")).toBeNull(); // → keep waiting, NOT sent to agent
+});
+
+test("permission: a spoken verdict picks the agent's own option by kind", () => {
+  const agent = [
+    { id: "proceed_always", label: "Always", kind: "allow_always" },
+    { id: "proceed_once", label: "Allow", kind: "allow_once" },
+    { id: "cancel", label: "Reject", kind: "reject_once" },
+  ];
+  expect(optionForVerdict(agent, "allow")).toBe("proceed_once");
+  expect(optionForVerdict(agent, "deny")).toBe("cancel");
+  // Flow's own yes/no ask keeps working.
+  const own = [{ id: "allow", label: "Yes", kind: "allow_once" }, { id: "deny", label: "Cancel", kind: "reject_once" }];
+  expect(optionForVerdict(own, "allow")).toBe("allow");
+  expect(optionForVerdict(own, "deny")).toBe("deny");
 });
 
 const topicSchema = { properties: { topic: { enum: ["Personal portfolio", "Landing page for an idea", "Blog", "Something else"] }, other: { type: "string" } } };

@@ -9,6 +9,17 @@ export function classifyYesNo(text: string): "allow" | "deny" | null {
   return null;
 }
 
+// The option a spoken verdict picks. The ACP option kind wins when present (a spoken
+// "yes" means allow ONCE, never silently "always"); asks without kinds fall back to
+// id/label matching (adapters vary: "allow" / "allow_once" / "approve").
+export function optionForVerdict(options: Array<{ id: string; label: string; kind?: string }>, verdict: "allow" | "deny"): string {
+  const wantKinds = verdict === "allow" ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
+  const byKind = wantKinds.map((k) => options.find((o) => o.kind === k)).find(Boolean);
+  const want = verdict === "allow" ? /allow|approve|accept|yes/i : /deny|reject|no\b|cancel/i;
+  const opt = byKind ?? options.find((o) => want.test(o.id)) ?? options.find((o) => want.test(o.label));
+  return opt?.id ?? (verdict === "allow" ? options[0]?.id ?? "deny" : "deny");
+}
+
 // Map a spoken answer onto an elicitation form schema, hands-free: if a field lists
 // options, match the utterance to one (say the choice); otherwise drop the words into
 // the first free-text field. Returns the content to submit, or null if nothing fit.
