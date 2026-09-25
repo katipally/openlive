@@ -221,3 +221,13 @@ test("estimateSpeechMs: scales with length, inversely with speed, at each engine
   assert.equal(estimateSpeechMs("x".repeat(30), "kitten"), 3000);
   assert.equal(estimateSpeechMs("x".repeat(32), "kokoro"), 2000); // one-piece engines: exact duration is used instead
 });
+
+test("isJunk: a one-syllable CJK answer is a turn, multilingual Whisper's silence lines are not", () => {
+  assert.equal(isJunk("好"), false);
+  assert.equal(isJunk("네"), false);
+  assert.equal(isJunk("はい"), false);
+  assert.equal(isJunk("हाँ"), false);
+  assert.equal(isJunk("ご視聴ありがとうございました。"), true);
+  assert.equal(isJunk("字幕由Amara.org社区提供"), true);
+  assert.equal(isJunk("a"), true);
+});

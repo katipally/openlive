@@ -35,12 +35,16 @@ export const estimateSpeechMs = (text: string, engine: string, speed = 1) =>
 
 // Whisper hallucinates these on silence/ambient noise — never treat as a turn.
 // Kept tight: only true silence artifacts. Real short answers ("okay", "yeah",
-// "so", "bye", "no") must register as turns, so they are NOT here.
-const HALLUCINATIONS = new Set(["", "you", "thank you", "thank you.", "thanks for watching", "thank you for watching", "thanks for watching!", "please subscribe", "subtitles by the amara.org community"]);
+// "so", "bye", "no") must register as turns, so they are NOT here. The last
+// four are multilingual Whisper's, as isJunk leaves them (punctuation gone).
+const HALLUCINATIONS = new Set(["", "you", "thank you", "thank you.", "thanks for watching", "thank you for watching", "thanks for watching!", "please subscribe", "subtitles by the amara.org community",
+  "ご視聴ありがとうございました", "시청해주셔서 감사합니다", "字幕由amaraorg社区提供", "subtítulos realizados por la comunidad de amaraorg"]);
+// One of these is a whole answer ("好", "네"); one Latin letter is noise.
+const SYLLABIC = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u;
 
 export function isJunk(text: string): boolean {
-  const t = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-  return t.length < 2 || HALLUCINATIONS.has(t);
+  const t = text.toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s]/gu, "").trim();
+  return t.length < (SYLLABIC.test(t) ? 1 : 2) || HALLUCINATIONS.has(t);
 }
 
 // Words that, at the very end of an utterance, usually mean "I'm not done yet".
