@@ -11,6 +11,8 @@ Releases before 0.1.9 predate this file — see the
   global talk hotkey (Settings → General → Mini mode) are gone. A call now shows
   on the orb above the dock whenever the OpenLive window is minimised or hidden,
   with mute, open and end. Closing the window ends the call.
+- **Flow's "Let me talk over it" switch.** Speaking always stops Flow now.
+  Saved settings that still carry it load as before.
 
 ### Changed
 - **Settings opens on General and goes back where you came from.** The close
@@ -69,6 +71,25 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **The call heard itself.** On speakers, the reply's own voice leaking into the
+  mic could be sent as a turn, cutting the reply short on screen. It is now
+  dropped; talking over the reply still stops it.
+- **The orb stuck on speaking.** A spoken error or reminder outside a reply, and
+  a chat error with no end after it, left the call on speaking or thinking. It
+  now settles once the line is said.
+- **A held sentence was lost.** A mid-thought pause that ran out while
+  something was being said, or a Send now tapped mid-sentence, dropped what
+  was held. It is now kept and sent.
+- **A chat reply lost to a dropped connection stayed open forever.** Chat now
+  ends it and says the connection dropped mid-answer, as Flow does.
+- **A cancelled turn's permission ask showed up in the next turn.** Asks now
+  belong to their turn, and a late one is refused instead of taking your next
+  sentence as its answer.
+- **Flow could not answer a coding agent's question by voice.** A spoken yes
+  or no now picks the agent's own allow or reject option.
+- **A voice engine that hung kept the call silent.** Two sentences in a row
+  that never start now switch the call to the browser voice, with a notice.
+  The notice for a language with no voice is also given again on each call.
 - **The voice changed in the middle of a reply.** In calls and Flow, a sentence
   the voice engine was slow on, or failed once, was read in the browser voice,
   and the reply's first few words were spoken on their own in a different

@@ -86,6 +86,8 @@ One turn, end to end:
    before the full answer exists.
 6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken.
+   The reply's own voice leaking from the speakers into the mic is dropped, never
+   sent as a turn.
 
 The renderer models run on **WebGPU via transformers.js**. They download once
 (roughly 200 MB with Kokoro, more with Supertonic or a bigger Whisper; cached)
@@ -102,7 +104,8 @@ with `language-not-supported`. They run on the agent's CPU in worker threads,
 at most two loaded models per worker. Batch transcription and synthesis go through `/api/voice`, and speech
 streams back as raw Float32 PCM while it is generated. Nemotron takes mic frames
 over the `/voice/stream` socket and sends partials while you talk. A missing
-engine or an unreachable agent switches the call to Whisper or the browser voice
+engine, an unreachable agent, or a voice engine that never starts on two
+sentences in a row switches the call to Whisper or the browser voice
 that speaks the session language (Kokoro for English, Supertonic otherwise), once
 and for the rest of the call. A one-off failure (a timeout, a 500) falls back to
 Whisper for that utterance; for speech the same voice tries the sentence once

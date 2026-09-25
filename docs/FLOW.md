@@ -129,7 +129,8 @@ claims to see it.
   is kept.
 - **Coding agents.** With consent given, Flow switches the agent into its
   no-questions mode when it has one, and answers the agent's own permission asks
-  with its broadest yes. Without consent, the agent's question shows on the orb.
+  with its broadest yes. Without consent, the agent's question shows on the orb,
+  and a spoken yes or no answers it.
 
 ![Permission card](../assets/flow-orb-permission.png)
 
