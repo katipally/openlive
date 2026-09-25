@@ -404,7 +404,9 @@ export function useFlowOwner(): void {
      */
     const onStop = () => {
       // Spoken, the reply is cut back to what was heard; quiet, all of it was shown.
-      const heard = snap.current.speaking ? engine.current?.cutReply() : undefined;
+      // Cut either way: a quiet turn still left the engine thinking.
+      const cut = engine.current?.cutReply();
+      const heard = snap.current.speaking ? cut : undefined;
       client.current?.flowCancel(heard ?? (snap.current.reply || undefined));
       turnActive.current = false;
       stopAnswerWatchdog();
@@ -459,8 +461,9 @@ export function useFlowOwner(): void {
         case "done":
           turnActive.current = false;
           stopAnswerWatchdog();
-          if (snap.current.speaking) engine.current?.endAgentTurn();
-          else backToListening();
+          // Quiet, the engine has nothing to voice but is still thinking until told.
+          engine.current?.endAgentTurn();
+          if (!snap.current.speaking) backToListening();
           return;
         default:
           return;

@@ -556,6 +556,8 @@ export class VoiceEngine {
     this.ttsAbort?.abort();
     this.player.flush(this.epoch);
     this.chunker.flush();
+    // The new epoch strands the drain that would have idled a speaking or thinking reply.
+    if (this.phase !== "listening") this.setPhase("idle");
   }
 
   private bargeIn() {
