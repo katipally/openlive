@@ -122,6 +122,29 @@ describe("native TTS stall", () => {
     expect(toast).toHaveBeenCalledTimes(1);
   });
 
+  it("switches the call to the browser voice once the engine never starts on two sentences in a row", async () => {
+    const fetch = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+      init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const got: number[] = [];
+    const opts = { engine: "pocket", lang: "en" as const };
+    const one = models.ttsStream("One.", opts, (a) => got.push(a.length));
+    await vi.advanceTimersByTimeAsync(20_000);
+    await one;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(got).toEqual([]);
+    expect(toast).not.toHaveBeenCalled();
+    const two = models.ttsStream("Two.", opts, (a) => got.push(a.length));
+    await vi.advanceTimersByTimeAsync(20_000);
+    await two;
+    await models.ttsStream("Three.", opts, (a) => got.push(a.length));
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(posted.filter((m) => m.type === "tts").map((m) => m.engine)).toEqual(["kokoro", "kokoro"]);
+    expect(got).toEqual([2, 2]);
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
   it("ends a sentence quietly when audio stops arriving mid-stream", async () => {
     vi.stubGlobal("fetch", stalledTts([new Float32Array([0.5, 0.5, 0.5])]));
     const got: number[] = [];

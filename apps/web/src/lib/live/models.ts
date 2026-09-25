@@ -224,7 +224,7 @@ const httpError = async (res: Response) =>
 export const isNativeTts = isNativeVariant;
 
 /** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; }
+export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; hungSentences = 0; }
 
 /** The STT variant this session really uses: the selection, or Whisper once it
  *  failed (Whisper speaks every curated language). */
@@ -417,6 +417,10 @@ const TTS_START_MS = 10_000;
 // A 500 or a stall is a one-off: the same voice gets one more try before the
 // sentence goes unspoken, since another voice mid-reply is worse than a gap.
 const TTS_ATTEMPTS = 2;
+// An engine that never starts on two sentences in a row is hung, not busy: each
+// already cost TTS_ATTEMPTS x TTS_START_MS of silence, and so would every one after.
+const HUNG_SENTENCES = 2;
+let hungSentences = 0;
 
 /** Speak `text`, handing each piece of audio to `onChunk` as soon as it exists:
  *  a native engine streams from the agent, the others arrive in one piece. A
@@ -430,7 +434,8 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
     let voiced = false;
     for (let attempt = 1; ; attempt++) {
       const stalled = new AbortController();
-      let timer = setTimeout(() => stalled.abort(new Error("the engine did not start")), TTS_START_MS);
+      let hung = false;
+      let timer = setTimeout(() => { hung = true; stalled.abort(new Error("the engine did not start")); }, TTS_START_MS);
       warmedAt.set(engine!, Date.now());
       const stallIn = (why: string) => { clearTimeout(timer); timer = setTimeout(() => stalled.abort(new Error(why)), ttsStallMs(text)); };
       try {
@@ -441,6 +446,7 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
           body: JSON.stringify({ engine, text, voice: opts?.voice || undefined, speed: opts?.speed, lang: opts?.lang }),
           signal: signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal,
         });
+        hungSentences = 0;
         if (!res.ok || !res.body) throw await httpError(res);
         stallIn("no audio in time");
         const rate = Number(res.headers.get("x-sample-rate")) || 24000;
@@ -458,7 +464,8 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
         if (signal?.aborted) return;
         // Restarting a half-spoken sentence, in any voice, is worse than its tail missing.
         if (voiced) { log.warn("tts", `${engine} stream broke off:`, e); return; }
-        if (!failureIsLasting(e)) {
+        const lasting = failureIsLasting(e) || (hung && attempt === TTS_ATTEMPTS && ++hungSentences >= HUNG_SENTENCES);
+        if (!lasting) {
           if (attempt < TTS_ATTEMPTS) { log.warn("tts", `${engine} failed, trying again:`, e); continue; }
           log.error("tts", `${engine} failed twice, this sentence goes unspoken:`, e);
           return;
