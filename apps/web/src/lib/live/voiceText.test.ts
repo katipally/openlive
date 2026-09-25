@@ -2,7 +2,7 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, STREAMED_FIRST_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs } from "./voiceText.ts";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs } from "./voiceText.ts";
 
 test("isJunk: silence artifacts dropped, real short answers kept", () => {
   assert.equal(isJunk("thank you for watching"), true);
@@ -118,13 +118,13 @@ test("SentenceChunker: two short sentences merge on flush (no lone tiny fragment
   assert.equal(c.flush(), "Hi. Yeah.");
 });
 
-test("SentenceChunker: fast start — a long first sentence releases its opening clause early", () => {
+test("SentenceChunker: fast start: a long first sentence releases its opening clause early", () => {
   const c = new SentenceChunker();
   const spoken: string[] = [];
   for (const d of ["The gas valve", ", which sits", " on the lower left, ", "controls the flow."]) spoken.push(...c.push(d));
   assert.ok(spoken.length >= 1, "should emit before flush");
-  assert.equal(spoken[0], "The gas valve,");       // opening clause released early
-  assert.ok(spoken[0]!.length < MIN_TTS_CHARS);    // small enough to start fast
+  assert.equal(spoken[0], "The gas valve, which sits on the lower left,"); // the first clause past the bar
+  assert.ok(spoken[0]!.length >= FIRST_TTS_CHARS);
 });
 
 test("SentenceChunker: a single short first sentence speaks whole on completion", () => {
@@ -134,14 +134,26 @@ test("SentenceChunker: a single short first sentence speaks whole on completion"
   assert.equal(out[0], "The valve is on the left.");
 });
 
-test("SentenceChunker: a LONG opening sentence with no early pause streams in pieces", () => {
+test("SentenceChunker: an opening sentence with no early pause is never cut mid-clause", () => {
   const c = new SentenceChunker();
   const spoken: string[] = [];
-  for (const d of ["I'll put ", "a simple labeled ", "diagram of the machine ", "on screen for you now."]) spoken.push(...c.push(d));
-  assert.ok(spoken.length >= 1, "the opening speaks before the sentence is done");
-  spoken.push(c.flush()); // the closing "now." could still grow into "now.txt" until the turn ends
-  assert.ok(spoken.length >= 2, "long sentence should stream in pieces, not one late chunk");
-  assert.ok(spoken[0]!.length < 48 && !/[.!?]$/.test(spoken[0]!), "first chunk is the opening words, mid-sentence");
+  for (const d of ["I'll put ", "a simple labeled ", "diagram of the machine ", "on screen for you now. ", "Then we can go through it part by part."]) spoken.push(...c.push(d));
+  assert.deepEqual(spoken, ["I'll put a simple labeled diagram of the machine on screen for you now."]);
+});
+
+test("SentenceChunker: the opening chunk always ends on a clause or sentence boundary", () => {
+  const replies = [
+    "Sure, I can help with that, and it is quick. Yes.",
+    "Okay so the thing you want to do first is open the settings panel and then pick voice.",
+    "Right: the config lives in two places; the first one wins, always.",
+    "Hi! " + "word ".repeat(30) + "done.",
+  ];
+  for (const text of replies) for (const size of [1, 3, 8, 500]) {
+    const out = chunked(text, size);
+    assert.equal(out.join(" ").replace(/\s+/g, " "), text.replace(/\s+/g, " ").trim(), `${size}: ${text}`);
+    assert.match(out[0]!, /[,;:.!?]$/, `${size}: ${JSON.stringify(out)}`);
+    assert.ok(out[0]!.length >= FIRST_TTS_CHARS || out.length === 1, `${size}: ${JSON.stringify(out)}`);
+  }
 });
 
 test("SentenceChunker: after the first chunk, later short sentences hold to the stable MIN bar", () => {
@@ -172,17 +184,13 @@ test("SentenceChunker: a flush before a tool voices the whole held tail, then th
   assert.deepEqual(c.push("It is sunny all day in the city. "), ["It is sunny all day in the city."]); // fast first chunk again
 });
 
-test("SentenceChunker: a streamed engine opens on the first clause of 12+ characters", () => {
+test("SentenceChunker: the opening waits for a clause of 24+ characters, then later chunks keep the MIN bar", () => {
   const c = new SentenceChunker();
-  assert.deepEqual(c.push("Sure, ", STREAMED_FIRST_CHARS), []);                 // too short to open on
-  assert.deepEqual(c.push("I can help with that, and ", STREAMED_FIRST_CHARS), ["Sure, I can help with that,"]);
-  // Later chunks keep the stable MIN bar, so the rest does not come out choppy.
-  assert.deepEqual(c.push("it is quick. Yes. ", STREAMED_FIRST_CHARS), []);
+  assert.deepEqual(c.push("Sure, "), []);                 // too short to open on
+  assert.deepEqual(c.push("I can help with that, and "), ["Sure, I can help with that,"]);
+  assert.deepEqual(c.push("it is quick. Yes. "), []);
   assert.equal(c.flush(), "and it is quick. Yes.");
-  // The default bar is unchanged: the same opening waits for 24 characters.
-  const k = new SentenceChunker();
-  assert.deepEqual(k.push("Sure thing, okay. "), []);
-  assert.deepEqual(new SentenceChunker().push("Sure thing, okay. ", STREAMED_FIRST_CHARS), ["Sure thing, okay."]);
+  assert.deepEqual(new SentenceChunker().push("Sure thing, okay. "), []); // held for the next sentence
 });
 
 test("SentenceChunker: line breaks end a chunk, so a list without periods still streams", () => {
@@ -225,10 +233,10 @@ test("estimateSpeechMs: scales with length, inversely with speed, at each engine
 // ── languages other than English ────────────────────────────────────────────
 
 // Like chunked(), in a language.
-function chunkedIn(lang: string, text: string, size: number, firstMin?: number): string[] {
+function chunkedIn(lang: string, text: string, size: number): string[] {
   const c = new SentenceChunker();
   const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), firstMin, lang));
+  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), lang));
   const tail = c.flush();
   return tail ? [...out, tail] : out;
 }

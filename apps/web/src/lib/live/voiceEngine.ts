@@ -1,7 +1,7 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
-import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines, isNativeTts } from "./models";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker, STREAMED_FIRST_CHARS } from "./voiceText";
+import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines } from "./models";
+import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
@@ -475,7 +475,7 @@ export class VoiceEngine {
     this.replyFed = true;
     perf.firstToken(); // no-op after the first delta of a turn
     const v = this.replyVoice ??= voiceNow();
-    for (const s of this.chunker.push(text, isNativeTts(v.engine) ? STREAMED_FIRST_CHARS : undefined, v.lang)) this.enqueueSpeak(s, this.epoch, v);
+    for (const s of this.chunker.push(text, v.lang)) this.enqueueSpeak(s, this.epoch, v);
   }
   /** A tool is about to run: voice everything said so far now. Held for the
    *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
