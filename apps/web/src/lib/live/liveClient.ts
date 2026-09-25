@@ -1,5 +1,6 @@
 import type { SseEvent, AgentIdWire, AgentMetaWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
 import { reconnectDelay, useLinkStatus, type LinkState } from "./linkStatus";
+import { loadPipelineConfig } from "./pipelineConfig";
 
 // Browser side of the /live WebSocket. Same-origin (the web server proxies it to
 // the agent). THIN protocol: we send final user text + camera frames + a cancel
@@ -45,6 +46,13 @@ export interface LiveHandlers {
   onBoundState?: (agentId: AgentId | null, cwd: string, agentActive: boolean) => void;
   onError?: (message: string) => void;
 }
+
+/** The session language a turn carries, read as it is sent; English is left
+ *  out, so an English turn is what it was before languages existed. */
+const langField = () => {
+  const lang = loadPipelineConfig().language;
+  return lang === "en" ? {} : { lang };
+};
 
 // The client whose health this window's banner shows: the one connected last.
 let linkOwner: LiveClient | null = null;
@@ -92,7 +100,9 @@ export class LiveClient {
     // so the per-launch token rides as a query param. Empty everywhere else.
     const tok = (window as { openlive?: { agentToken?: string } }).openlive?.agentToken;
     const auth = tok ? `&token=${encodeURIComponent(tok)}` : "";
-    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${this.opts.flow ? "&flow=1" : ""}`);
+    // The language warms the prompt cache in it; absent for English, as on each turn.
+    const { lang } = langField();
+    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${lang ? `&lang=${lang}` : ""}${this.opts.flow ? "&flow=1" : ""}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.publish("open");
@@ -161,11 +171,11 @@ export class LiveClient {
     if (this.queue.length > LiveClient.MAX_QUEUE) this.queue.shift();
   }
   userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[]) {
-    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}) });
+    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField() });
   }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken !== undefined ? { spoken } : {}) }); }
   /** A completed Flow utterance, with the metadata captured as it was spoken. */
-  flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}) }); }
+  flowText(text: string, context?: FlowContextWire) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}), ...langField() }); }
   /** Barge-in on a Flow turn. `spoken` is what the voice actually got through;
    *  `close` also refuses any ask still open, because Flow itself is going away. */
   flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken !== undefined ? { spoken } : {}), ...(close ? { close } : {}) }); }
