@@ -165,7 +165,15 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
 // finalize step awaits forever and the whole turn loop deadlocks ("stuck listening").
 // Generous enough not to trip a legitimately slow WASM/CPU transcription of a long
 // utterance; short enough that a real stall self-heals in seconds.
-const CALL_TIMEOUT_MS = 12000;
+//
+// Tier-aware, because "legitimately slow" differs by more than an order of
+// magnitude. 12s suits WebGPU. On the WASM tier a single utterance measured
+// 17-40s INSIDE a live call on a 2-core CPU - the worker shares those cores with
+// the VAD, the UI and TTS, so an idle benchmark of the same clip (7-9s) is not
+// representative. At 12s every real turn was rejected, and because the rejection
+// was reported as a timeout rather than a failure it looked like the pipeline had
+// simply gone quiet.
+const CALL_TIMEOUT_MS = () => (hasWebGPU() ? 12000 : 60000);
 // TTS gets a longer leash: a mid-call ENGINE SWITCH lazy-downloads the new
 // engine's weights inside the first tts call (Cache API after that).
 const TTS_TIMEOUT_MS = 120000;
@@ -173,7 +181,7 @@ const TTS_TIMEOUT_MS = 120000;
 function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
   if (!worker) return Promise.reject(new Error("models not loaded"));
   const id = ++seq;
-  const timeoutMs = msg.type === "tts" ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS;
+  const timeoutMs = msg.type === "tts" ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS();
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${timeoutMs}ms`));
