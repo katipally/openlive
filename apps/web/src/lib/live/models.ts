@@ -30,8 +30,32 @@ function resetWorker() {
   for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
 }
 
+// `"gpu" in navigator` only says the API EXISTS. Chromium exposes navigator.gpu
+// on machines where requestAdapter() then returns null — an older GPU on the
+// driver blocklist, a software-only GL stack, a headless/VM session. Those all
+// report "WebGPU (fast)" and get WebGPU weights, WebGPU dtypes and WebGPU
+// timeouts, then fall back to CPU execution underneath: the slow path running
+// with the fast path's settings, which is worse than either.
+// Probe once, cache it; every caller is sync, so the probe is kicked off at
+// module load and awaited in loadModels before any tier decision is made.
+let webgpuProbe: Promise<boolean> | null = null;
+let webgpuOk = false;
+
+export function probeWebGPU(): Promise<boolean> {
+  webgpuProbe ??= (async () => {
+    try {
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+      webgpuOk = !!gpu && !!(await gpu.requestAdapter());
+    } catch { webgpuOk = false; }
+    return webgpuOk;
+  })();
+  return webgpuProbe;
+}
+
+if (typeof navigator !== "undefined") void probeWebGPU();
+
 export function hasWebGPU(): boolean {
-  return typeof navigator !== "undefined" && "gpu" in navigator;
+  return webgpuOk;
 }
 
 export function modelsReady(): boolean { return ready; }
@@ -92,7 +116,9 @@ export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Pr
 
 let loading: Promise<void> | null = null;
 
-export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {
+export async function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {
+  // Settle the WebGPU probe before anything reads the tier.
+  await probeWebGPU();
   if (modelsMatchConfig()) return Promise.resolve();
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise.
@@ -152,7 +178,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
       reject(err); // the load promise, if we never became ready
     };
     const tier = deviceTier();
-    console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
+    console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no usable WebGPU adapter)"}`);
     const cfg = loadPipelineConfig();
     w.postMessage({ type: "load", device: tier, whisperSize: sttSize(), ttsEngine: cfg.tts.engine, ttsVoice: cfg.tts.voice });
   });
