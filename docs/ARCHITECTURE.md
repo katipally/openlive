@@ -93,13 +93,33 @@ and the worker stays warm for the tab's life.
 
 The **native engines** (`services/agent/src/voice/native*.ts`) are optional
 sherpa-onnx models that the agent service downloads into `data/models/<id>` from
-Settings → Voice: Nemotron (streaming), Parakeet and Moonshine for speech to
-text, Pocket TTS and Kitten TTS for speech. They run on the agent's CPU in worker
-threads. Batch transcription and synthesis go through `/api/voice`, and speech
+Settings → Voice. The catalog groups them in families of variants (size,
+precision, chunk latency, voice): Nemotron and Nemotron 3.5 (streaming),
+Parakeet, Moonshine and Canary for speech to text, Pocket TTS, Kitten TTS, Piper,
+Kokoro and Matcha for speech. Each variant lists the languages it speaks; a call
+may name one (`lang`, ISO 639-1) and an engine that does not speak it refuses
+with `language-not-supported`. They run on the agent's CPU in worker threads,
+at most two loaded models per worker. Batch transcription and synthesis go through `/api/voice`, and speech
 streams back as raw Float32 PCM while it is generated. Nemotron takes mic frames
 over the `/voice/stream` socket and sends partials while you talk. A missing
-engine or an unreachable agent switches the call to Whisper or Kokoro; a one-off
-failure (a timeout, a 500) falls back for that turn only.
+engine or an unreachable agent switches the call to Whisper or the browser voice
+that speaks the session language (Kokoro for English, Supertonic otherwise); a
+one-off failure (a timeout, a 500) falls back for that turn only.
+
+A session runs in **one language** (`language` in `pipelineConfig.ts`: en, es, fr,
+de, it, pt, hi, zh, ja, ko) and every stage follows it: STT gets `lang` (Whisper
+switches from its `.en` build to the multilingual build of the same size and
+pins the language), TTS gets it (Supertonic as its language tag), the chunker
+splits on Chinese, Japanese and Devanagari sentence marks, and the English
+turn-taking word list applies to English only. Each `user_text` / `flow_text`
+carries it, and the reply follows: one "Always reply in …" line in the built-in
+model's system prompt, or at the head of the turn for a coding agent over ACP.
+English adds nothing. The `/live` connect URL carries it too (`?lang=`), so the
+connect-time warm-up primes the prompt cache in it. `pickCompatible` swaps an
+engine that cannot speak a newly chosen language for one that can. In Settings →
+Voice the Language picker sits above the stages; each family is one card with a
+Model menu of its variants, and a family or variant that cannot speak the
+language is greyed out with the languages it can.
 
 ## Voice cloning (`services/agent/src/voice/`)
 

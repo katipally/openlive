@@ -72,11 +72,17 @@ The core, the ears / mouth / eyes:
 
 - **On-device voice loop.** Silero VAD, speech to text, Smart-Turn end-of-turn,
   and text to speech, all on this machine. Speech to text is Whisper on WebGPU, or
-  a native engine: Nemotron (transcribes while you talk), Parakeet or Moonshine.
-  Text to speech is Kokoro (28 voices, light), Supertonic (10 voices, 44.1 kHz), or
-  a native Pocket TTS or Kitten TTS that starts speaking before the sentence is
-  done. The native engines are optional downloads in Settings → Voice, run by the
-  local agent service on CPU, and fall back to Whisper or Kokoro when missing.
+  a native engine: Nemotron (transcribes while you talk), Parakeet, Moonshine or
+  Canary. Text to speech is Kokoro (28 voices, light), Supertonic (10 voices,
+  44.1 kHz), or a native Pocket TTS, Kitten TTS, Piper, Kokoro (CPU) or Matcha that
+  starts speaking before the sentence is done. Each native engine comes in variants
+  (size, precision, latency, voice), picked from its Model menu in Settings → Voice
+  and downloaded on demand; they run in the local agent service on CPU and fall
+  back to Whisper or the browser voice for the language when missing.
+- **Ten languages.** English, Spanish, French, German, Italian, Portuguese, Hindi,
+  Chinese, Japanese or Korean, picked once in Settings → Voice. Every stage and the
+  reply follow it. Engines that don't speak it are greyed out, and switching
+  swaps in one that does and tells you what changed.
 - **Speak as yourself.** Settings → Voice records 5 to 30 seconds of you
   (with a seekable listen-back before anything is saved) and your assistant speaks
   in your voice from then on. Zero-shot cloning (ZipVoice, Apache-2.0) running
