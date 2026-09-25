@@ -49,7 +49,6 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   { label: "Flow brain", keywords: "agent model who thinks", tab: "flow", anchor: "set-flow-brain" },
   { label: "Say replies out loud", keywords: "speak voice", tab: "flow", anchor: "set-flow-voice" },
-  { label: "Let me talk over it", keywords: "barge in interrupt", tab: "flow", anchor: "set-flow-voice" },
   { label: "Wait before answering", keywords: "pace turn", tab: "flow", anchor: "set-flow-voice" },
   { label: "Stay open after the last reply", keywords: "idle timeout close", tab: "flow", anchor: "set-flow-voice" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },

@@ -63,7 +63,6 @@ export function FlowSettings() {
       <Section id="set-flow-voice" title="Voice" desc="How Flow talks back.">
         <div className={card}>
           <Toggle label="Say replies out loud" on={config.voice.speakReplies} onFlip={(speakReplies) => save({ voice: { speakReplies } })} />
-          <Toggle label="Let me talk over it" on={config.voice.bargeIn} onFlip={(bargeIn) => save({ voice: { bargeIn } })} />
           <Row label="Wait before answering">
             <Segmented label="Wait before answering" value={paceOf(config.voice.turn)}
               options={WAIT_PACES.map((p) => ({ id: p.id, label: p.label }))}

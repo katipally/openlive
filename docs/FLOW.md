@@ -125,8 +125,8 @@ claims to see it.
   click. The caption strip and **Stop** are the control: Stop ends what Flow is
   doing and keeps the mic open; closing Flow also drops the turn and closes the
   mic.
-- **Talk over it.** With **Let me talk over it** on, speaking cuts the reply off
-  mid-word and only what was said is kept.
+- **Talk over it.** Speaking cuts the reply off mid-word and only what was said
+  is kept.
 - **Coding agents.** With consent given, Flow switches the agent into its
   no-questions mode when it has one, and answers the agent's own permission asks
   with its broadest yes. Without consent, the agent's question shows on the orb.
@@ -167,7 +167,6 @@ Settings > Flow ("Trigger, voice & typing"):
 |---|---|---|
 | Brain | Who does the thinking | API mode, or an installed coding agent (model and effort) |
 | Voice | Say replies out loud | On / off |
-| | Let me talk over it | On / off (barge-in) |
 | | Wait before answering | Patient, Even, Quick |
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |

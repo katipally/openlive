@@ -53,7 +53,7 @@ interface FlowSettings {
   idleWindowMs: number;
   brain: { kind: string };
   insertion: { method: string };
-  voice: { speakReplies: boolean; bargeIn: boolean; autoQuiet: QuietRules; turn: TurnTuning };
+  voice: { speakReplies: boolean; autoQuiet: QuietRules; turn: TurnTuning };
 }
 
 const asRules = (s: FlowSettings): QuietRules => ({ ...s.voice.autoQuiet, speakReplies: s.voice.speakReplies });
@@ -253,9 +253,8 @@ export function useFlowOwner(): void {
             turnActive.current = false;
             patch({ reply: "" });
           },
-          // While an approval chip is up, speech is the ANSWER, never a barge-in;
-          // and with barge-in switched off, talking over Flow never cuts it.
-          holdBargeIn: () => !!permission.current || settings.current?.voice.bargeIn === false,
+          // While an approval chip is up, speech is the ANSWER, never a barge-in.
+          holdBargeIn: () => !!permission.current,
           onMicLost: () => void recoverMic(eng),
         // Flow's own turn-taking, not the one a call runs on: cut off in a call
         // the person sees it and presses a key, and here the half-sentence is

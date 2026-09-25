@@ -36,7 +36,6 @@ export interface FlowConfig {
   };
   voice: {
     speakReplies: boolean;
-    bargeIn: boolean;
     autoQuiet: { meetingApps: boolean; micContention: boolean; systemDnd: boolean; apps: string[] };
     /** How long Flow waits for the rest of a sentence before answering the half
      *  it has. Its own, and patient by default: in a call a person who is cut
@@ -59,7 +58,6 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   brain: { kind: "api", agentId: "", agentModel: "", agentEffort: "" },
   voice: {
     speakReplies: true,
-    bargeIn: true,
     autoQuiet: { meetingApps: true, micContention: true, systemDnd: true, apps: [] },
     turn: { threshold: 0.65, holdMs: 6000, redemptionMs: 800 },
   },
@@ -143,7 +141,6 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
     voice: {
       ...voice,
       speakReplies: bool(voice.speakReplies, d.voice.speakReplies),
-      bargeIn: bool(voice.bargeIn, d.voice.bargeIn),
       autoQuiet: {
         ...autoQuiet,
         meetingApps: bool(autoQuiet.meetingApps, d.voice.autoQuiet.meetingApps),
