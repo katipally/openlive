@@ -56,20 +56,24 @@ async function cachedFetch(url: string, onProgress?: Progress): Promise<ArrayBuf
   return buf.buffer;
 }
 
-// ── text preprocessing (reference UnicodeProcessor, English path) ────────────
-function preprocess(text: string): string {
+// ── text preprocessing (reference UnicodeProcessor, web/helper.js) ───────────
+// The language rides as a tag around the text, one of the model's 31 codes
+// (huggingface.co/Supertone/supertonic-3). NFKD splits Hangul into jamo, as the
+// reference does: the unicode indexer holds the jamo, not the syllables.
+function preprocess(text: string, lang: string): string {
+  // English words: in another language they would be read out as English.
+  if (lang === "en") text = text.replaceAll("@", " at ").replaceAll("e.g.,", "for example, ").replaceAll("i.e.,", "that is, ");
   text = text.normalize("NFKD")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu, "")
     .replace(/[–‑—]/g, "-").replace(/_/g, " ")
     .replace(/[“”]/g, '"').replace(/[‘’´`]/g, "'")
     .replace(/[[\]|/#→←]/g, " ")
     .replace(/[♥☆♡©\\]/g, "")
-    .replaceAll("@", " at ").replaceAll("e.g.,", "for example, ").replaceAll("i.e.,", "that is, ")
     .replace(/ ([,.!?;:'])/g, "$1")
     .replace(/""+/g, '"').replace(/''+/g, "'")
     .replace(/\s+/g, " ").trim();
   if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(text)) text += ".";
-  return `<en>${text}</en>`;
+  return `<${lang}>${text}</${lang}>`;
 }
 
 interface Cfg { ae: { sample_rate: number; base_chunk_size: number }; ttl: { chunk_compress_factor: number; latent_dim: number } }
@@ -118,10 +122,10 @@ export class Supertonic {
     return s;
   }
 
-  /** Synthesize one sentence/chunk → mono Float32 PCM at cfg sample rate. */
-  async synthesize(text: string, voice: string, speed = 1): Promise<Float32Array> {
+  /** Synthesize one sentence/chunk in `lang` (ISO 639-1) → mono Float32 PCM at cfg sample rate. */
+  async synthesize(text: string, voice: string, speed = 1, lang = "en"): Promise<Float32Array> {
     const style = await this.style(voice);
-    const processed = preprocess(text);
+    const processed = preprocess(text, lang);
 
     // text ids + mask
     const ids = new BigInt64Array(processed.length);
