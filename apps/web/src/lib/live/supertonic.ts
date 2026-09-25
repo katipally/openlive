@@ -76,6 +76,21 @@ function preprocess(text: string, lang: string): string {
   return `<${lang}>${text}</${lang}>`;
 }
 
+// The initial latent is the only randomness in synthesis. Drawn fresh for every
+// sentence, one voice came out a little different each time; seeded by the
+// voice, every sentence starts from the same draw. FNV-1a seeds mulberry32,
+// Box-Muller makes it Gaussian.
+function seededNormal(seed: string): () => number {
+  let a = [...seed].reduce((h, c) => Math.imul(h ^ c.codePointAt(0)!, 16777619), 2166136261);
+  const uniform = () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return () => Math.sqrt(-2 * Math.log(Math.max(0.0001, uniform()))) * Math.cos(2 * Math.PI * uniform());
+}
+
 interface Cfg { ae: { sample_rate: number; base_chunk_size: number }; ttl: { chunk_compress_factor: number; latent_dim: number } }
 interface Style { ttl: ort.Tensor; dp: ort.Tensor }
 
@@ -151,10 +166,8 @@ export class Supertonic {
     const latentLen = Math.max(1, Math.floor((wavLen + chunk - 1) / chunk));
     const latentDim = ttl.latent_dim * ttl.chunk_compress_factor;
     let xt: Float32Array<ArrayBufferLike> = new Float32Array(latentDim * latentLen);
-    for (let i = 0; i < xt.length; i++) {
-      const u1 = Math.max(0.0001, Math.random());
-      xt[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * Math.random());
-    }
+    const noise = seededNormal(voice);
+    for (let i = 0; i < xt.length; i++) xt[i] = noise();
     const latentMask = new ort.Tensor("float32", new Float32Array(latentLen).fill(1), [1, 1, latentLen]);
     const totalStep = new ort.Tensor("float32", new Float32Array([STEPS]), [1]);
 
