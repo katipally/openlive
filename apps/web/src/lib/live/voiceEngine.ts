@@ -89,6 +89,9 @@ export class VoiceEngine {
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
+  // Set by stop(). A transcription still running then must not start a turn in a
+  // call that has already ended.
+  private stopped = false;
 
   private micRms = 0;
   // A dedicated analyser on the mic stream → a real frequency spectrum for the orb
@@ -374,6 +377,7 @@ export class VoiceEngine {
         transcript.then((t) => t.trim()),
         useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
+      if (this.stopped) return;
       const sttEndpointMs = performance.now() - perf0;
       if (this.ptt) { this.pending = combined; this.pendingText = text; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
       // Drop empties and Whisper's silence-hallucinations so background noise and
@@ -405,6 +409,7 @@ export class VoiceEngine {
     } catch {
       // A stalled/failed inference (now time-limited in models.call) must not strand
       // the turn loop — recover to idle and clear the frozen partial caption.
+      if (this.stopped) return;
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
     } finally {
       this.finalizing = false;
@@ -438,6 +443,7 @@ export class VoiceEngine {
     this.clearHold();
     if (!p) return;
     const commit = (t: string) => {
+      if (this.stopped) return;
       const text = t.trim();
       if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
@@ -471,6 +477,7 @@ export class VoiceEngine {
     // The user just stopped talking: the VAD ends the segment after redemptionMs of
     // silence, then onSpeechEnd (ptt branch) appends it to `pending`. Bounded wait.
     for (let i = 0; i < 40 && (this.phase === "listening" || this.finalizing); i++) await new Promise((r) => setTimeout(r, 50));
+    if (this.stopped) return;
     this.ptt = false;
     if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
     const p = this.pending; const cached = this.pendingText;
@@ -480,6 +487,7 @@ export class VoiceEngine {
     try {
       // `pendingText` is always the transcript of exactly `pending`.
       const text = (cached || (await stt(p))).trim();
+      if (this.stopped) return;
       if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
       this.setPhase("thinking");
       this.spokenText = "";
@@ -490,7 +498,7 @@ export class VoiceEngine {
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
       this.h.onUserText(text);
-    } catch { this.h.onPartial(""); this.setPhase("idle"); }
+    } catch { if (!this.stopped) { this.h.onPartial(""); this.setPhase("idle"); } }
   }
   pttActive() { return this.ptt; }
 
@@ -650,6 +658,8 @@ export class VoiceEngine {
   agentBands(n = 5): number[] { return this.player.agentBands(n); }
 
   stop() {
+    this.stopped = true;
+    this.deferred = [];
     clearInterval(this.keepWarm);
     this.clearHold();
     this.ptt = false;

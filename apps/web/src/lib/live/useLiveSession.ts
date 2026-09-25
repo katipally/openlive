@@ -676,6 +676,8 @@ export function useLiveSession(chatId: string) {
     const frames: { data: string; mime: string; source: "camera" | "screen" }[] = [];
     if (st0.cameraOn && camRef.current) { const j = await camRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "camera" }); }
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
+    // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
+    if (tornDown.current) return;
     client.current?.userText(text, frames);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
