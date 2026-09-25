@@ -533,10 +533,13 @@ export function LanguagePicker() {
   const choose = (lang: LanguageCode) => {
     // With the agent unreachable nothing native counts as downloaded; while it is still loading, everything does.
     const { cfg: picked, changes, unsupported } = pickCompatible(cfg, lang, data ?? (isError ? [] : undefined));
-    // A catalog voice of another language (Kokoro CPU's af_heart after a switch to
-    // Spanish) gives way to the one the agent picks for the language.
+    // A native voice kept only when the catalog lists it for the language. Else
+    // (Kokoro CPU's af_heart after a switch to Spanish, or the agent not heard
+    // from yet) it gives way to the one the agent picks for the language, which
+    // is what the agent would read in anyway, under a name the menu no longer shows.
     const voice = variantStatus(data, picked.tts.variant)?.voices?.find((v) => v.id === picked.tts.voice);
-    const next = voice?.lang && voice.lang !== lang ? { ...picked, tts: { ...picked.tts, voice: "" } } : picked;
+    const keep = !isNativeVariant(picked.tts.variant) || (voice && (!voice.lang || voice.lang === lang));
+    const next = keep ? picked : { ...picked, tts: { ...picked.tts, voice: "" } };
     setCfg(savePipelineConfig(next));
     const lines = switchNotice(lang, changes, unsupported, (id) => engineName(id, data));
     setNotice(lines.length ? { lang, lines } : null);

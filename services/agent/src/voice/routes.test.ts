@@ -206,6 +206,20 @@ describe("POST /tts (native)", () => {
     expect((await tts({ engine: "kokoro-multi-v1_0-int8", text: "hola", lang: "es", voice: "nope" })).status).toBe(400);
   });
 
+  it("speaks every listed voice as itself in its own language, region tag or not", async () => {
+    // The settings menu offers a native engine's voices of the session language only.
+    const variants = m.NATIVE_FAMILIES.filter((f) => f.kind === "tts").flatMap((f) => f.variants).filter((e) => e.voices);
+    for (const e of variants) {
+      install(e.id);
+      for (const v of e.voices!) {
+        for (const lang of [v.lang!, `${v.lang!.toUpperCase()}-XX`]) {
+          await (await tts({ engine: e.id, text: "hi", voice: v.id, lang })).arrayBuffer();
+          expect((speak.mock.calls.at(-1)![2] as { id: string }).id, `${e.id} ${v.id} ${lang}`).toBe(v.id);
+        }
+      }
+    }
+  });
+
   it("leaves the cloned-voice path on the same route unchanged", async () => {
     const res = await tts({ text: "hi", profileId: "x" });
     expect(res.status).toBe(409);
