@@ -1,6 +1,8 @@
 // Settings search, the pure half: every searchable row, where it lives, and how a
 // query narrows them. No React, no DOM, so it tests on its own.
 
+import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
+
 export type SettingsTabId = "general" | "models" | "flow" | "voice" | "agents" | "about";
 
 // Tabs that were merged away. A deep link or anything persisted with an old id
@@ -25,6 +27,13 @@ export interface SettingsEntry {
   desktop?: boolean;
 }
 
+/** Each family's name and the parts of its variant ids ("80ms", "fp16",
+ *  "thorsten"), so every engine and preset is found by the name it shows. */
+const engineWords = (families: EngineFamilyInfo[]) =>
+  [...new Set(families.flatMap((f) => [f.name, ...f.variants.map((v) => v.id)]).flatMap((s) => s.toLowerCase().split(/[\s()_-]+/)))].join(" ");
+/** Each language in English, in its own name, and in its own name without accents ("espanol"). */
+const LANGUAGE_WORDS = CURATED_LANGUAGES.flatMap((l) => [l.name, l.native, l.native.normalize("NFD").replace(/[\u0300-\u036f]/g, "")]).join(" ");
+
 export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Appearance", keywords: "theme dark light system mode", tab: "general", anchor: "set-general-appearance" },
   { label: "Your assistant's style", keywords: "custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
@@ -47,11 +56,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "How text goes in", keywords: "typing paste type insertion clipboard timing", tab: "flow", anchor: "set-flow-typing" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent", tab: "flow", anchor: "set-flow-access" },
 
+  { label: "Language", keywords: `${LANGUAGE_WORDS} speak reply multilingual translate`, tab: "voice", anchor: "set-voice-language" },
   { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
   { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
-  { label: "Speech-to-text", keywords: "stt whisper model size transcription speech recognition engine nemotron parakeet moonshine streaming native download", tab: "voice", anchor: "set-voice-stage-stt" },
+  { label: "Speech-to-text", keywords: `stt whisper model size transcription speech recognition engine streaming native download variant latency ${engineWords(STT_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-stt" },
   { label: "Turn-taking", keywords: "smart-turn end of turn detector mid-thought hold preset", tab: "voice", anchor: "set-voice-stage-turn" },
-  { label: "Text-to-speech", keywords: "tts kokoro supertonic pocket kitten voice preview engine native download", tab: "voice", anchor: "set-voice-stage-tts" },
+  { label: "Text-to-speech", keywords: `tts kokoro supertonic pocket kitten voice preview engine native download variant ${engineWords(TTS_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-tts" },
   { label: "Reset speech engine", keywords: "defaults pipeline", tab: "voice", anchor: "set-voice-reset" },
   { label: "Your voices", keywords: "clone cloning record upload import export delete zipvoice", tab: "voice", anchor: "set-voice-yours" },
 

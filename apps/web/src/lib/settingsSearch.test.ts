@@ -21,6 +21,17 @@ describe("settings search", () => {
     for (const q of ["silero v6", "vad model"]) expect(find(q)).toEqual(["Voice activity detection"]);
   });
 
+  it("finds the language picker by any curated language, in English or its own name", () => {
+    for (const q of ["language", "spanish", "español", "espanol", "japanese", "日本語", "한국어", "हिन्दी", "chinese", "中文", "français", "deutsch"]) {
+      expect(find(q)).toContain("Language");
+    }
+  });
+
+  it("finds every engine family and its notable variants", () => {
+    for (const q of ["canary", "fp16", "80ms", "1120ms", "nemotron 3.5", "parakeet v3", "moonshine tiny"]) expect(find(q)).toEqual(["Speech-to-text"]);
+    for (const q of ["piper", "matcha", "kokoro cpu", "thorsten", "kitten mini", "fp32", "huayan"]) expect(find(q)).toEqual(["Text-to-speech"]);
+  });
+
   it("needs every term, in any order", () => {
     expect(find("speed speaking")).toEqual(["Speaking speed"]);
     expect(find("whisper kokoro")).toEqual([]);
