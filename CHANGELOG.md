@@ -29,6 +29,18 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **Talk to OpenLive in ten languages.** Settings → Voice → Language picks
+  English, Spanish, French, German, Italian, Portuguese, Hindi, Chinese,
+  Japanese or Korean. Speech recognition, turn-taking and the voice follow it,
+  and the assistant replies in it, in calls and in Flow. Engines that cannot
+  speak it are greyed out; switching swaps them for ones that can and offers
+  any download they need.
+- **Every speech engine comes in sizes.** Each engine has a Model menu with its
+  sizes, speeds, languages and license: Parakeet from 110M to 0.6B fp16 plus
+  the multilingual v3, Moonshine tiny, Nemotron at 80 to 1120 ms, the
+  multilingual Nemotron 3.5, Kitten micro and mini, and Pocket fp32. New
+  engines: Canary, Piper voices in eight languages, Kokoro on the CPU and
+  Matcha.
 - **Native speech engines.** The voice service can download and run five
   optional sherpa-onnx models on this machine: Nemotron (streaming), Parakeet
   and Moonshine for speech to text, and Pocket TTS and Kitten TTS for speech,
