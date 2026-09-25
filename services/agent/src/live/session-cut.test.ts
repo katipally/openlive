@@ -154,3 +154,21 @@ test("a numbered sentence refuses an ask the client never showed and runs as a t
   expect(JSON.stringify(inputs.at(-1))).toContain("Also count to five.");
   ws.emit("close");
 });
+
+test("outside a turn only a request-scoped elicitation is shown, unnumbered, and a session-scoped one is refused", async () => {
+  const { ws, say, until, done, started, session } = connect("cut-elicit");
+  const elicit = (requestScoped?: boolean) => (session as any).askElicitation({ mode: "form", message: "Name?", schema: {}, requestScoped }) as Promise<{ action: string }>;
+  say({ t: "user_text", text: "Count to three.", turn: 3 });
+  await started;
+  await done(1);
+  expect(await elicit()).toEqual({ action: "cancel" });
+  expect(ws.sent.some((m) => m.t === "elicitation")).toBe(false);
+
+  const login = elicit(true);
+  await until(() => ws.sent.some((m) => m.t === "elicitation"));
+  const asked = ws.sent.find((m) => m.t === "elicitation")!;
+  expect(asked.turn).toBeUndefined();
+  say({ t: "elicitation_response", reqId: asked.reqId, action: "accept" });
+  expect(await login).toEqual({ action: "accept" });
+  ws.emit("close");
+});

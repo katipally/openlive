@@ -66,7 +66,7 @@ export interface AcpOpts {
   cwd?: string;                                // the project folder the agent runs in
   onMeta?: (meta: AgentMeta) => void;          // the agent's available models/modes → UI
   onReplay?: (messages: ReplayMessage[]) => void; // prior turns recovered from session/load
-  askElicitation?: (req: { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string }) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }>;
+  askElicitation?: (req: { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean }) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }>;
   completeElicitation?: (elicitationId: string) => void; // URL elicitation finished agent-side
   // Servers OpenLive hosts itself, handed to the agent whatever it does with the
   // project's own .mcp.json. Flow publishes its tool set here so a coding-agent
@@ -514,12 +514,13 @@ export class AcpAgent implements Agent {
         if (!ask) return { action: "decline" };
         // The union's custom-mode arm ({mode: string}) defeats TS narrowing —
         // read the mode-specific fields structurally instead.
-        const r = req as { mode: string; message: string; url?: string; elicitationId?: unknown; requestedSchema?: unknown };
+        const r = req as { mode: string; message: string; url?: string; elicitationId?: unknown; requestedSchema?: unknown; requestId?: unknown };
+        const requestScoped = r.requestId != null;
         if (r.mode === "url" && typeof r.url === "string") {
-          return ask({ mode: "url", message: r.message, url: r.url, elicitationId: String(r.elicitationId ?? "") || undefined });
+          return ask({ mode: "url", message: r.message, url: r.url, elicitationId: String(r.elicitationId ?? "") || undefined, requestScoped });
         }
         if (r.mode === "form" && r.requestedSchema) {
-          return ask({ mode: "form", message: r.message, schema: r.requestedSchema });
+          return ask({ mode: "form", message: r.message, schema: r.requestedSchema, requestScoped });
         }
         return { action: "decline" }; // unknown future mode — refuse cleanly, never hang
       },

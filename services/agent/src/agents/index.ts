@@ -15,13 +15,14 @@ export interface BoundHooks {
   onMeta?: (meta: AgentMeta) => void;
   onReplay?: (messages: ReplayMessage[]) => void;
   /** Relay an elicitation (login URL / input form) to the user; resolves with
-   *  the user's action. `elicitationId` keys the agent's own completion signal. */
+   *  the user's action. `elicitationId` keys the agent's own completion signal;
+   *  `requestScoped` marks ACP's out-of-session scope (auth and setup). */
   askElicitation?: (req: ElicitationAsk) => Promise<ElicitationAnswer>;
   /** The agent says a URL elicitation finished on its own (OAuth landed) —
    *  settle the pending ask as accepted. */
   completeElicitation?: (elicitationId: string) => void;
 }
-export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string };
+export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean };
 export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
 
 /** Which agent a conversation is bound to (null = the built-in provider brain). */

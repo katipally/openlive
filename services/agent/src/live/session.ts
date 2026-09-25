@@ -538,7 +538,10 @@ export class LiveSession {
    *  agent-side completion (OAuth landed) auto-accepts the card. */
   private askElicitation(req: ElicitationAsk): Promise<ElicitationAnswer> {
     return new Promise((resolve) => {
-      if (this.closed || this.ac?.signal.aborted) return resolve({ action: "cancel" });
+      // Outside a turn only a request-scoped ask is live: ACP's scope for auth and
+      // setup before any session exists. A session-scoped one then is a finished
+      // turn's, and held it would take the next sentence as its answer.
+      if (this.closed || this.ac?.signal.aborted || (!this.ac && !req.requestScoped)) return resolve({ action: "cancel" });
       const reqId = randomUUID();
       const ELICIT_TIMEOUT_MS = 120_000;
       const expiresAt = Date.now() + ELICIT_TIMEOUT_MS;
@@ -552,7 +555,8 @@ export class LiveSession {
       const timer = setTimeout(() => settle({ action: "cancel" }), ELICIT_TIMEOUT_MS);
       this.elicitPending.set(reqId, settle);
       if (req.elicitationId) this.elicitById.set(req.elicitationId, settle);
-      this.send({ t: "elicitation", reqId, mode: req.mode, message: req.message, url: req.url, schema: req.schema, expiresAt, turn: this.replyTurn });
+      // Unnumbered outside a turn, so the client shows it whichever turn it is on.
+      this.send({ t: "elicitation", reqId, mode: req.mode, message: req.message, url: req.url, schema: req.schema, expiresAt, turn: this.ac ? this.replyTurn : undefined });
     });
   }
 
