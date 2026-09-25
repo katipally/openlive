@@ -249,7 +249,18 @@ export function useLiveSession(chatId: string) {
     const c = new LiveClient({
       // The engine may already be mid-turn (a turn spoken while connecting, or a reply
       // still playing across a reconnect), and it reports only changes: take its phase.
-      onOpen: () => { set({ phase: engine.current?.currentPhase() ?? "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined); },
+      onOpen: () => {
+        // A reconnect gets a fresh server session: a reply that was streaming to the
+        // old one never finishes. A turn said while the link was down is still queued.
+        if (turnStartedAt.current && !client.current?.queued) {
+          turnStartedAt.current = 0;
+          engine.current?.endAgentTurn();
+          if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
+          toast("The connection dropped mid-answer. Just ask again.", "info");
+        }
+        set({ phase: engine.current?.currentPhase() ?? "idle", error: undefined, warming: true });
+        const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined);
+      },
       onReconnecting: () => set({ phase: "reconnecting" }),
       onClose: () => teardown(),
       onError: (m) => set({ error: m, agentConnecting: false }),
