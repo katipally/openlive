@@ -186,7 +186,8 @@ export class VoiceEngine {
     });
     this.syncAsr();
     warmNativeEngines();
-    await this.vad.start();
+    // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
+    if (!this.muted || this.ptt) await this.vad.start();
     this.setupMicSpectrum(stream);
     this.setPhase("idle");
   }
