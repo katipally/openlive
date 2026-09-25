@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import type { FlowContentWire, LiveServerMsg } from "@openlive/shared";
+import type { FlowContentWire, LanguageCode, LiveServerMsg } from "@openlive/shared";
 import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
@@ -160,6 +160,8 @@ export class FlowLiveSession {
   private opening: Promise<FlowStoreSession> | null = null;
   /** The metadata the desktop captured as the user spoke, used until a fresher read lands. */
   private lastContext: FlowContext | null = null;
+  /** The language the last utterance was spoken in; the next turn answers in it. */
+  private lang: LanguageCode | undefined;
 
   private insert = new ForwardOnlyInsertion(
     (id, chunk) => this.bridge("flow_insert", JSON.stringify({ id, chunk })).then(() => {}),
@@ -223,6 +225,7 @@ export class FlowLiveSession {
         // is bounced back instead of leaking to the model as a fresh prompt.
         if (this.permPending.size) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
         if (msg.context) this.lastContext = msg.context;
+        this.lang = msg.lang;
         return this.onUtterance(msg.text);
       }
       case "flow_cancel":
@@ -296,7 +299,7 @@ export class FlowLiveSession {
         clipboard: this.clipboard,
         context: this.context,
         approve: (req, signal) => this.approve(req, signal),
-        getSystemPrompt: () => buildFlowPrompt({ tools: this.tools }),
+        getSystemPrompt: () => buildFlowPrompt({ tools: this.tools, lang: this.lang }),
         pollSteering: () => this.steering.splice(0),
       })) {
         this.send({ t: "flow", event });
@@ -527,7 +530,7 @@ export class FlowLiveSession {
     await this.applyQuietMode();
     await this.applyAgentModel(cfg.brain.agentModel);
     await this.applyAgentEffort(cfg.brain.agentEffort);
-    return (this.brain = new AcpBrain(agent));
+    return (this.brain = new AcpBrain(agent, () => this.lang));
   }
 
   /** Never throws: an agent that will not take a model still answers on its own. */

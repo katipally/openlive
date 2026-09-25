@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
+import { languageSchema } from "@openlive/shared";
 import { LiveSession } from "./session.js";
 import { FlowLiveSession } from "./flow-ws.js";
 import { upgradeAsrStream } from "../voice/native.js";
@@ -56,7 +57,7 @@ export function attachLiveWs(server: Server): WebSocketServer {
     console.log(`[agent] /live upgrade accepted — ${flow ? "flow" : `chat=${chatId || "(none)"}`}`);
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (flow) { new FlowLiveSession(ws); return; }
-      void new LiveSession(ws, chatId).start();
+      void new LiveSession(ws, chatId, languageSchema.safeParse(url.searchParams.get("lang")).data).start();
     });
   });
   return wss;

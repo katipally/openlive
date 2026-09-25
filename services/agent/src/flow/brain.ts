@@ -1,5 +1,5 @@
 import { isUnreachable, streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
-import type { SseEvent } from "@openlive/shared";
+import { withReplyLanguage, type LanguageCode, type SseEvent } from "@openlive/shared";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
@@ -162,14 +162,16 @@ function channel<T>() {
 /** A coding agent over ACP, driven as the Flow brain. */
 export class AcpBrain implements Brain {
   readonly id: string;
-  constructor(private readonly agent: Agent) { this.id = agent.id; }
+  /** `lang` is read per turn: the session language the last utterance carried. */
+  constructor(private readonly agent: Agent, private readonly lang: () => LanguageCode | undefined = () => undefined) { this.id = agent.id; }
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     const ch = channel<BrainEvent>();
     let usage: Usage | undefined;
     let failed = false;
+    const input = acpTurnInput(req);
     const run = this.agent
-      .runTurn(acpTurnInput(req), (e) => {
+      .runTurn({ ...input, text: withReplyLanguage(input.text, this.lang()) }, (e) => {
         if (e.type === "usage") { usage = { input: e.contextTokens, output: e.outputTokens ?? 0 }; return; }
         const ev = acpEventToBrain(e);
         if (!ev) return;

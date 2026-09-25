@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema, agentLabel, type AgentMetaWire } from "@openlive/shared";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Emit, OpenLiveTool } from "../tools.js";
@@ -33,7 +33,7 @@ function scrubControlTokens(blocks: MessageBlock[]): void {
 // is a single `[…]` block with no internal `]`, so we match its opening marker and
 // cut to the block's close — wherever it sits, and robust even if an agent's replay
 // collapses the blank lines between blocks (a paragraph split would then over-strip).
-const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context — earlier in this voice conversation|The user is sharing their)[^\]]*\]/g;
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context — earlier in this voice conversation|The user is sharing their|Always reply in)[^\]]*\]/g;
 export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
   return blocks
     .map((b) => (b.type === "text"
@@ -78,7 +78,7 @@ export class LiveSession {
   // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
   // current turn settles. Frames are queued too so a barge-in with the camera on
   // doesn't lose what the user was showing.
-  private queued: { text: string; frames: TurnFrame[] } | null = null;
+  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
   // The last saved reply, while the client may still be voicing it: a model streams
   // its text far faster than speech, so most barge-ins land after the turn is over.
@@ -100,7 +100,7 @@ export class LiveSession {
   // action via Electron and replies; on the web it replies "not available".
   private bridgePending = new Map<string, (out: string) => void>();
 
-  constructor(private ws: WebSocket, private chatId: string) {
+  constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode) {
     const lookTool: OpenLiveTool = {
       name: "look",
       description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
@@ -168,7 +168,7 @@ export class LiveSession {
     // always signal ready, even on failure, so the indicator never sticks.
     this.warmAc = new AbortController();
     // A turn waiting on this start primes the cache itself; a warm-up would send it twice.
-    void (this.turnActive ? Promise.resolve() : this.runner.warm(this.warmAc.signal))
+    void (this.turnActive ? Promise.resolve() : this.runner.warm(this.warmAc.signal, this.lang))
       .catch(() => {})
       .finally(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); });
   }
@@ -212,7 +212,7 @@ export class LiveSession {
         // utterance lands here as a user_text; bounce it back to be answered instead of
         // starting/queuing a coding turn (which is how it used to leak to the agent).
         if (this.modalPending()) { this.send({ t: "modal_voice_answer", text: msg.text }); return; }
-        return void this.runTurn(msg.text, msg.frames ?? []);
+        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang);
       case "cancel":
         // While a modal is open, the "barge-in" IS the user answering it — never
         // interrupt (that cancelled the very ask being answered). Real cancellation
@@ -268,7 +268,7 @@ export class LiveSession {
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
-  private async runTurn(text: string, frames: TurnFrame[] = []) {
+  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
     // queue it (append text, keep the freshest frames) and the finally below drains
@@ -277,6 +277,7 @@ export class LiveSession {
       this.queued = {
         text: this.queued ? `${this.queued.text} ${text}` : text,
         frames: frames.length ? frames : (this.queued?.frames ?? []),
+        lang,
       };
       return;
     }
@@ -309,7 +310,7 @@ export class LiveSession {
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
-        await this.agent.runTurn({ text, frames }, gate.emit, ac.signal);
+        await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, gate.emit, ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -323,7 +324,7 @@ export class LiveSession {
             : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
         });
       } else {
-        await this.runner.runTurn(text, frames, gate.emit, ac.signal);
+        await this.runner.runTurn(text, frames, gate.emit, ac.signal, lang);
         await gate.flush();
       }
     } catch (e) {
@@ -355,7 +356,7 @@ export class LiveSession {
       this.send({ t: "sse", event: { type: "done" } });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queued; this.queued = null;
-      if (q && !this.closed) void this.runTurn(q.text, q.frames); // drain a barge-in utterance (with its frames)
+      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang); // drain a barge-in utterance (with its frames)
     }
   }
 

@@ -19,3 +19,10 @@ test("adds nothing where the boundary already has whitespace or a side is empty"
   expect(stepGap("", "Next")).toBe("");
   expect(stepGap("On it.", "")).toBe("");
 });
+
+test("the call's prompt gains one language line outside English, and stays byte-identical in it", async () => {
+  const { withLanguage } = await import("./turn-runner.ts");
+  expect(withLanguage("PROMPT")).toBe("PROMPT");
+  expect(withLanguage("PROMPT", "en")).toBe("PROMPT");
+  expect(withLanguage("PROMPT", "ko")).toBe("PROMPT\n\n---\nAlways reply in Korean.");
+});

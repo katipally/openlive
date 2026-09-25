@@ -173,3 +173,20 @@ describe("ACP mapping", () => {
     ]);
   });
 });
+
+describe("ACP brain language", () => {
+  const agent = (seen: string[]) => ({
+    id: "claude",
+    runTurn: async (input: { text: string }) => { seen.push(input.text); },
+  }) as never;
+  const req = { systemPrompt: "", tools: [], messages: [{ role: "user" as const, text: "abre el PR" }] };
+
+  it("puts the session language at the head of the turn, and nothing in English", async () => {
+    const { AcpBrain } = await import("./brain.js");
+    const seen: string[] = [];
+    for await (const _ of new AcpBrain(agent(seen), () => "es").stream(req, new AbortController().signal)) { /* drain */ }
+    for await (const _ of new AcpBrain(agent(seen), () => "en").stream(req, new AbortController().signal)) { /* drain */ }
+    for await (const _ of new AcpBrain(agent(seen)).stream(req, new AbortController().signal)) { /* drain */ }
+    expect(seen).toEqual(["[Always reply in Spanish.]\n\nabre el PR", "abre el PR", "abre el PR"]);
+  });
+});

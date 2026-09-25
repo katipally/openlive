@@ -1,3 +1,4 @@
+import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { MCP_SERVER_NAME, type FlowContext, type Tool } from "./types.js";
 
 // Flow's prompt is short on purpose. It is read once per turn by a model that
@@ -37,9 +38,9 @@ export function formatContext(c: FlowContext | null): string {
 }
 
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
-export function buildFlowPrompt(p: { tools: Tool[] }): string {
+export function buildFlowPrompt(p: { tools: Tool[]; lang?: LanguageCode }): string {
   const guidelines = p.tools.flatMap((t) => t.promptGuidelines ?? []);
-  return [BASE, guidelines.map((g) => `- ${g}`).join("\n")].filter(Boolean).join("\n\n");
+  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
 }
 
 /**

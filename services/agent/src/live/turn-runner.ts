@@ -1,4 +1,5 @@
 import { isUnreachable, streamProvider, unreachableMessage, type Message } from "@openlive/harness";
+import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
 import { collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
@@ -29,6 +30,12 @@ async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[]
 export const stepGap = (before: string, next: string): string =>
   before && next && !/\s$/.test(before) && !/^\s/.test(next) ? " " : "";
 
+/** The call's system prompt in `lang`: English adds nothing, so it stays byte-identical. */
+export const withLanguage = (prompt: string, lang?: LanguageCode): string => {
+  const line = replyLanguageLine(lang);
+  return line ? `${prompt}\n\n---\n${line}` : prompt;
+};
+
 // Lower than a text chat's step cap ON PURPOSE. Every tool round before the model
 // speaks is dead air in a live call, so cap the worst case tightly.
 const MAX_STEPS = 6;
@@ -39,9 +46,12 @@ export class LiveTurnRunner {
   private messages: Message[];
   /** What the vision model said about each tool's picture, by call id. */
   private described = new Map<string, string>();
+  private readonly prompt = buildLivePrompt();
+  /** Always messages[0]: seeding and the history cap keep it. */
+  private readonly system = { role: "system" as const, text: this.prompt };
 
   constructor(private extraTools: OpenLiveTool[]) {
-    this.messages = [{ role: "system", text: buildLivePrompt() }];
+    this.messages = [this.system];
   }
 
   /** Seed prior conversation (text only) after the system prompt — used on
@@ -53,14 +63,16 @@ export class LiveTurnRunner {
   /** Prime the provider's prompt cache (system + tools) with a tiny request the
    *  moment the session opens, so the FIRST real user turn is a cache HIT instead of
    *  a cold prefill (the biggest first-token latency lever — see anthropic.ts). Best
-   *  effort: if it fails the first turn just pays the normal cold price. */
-  async warm(signal: AbortSignal): Promise<void> {
+   *  effort: if it fails the first turn just pays the normal cold price. `lang` is
+   *  the language the client connected in, so a non-English first turn hits too. */
+  async warm(signal: AbortSignal, lang?: LanguageCode): Promise<void> {
     let resolved;
     try { resolved = resolveLive(); } catch { return; }
     const { provider, model, apiKey } = resolved;
     if (!model || (!apiKey && !provider.keyless)) return;
     const tools = [...buildOpenLiveTools({ emit: async () => {} }), ...this.extraTools];
     const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+    this.system.text = withLanguage(this.prompt, lang);
     try {
       // maxTokens:1 — we only want the prefill (cache write); the output is discarded.
       const gen = streamProvider(provider, apiKey ?? undefined, { model, messages: this.messages, tools: toolDefs, maxTokens: 1 }, signal);
@@ -99,7 +111,7 @@ export class LiveTurnRunner {
     if (cut > 1 && cut < this.messages.length) this.messages.splice(1, cut - 1);
   }
 
-  async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal): Promise<void> {
+  async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal, lang?: LanguageCode): Promise<void> {
     const live = resolveLive();
     const { provider, model, apiKey, effort } = live;
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
@@ -128,6 +140,8 @@ export class LiveTurnRunner {
         imgs = frames.map((f) => ({ data: f.data, mime: f.mime }));
       }
     }
+    // Per turn, so a language change in the middle of a call applies from the next turn.
+    this.system.text = withLanguage(this.prompt, lang);
     this.messages.push({ role: "user", text, images: imgs });
     // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
