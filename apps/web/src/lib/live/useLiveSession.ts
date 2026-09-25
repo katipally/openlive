@@ -247,7 +247,9 @@ export function useLiveSession(chatId: string) {
   const ensureClient = useCallback((): LiveClient => {
     if (client.current) return client.current;
     const c = new LiveClient({
-      onOpen: () => { set({ phase: "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined); },
+      // The engine may already be mid-turn (a turn spoken while connecting, or a reply
+      // still playing across a reconnect), and it reports only changes: take its phase.
+      onOpen: () => { set({ phase: engine.current?.currentPhase() ?? "idle", error: undefined, warming: true }); const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined); },
       onReconnecting: () => set({ phase: "reconnecting" }),
       onClose: () => teardown(),
       onError: (m) => set({ error: m, agentConnecting: false }),
@@ -558,7 +560,7 @@ export function useLiveSession(chatId: string) {
       //    over whichever connection; a pre-connected agent means Start is instant.
       if (!client.current) set({ phase: "connecting" });
       const c = ensureClient();
-      if (c.ready) set({ phase: "idle", warming: false, error: undefined }); // already connected in the lobby
+      if (c.ready) set({ phase: eng.currentPhase(), warming: false, error: undefined }); // already connected in the lobby
       await refreshDevices();
     } catch (e: any) {
       const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";

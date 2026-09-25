@@ -189,7 +189,8 @@ export class VoiceEngine {
     // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
     if (!this.muted || this.ptt) await this.vad.start();
     this.setupMicSpectrum(stream);
-    this.setPhase("idle");
+    // Only a segment the old VAD was hearing is gone; a reply keeps its phase.
+    if (this.phase === "listening") this.setPhase("idle");
   }
 
   // Tap the mic stream with an AnalyserNode for a live frequency spectrum. Runs
@@ -579,6 +580,9 @@ export class VoiceEngine {
     for (const p of parts) { out.set(p, off); off += p.length; }
     return out;
   }
+  /** Where the turn loop is now. onPhase reports only changes, so a surface that
+   *  set its own phase meanwhile reads this to get back in step. */
+  currentPhase() { return this.phase; }
   private setPhase(p: EnginePhase) { if (p !== this.phase) { this.phase = p; this.h.onPhase(p); } }
 
   /** Mute (manual / hands-free toggle): pause listening; a held pending is dropped. */

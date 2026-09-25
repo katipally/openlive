@@ -27,6 +27,8 @@ import { isMac } from "@/lib/platform";
 // it until Flow closes.
 
 const NO_BANDS = [0, 0, 0, 0, 0];
+/** What the orb reads until the owner's first bands packet of a session. */
+const SILENT = { mic: NO_BANDS, agent: NO_BANDS, agentLevel: 0 };
 
 /** The main process sizes the window once, for this card (FLOW_W in main.cjs),
  *  so nothing on screen ever resizes the window. */
@@ -57,7 +59,7 @@ export function FlowOrb() {
   /** Whether the window is on screen. Nothing rises while it is hidden, so a
    *  card from before a close can never be caught mid-exit by the next open. */
   const [shown, setShown] = useState(false);
-  const bands = useRef<{ mic: number[]; agent: number[]; agentLevel: number }>({ mic: NO_BANDS, agent: NO_BANDS, agentLevel: 0 });
+  const bands = useRef<{ mic: number[]; agent: number[]; agentLevel: number }>(SILENT);
   const cardRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const cmd = (c: PanelCmd) => openliveBridge()?.panelCmd?.(c);
@@ -72,7 +74,7 @@ export function FlowOrb() {
     });
     // Its window hides as the call orb goes, with no `hiding` to say so; a summon
     // that follows is always `shown` after this.
-    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) { pauseWaveOrbs(true); setShown(false); } });
+    openliveBridge()?.onCallOrb?.((c) => { setCall(c); if (!c) { pauseWaveOrbs(true); setShown(false); bands.current = SILENT; } });
   }, []);
 
   const stripRef = useRef<HTMLDivElement>(null);
@@ -166,7 +168,7 @@ export function FlowOrb() {
     // The window hides only once this answers, which leaves the orb faded out
     // for the next open to rise from.
     api.onHiding?.(() => {
-      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); setShown(false); api.hidden?.(); } });
+      gsap.to(root, { autoAlpha: 0, y: 8, duration: prefersReduced() ? 0 : 0.16, ease: EASE.out, overwrite: true, onComplete: () => { pauseWaveOrbs(true); setShown(false); bands.current = SILENT; api.hidden?.(); } });
     });
     // Background throttling is off here, so a hidden window would keep drawing
     // the orb: it holds still until shown. The window may have been shown before
