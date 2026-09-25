@@ -114,6 +114,9 @@ export class VoiceEngine {
   // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
   // new user turn is sent.
   private acceptingReply = true;
+  // A reply is under way: from its user turn or first delta to its end or cut. Only
+  // then does endAgentTurn idle the engine; a line said outside one idles itself.
+  private replyOpen = false;
   // The segment in progress started as the agent's own voice through the speakers.
   private echo = false;
   // Audio segments that arrived while the previous one was still finalizing (slow STT
@@ -395,6 +398,7 @@ export class VoiceEngine {
       this.replyFed = false;
       this.replyVoice = null;
       this.acceptingReply = true; // re-arm: this turn's reply should be voiced
+      this.replyOpen = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
       this.h.onUserText(text);
@@ -435,7 +439,7 @@ export class VoiceEngine {
     if (!p) return;
     const commit = (t: string) => {
       const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
@@ -482,6 +486,7 @@ export class VoiceEngine {
       this.replyFed = false;
       this.replyVoice = null;
       this.acceptingReply = true;
+      this.replyOpen = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
       this.h.onUserText(text);
@@ -493,6 +498,7 @@ export class VoiceEngine {
   feedAgentDelta(text: string) {
     if (!this.acceptingReply) return; // interrupted reply's straggler deltas — don't voice them
     this.replyFed = true;
+    this.replyOpen = true;
     perf.firstToken(); // no-op after the first delta of a turn
     const v = this.replyVoice ??= voiceNow();
     for (const s of this.chunker.push(text, v.lang)) this.enqueueSpeak(s, this.epoch, v);
@@ -509,13 +515,14 @@ export class VoiceEngine {
     const tail = this.chunker.flush();
     if (tail) this.enqueueSpeak(tail, this.epoch, this.replyVoice ?? voiceNow());
     this.replyVoice = null;
+    this.replyOpen = false;
     // When the TTS chain drains and audio finishes, drop back to idle.
     const ep = this.epoch;
     void this.ttsChain.then(() => { if (this.epoch === ep && this.phase === "speaking") this.waitDrainThenIdle(ep); if (this.epoch === ep && this.phase === "thinking") this.setPhase("idle"); });
   }
   private waitDrainThenIdle(ep: number) {
     const check = () => {
-      if (this.epoch !== ep) return;
+      if (this.epoch !== ep || this.replyOpen) return;
       if (this.player.level() > 0) { setTimeout(check, 120); return; }
       if (this.phase === "speaking") this.setPhase("idle");
     };
@@ -578,8 +585,11 @@ export class VoiceEngine {
    *  TTS chain — voice-first users hear problems, not just see banners. */
   say(text: string) {
     const t = text.trim();
+    if (!t) return;
     // In the reply's voice when it lands mid-reply.
-    if (t) this.enqueueSpeak(t, this.epoch, this.replyVoice ?? voiceNow(), true /* out-of-band: voice it, don't persist it */);
+    this.enqueueSpeak(t, this.epoch, this.replyVoice ?? voiceNow(), true /* out-of-band: voice it, don't persist it */);
+    // Outside a reply no endAgentTurn follows to end the "speaking" this line starts.
+    if (!this.replyOpen) { const ep = this.epoch; void this.ttsChain.then(() => this.waitDrainThenIdle(ep)); }
   }
 
   // Stop the agent's LOCAL audio without telling the server (no cancel). Used to
@@ -604,6 +614,7 @@ export class VoiceEngine {
    *  voiced. Barge-in and a Stop button are the same cut from two directions. */
   cutReply(): string | undefined {
     this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
+    this.replyOpen = false;
     this.hush();
     return this.replyFed ? this.spokenText.trim() : undefined;
   }
