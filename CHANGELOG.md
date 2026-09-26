@@ -160,6 +160,11 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Phone numbers were read as ranges.** "555-0123" was "five hundred fifty-five
+  to zero one two three". A phone now reads digit by digit, a pause between its
+  groups, in every language: 555-0123, (555) 123 4567, 555.123.4567, +49 30
+  12345678, and "ext. 89" in English. Ranges such as 10-20, 1990-1995 and
+  100-1000 still read as ranges, and ISO dates as dates.
 - **Hanging up mid-reply saved the whole reply.** Ending a call while the voice
   was speaking kept everything the model had written, heard or not. The saved
   reply now ends where the voice stopped, and nothing is voiced after hang-up.

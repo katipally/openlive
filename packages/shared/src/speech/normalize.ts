@@ -293,7 +293,7 @@ const spellOut = (s: string) => s.split("").join(" ");
 const ABBREVIATIONS: Record<string, [RegExp, string][]> = {
   en: [[/\be\.g\./gi, "for example"], [/\bi\.e\./gi, "that is"], [/\betc\./gi, "et cetera"], [/\bvs\.?(?=\s)/gi, "versus"], [/\bapprox\./gi, "approximately"],
     [/\ba\.k\.a\./gi, "also known as"], [/\bw\/o\b/gi, "without"], [/\bw\/(?=\s)/gi, "with"], [/\bDr\.(?=\s+\p{Lu})/gu, "Doctor"], [/\bMr\.(?=\s)/g, "Mister"],
-    [/\bMrs\.(?=\s)/g, "Missus"], [/\bNo\.\s?(?=\d)/g, "number "]],
+    [/\bMrs\.(?=\s)/g, "Missus"], [/\bNo\.\s?(?=\d)/g, "number "], [/\bext\.?\s?(?=\d)/gi, "extension "]],
   es: [[/\bp\.\s?ej\./gi, "por ejemplo"], [/\betc\./gi, "etcétera"], [/\bn\.?º\s?(?=\d)/gi, "número "], [/\bSr\.(?=\s)/g, "señor"], [/\bSra\.(?=\s)/g, "señora"], [/\bDr\.(?=\s)/g, "doctor"]],
   fr: [[/\bp\.\s?ex\./gi, "par exemple"], [/\betc\./gi, "et cetera"], [/\bn[°º]\s?(?=\d)/gi, "numéro "], [/\bM\.(?=\s\p{Lu})/gu, "monsieur"], [/\bMme\.?(?=\s)/g, "madame"]],
   de: [[/\bz\.\s?B\./g, "zum Beispiel"], [/\bd\.\s?h\./g, "das heißt"], [/\busw\./g, "und so weiter"], [/\bbzw\./g, "beziehungsweise"], [/\bca\./g, "circa"], [/\bNr\.\s?(?=\d)/g, "Nummer "]],
@@ -410,9 +410,12 @@ export function normalizeAligned(text: string, langCode: string, lexicon?: Lexic
   // A date after a German preposition takes the dative: "am dritten Oktober".
   if (L.code === "de") r(/\b(am|vom|zum|dem|bis zum|seit dem|ab dem)\s(\p{L}+te)(?=\s)/giu, (_, pre, ord) => `${pre} ${ord}n`);
 
-  // Numbers read as digits: phones, versions, addresses.
-  r(/(?:\+\d{1,3}(?:[\s.-]\d{1,4}){2,5}|(?:\b1[-.\s])?(?:\(\d{3}\)\s?|\b\d{3}[-.])\d{3}[-.]\d{4})(?![\d-])/g, (m) =>
-    (m[0] === "+" ? `${L.plus} ` : "") + m.split(/\D+/).filter(Boolean).map((g) => digits(L, g)).join(", "));
+  // Numbers read as digits: phones, versions, addresses. A phone is 7+ digits in a shape no
+  // range takes: a leading +, an (area code), 3+ groups, or 3+4 unless both ends are round (100-1000).
+  // A YYYY-MM-DD the date rule refused (2026-02-30) is left as written.
+  r(/(?:\+\d{1,3}(?:[\s.-]\d{1,8}){1,6}|(?:\b1[-.\s])?\(\d{2,4}\)\s?\d{3,4}[-.\s]\d{4}|(?:\b1[.\s])?\b\d{3}([.\s])\d{3}\1\d{4}|(?<![\d.,\-–])(?:\d{1,4}(?:-\d{2,4}){2,4}|\d{3}-\d{4}))(?![\d-])/g, (m) =>
+    m.replace(/\D/g, "").length < 7 || /^(\d\d0-[1-9]\d\d0|\d{4}-\d\d-\d\d)$/.test(m) ? m
+      : (m[0] === "+" ? `${L.plus} ` : "") + m.split(/\D+/).filter(Boolean).map((g) => digits(L, g)).join(pause));
   r(/\bv(\d+(?:\.\d+)*)\b/g, (_, v) => `${L.version} ${v.split(".").map((p: string) => card(L, p)).join(` ${L.vsep} `)}`);
   r(/(?<![\d.])\d+(?:\.\d+){2,}(?![\d]|\.\d)/g, (m) => {
     const parts = m.split(".");
