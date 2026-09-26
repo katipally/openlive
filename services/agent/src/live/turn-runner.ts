@@ -13,7 +13,7 @@ type Frame = { data: string; mime: string; source?: "camera" | "screen" };
  *  a text-only live model can still "see". One extra round-trip — only taken when
  *  the user has configured a vision model. Returns "" on failure (caller falls
  *  back to attaching the frames to the live model directly). */
-async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[], sources: string, signal: AbortSignal): Promise<string> {
+export async function describeFrames(v: ResolvedLive, userText: string, frames: Frame[], sources: string, signal: AbortSignal): Promise<string> {
   const messages: Message[] = [
     { role: "system", text: `You are the eyes of a voice assistant. In 1-3 tight sentences, state exactly what is visible in the user's ${sources} right now — objects, on-screen text, layout, what the person is doing. No preamble, no "the image". If it's blank or unreadable, say so plainly.` },
     { role: "user", text: userText ? `The user said: "${userText}". What's visible?` : "What's visible right now?", images: frames.map((f) => ({ data: f.data, mime: f.mime })) },

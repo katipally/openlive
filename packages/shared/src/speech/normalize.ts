@@ -136,9 +136,9 @@ interface Num { int: string; frac?: string; grouped: boolean }
  *  a thousands group in English, "3.5" a decimal even in German). Null when the
  *  groups don't parse ("1,2,3"). */
 function parseNum(tok: string, lang: string): Num | null {
-  const marks = tok.match(/[.,  ]/g);
+  const marks = tok.match(/[.,  '’]/g);
   if (!marks) return { int: tok, grouped: false };
-  const parts = tok.split(/[.,  ]/);
+  const parts = tok.split(/[.,  '’]/);
   const last = marks[marks.length - 1]!, tail = parts[parts.length - 1]!;
   const decimal = (last === "." || last === ",") && (marks.some((m) => m !== last) || (marks.length === 1 && (last === DECIMAL.get(lang) || tail.length !== 3)));
   const groups = decimal ? parts.slice(0, -1) : parts;
@@ -148,7 +148,7 @@ function parseNum(tok: string, lang: string): Num | null {
   if (groups.length > 1 && (groups[0]!.length > 3 || groups[0] === "" || groups.slice(1).some((g) => g.length !== 3 && g.length !== 2) || groups[groups.length - 1]!.length !== 3)) return null;
   return { int: groups.join(""), frac: decimal ? tail : undefined, grouped: groups.length > 1 };
 }
-const NUM = String.raw`\d+(?:[.,  ]\d+)*`;
+const NUM = String.raw`\d+(?:[.,  '’]\d+)*`;
 const readNum = (L: Lang, tok: string): string => {
   const p = parseNum(tok, L.code);
   return p ? words(L, p.int, p.frac, p.grouped) : tok.replace(/\d+/g, (d) => words(L, d));
@@ -420,8 +420,14 @@ export function normalizeAligned(text: string, langCode: string, lexicon?: Lexic
   r(/(?<![\d.])\d+(?:\.\d+){2,}(?![\d]|\.\d)/g, (m) => {
     const parts = m.split(".");
     const ip = parts.length === 4 && parts.every((p) => +p <= 255);
+    // Where "." is not the decimal mark, 1.500.000 is a number, read below;
+    // 192.168.100.100 stays an address, 100.000.000.000 has no octet like 000.
+    if (DECIMAL.get(L.code) !== "." && /^\d{1,3}(?:\.\d{3})+$/.test(m) && (!ip || parts.some((p) => p[0] === "0"))) return m;
     return parts.map((p) => card(L, p)).join(` ${ip ? L.dot : L.vsep} `);
   });
+
+  // French groups thousands with a space; a typed space groups like the narrow one.
+  if (L.code === "fr") r(/(?<![\d.,  ])\d{1,3}(?: \d{3})+(?!\d)/g, (m) => m.replace(/ /g, "\u202f"));
 
   // Ranges and signs, while both ends are still digits.
   r(/(?<![\p{L}\d.,\-–])(\d[\d.,]*)\s?[-–\u2014~]\s?(?=[$€£¥₹₩]?\d[\d.,]*(?![\d\-–]))/gu, (_, a) => `${a} ${L.to} `);

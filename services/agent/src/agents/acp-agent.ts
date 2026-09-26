@@ -17,6 +17,8 @@ import { TerminalManager } from "./terminal-manager.js";
 import { killTree, track } from "./proc.js";
 import { readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
+import { resolveVision } from "../providers.js";
+import { describeFrames } from "../live/turn-runner.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
@@ -93,6 +95,7 @@ export class AcpAgent implements Agent {
   private conn: ClientSideConnection | null = null;
   private sessionId = "";
   private seedText = "";
+  private cutNote = "";
   private turnEmit: Emit | null = null;
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
@@ -125,6 +128,13 @@ export class AcpAgent implements Agent {
       .map((m) => ("text" in m && m.text ? `${m.role === "user" ? "User" : "You"}: ${m.text}` : ""))
       .filter(Boolean);
     this.seedText = lines.length ? `[Context — earlier in this voice conversation:\n${lines.join("\n")}]\n\n` : "";
+  }
+
+  cut(spoken: string) {
+    const heard = spoken.trim();
+    this.cutNote = heard
+      ? `[The user cut you off. Of your last reply they heard only: "${heard}"]\n\n`
+      : "[The user cut you off before hearing any of your last reply.]\n\n";
   }
 
   async start(_signal: AbortSignal): Promise<void> {
@@ -614,18 +624,25 @@ export class AcpAgent implements Agent {
     if (!this.conn || !this.alive) throw new Error(`${labelFor(this.id)} is not running`);
     if (signal.aborted) return;
 
+    // Note any live camera/screen the user is sharing (frames attached below when supported).
+    const sources = frames.length ? [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ") : "";
+    // An agent that takes no images sees through the vision model, as the built-in brain does.
+    const vision = sources && !this.supportsImages ? resolveVision() : null;
+    const seen = vision ? await describeFrames(vision, text, frames, sources, signal).catch(() => "") : "";
+    if (signal.aborted) return;
+
     let userText = text;
     // Once per session, tell the agent it's in a spoken voice+vision call.
     if (!this.sentPreamble) { userText = `${this.preambleText()}\n\n${userText}`; this.sentPreamble = true; }
-    // Note any live camera/screen the user is sharing (frames attached below when supported).
-    const sources = frames.length ? [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ") : "";
     if (sources) {
       userText += this.supportsImages
         ? `\n\n[The user is sharing their ${sources} right now — the current view is attached below. Talk about what's actually there, naturally, as what you're both looking at.]`
+        : seen ? `\n\n[A vision model is looking at the user's ${sources} live right now and reports: ${seen}\nTalk about what's actually there, as what you're both looking at. Don't mention "the image" or that another model described it.]`
         : `\n\n[The user is sharing their ${sources}, but you can't view images here — ask them to describe what they're showing.]`;
     }
-    const body = this.seedText + userText;
+    const body = this.seedText + this.cutNote + userText;
     this.seedText = "";
+    this.cutNote = "";
 
     // Interleave the frames as image blocks so the agent sees the camera/screen.
     const prompt: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{ type: "text", text: body }];

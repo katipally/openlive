@@ -21,6 +21,9 @@ export interface Agent {
   /** Best-effort context restore on reconnect (text-only history). */
   seed(history: Message[]): void;
   runTurn(input: TurnInput, emit: Emit, signal: AbortSignal): Promise<void>;
+  /** The user cut the last reply off having heard only `spoken`: the agent keeps
+   *  its own memory of what it wrote, so the next turn tells it. */
+  cut?(spoken: string): void;
   dispose(): Promise<void>;
   /** Switch the agent's model / mode / config option mid-session. */
   setModel?(modelId: string): Promise<void>;

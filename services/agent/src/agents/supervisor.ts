@@ -56,6 +56,12 @@ export class AgentSupervisor implements Agent {
 
   async dispose(): Promise<void> { this.disposed = true; await this.agent.dispose(); }
 
+  cut(spoken: string) {
+    const last = this.history[this.history.length - 1];
+    if (last?.role === "assistant") last.text = clipHistoryText(spoken.trim());
+    this.agent.cut?.(spoken);
+  }
+
   async setModel(modelId: string): Promise<void> { await this.agent.setModel?.(modelId); }
   async setMode(modeId: string): Promise<void> { await this.agent.setMode?.(modeId); }
   async setOption(optionId: string, valueId: string): Promise<void> { await this.agent.setOption?.(optionId, valueId); }

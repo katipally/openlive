@@ -242,6 +242,7 @@ export class FlowLiveSession {
         if (this.turnActive) this.spoken = msg.spoken ?? "";
         else if (msg.spoken != null && this.voicedFrom >= 0) {
           truncateToSpoken(this.messages, msg.spoken, this.voicedFrom);
+          this.agent?.cut?.(msg.spoken);
           // The file is append-only, so the reply stays whole there and a `cut`
           // naming it tells every reader to keep only what was heard.
           const saved = this.savedReply, text = msg.spoken.trim();
@@ -328,7 +329,7 @@ export class FlowLiveSession {
       // An ask left hanging by a cancelled turn must be settled, or the client's
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
-      if (ac.signal.aborted && this.spoken !== null) truncateToSpoken(this.messages, this.spoken, startedAt);
+      if (ac.signal.aborted && this.spoken !== null) { truncateToSpoken(this.messages, this.spoken, startedAt); this.agent?.cut?.(this.spoken); }
       else if (!ac.signal.aborted) this.voicedFrom = startedAt;
       this.spoken = null;
       const last = this.messages[this.messages.length - 1];
@@ -518,7 +519,11 @@ export class FlowLiveSession {
       approve: (req, s) => this.approve(req, s),
       // An agent brain drives these tools itself, so the session only learns
       // what it did if the server says so.
-      onCall: (event) => { this.write(() => this.record(event)); },
+      // The orb shows a tool at work whichever brain called it.
+      onCall: (event) => {
+        if (event.type === "tool_call") this.send({ t: "flow", event: { type: "tool_start", id: String(event.id), name: String(event.name) }, turn: this.replyTurn });
+        this.write(() => this.record(event));
+      },
     });
     const wire = this.mcp.wire;
     const agent = new AgentSupervisor(

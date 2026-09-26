@@ -2,9 +2,11 @@
 // usually cuts in after the turn is over and saved. The cut must still reach the
 // transcript and the model's memory, or both claim words the user never heard.
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
@@ -13,7 +15,7 @@ import { afterAll, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-cut-"));
 process.env.OPENLIVE_DATA_DIR = dir;
 const { LiveSession } = await import("./session.ts");
-const { listMessages, setSetting } = await import("@openlive/db");
+const { getSetting, listMessages, setSetting } = await import("@openlive/db");
 
 // A local OpenAI Responses stub, reached as the keyless Ollama provider.
 const inputs: { role?: string; content?: unknown }[][] = [];
@@ -204,3 +206,73 @@ test("outside a turn only a request-scoped elicitation is shown, unnumbered, and
   expect(await login).toEqual({ action: "accept" });
   ws.emit("close");
 });
+
+/** A stub ACP agent that takes no images: it logs each prompt and answers "One. Two. Three." */
+async function stubAgent() {
+  const sdk = pathToFileURL(createRequire(import.meta.url).resolve("@agentclientprotocol/sdk")).href;
+  const log = join(dir, "prompts.jsonl");
+  const stub = join(dir, "stub-agent.mjs");
+  writeFileSync(stub, `
+    import { appendFileSync } from "node:fs";
+    import { Readable, Writable } from "node:stream";
+    import { AgentSideConnection, ndJsonStream } from ${JSON.stringify(sdk)};
+    const stream = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
+    new AgentSideConnection((conn) => ({
+      initialize: async () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }),
+      newSession: async () => ({ sessionId: "s1" }),
+      loadSession: async () => ({}),
+      authenticate: async () => ({}),
+      cancel: async () => {},
+      prompt: async (p) => {
+        appendFileSync(${JSON.stringify(log)}, JSON.stringify(p.prompt[0].text) + "\\n");
+        await conn.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: "One. Two. Three." } } });
+        return { stopReason: "end_turn" };
+      },
+    }), stream);
+  `);
+  await setSetting("acpCommand:codex", `${process.execPath} ${stub}`);
+  const prompts = () => readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as string);
+  return { prompts, bindAgent: (say: (m: unknown) => void) => say({ t: "bind", agentId: "codex", cwd: dir }) };
+}
+
+test("a coding agent keeps its own memory of a reply, so its next turn says what was heard, even after a reconnect", async () => {
+  const { prompts, bindAgent } = await stubAgent();
+
+  const a = connect("cut-agent");
+  bindAgent(a.say);
+  await a.started;
+  a.say({ t: "user_text", text: "Count to three." });
+  await a.done(1);
+  a.say({ t: "cancel", spoken: "One." });
+  expect(lastReply("cut-agent")).toEqual([{ type: "text", text: "One." }]);
+  a.say({ t: "user_text", text: "Go on." });
+  await a.done(2);
+  expect(prompts()[0]).not.toContain("cut you off");
+  expect(prompts()[1]).toContain('[The user cut you off. Of your last reply they heard only: "One."]\n\nGo on.');
+  expect(getSetting("agentCut:cut-agent")).toBe("");
+
+  // Hung up before a word of the next reply: the resumed session is told on its first turn.
+  a.say({ t: "cancel", spoken: "" });
+  a.ws.emit("close");
+  const b = connect("cut-agent");
+  bindAgent(b.say);
+  await b.started;
+  b.say({ t: "user_text", text: "Where were we?" });
+  await b.done(1);
+  expect(prompts()[2]).toContain("[The user cut you off before hearing any of your last reply.]");
+  b.ws.emit("close");
+}, 20_000);
+
+test("a coding agent that takes no images sees the camera through the vision model, as the built-in brain does", async () => {
+  const { prompts, bindAgent } = await stubAgent();
+  await setSetting("visionProviderId", "ollama");
+  await setSetting("visionModel", "eyes");
+  const c = connect("agent-vision");
+  bindAgent(c.say);
+  await c.started;
+  c.say({ t: "user_text", text: "What do you see?", frames: [{ data: "AAAA", mime: "image/jpeg", source: "camera" }] });
+  await c.done(1);
+  expect(prompts().at(-1)).toContain("[A vision model is looking at the user's camera live right now and reports: One. Two. Three.");
+  await setSetting("visionProviderId", "");
+  c.ws.emit("close");
+}, 20_000);

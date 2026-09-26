@@ -160,6 +160,24 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A coding agent remembered replies the user never heard.** Cutting in on
+  Claude Code, Codex or any agent cut the transcript, but the agent kept its whole
+  reply in its own session and answered as if it had been heard. Its next turn
+  now starts by saying what was heard, in chat and in Flow, and in chat after a
+  hang-up and reconnect too, as the built-in brain's history already did.
+- **A coding agent without image support could not see the camera.** With a
+  vision model set in Settings, the built-in brain saw through it, while an agent
+  that takes no images was told to ask the user instead. It now gets the vision
+  model's report too.
+- **Flow's orb showed nothing while a coding agent used Flow's tools.** It now
+  switches to the tool at work, as it does for the built-in brain.
+- **Numbers with dots for thousands were read as versions.** German "1.500.000
+  Leute" was "eins Punkt fünfhundert Punkt null". In German, Spanish, Italian,
+  Portuguese and French a dotted number now reads as the number it is ("eine
+  Million fünfhunderttausend"), as do French spaced groups (1 500 000) and Swiss
+  apostrophes (1'500'000). Versions (v1.2.3, and 1.2.3 everywhere), addresses
+  (192.168.0.1) and dotted dates (26.09.2026) read as before. In English, where
+  "." is the decimal mark, 1.500 is still one point five zero zero.
 - **Phone numbers were read as ranges.** "555-0123" was "five hundred fifty-five
   to zero one two three". A phone now reads digit by digit, a pause between its
   groups, in every language: 555-0123, (555) 123 4567, 555.123.4567, +49 30

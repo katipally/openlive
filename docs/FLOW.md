@@ -286,7 +286,9 @@ process, two hidden or floating renderers, and the agent service.
   model stops calling tools, Stop or barge-in aborts, or an error ends it; there
   is no step budget. `LocalBrain` streams from `packages/harness` providers;
   `AcpBrain` wraps a supervised ACP agent, which reaches the same `Tool[]` through
-  the local MCP server, so both brains see identical tools.
+  the local MCP server, so both brains see identical tools. Its calls there
+  reach the orb and the session file as the built-in brain's do, and a cut
+  reply is cut in its memory too (`Agent.cut`).
 - **Harness adapters** (`packages/harness`). Anthropic `/messages`, OpenAI
   `/responses` and `/chat/completions` cover every provider, including tool
   screenshots and signed thinking between tool calls.

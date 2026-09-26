@@ -33,7 +33,7 @@ function scrubControlTokens(blocks: MessageBlock[]): void {
 // is a single `[…]` block with no internal `]`, so we match its opening marker and
 // cut to the block's close — wherever it sits, and robust even if an agent's replay
 // collapses the blank lines between blocks (a paragraph split would then over-strip).
-const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context — earlier in this voice conversation|The user is sharing their|Always reply in)[^\]]*\]/g;
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context \u2014 earlier in this voice conversation|The user is sharing their|A vision model is looking at the user's|Always reply in|The user cut you off)[^\]]*\]/g;
 export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
   return blocks
     .map((b) => (b.type === "text"
@@ -80,6 +80,7 @@ export class LiveSession {
   // doesn't lose what the user was showing.
   private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number; wordsAt?: number[] } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
+  private cutSaved: Promise<unknown> = Promise.resolve(); // the last cut written for a coding agent
   // The client's number for the utterance the running turn answers, echoed on its
   // events.
   private replyTurn: number | undefined;
@@ -315,6 +316,8 @@ export class LiveSession {
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
+        await this.cutSaved;
+        if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
         await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, gate.emit, ac.signal);
         await gate.flush();
       } else if (this.boundId) {
@@ -348,6 +351,7 @@ export class LiveSession {
       if (ac.signal.aborted && this.bargeSpoken != null) {
         truncateSpokenText(blocks, this.bargeSpoken);
         if (byRunner) this.runner.truncateReply(this.bargeSpoken);
+        else this.cutAgentReply(this.bargeSpoken);
       }
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
@@ -383,7 +387,15 @@ export class LiveSession {
     if (!r) return;
     truncateSpokenText(r.blocks, spoken);
     if (r.byRunner) this.runner.truncateReply(spoken);
+    else this.cutAgentReply(spoken);
     try { updateMessageContent(r.id, r.blocks); } catch (e) { log.error("live", "cut saved reply:", e); }
+  }
+
+  /** A coding agent keeps its own memory of the reply, and a resumed session
+   *  brings it back: the cut waits in the settings until a turn has told it. */
+  private cutAgentReply(spoken: string) {
+    this.agent?.cut?.(spoken);
+    if (this.chatId) this.cutSaved = setSetting(`agentCut:${this.chatId}`, JSON.stringify(spoken)).catch(() => {});
   }
 
   private interrupt() {
@@ -487,6 +499,8 @@ export class LiveSession {
     this.agent = agent;
     const prior = this.rehydrate();
     if (prior.length) agent.seed(prior);
+    const cut = getSetting(`agentCut:${this.chatId}`);
+    if (cut) agent.cut?.(JSON.parse(cut) as string);
     const ac = new AbortController(); this.agentAc = ac;
     this.agentReady = agent.start(ac.signal)
       .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })

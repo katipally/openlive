@@ -87,7 +87,8 @@ One turn, end to end:
 3. **End-of-turn** (Smart-Turn v3) decides you actually *finished*, not just paused.
    What you say over the agent's reply is a barge-in and goes out as soon as you
    stop, with no mid-thought hold.
-4. The final text (plus the freshest camera/screen frame) goes out over `/live`,
+4. The final text (plus the freshest camera/screen frame) goes out over `/live`
+   (a model or agent that takes no images sees it through the vision model),
    with each word's onset in ms into the turn's audio (`wordsAt`, the turn's
    speech segments back to back). Parakeet and Nemotron time their own tokens
    (`tokenOnsets` in `timing.ts`, from sherpa-onnx's `timestamps`); Whisper,
@@ -120,7 +121,11 @@ One turn, end to end:
    Table and list furniture (column bars, `|---|` rules, box drawing, bullets)
    is a pause between words and nothing at an edge.
    Number words come from n2words, structure (decimal marks, unit and currency
-   names and plurals, date order) from `Intl`. The chunker never cuts inside
+   names and plurals, date order) from `Intl`. A number takes the session
+   language's marks (1.500.000 in German, 1 500 000 in French, 1'500'000 in
+   Swiss writing, 1,50,000 in Hindi); a dotted run reads as a version only
+   where "." is the decimal mark, and as an address when its parts are octets.
+   The chunker never cuts inside
    such a token ("3.5", "e.g.", "No. 5", "am 3. Oktober"), so a chunk reads as
    the whole reply would. A chunk that grows past what one engine call takes
    (spelled-out prices) is split at a word (`speechPieces`). The user's
@@ -142,6 +147,9 @@ One turn, end to end:
    the sentences voiced, then the words of the playing one begun by the cut, as
    its caption revealed them (`cutReply`, `heardText`). The server saves the same
    text. Hanging up mid-reply is the same cut, sent before the socket closes.
+   The built-in brain's history is cut to match; a coding agent keeps its own,
+   so its next turn opens with what was heard (`Agent.cut`), in chat and Flow,
+   and in chat after a reconnect too (the `agentCut:<chat>` setting).
    The reply's own voice leaking from the speakers into the mic is dropped, never
    sent as a turn.
    A sound over a reply, or over a turn still at work, first only pauses it
@@ -315,7 +323,7 @@ Flow is the voice assistant for the whole machine, summoned with a double tap of
 second `/live` connection (`live/flow-ws.ts`); an always-on-top orb window (`/flow`)
 only draws what the owner publishes. On the server, `runFlow` loops turns and tool
 calls on a `LocalBrain` (provider) or an `AcpBrain` (coding agent, which gets the
-same tools over a local MCP server). Device tools reach the `native/ol-input` Rust
+same tools over a local MCP server, and shows on the orb as it calls them). Device tools reach the `native/ol-input` Rust
 addon through the owner renderer and `flow-runtime.cjs` in the main process. Config
 and history live in `~/.openlive/flow` via `packages/flow-store`.
 

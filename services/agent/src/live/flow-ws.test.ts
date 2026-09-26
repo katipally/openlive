@@ -18,6 +18,11 @@ const fake = vi.hoisted(() => ({
   consented: true,
   /** Consent written back to the config, as `updateFlowConfig` would. */
   remembered: 0,
+  /** The brain the config names; unset, the default. */
+  brain: null as null | Record<string, unknown>,
+  /** Flow's tools as served to a coding agent, and what that agent was told was cut. */
+  mcp: null as null | { onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void },
+  cuts: [] as string[],
 }));
 
 const store = {
@@ -32,6 +37,7 @@ vi.mock("@openlive/flow-store", async (importOriginal) => {
     readFlowConfig: () => ({
       ...(real.DEFAULT_FLOW_CONFIG as Record<string, unknown>),
       consent: { granted: fake.consented, at: "" },
+      ...(fake.brain && { brain: fake.brain }),
     }),
     updateFlowConfig: async () => { fake.remembered++; fake.consented = true; },
     FlowSession: {
@@ -41,19 +47,38 @@ vi.mock("@openlive/flow-store", async (importOriginal) => {
   };
 });
 
-vi.mock("../flow/brain.js", () => ({
-  LocalBrain: class {
-    readonly id = "local";
-    async *stream(req: { messages: Msg[] }) {
-      fake.seen.push(req.messages);
-      // Drained, so a turn that ran a tool asks for nothing the second time round.
-      for (const step of fake.script.splice(0)) {
-        if (typeof step === "function") { await (step as () => Promise<void>)(); continue; }
-        yield step;
-      }
+vi.mock("../flow/brain.js", () => {
+  async function* stream(req: { messages: Msg[] }) {
+    fake.seen.push(req.messages);
+    // Drained, so a turn that ran a tool asks for nothing the second time round.
+    for (const step of fake.script.splice(0)) {
+      if (typeof step === "function") { await (step as () => Promise<void>)(); continue; }
+      yield step;
     }
+  }
+  return {
+    LocalBrain: class { readonly id = "local"; stream = stream; },
+    AcpBrain: class { readonly id: string; stream = stream; constructor(agent: { id: string }) { this.id = agent.id; } },
+  };
+});
+
+vi.mock("../flow/mcp.js", () => ({
+  serveFlowMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {} }; },
+}));
+
+vi.mock("../agents/supervisor.js", () => ({
+  AgentSupervisor: class {
+    readonly id = "codex";
+    async start() {}
+    seed() {}
+    cut(spoken: string) { fake.cuts.push(spoken); }
+    async dispose() {}
   },
-  AcpBrain: class { readonly id = "acp"; },
+}));
+
+vi.mock("../agents/index.js", async (importOriginal) => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  flowAgentCwd: () => "/tmp",
 }));
 
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
@@ -95,6 +120,9 @@ beforeEach(() => {
   fake.seen = [];
   fake.consented = true;
   fake.remembered = 0;
+  fake.brain = null;
+  fake.mcp = null;
+  fake.cuts = [];
 });
 
 describe("FlowLiveSession", () => {
@@ -340,6 +368,36 @@ describe("FlowLiveSession", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("the window server is not answering");
     expect(result.content[0].text).not.toContain("in time");
+  });
+});
+
+describe("a coding agent as the brain", () => {
+  it("is told what was heard of a reply the user cut, during it or after it", async () => {
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = reply("One. Two. Three.");
+    ws.say("count to three");
+    await until(() => turnsDone(ws) === 1);
+    ws.client({ t: "flow_cancel", spoken: "One." });
+
+    fake.script = [{ type: "text_delta", delta: "Four" }, async () => { ws.client({ t: "flow_cancel", spoken: "" }); await tick(); }];
+    ws.say("go on");
+    await until(() => turnsDone(ws) === 2);
+    expect(fake.cuts).toEqual(["One.", ""]);
+  });
+
+  it("shows Flow's tool at work on the orb when the agent calls it", async () => {
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = [async () => { fake.mcp!.onCall!({ type: "tool_call", id: "c1", name: "screenshot", args: {} }); await tick(); }, ...reply("Done.")];
+    ws.client({ t: "flow_text", text: "look at my screen", turn: 3 });
+    await until(() => turnsDone(ws) === 1);
+    expect(ws.sent.find((m) => m.t === "flow" && m.event.type === "tool_start")).toEqual({ t: "flow", event: { type: "tool_start", id: "c1", name: "screenshot" }, turn: 3 });
+    expect(fake.appended.some((e) => e.type === "tool_call" && e.data.name === "screenshot")).toBe(true);
   });
 });
 

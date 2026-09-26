@@ -55,3 +55,24 @@ test("restart-seed history stays bounded: entry count capped, oversized turns cl
   assert.ok(seeded.length <= 40, `history capped (got ${seeded.length})`);
   assert.ok(seeded.every((m) => m.text.length <= 4097), "every entry clipped to ~4KB");
 });
+
+test("a cut reaches the running agent and the history a restarted one is seeded with", async () => {
+  let crash = false;
+  const cuts: string[] = [];
+  let seeded: { role: string; text: string }[] = [];
+  const sup = new AgentSupervisor(() => agent({
+    seed: (h: { role: string; text: string }[]) => { seeded = h; },
+    cut: (s: string) => { cuts.push(s); },
+    runTurn: async (_i: unknown, emit: (e: unknown) => void) => {
+      if (crash) throw new Error("boom");
+      emit({ type: "text_delta", text: "One. Two. Three." });
+    },
+  }) as any, noAsk);
+  const { emit } = collect();
+  await sup.runTurn({ text: "Count.", frames: [] }, emit, new AbortController().signal);
+  sup.cut(" One. ");
+  assert.deepEqual(cuts, [" One. "]);
+  crash = true;
+  await sup.runTurn({ text: "Go on.", frames: [] }, emit, new AbortController().signal);
+  assert.deepEqual(seeded, [{ role: "user", text: "Count." }, { role: "assistant", text: "One." }]);
+});

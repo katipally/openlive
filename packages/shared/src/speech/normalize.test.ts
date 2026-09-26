@@ -366,6 +366,41 @@ test("no digit reaches a voice, and a second pass changes nothing", () => {
   }
 });
 
+test("thousands separators read as numbers in their language; versions and addresses stay", () => {
+  const cases: [lang: string, text: string, said: string][] = [
+    ["de", "1.500.000 Leute", "eine Million fünfhunderttausend Leute"],
+    ["de", "1.500.000,5", "eine Million fünfhunderttausend Komma fünf"],
+    ["de", "1.500.000 €", "eine Million fünfhunderttausend Euro"],
+    ["de", "100.000.000.000", "einhundert Milliarden"],
+    ["de", "1.500.000-2.000.000", "eine Million fünfhunderttausend bis zwei Millionen"],
+    ["de", "1'500'000 Franken", "eine Million fünfhunderttausend Franken"],
+    ["de", "1.2.3", "eins Punkt zwei Punkt drei"],
+    ["de", "v1.500.000", "Version eins Punkt fünfhundert Punkt null"],
+    ["de", "192.168.100.100", "einhundertzweiundneunzig Punkt einhundertachtundsechzig Punkt einhundert Punkt einhundert"],
+    ["de", "am 26.09.2026", "am sechsundzwanzigsten September zweitausendsechsundzwanzig"],
+    ["es", "1.500.000 personas", "un millón quinientos mil personas"],
+    ["es", "2.500,75", "dos mil quinientos coma siete cinco"],
+    ["it", "1.500.000 persone", "un milione e cinquecentomila persone"],
+    ["pt", "1.500.000 pessoas", "um milhão e quinhentos mil pessoas"],
+    ["pt", "R$ 1.500.000,00", "um milhão e quinhentos mil reais"],
+    ["fr", "1 500 000 personnes", "un million cinq cent mille personnes"],
+    ["fr", "1 500 000 personnes", "un million cinq cent mille personnes"],
+    ["fr", "1 500 000 personnes", "un million cinq cent mille personnes"],
+    ["fr", "entre 3 500 et 4 000", "entre trois mille cinq cents et quatre mille"],
+    ["fr", "1.500.000", "un million cinq cent mille"],
+    ["fr", "01 23 45 67 89", "zéro un vingt-trois quarante-cinq soixante-sept quatre-vingt-neuf"],
+    ["hi", "1,50,000 रुपये", "एक लाख पचास हज़ार रुपये"],
+    ["zh", "1,500,000", "一百五十万"],
+    ["ja", "1,500,000", "百五十万"],
+    ["ko", "1,500,000", "백오십만"],
+    // Where "." is the decimal mark, a dotted run is a version.
+    ["en", "1.500.000", "one point five hundred point zero"],
+    ["en", "1,500,000", "one million five hundred thousand"],
+    ["en", "1.500", "one point five zero zero"],
+  ];
+  for (const [lang, text, said] of cases) expect(normalizeSpeech(text, lang), `${lang}: ${text}`).toBe(said);
+});
+
 test("zero data, unknown languages and prose", () => {
   expect(normalizeSpeech("", "en")).toBe("");
   expect(normalizeSpeech("   ", "ja")).toBe("");
