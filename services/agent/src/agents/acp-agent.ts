@@ -44,6 +44,27 @@ export function preamble(): string {
   return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;
 }
 
+/** ACP carries "which model is this session on" in TWO shapes, and an agent may
+ *  use either:
+ *    • config option  — a `select` with `category:"model"`, changed via
+ *      session/set_config_option. Claude Code and Codex use this.
+ *    • model state    — `session/new`|`load` returns
+ *      `models: { availableModels, currentModelId }`, changed via
+ *      session/set_model. Hermes uses this (1021 models, verified 2026-09-26).
+ *  Reading only the first makes the model picker silently empty for agents on
+ *  the second, with no error anywhere. Normalise both into the same meta shape.
+ *  Exported for tests: pure, no connection required. */
+export function modelStateFrom(r: unknown): { models: { id: string; name: string }[]; currentModelId: string | null } | null {
+  const st = (r as { models?: { availableModels?: { modelId?: string; name?: string }[]; currentModelId?: string | null } } | null)?.models;
+  const avail = st?.availableModels;
+  if (!Array.isArray(avail) || avail.length === 0) return null;
+  const models = avail
+    .filter((m): m is { modelId: string; name?: string } => typeof m?.modelId === "string" && m.modelId.length > 0)
+    .map((m) => ({ id: m.modelId, name: m.name ?? m.modelId }));
+  if (!models.length) return null;
+  return { models, currentModelId: st?.currentModelId ?? null };
+}
+
 // Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on
 // session/new AND session/load. Two things ride on it:
 //   • persistSession — belt-and-braces so OpenLive sessions ALWAYS land in
@@ -85,6 +106,7 @@ export class AcpAgent implements Agent {
   private child: ChildProcessWithoutNullStreams | null = null;
   private conn: ClientSideConnection | null = null;
   private sessionId = "";
+  private usesModelState = false; // agent reports models via session/new's `models`, not a config option
   private seedText = "";
   private turnEmit: Emit | null = null;
   private alive = false;
@@ -268,6 +290,15 @@ export class AcpAgent implements Agent {
       this.meta = { ...this.meta, modes: r.modes.availableModes.map((m) => ({ id: m.id, name: m.name })), currentModeId: r.modes.currentModeId ?? null };
     }
     this.applyConfig(r.configOptions);
+    // No config-option model? The agent may report models the other way instead.
+    // applyConfig() has just set modelConfigId, so this check is ordered after it.
+    if (!this.modelConfigId) {
+      const st = modelStateFrom(r);
+      if (st) {
+        this.usesModelState = true;
+        this.meta = { ...this.meta, models: st.models, currentModelId: st.currentModelId };
+      }
+    }
     this.opts.onMeta?.(this.meta);
   }
 
@@ -293,7 +324,19 @@ export class AcpAgent implements Agent {
   }
 
   async setModel(modelId: string): Promise<void> {
-    if (!this.conn || !this.sessionId || !this.modelConfigId) return;
+    if (!this.conn || !this.sessionId) return;
+    // Model-state agents change models with session/set_model. The SDK has no
+    // typed helper for it, so go through the generic request path; still never
+    // throw, an agent rejecting a value must not crash the session.
+    if (!this.modelConfigId) {
+      if (!this.usesModelState) return;
+      try {
+        await this.conn.request("session/set_model", { sessionId: this.sessionId, modelId });
+        this.meta = { ...this.meta, currentModelId: modelId };
+        this.opts.onMeta?.(this.meta);
+      } catch (e) { log.error(`agent:${this.id}`, `session/set_model(${modelId}) failed:`, e); }
+      return;
+    }
     // Model selection is now an ACP session config option. Never throw: an agent
     // that rejects a value must not crash the session.
     try {
