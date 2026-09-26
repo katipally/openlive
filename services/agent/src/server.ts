@@ -29,6 +29,8 @@ app.get("/health", (c) => c.json({ ok: true }));
 // Lazy import keeps sherpa-onnx (native addon) out of the boot path.
 const { voiceRoutes } = await import("./voice/routes.js");
 app.route("/voice", voiceRoutes);
+// Where native speech runs depends on this machine; the probe runs off the boot path (voice/device.ts).
+void import("./voice/accel.js").then((a) => a.refreshDevice()).catch((e) => log.warn("voice", "device probe:", e));
 
 // What a coding agent can be set to. Lazy for the same reason: starting one is
 // the caller's cost, never the boot path's.

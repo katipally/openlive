@@ -3,6 +3,7 @@ packages:
   - "packages/*"
   - "apps/*"
   - "services/*"
+  - "tools/*"
 
 # Force ONE @huggingface/transformers copy across the tree. kokoro-js pulls 3.8.1
 # while we use 4.3.0; two copies = two onnxruntime-node envs that clash and segfault.

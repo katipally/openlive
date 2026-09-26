@@ -15,6 +15,27 @@ Releases before 0.1.9 predate this file — see the
   Saved settings that still carry it load as before.
 
 ### Changed
+- **Released builds no longer let a page open Flow.** The page trigger that
+  opens Flow as a double Ctrl would is registered only in dev builds, where
+  tests use it, so no script in the app window can turn the mic on.
+- **A cough or a "mm-hmm" no longer cuts the voice off.** In a call and in Flow,
+  a sound over a reply pauses it at once, and it goes on from the same word
+  when the sound was a cough, a laugh, a bump or a backchannel ("yeah", "okay",
+  "right", "uh-huh", and their equivalents in every session language). Any
+  other word, or talk that runs on, stops it as before. A cough while the
+  agent is still working no longer cancels its work. A laugh of any length
+  ("ha", "hahaha", "jajaja", "哈哈", "ㅋㅋㅋ") and a throat sound ("ugh",
+  "ahem", "hmm") count as sounds too, in every session language. Only what you
+  said in full decides, so a laugh half-heard as words no longer cuts it.
+- **Answering an ask by voice is instant.** A spoken "yes" or "no" to a
+  permission ask, in a call or in Flow, goes through the moment you stop
+  instead of waiting out the pause for more. Once the question has been said,
+  the orb shows it is waiting on you rather than still speaking, and Flow's
+  question card has a Stop button.
+- **A voice that is not downloaded says so.** When the picked speech or voice
+  engine is not on this computer yet, its card in Settings → Voice reads "Not
+  downloaded, using Kokoro" (or whatever stands in), and the call lobby offers
+  the download next to Start. The fallback no longer logs an error.
 - **Settings opens on General and goes back where you came from.** The close
   button is now "Back to Chat / Flow / OpenLive / call" at the top of the
   sidebar; Esc and Back still work.
@@ -31,6 +52,74 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **Replies read the way a person says them.** Every voice now reads numbers,
+  ordinals, dates, times, prices, percentages, units, ranges, phone numbers,
+  emails, web addresses, file names, version numbers, code names, initialisms
+  and symbols as words in your session language: "$1,200.50" is "one thousand
+  two hundred dollars and fifty cents", "2026-09-25" is "September
+  twenty-fifth, twenty twenty-six", "v1.2.3" is "version one point two point
+  three". The transcript still shows what the assistant wrote. English is
+  covered in full; the other nine languages get numbers, decimals, ordinals,
+  dates, times, money, percentages and units.
+- **Captions keep time with the voice.** The live caption and the transcript
+  now show each word as it is spoken, placed on the voice's own audio and its
+  pauses, instead of at an even pace over the sentence. A spelled-out number
+  or price takes as long on screen as it does to say, and Chinese and Japanese
+  captions reveal character by character.
+- **Your words keep their timing.** Each spoken turn, in a call and in Flow,
+  is saved with when you said every word: Parakeet and Nemotron's own word
+  times, or, from Whisper, Moonshine and Canary, times placed on your audio.
+  Nothing on screen changes and no turn waits longer; they are there for
+  telling speakers apart later.
+- **Pronunciation dictionary.** Settings → Voice → Pronunciation lists names
+  and words with how to say them ("Nginx" as "engine x"), for every language
+  or one, matching case or not, whole words or inside words, with a button to
+  hear each one. It applies from the next reply.
+- **Voice regression check.** `pnpm voice:regress` renders 14 replies through
+  the app's own sentence chunking, synthesis and trimming, and fails when the
+  joins between sentences drift from one render of the whole reply: pitch step,
+  pause, loudness step, the pitch a sentence starts on, lead and tail silence,
+  length, and NaN, clipped or silent audio. Pull requests that touch the voice
+  path run it on Kitten nano and in-browser Kokoro; every CI engine runs nightly.
+  Kitten renders the corpus three times and gates on the pooled result, so its
+  run-to-run noise never fails a pull request.
+  Matcha runs nightly too, and the default Piper voice locally.
+- **Model licenses in Settings → Voice.** Every speech engine's card now names
+  its model's license, and Supertonic's links to its OpenRAIL-M terms, which
+  forbid some uses. Piper shows each voice's license in its Model menu.
+- **Models with a restricted license are opt-in.** Pocket TTS, your cloned
+  voices and the Piper voices whose own data is research-only, non-commercial,
+  share-alike, AGPL or of unknown license (lessac, amy, ryan, daniela, tom,
+  upmc, paola, pratham, priyamvada, rohan, xiao_ya, huayan) are locked in
+  Settings → Voice; picking one says what its license limits, links it, and
+  asks you to allow them. A Piper voice is judged by its own data, so Thorsten,
+  Kerstin, Ramona, Riccardo, Siwis, Davefx, Sharvard, Faber, Cadu, Tugão,
+  LibriTTS-R and Chaowen stay open whatever voice they were fine-tuned from, as
+  do Nemotron Streaming (NVIDIA Open Model License) and Nemotron 3.5. OpenLive
+  never switches to a locked one on its own: not as a default, not on a
+  language switch and not as a fallback. An engine you already use keeps
+  working, with a note.
+- **Native voices pick where they run on your machine.** OpenLive checks your
+  device (CPU, cores, memory, GPU, OS) and, after a native speech engine's first
+  use, benchmarks it on the CPU and on each accelerator your machine and the
+  speech runtime support (CoreML on a Mac). An accelerator is used only when it
+  is at least 20% faster there; until then, and on any failure, the engine runs
+  on the CPU. Each benchmark runs in a separate process, so an accelerator that
+  crashes during one never takes OpenLive down with it. Threads per engine follow your core count instead of a fixed
+  number. Settings → Voice shows your device and, per engine, where it runs and
+  why, with an Auto / CPU / accelerator choice and "Re-run benchmark". All of it
+  stays on your machine.
+- **Supertonic runs on your computer's GPU in the desktop app.** Download it
+  once under Settings → Voice → Text-to-speech → On this computer, and the
+  agent speaks Supertonic replies with the same voice the browser would, on
+  whichever of your CPU and GPU it measures faster (WebGPU or CoreML on a Mac,
+  DirectML or WebGPU on Windows, CUDA on Linux when installed). If it cannot
+  run, the browser's Supertonic takes over for the call in the same voice.
+  Every engine card now says where it runs: the browser (WebGPU or WASM) or
+  this computer and on what.
+- **Latency in the call.** The top bar of a call shows the median time from the
+  end of your speech to the reply's first sound, and its popover the median and
+  p95 of each stage: transcription and end of turn, the model, and the voice.
 - **Talk to OpenLive in ten languages.** Settings → Voice → Language picks
   English, Spanish, French, German, Italian, Portuguese, Hindi, Chinese,
   Japanese or Korean. Speech recognition, turn-taking and the voice follow it,
@@ -71,6 +160,26 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Hanging up mid-reply saved the whole reply.** Ending a call while the voice
+  was speaking kept everything the model had written, heard or not. The saved
+  reply now ends where the voice stopped, and nothing is voiced after hang-up.
+- **Interrupting a reply saved the rest of its sentence.** The live transcript
+  kept only what was said, but after a reload the chat had the whole sentence
+  that was playing. Both now end at the word being said when you cut in.
+- **Short captions with a price or a date showed all at once.** "$1,200.50 on
+  2026-09-25" is three words on screen and four seconds of speech. The live
+  caption now reveals every line word by word, and a new line no longer flashes
+  whole before its first word.
+- **Tables and bullets were read out.** A table's bars and rule lines, box
+  drawing and bullet characters reached the voice. Between words they are now a
+  pause, at an edge nothing, in every language. The transcript still shows them.
+- **Talking over a reply waited out the mid-thought hold.** A short "stop, just
+  say hello" said over the agent sat up to four seconds before it was sent. What
+  you say over a reply now goes as soon as you stop.
+- **Piper and Matcha sentences joined at the wrong pause.** Depending on the
+  voice, sentences ran into each other (17 ms apart) or sat almost 0.2 s apart,
+  where one render pauses about 75 ms. Each sentence now keeps a set sliver of
+  silence, so every voice joins within about 15 ms of its own pause.
 - **A reply's first sentence broke in two.** When it had a comma far enough in,
   the voice spoke up to the comma as a sentence of its own, with a full stop's
   pause and fall, then started the rest over at another pitch. The first chunk

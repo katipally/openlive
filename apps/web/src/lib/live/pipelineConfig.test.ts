@@ -1,13 +1,17 @@
 // Guards the untrusted-config merge/clamp, the saved-shape migration and the
 // language rules: the only non-trivial logic here.
 import assert from "node:assert";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import { LANGUAGE_CODES } from "@openlive/shared";
 import {
-  mergePipelineConfig, clampPipelineConfig, workerTag, tagCached, browserModels, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
+  mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, browserModels, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
   STT_FAMILIES, TTS_FAMILIES, CURATED_LANGUAGES, LANGUAGE_DEFAULTS, languageSupport, pickCompatible, chooseFamily, chooseVariant,
-  defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, type PipelineConfig,
+  defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig,
+  type PipelineConfig,
 } from "./pipelineConfig.ts";
+
+/** The defaults with restricted-license models allowed, for tests that pick one. */
+const OPEN: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, allowRestricted: true };
 
 test("empty / garbage input → defaults", () => {
   assert.deepEqual(mergePipelineConfig({}), DEFAULT_PIPELINE_CONFIG);
@@ -103,6 +107,22 @@ test("migration: every pre-variant TTS engine lands on its variant and keeps a v
   assert.equal(SUPERTONIC_VOICES.length, 10);
 });
 
+test("pronunciations: trimmed, capped, defaulted; an entry with no word is dropped", () => {
+  const long = "x".repeat(500);
+  const cfg = mergePipelineConfig({ pronunciations: [
+    { from: "  Nginx ", to: " engine x ", lang: "en", matchCase: true, wholeWord: false },
+    { from: "Kai", to: "Kye" }, { from: "   ", to: "gone" }, { from: long, to: long, lang: "xx" }, "junk", null,
+  ] });
+  assert.deepEqual(cfg.pronunciations, [
+    { from: "Nginx", to: "engine x", lang: "en", matchCase: true, wholeWord: false },
+    { from: "Kai", to: "Kye", lang: "", matchCase: false, wholeWord: true },
+    { from: long.slice(0, PRONUNCIATION_LIMITS.from), to: long.slice(0, PRONUNCIATION_LIMITS.to), lang: "", matchCase: false, wholeWord: true },
+  ]);
+  assert.deepEqual(mergePipelineConfig(JSON.parse(JSON.stringify(cfg))), cfg);
+  assert.equal(mergePipelineConfig({ pronunciations: Array.from({ length: 5000 }, (_, i) => ({ from: `w${i}`, to: "x" })) }).pronunciations.length, PRONUNCIATION_LIMITS.entries);
+  assert.deepEqual(mergePipelineConfig({ pronunciations: "nope" }).pronunciations, []);
+});
+
 test("the new shape round-trips; a stale variant or family falls back to the family default", () => {
   const cfg = mergePipelineConfig({
     language: "es",
@@ -135,7 +155,7 @@ test("catalog integrity: ids unique, every default exists and every static defau
 });
 
 test("switching family back restores the variant last picked there", () => {
-  let c = chooseVariant(DEFAULT_PIPELINE_CONFIG, "stt", "nemotron-en-560ms-int8");
+  let c = chooseVariant(OPEN, "stt", "nemotron-en-560ms-int8");
   c = chooseFamily(c, "stt", "whisper");
   assert.equal(c.stt.variant, "whisper");
   assert.equal(chooseFamily(c, "stt", "nemotron").stt.variant, "nemotron-en-560ms-int8");
@@ -146,7 +166,7 @@ test("switching family back restores the variant last picked there", () => {
 });
 
 test("choosing a TTS engine keeps a voice it has, else its default, else lets the agent pick", () => {
-  const onyx = { ...DEFAULT_PIPELINE_CONFIG, tts: { ...DEFAULT_PIPELINE_CONFIG.tts, voice: "am_onyx" } };
+  const onyx = { ...OPEN, tts: { ...OPEN.tts, voice: "am_onyx" } };
   assert.equal(chooseFamily(onyx, "tts", "supertonic").tts.voice, "M1");
   assert.equal(chooseFamily(onyx, "tts", "kitten").tts.voice, "bella");
   assert.equal(chooseFamily(onyx, "tts", "piper").tts.voice, "");
@@ -180,6 +200,10 @@ test("every curated language has a recommended STT and TTS engine that speaks it
   assert.equal(browserTtsFallback("ko"), "supertonic");
   assert.equal(browserTtsFallback("zh"), null);
   assert.equal(defaultVariant(familyInfo("tts", "piper")!, "de"), "piper-de_DE-thorsten-medium-int8");
+  assert.equal(defaultVariant(familyInfo("tts", "piper")!, "it"), "piper-it_IT-riccardo-x_low-int8"); // the open Italian voice
+  assert.equal(defaultVariant(familyInfo("tts", "piper")!, "it", true), "piper-it_IT-paola-medium-int8");
+  assert.equal(defaultVariant(familyInfo("tts", "piper")!, "en"), "piper-en_US-libritts_r-medium-int8"); // lessac is restricted
+  assert.equal(defaultVariant(familyInfo("tts", "piper")!, "hi"), "piper-hi_IN-rohan-medium-int8"); // no open voice: the pick waits for the user's OK
   assert.equal(defaultVariant(familyInfo("tts", "piper")!, "ja"), "piper-en_US-lessac-medium-int8"); // nothing speaks it: the family default
 });
 
@@ -200,7 +224,7 @@ test("pickCompatible: from the browser defaults, every curated language", () => 
 });
 
 test("pickCompatible: from native engines, every curated language, with and without the agent's catalog", () => {
-  const native = chooseVariant(chooseVariant(DEFAULT_PIPELINE_CONFIG, "stt", "parakeet-0.6b-v2-int8"), "tts", "pocket-int8");
+  const native = chooseVariant(chooseVariant(OPEN, "stt", "parakeet-0.6b-v2-int8"), "tts", "pocket-int8");
   const offline: Record<string, [string, string]> = {
     en: ["parakeet-0.6b-v2-int8", "pocket-int8"],
     es: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"], fr: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"],
@@ -228,6 +252,68 @@ test("pickCompatible: from native engines, every curated language, with and with
   // Staying in a family: Parakeet v2 → v3 when v3 is there.
   const withV3 = [{ variants: [{ id: "parakeet-0.6b-v3-int8", installed: true }] }];
   assert.equal(pickCompatible(native, "fr", withV3).cfg.stt.variant, "parakeet-0.6b-v3-int8");
+});
+
+// ── restricted licenses ──────────────────────────────────────────────────────
+
+test("restricted: the audited catalog marks the non-open models and nothing a default leans on", () => {
+  for (const id of ["pocket-int8", "clone", "piper-en_US-lessac-medium-int8", "piper-en_US-amy-medium-int8", "piper-es_AR-daniela-high-int8",
+    "piper-fr_FR-tom-medium-int8", "piper-it_IT-paola-medium-int8", "piper-hi_IN-rohan-medium-int8", "piper-zh_CN-xiao_ya-medium-int8", "piper-zh_CN-huayan-medium"]) assert.ok(isRestricted(id), id);
+  for (const id of ["supertonic", "kokoro", "whisper", "nemotron-en-160ms-int8", "nemotron-3.5-160ms-int8", "piper-de_DE-ramona-low-int8", "piper-de_DE-thorsten-medium-int8",
+    "piper-de_DE-kerstin-low-int8", "piper-en_US-libritts_r-medium-int8", "piper-fr_FR-siwis-low-int8", "piper-zh_CN-chaowen-medium-int8", "kitten-nano-int8", "matcha-en-ljspeech"]) assert.equal(isRestricted(id), false, id);
+  for (const f of [...STT_FAMILIES, ...TTS_FAMILIES]) if (f.variants.some((v) => v.restricted)) assert.ok(f.restriction && f.licenseUrl, f.id);
+  assert.equal(isRestricted(DEFAULT_PIPELINE_CONFIG.stt.variant) || isRestricted(DEFAULT_PIPELINE_CONFIG.tts.variant), false);
+  for (const lang of LANGUAGE_CODES) {
+    for (const stage of ["stt", "tts"] as const) assert.equal(isRestricted(LANGUAGE_DEFAULTS[lang][stage]), false, `${lang} ${stage}`);
+    assert.equal(isRestricted(browserTtsFallback(lang) ?? undefined), false, lang);
+    // A family's default is open wherever an open variant speaks the language.
+    for (const f of [...STT_FAMILIES, ...TTS_FAMILIES]) {
+      if (f.variants.some((v) => !v.restricted && v.languages.includes(lang))) assert.equal(isRestricted(defaultVariant(f, lang)), false, `${f.id} ${lang}`);
+    }
+  }
+});
+
+test("restricted: never chosen without the user's OK, by a pick, a family switch or a language switch", () => {
+  const d = DEFAULT_PIPELINE_CONFIG;
+  assert.equal(chooseVariant(d, "tts", "pocket-int8"), d);
+  assert.equal(chooseVariant(d, "tts", "clone"), d);
+  assert.equal(chooseVariant(d, "tts", "piper-en_US-lessac-medium-int8"), d);
+  const hi = { ...d, language: "hi" as const };
+  assert.equal(chooseFamily(hi, "tts", "piper"), hi); // no open Hindi voice
+  assert.equal(chooseFamily({ ...d, language: "it" }, "tts", "piper").tts.variant, "piper-it_IT-riccardo-x_low-int8");
+  // A remembered restricted pick gives way to an open one once the OK is withdrawn.
+  const remembered = { ...chooseVariant({ ...OPEN, language: "it" }, "tts", "piper-it_IT-paola-medium-int8"), allowRestricted: false };
+  assert.equal(chooseFamily(chooseVariant(remembered, "tts", "kokoro-multi-v1_0"), "tts", "piper").tts.variant, "piper-it_IT-riccardo-x_low-int8");
+  assert.equal(chooseVariant(OPEN, "tts", "pocket-int8").tts.variant, "pocket-int8");
+  // Language switches from every engine, with and without the catalog, land on open engines only.
+  const catalog = [...STT_FAMILIES, ...TTS_FAMILIES].map((f) => ({ variants: f.variants.map((v) => ({ id: v.id, installed: true })) }));
+  for (const tts of TTS_FAMILIES.flatMap((f) => f.variants.map((v) => v.id))) {
+    const from = { ...chooseVariant(OPEN, "tts", tts), allowRestricted: false };
+    for (const lang of LANGUAGE_CODES) {
+      for (const cat of [undefined, catalog]) {
+        const { cfg, changes } = pickCompatible(from, lang, cat);
+        for (const ch of changes) assert.equal(isRestricted(ch.to), false, `${tts} → ${lang}: ${ch.to}`);
+        assert.ok(cfg.tts.variant === tts || !isRestricted(cfg.tts.variant), `${tts} → ${lang}`);
+      }
+    }
+  }
+});
+
+test("restricted: an engine picked before the gate keeps working, and the OK persists", () => {
+  const pocket = mergePipelineConfig({ tts: { engine: "pocket", voice: "loona" } });
+  assert.equal(pocket.tts.variant, "pocket-int8");
+  assert.equal(pocket.allowRestricted, false);
+  assert.equal(pickCompatible(pocket, "en").cfg.tts.variant, "pocket-int8");
+  assert.equal(mergePipelineConfig({ allowRestricted: "yes" }).allowRestricted, false);
+  const store = new Map<string, string>();
+  vi.stubGlobal("window", {});
+  vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+  try {
+    savePipelineConfig(chooseVariant(OPEN, "tts", "piper-en_US-lessac-medium-int8"));
+    const loaded = loadPipelineConfig();
+    assert.equal(loaded.allowRestricted, true);
+    assert.equal(loaded.tts.variant, "piper-en_US-lessac-medium-int8");
+  } finally { vi.unstubAllGlobals(); }
 });
 
 test("pickCompatible leaves a config that already speaks the language alone", () => {
@@ -271,6 +357,8 @@ test("workerTag: moving between native engines keeps the warm worker; browser we
   assert.equal(workerTag(cfg("whisper", "supertonic", "base", "es"), "webgpu"), "webgpu:base-ml:supertonic");
   assert.equal(workerTag(cfg("whisper", "supertonic", "small", "ja"), "wasm"), "wasm:tiny-ml:supertonic");
   assert.equal(workerTag(cfg("whisper", "kokoro", "large-v3-turbo", "ko"), "webgpu"), "webgpu:large-v3-turbo:kokoro");
+  // A browser voice the agent runs loads nothing in the browser either.
+  assert.equal(workerTag(cfg("whisper", "supertonic"), "webgpu", true), "webgpu:base:native");
   assert.equal(tagCached("webgpu:base-ml:supertonic", ["webgpu:base:supertonic"]), false);
 });
 

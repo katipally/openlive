@@ -77,16 +77,20 @@ The core, the ears / mouth / eyes:
   44.1 kHz), or a native Pocket TTS, Kitten TTS, Piper, Kokoro (CPU) or Matcha that
   starts speaking before the sentence is done. Each native engine comes in variants
   (size, precision, latency, voice), picked from its Model menu in Settings → Voice
-  and downloaded on demand; they run in the local agent service on CPU and fall
-  back to Whisper or the browser voice for the language when missing.
+  and downloaded on demand; they run in the local agent service, on the CPU or an
+  accelerator it measures faster on your machine, and fall back to Whisper or the
+  browser voice for the language when missing. On the desktop, Supertonic can run
+  there too, on your GPU, with the browser's Supertonic as its fallback.
 - **Ten languages.** English, Spanish, French, German, Italian, Portuguese, Hindi,
   Chinese, Japanese or Korean, picked once in Settings → Voice. Every stage and the
   reply follow it. Engines that don't speak it are greyed out, and switching
   swaps in one that does and tells you what changed.
 - **Speak as yourself.** Settings → Voice records 5 to 30 seconds of you
   (with a seekable listen-back before anything is saved) and your assistant speaks
-  in your voice from then on. Zero-shot cloning (ZipVoice, Apache-2.0) running
-  locally, an optional ~208 MB install, deletable anytime. Profiles preview with any
+  in your voice from then on. Zero-shot cloning (ZipVoice) running
+  locally, an optional ~208 MB install, deletable anytime. Its weights carry no
+  license and were trained on non-commercial data, so it stays locked until you
+  allow models with a restricted license. Profiles preview with any
   text, rename, and export/import between machines. Clone only your own voice or
   one you have clear permission to use; impersonation is on you, not the tool.
 - **It can see.** Camera or screen frames ride each turn, and the `look` tool grabs

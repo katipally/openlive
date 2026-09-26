@@ -24,7 +24,8 @@ interface LiveState {
   userCaption: string;
   userPartial: boolean; // true while the user caption is still interim (greyed)
   agentCaption: string;
-  agentCaptionMs: number; // playback duration of the current agent chunk — paces the word-by-word caption reveal
+  agentCaptionAt: number[]; // each caption word's onset (ms after agentCaptionStart): paces the word-by-word caption reveal
+  agentCaptionStart: number; // performance.now() when the current agent chunk began voicing
   toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
   holdUntil: number | null; // mid-thought pause held: epoch-ms when it auto-sends (drives "waiting for you… tap to send")
   pttActive: boolean;       // push-to-talk currently held (space / global hotkey)
@@ -81,7 +82,8 @@ export const useLiveStore = create<LiveState>((set) => ({
   userCaption: "",
   userPartial: false,
   agentCaption: "",
-  agentCaptionMs: 0,
+  agentCaptionAt: [],
+  agentCaptionStart: 0,
   toolStatus: "",
   holdUntil: null,
   pttActive: false,

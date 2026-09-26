@@ -7,3 +7,7 @@ export function failureIsLasting(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status;
   return status === 400 || status === 404 || status === 409 || status === 502;
 }
+
+/** The engine is not downloaded (the agent's 409): an expected fallback that
+ *  Settings and the call lobby offer to fix, not an error. Pure. */
+export const notDownloaded = (err: unknown): boolean => (err as { status?: unknown } | null)?.status === 409;

@@ -25,23 +25,27 @@ afterAll(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native engine catalog", () => {
-  it("gives every variant a unique id, a sherpa release URL, a size, files, languages and a license", () => {
+  it("gives every variant a unique id, a pinned URL, a size, files, languages and a license", () => {
     const ids = m.NATIVE_ENGINES.flatMap((e) => [e.id, e.legacyId ?? []].flat());
     expect(new Set(ids).size).toBe(ids.length);
     for (const e of m.NATIVE_ENGINES) {
-      expect(e.url).toMatch(/^https:\/\/github\.com\/k2-fsa\/sherpa-onnx\/releases\/download\/(asr|tts)-models\/.+\.tar\.bz2$/);
-      expect(e.url).toContain(`/${e.kind}-models/`);
       expect(e.sizeBytes).toBeGreaterThan(1_000_000);
       expect(e.files.length).toBeGreaterThan(0);
       expect(e.languages.length).toBeGreaterThan(0);
       for (const l of e.languages) expect(l).toMatch(/^[a-z]{2}$/);
       expect(e.license).toBeTruthy();
+      // An onnxruntime engine's files come one by one from a Hugging Face revision.
+      if (m.onOrt(e)) { expect(e.url).toMatch(/^https:\/\/huggingface\.co\/[^/]+\/[^/]+\/resolve\/[0-9a-f]{40}$/); continue; }
+      expect(e.url).toMatch(/^https:\/\/github\.com\/k2-fsa\/sherpa-onnx\/releases\/download\/(asr|tts)-models\/.+\.tar\.bz2$/);
+      expect(e.url).toContain(`/${e.kind}-models/`);
       expect(e.files.some((f) => /^tokens\.txt$|^vocab\.json$/.test(f))).toBe(true);
     }
   });
 
   it("groups variants into families of one kind", () => {
-    expect(m.NATIVE_FAMILIES.map((f) => f.id)).toEqual(["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "matcha"]);
+    expect(m.NATIVE_FAMILIES.map((f) => f.id)).toEqual(["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "supertonic", "matcha"]);
+    // Supertonic is the browser's voice, run here; not a pick of its own.
+    expect(m.NATIVE_FAMILIES.filter((f) => f.browser).map((f) => [f.id, f.browser])).toEqual([["supertonic", "supertonic"]]);
     for (const f of m.NATIVE_FAMILIES) {
       expect(f.variants.length).toBeGreaterThan(0);
       for (const v of f.variants) expect([v.family, v.kind]).toEqual([f.id, f.kind]);
@@ -65,8 +69,9 @@ describe("native engine catalog", () => {
   });
 
   it("gives every TTS voice a language the variant lists, and every language a voice", () => {
+    // A voice without a language speaks every one of the variant's.
     for (const e of m.NATIVE_ENGINES.filter((x) => x.kind === "tts")) {
-      expect(new Set(e.voices!.map((v) => v.lang))).toEqual(new Set(e.languages));
+      expect(new Set(e.voices!.flatMap((v) => v.lang ?? e.languages))).toEqual(new Set(e.languages));
     }
     const kokoro = m.nativeEngine("kokoro-multi-v1_0-int8")!;
     expect(kokoro.languages).toEqual(["en", "es", "fr", "hi", "it", "pt", "zh"]);
@@ -96,12 +101,12 @@ describe("native engine catalog", () => {
     for (const [lang, speakers] of perLang) expect(speakers.size, lang).toBeLessThanOrEqual(lang === "en" ? 4 : 3);
   });
 
-  it("gives every TTS engine unique voices that resolve to a speaker id or a shipped wav", () => {
+  it("gives every TTS engine unique voices that resolve to a speaker id, a shipped wav or a style file", () => {
     for (const e of m.NATIVE_ENGINES.filter((x) => x.kind === "tts")) {
       const ids = e.voices!.map((v) => v.id);
       expect(new Set(ids).size).toBe(ids.length);
       for (const v of e.voices!) {
-        expect(v.sid !== undefined || (v.wav !== undefined && e.files.includes(v.wav))).toBe(true);
+        expect(v.sid !== undefined || (v.wav !== undefined && e.files.includes(v.wav)) || (m.onOrt(e) && e.files.includes(`voice_styles/${v.id}.json`))).toBe(true);
       }
     }
     expect(m.nativeEngine("kitten")!.voices!.map((v) => v.sid)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
@@ -124,7 +129,7 @@ describe("native engine catalog", () => {
 
 describe("sherpaConfig", () => {
   it("builds each model type from the variant's own file names", () => {
-    const cfg = (id: string) => JSON.parse(JSON.stringify(m.sherpaConfig(m.nativeEngine(id)!)));
+    const cfg = (id: string) => JSON.parse(JSON.stringify(m.sherpaConfig(m.nativeEngine(id)!, { provider: "cpu", numThreads: 2 })));
     const dir = (id: string) => m.engineDir(m.nativeEngine(id)!.id);
     expect(cfg("parakeet-0.6b-v2-fp16").modelConfig).toMatchObject({ modelType: "nemo_transducer", transducer: { encoder: join(dir("parakeet-0.6b-v2-fp16"), "encoder.fp16.onnx") } });
     expect(cfg("nemotron").modelConfig.transducer.joiner).toBe(join(dir("nemotron"), "joiner.int8.onnx"));
@@ -137,6 +142,14 @@ describe("sherpaConfig", () => {
     expect(cfg("piper-zh_CN-xiao_ya-medium-int8")).toMatchObject({ model: { vits: { dataDir: "", lexicon: join(dir("piper-zh_CN-xiao_ya-medium-int8"), "lexicon.txt") } } });
     expect(cfg("piper-zh_CN-xiao_ya-medium-int8").ruleFsts.split(",")).toHaveLength(3);
     expect(cfg("matcha-en-ljspeech").model.matcha.vocoder).toBe(join(dir("matcha-en-ljspeech"), "vocos-22khz-univ.onnx"));
+    expect(cfg("supertonic-3")).toEqual({ dir: dir("supertonic-3"), provider: "cpu", numThreads: 2 });
+  });
+
+  it("runs every model type where accel.ts chose, on its thread count", () => {
+    for (const e of m.NATIVE_ENGINES) {
+      const cfg = m.sherpaConfig(e, { provider: "coreml", numThreads: 3 }) as { modelConfig?: object; model?: object };
+      expect(cfg.modelConfig ?? cfg.model ?? cfg).toMatchObject({ provider: "coreml", numThreads: 3 });
+    }
   });
 });
 
@@ -189,6 +202,28 @@ describe("downloadEngine", () => {
     await expect(m.downloadEngine(e(), (n) => { bytes += n; }, new AbortController().signal)).rejects.toThrow();
     expect(bytes).toBe(4);
     expect(leftovers()).toEqual([]);
+  });
+});
+
+describe("downloadEngine, file by file", () => {
+  const e = () => m.nativeEngine("supertonic-3")!;
+
+  it("fetches every file of a variant without an archive from its pinned revision, then moves them into place", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => { urls.push(url); return new Response(new Uint8Array([1, 2, 3])); }));
+    let bytes = 0;
+    await m.downloadEngine(e(), (n) => { bytes += n; }, new AbortController().signal);
+    expect(urls).toEqual(e().files.map((f) => `${e().url}/${f}`));
+    expect(bytes).toBe(3 * e().files.length);
+    expect(m.engineInstalled(e())).toBe(true);
+    expect(existsSync(`${m.engineDir(e().id)}.part`)).toBe(false);
+    rmSync(m.engineDir(e().id), { recursive: true });
+  });
+
+  it("leaves nothing behind when one file fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("vocoder.onnx") ? new Response("", { status: 503 }) : new Response(new Uint8Array([1])))));
+    await expect(m.downloadEngine(e(), () => {}, new AbortController().signal)).rejects.toThrow("HTTP 503");
+    expect([m.engineDir(e().id), `${m.engineDir(e().id)}.part`].filter(existsSync)).toEqual([]);
   });
 });
 

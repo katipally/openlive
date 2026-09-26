@@ -121,7 +121,9 @@ function install(getTarget) {
   ipcMain.handle("openlive:flow-unregister", guard((id) => load().unregisterBinding(id)));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
-  ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
+  // Test-only: lets a page open Flow as a double Ctrl would. Released builds
+  // leave it unregistered so no page script can turn the mic on.
+  if (!app.isPackaged) ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
   ipcMain.handle("openlive:flow-closed", guard(() => load().notifyClosed()));
 
   ipcMain.handle("openlive:flow-insert", guard((text, method) => load().insertText(text, method)));

@@ -159,6 +159,33 @@ describe("FlowLiveSession", () => {
     expect(fake.appended.filter((e) => e.type === "cut")).toEqual([{ type: "cut", data: { target: `entry-${replyAt + 1}`, text: "One." } }]);
   });
 
+  it("closing Flow while a finished reply still plays keeps only what was voiced", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+
+    fake.script = reply("One. Two. Three.");
+    ws.say("count to three");
+    await until(() => turnsDone(ws) === 1);
+    ws.client({ t: "flow_cancel", spoken: "One. Two", close: true });
+    await tick();
+
+    fake.script = reply("Four.");
+    ws.say("go on");
+    await until(() => turnsDone(ws) === 2);
+    expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual(["count to three", "One. Two", "go on"]);
+    expect(fake.appended.filter((e) => e.type === "cut").map((e) => e.data.text)).toEqual(["One. Two"]);
+  });
+
+  it("writes an utterance's word onsets into the transcript, and not into what the brain reads", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Done.");
+    ws.client({ t: "flow_text", text: "open it", wordsAt: [820, 1010] });
+    await until(() => turnsDone(ws) === 1);
+    expect(fake.appended.find((e) => e.type === "message" && e.data.role === "user")!.data).toEqual({ role: "user", text: "open it", wordsAt: [820, 1010] });
+    expect(fake.seen.at(-1)!.at(-1)).toEqual({ role: "user", text: "open it" });
+  });
+
   it("keeps the transcript a running turn is writing into when the session goes idle", async () => {
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);

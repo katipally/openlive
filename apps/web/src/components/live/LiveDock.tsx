@@ -25,7 +25,8 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // TranscriptPanel own those. Whole-store destructuring made the entire call
   // UI re-render on every caption tick.
   const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore(useShallow((s) => ({
-    active: s.active, phase: s.phase, modelsDownloaded: s.modelsDownloaded, downloading: s.downloading,
+    // A reply waiting on an ask is waiting on the user, once the question is voiced.
+    active: s.active, phase: s.phase === "thinking" && (s.permission || s.elicitation) ? "idle" : s.phase, modelsDownloaded: s.modelsDownloaded, downloading: s.downloading,
     downloadPct: s.downloadPct, downloadLoaded: s.downloadLoaded, downloadTotal: s.downloadTotal, downloadModels: s.downloadModels,
     muted: s.muted, cameraOn: s.cameraOn, screenOn: s.screenOn, cameraStream: s.cameraStream, screenStream: s.screenStream,
     error: s.error, mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId, boundAgent: s.boundAgent, boundCwd: s.boundCwd,

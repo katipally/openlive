@@ -22,6 +22,7 @@ export interface ChatMsg {
   id: string;
   role: "user" | "assistant";
   text: string;   // user turns only
+  wordsAt?: number[]; // a spoken user turn: each captionWords(text) word's onset, ms into its audio
   parts: Part[];  // assistant turns only
   done: boolean;
 }
@@ -61,12 +62,12 @@ function patch(chatId: string, id: string, fn: (m: ChatMsg) => ChatMsg) {
 
 export const chatStore = {
   // Commit a completed user turn and open a fresh assistant turn; returns its id.
-  liveUserTurn(chatId: string, text: string): string {
+  liveUserTurn(chatId: string, text: string, wordsAt?: number[]): string {
     const userId = nextId();
     const asstId = nextId();
     useChatState.getState()._set(chatId, (msgs) => [
       ...msgs,
-      { id: userId, role: "user", text, parts: [], done: true },
+      { id: userId, role: "user", text, wordsAt, parts: [], done: true },
       { id: asstId, role: "assistant", text: "", parts: [], done: false },
     ]);
     return asstId;
@@ -125,13 +126,14 @@ export const chatStore = {
   },
   // Seed the transcript from saved messages (resuming a conversation), preserving
   // the order text and tools appeared in.
-  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; tool?: string; call?: ToolCallState }> }>) {
+  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; wordsAt?: number[]; tool?: string; call?: ToolCallState }> }>) {
     const msgs: ChatMsg[] = [];
     for (const m of messages) {
       if (m.role !== "user" && m.role !== "assistant") continue;
       if (m.role === "user") {
-        const text = m.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
-        if (text) msgs.push({ id: m.id, role: "user", text, parts: [], done: true });
+        const blocks = m.content.filter((b) => b.type === "text");
+        const text = blocks.map((b) => b.text ?? "").join("").trim();
+        if (text) msgs.push({ id: m.id, role: "user", text, wordsAt: blocks.length === 1 ? blocks[0]!.wordsAt : undefined, parts: [], done: true });
         continue;
       }
       const parts: Part[] = [];

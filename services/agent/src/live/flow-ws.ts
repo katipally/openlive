@@ -233,14 +233,14 @@ export class FlowLiveSession {
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
         this.turn = msg.turn;
-        return this.onUtterance(msg.text);
+        return this.onUtterance(msg.text, msg.wordsAt);
       }
       case "flow_cancel":
         // The orb holds its barge-in while it shows an ask, so a cancel is Stop,
         // close, or a barge-in over an ask it never showed: each refuses the ask.
         this.cancelPendingPermissions();
         if (this.turnActive) this.spoken = msg.spoken ?? "";
-        else if (!msg.close && msg.spoken != null && this.voicedFrom >= 0) {
+        else if (msg.spoken != null && this.voicedFrom >= 0) {
           truncateToSpoken(this.messages, msg.spoken, this.voicedFrom);
           // The file is append-only, so the reply stays whole there and a `cut`
           // naming it tells every reader to keep only what was heard.
@@ -270,10 +270,10 @@ export class FlowLiveSession {
     }
   }
 
-  private onUtterance(text: string) {
+  private onUtterance(text: string, wordsAt?: number[]) {
     if (!text.trim() || this.closed) return;
     const m: Msg = { role: "user", text };
-    this.write(() => this.persist("message", { role: "user", text }));
+    this.write(() => this.persist("message", { role: "user", text, ...(wordsAt && { wordsAt }) }));
     if (this.turnActive) { this.steering.push(m); return; }
     this.messages.push(m);
     void this.run();

@@ -1,11 +1,14 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
-import { stt, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines } from "./models";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, estimateSpeechMs, SentenceChunker } from "./voiceText";
+import { stt, timedOn, type Heard, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines } from "./models";
+import { isJunk, isBackchannel, endsMidThought, stripMarkdown, speechPieces, estimateSpeechMs, SentenceChunker } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
 import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
 import type { LanguageCode } from "@openlive/shared";
+import { compileLexicon, type Lexicon } from "@openlive/shared/speech/lexicon";
+import { normalizeAligned } from "@openlive/shared/speech/normalize";
+import { captionOnsets, heardText, paceWords, placeWords, spokenWords } from "@openlive/shared/speech/timing";
 import { AsrStream } from "./asrStream";
 import { FrameRing } from "./pcm";
 import { log } from "@/lib/log";
@@ -22,8 +25,9 @@ export type EnginePhase = "idle" | "listening" | "thinking" | "speaking";
 export interface VoiceEngineHandlers {
   onPhase: (p: EnginePhase) => void;
   onPartial: (text: string) => void;      // interim user caption (greyed)
-  onUserText: (text: string) => void;      // final user turn → send to server
-  onAgentText: (sentence: string, durationMs: number) => void; // agent caption chunk + how long it plays (for word-timed reveal)
+  onUserText: (text: string, wordsAtMs: number[]) => void; // final user turn → send to server: each captionWords word's onset, ms into the turn's audio (its segments back to back)
+  onAgentText: (sentence: string, wordsAtMs: number[]) => void; // agent caption chunk, now voicing: each captionWords word's onset from now
+  onAgentTiming?: (wordsAtMs: number[]) => void; // the chunk on screen, timed again once more of its audio is in
   onBargeIn: (spoken?: string) => void;     // cancel the LLM stream; `spoken` = what was actually voiced so far, undefined before this reply arrived
   // A mid-thought pause is being held: `until` = when it auto-sends (UI shows a
   // "waiting for you… tap to send" affordance); null = hold resolved/cancelled.
@@ -32,6 +36,9 @@ export interface VoiceEngineHandlers {
    *  and the next utterance IS the answer. Cancelling there killed the very ask
    *  the user was answering (the chip vanished the moment they spoke). */
   holdBargeIn?: () => boolean;
+  /** True when `text` settles the pending ask ("yes", "no"): its turn ends at
+   *  once, since the turn model calls a bare "Yes." unfinished and would hold it. */
+  answersAsk?: (text: string) => boolean;
   /** The mic track ended on its own: unplugged, or its permission revoked. The
    *  surface re-acquires a device and hands it to setStream. */
   onMicLost?: () => void;
@@ -61,13 +68,23 @@ const PRE_SPEECH_FRAMES = Math.floor(800 / 32) + 1;
 // sentence. A tick well inside that keeps it loaded; warmNativeEngines skips an
 // engine that served a real request in the last minute.
 const KEEP_WARM_MS = 2 * 60_000;
+// Voiced time (Silero frames over the speech threshold) past which a sound over
+// the reply is taken for talk before its words are in. Measured on macOS voices
+// through Silero v6: one backchannel in any of the ten languages voices 256-864 ms
+// ("claro, claro" the longest), four laughing "ha"s 992 ms, while "mhm, right,
+// okay" said as one runs 1760 ms. Human delivery is slower than a TTS voice's.
+const BACKCHANNEL_MAX_MS = 1500;
 
-/** The TTS settings one reply is spoken with. */
-type ReplyVoice = { engine: string; family: string; voice: string; speed: number; lang: LanguageCode };
+/** The TTS settings one reply is spoken with, the pronunciation dictionary compiled once for it. */
+type ReplyVoice = { engine: string; family: string; voice: string; speed: number; lang: LanguageCode; lexicon: Lexicon | null };
 const voiceNow = (): ReplyVoice => {
-  const { tts, language } = loadPipelineConfig();
-  return { engine: tts.variant, family: tts.family, voice: tts.voice, speed: tts.speed, lang: language };
+  const { tts, language, pronunciations } = loadPipelineConfig();
+  return { engine: tts.variant, family: tts.family, voice: tts.voice, speed: tts.speed, lang: language, lexicon: compileLexicon(pronunciations, language) };
 };
+
+/** `b`, heard after `a`'s `aSamples` of audio, joined onto it. */
+const joinHeard = (a: Heard, aSamples: number, b: Heard): Heard =>
+  ({ text: [a.text, b.text.trim()].filter(Boolean).join(" "), at: [...a.at, ...b.at.map((t) => t + (1000 * aSamples) / 16000)] });
 
 function rmsOf(a: Float32Array): number { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]! * a[i]!; return Math.sqrt(s / a.length); }
 
@@ -79,6 +96,7 @@ export class VoiceEngine {
 
   private pending: Float32Array | null = null;   // held mid-thought utterance
   private pendingText = "";                        // its transcript, already computed in onSpeechEnd — reused on auto-send instead of re-transcribing
+  private pendingAt: number[] = [];                // pendingText's word onsets in `pending`
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private curBuf: Float32Array[] = [];           // frames since speech start (for partials)
   private curLen = 0;
@@ -102,10 +120,14 @@ export class VoiceEngine {
   private micSrc: MediaStreamAudioSourceNode | null = null;
   private noiseFloor = 0.002;                     // learned room ambient (see onFrame/gate)
   private epoch = 0;                              // bumped on barge-in; stales TTS + audio
+  private captionSeq = 0;                         // counts captions shown: only the one on screen takes a new timing
   private ttsChain: Promise<void> = Promise.resolve();
   private speakingStartAt = 0;
   private turnSentAt = 0;                         // perf: when the final user text went out
   private spokenText = "";                         // what the agent has actually VOICED this reply (for barge-in cutoff)
+  // The reply sentence playing now: the reply before it, its caption words' onsets, when it began.
+  // `lag`: how long pauses have held it, added to every onset.
+  private voicing: { before: string; text: string; at: number[]; t0: number; lag: number } | null = null;
   // Until this reply's first delta, a barge-in has nothing of it to cut: the server
   // may not even have the utterance yet, and an empty cut would wipe the reply before.
   private replyFed = false;
@@ -122,9 +144,17 @@ export class VoiceEngine {
   private replyOpen = false;
   // The segment in progress started as the agent's own voice through the speakers.
   private echo = false;
+  // The segment in progress cut into the agent's reply: said to be acted on now.
+  private barged = false;
+  // Talk over the agent pauses its voice until the words say what it was: set
+  // to the phase the surface still shows, null once it resumed or was cut.
+  private tentative: EnginePhase | null = null;
+  private pausedAt = 0;
+  private voicedMs = 0;                            // this segment's voiced time while tentative
+  private hearing = false;                         // the VAD is inside a segment
   // Audio segments that arrived while the previous one was still finalizing (slow STT
   // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
-  private deferred: { audio: Float32Array; final?: Promise<string> }[] = [];
+  private deferred: { audio: Float32Array; final?: Promise<Heard> }[] = [];
   private asr: AsrStream | null = null;          // open while the active STT engine streams
   private streaming = false;                      // this utterance's frames are going up the socket
   private ring = new FrameRing(PRE_SPEECH_FRAMES); // recent frames, sent when speech starts
@@ -153,17 +183,18 @@ export class VoiceEngine {
     if (!variantInfo(e)?.variant.streaming) return;
     this.asr = new AsrStream(e, lang, {
       onPartial: (text) => {
-        if (this.streaming && this.phase === "listening" && text && !isJunk(text)) this.h.onPartial(this.pending ? `${this.pendingText} ${text}` : text);
+        if (this.streaming && this.phase === "listening" && text && !isJunk(text)) this.heardPartial(this.pending ? `${this.pendingText} ${text}` : text);
       },
       onRefused: (why) => nativeSttFailed(e, new Error(why), true),
     });
   }
 
-  /** The VAD closed a segment: ask the socket for its final, if it was streamed. */
-  private endStream(): Promise<string> | undefined {
+  /** The VAD closed `audio`: ask the socket for its final, if it was streamed. */
+  private endStream(audio: Float32Array): Promise<Heard> | undefined {
     if (!this.streaming) return undefined;
     this.streaming = false;
-    const final = this.asr!.end();
+    const lang = loadPipelineConfig().language;
+    const final = this.asr!.end().then((f) => timedOn(f, audio, lang));
     final.catch(() => { /* handled where it is awaited; this only marks it handled while deferred */ });
     return final;
   }
@@ -189,6 +220,8 @@ export class VoiceEngine {
     const vadCfg = { ...loadPipelineConfig().vad, redemptionMs: this.turnCfg().redemptionMs };
     const vad = await MicVAD.new({
       model: vadCfg.model,
+      // vad-web defaults to listening on load, which would unmute a muted mic on a device swap.
+      startOnLoad: false,
       // Silero worklet + onnx + ort wasm are vendored into /public/vad by
       // scripts/copy-voice-assets.mjs (predev/prebuild) — served same-origin,
       // no CDN dependency, versions track package.json.
@@ -205,9 +238,9 @@ export class VoiceEngine {
       // cutting slow talkers off mid-sentence.
       redemptionMs: vadCfg.redemptionMs,
       onSpeechStart: () => this.onSpeechStart(),
-      onSpeechEnd: (audio) => { void this.onSpeechEnd(audio, this.endStream()); },
-      onFrameProcessed: (_p, frame) => this.onFrame(frame),
-      onVADMisfire: () => { this.streaming = false; if (this.phase === "listening") this.setPhase("idle"); },
+      onSpeechEnd: (audio) => { void this.onSpeechEnd(audio, this.endStream(audio)); },
+      onFrameProcessed: (p, frame) => this.onFrame(frame, p.isSpeech >= vadCfg.speechThreshold),
+      onVADMisfire: () => { this.streaming = false; this.segmentLost(); if (this.phase === "listening") this.setPhase("idle"); },
     });
     // Stopped while the VAD loaded (a mic swap racing hang-up): nothing may keep listening.
     if (this.stopped) { void vad.destroy().catch(() => { /* */ }); return; }
@@ -254,6 +287,7 @@ export class VoiceEngine {
     this.clearHold();
     this.pending = null;
     this.streaming = false;
+    this.segmentLost();
     this.ring.clear();
     void this.vad?.destroy().catch(() => { /* */ });
     this.vad = null;
@@ -278,7 +312,13 @@ export class VoiceEngine {
     // factor if speaker echo still self-triggers on some hardware.
     const echoSafe = !speaking || this.micRms > this.gate() * (1 + 2 * this.player.level());
     const holding = this.h.holdBargeIn?.();
-    if (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !holding) {
+    const barge = !!this.tentative || (((thinking && !speaking) || (speaking && Date.now() - this.speakingStartAt > ONSET_GRACE_MS)) && echoSafe && !holding);
+    if (barge && (this.tentative || (this.phase !== "listening" && !this.finalizing))) {
+      // A cough or a "mm-hmm" must not end the reply: pause it now, and let the
+      // words (the final, or talk past BACKCHANNEL_MAX_MS) decide.
+      this.pauseReply();
+    } else if (barge) {
+      // Over the user's own sentence still being finalized: as before, cut at once.
       this.bargeIn();
     } else if (holding && echoSafe && speaking) {
       // A permission/elicitation modal is open and the user is answering it — stop the
@@ -294,6 +334,9 @@ export class VoiceEngine {
       return;
     }
     this.echo = false;
+    this.barged = barge;
+    this.hearing = true;
+    this.voicedMs = 0;
     this.clearHold();
     this.curBuf = []; this.curLen = 0; this.partialMs = 0;
     this.syncAsr();
@@ -303,7 +346,7 @@ export class VoiceEngine {
     this.setPhase("listening");
   }
 
-  private onFrame(frame: Float32Array) {
+  private onFrame(frame: Float32Array, speech: boolean) {
     // Mic level for the orb (smoothed RMS).
     let sum = 0; for (let i = 0; i < frame.length; i++) sum += frame[i]! * frame[i]!;
     const rms = Math.sqrt(sum / frame.length);
@@ -314,6 +357,7 @@ export class VoiceEngine {
     // room so a soft talker is still heard. ponytail: a real room needs this
     // calibration; clamp keeps it from ever rising high enough to swallow speech.
     if (this.phase === "idle") this.noiseFloor = Math.min(0.03, this.noiseFloor + (rms - this.noiseFloor) * 0.05);
+    if (this.tentative && this.hearing && speech && (this.voicedMs += frame.length / 16) > BACKCHANNEL_MAX_MS) this.bargeIn();
     if (this.streaming) { this.asr!.send(frame); return; }
     if (this.asr) this.ring.push(frame);
     if (this.phase !== "listening") return;
@@ -329,7 +373,8 @@ export class VoiceEngine {
   // on WASM); a native batch engine runs on the agent's CPU, fast either way; a
   // streaming engine sends its own partials.
   private async maybePartial() {
-    if ((this.uttEngine === "whisper" && !hasWebGPU()) || this.asr || this.partialBusy || this.finalizing) return;
+    // Over a paused reply only the final decides, so the engine is kept free for it.
+    if ((this.uttEngine === "whisper" && !hasWebGPU()) || this.asr || this.partialBusy || this.finalizing || this.tentative) return;
     const now = Date.now();
     // Each partial re-transcribes the whole utterance so far, so its cost grows
     // with it: spacing them by twice that cost keeps a long monologue from
@@ -341,15 +386,25 @@ export class VoiceEngine {
     try {
       const win = this.concat(this.curBuf, this.curLen);
       if (rmsOf(win) < this.gate()) return;
-      const text = await stt(win, abort.signal);
-      if (text && !isJunk(text) && this.phase === "listening") this.h.onPartial(text);
+      const { text } = await stt(win, abort.signal);
+      // The browser's Whisper finishes an aborted caption anyway. Its segment has
+      // ended, so the final decides: a half-heard laugh read as "have a" must not.
+      if (text && !abort.signal.aborted && !isJunk(text) && this.phase === "listening") this.heardPartial(text);
     } catch { /* best-effort */ }
     finally { this.partialBusy = false; this.partialMs = Date.now() - now; if (this.partialAbort === abort) this.partialAbort = null; }
   }
 
+  /** An interim transcript. Over a paused reply it decides nothing: Whisper reads
+   *  half a laugh as "have a", and the reply is silent until the final is in. */
+  private heardPartial(shown: string) {
+    if (this.tentative) return;
+    this.h.onPartial(shown);
+  }
+
   // `final` is the streamed transcript of `audio` alone, when it was streamed.
-  private async onSpeechEnd(audio: Float32Array, final?: Promise<string>) {
+  private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>) {
     if (this.echo) { this.echo = false; return; }
+    this.hearing = false;
     // The agent runs one transcription at a time: a caption still queued there
     // would make the final wait for it.
     this.partialAbort?.abort();
@@ -358,6 +413,7 @@ export class VoiceEngine {
     // user's words vanish.
     if (this.finalizing) { this.deferred.push({ audio, final }); return; }
     const combined = this.pending ? this.concat([this.pending, audio], this.pending.length + audio.length) : audio;
+    if (this.tentative && (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate())) { this.resumeReply(); return; }
     // Reject blips and near-silence up front (ambient noise that tripped the VAD) —
     // but during push-to-talk a blip must not throw away what's already held.
     if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { if (!this.ptt) { this.pending = null; this.h.onPartial(""); } if (this.phase === "listening") this.setPhase("idle"); return; }
@@ -369,31 +425,40 @@ export class VoiceEngine {
       // "silence" turn engine skips Smart-Turn entirely and lets the VAD's trailing
       // silence (redemptionMs) end the turn; "smart-turn" uses the semantic model.
       const turnCfg = this.turnCfg();
+      // Talking over the agent is saying something to act on now ("stop, just say
+      // hello"), so it gets no mid-thought hold; the turn model would only wait it out.
+      const barged = this.barged;
       // While push-to-talk is held, no end-of-turn decision at all: just accumulate
       // and caption — release (endPtt) is the one and only turn boundary.
-      const useTurnModel = !this.ptt && turnModelReady() && turnCfg.engine !== "silence";
+      const useTurnModel = !this.ptt && !barged && turnModelReady() && turnCfg.engine !== "silence";
       // A streamed final covers this segment only; a held one is already transcribed.
-      const prefix = this.pending ? this.pendingText : "";
+      const held: Heard = this.pending ? { text: this.pendingText, at: this.pendingAt } : { text: "", at: [] };
       const transcript = final
-        ? final.then((t) => [prefix, t.trim()].filter(Boolean).join(" ")).catch(() => stt(combined))
+        ? final.then((h) => joinHeard(held, combined.length - audio.length, h)).catch(() => stt(combined))
         : stt(combined);
-      const [text, modelComplete] = await Promise.all([
-        transcript.then((t) => t.trim()),
+      const [heard, modelComplete] = await Promise.all([
+        transcript,
         useTurnModel ? turnComplete(combined, turnCfg.threshold) : Promise.resolve(true),
       ]);
+      const text = heard.text.trim();
       if (this.stopped) return;
+      if (this.tentative) {
+        if (isJunk(text) || isBackchannel(text, loadPipelineConfig().language)) { this.resumeReply(); return; }
+        this.bargeIn();
+      }
       const sttEndpointMs = performance.now() - perf0;
-      if (this.ptt) { this.pending = combined; this.pendingText = text; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
+      if (this.ptt) { this.pending = combined; this.pendingText = text; this.pendingAt = heard.at; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return; }
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
       if (isJunk(text)) { this.pending = null; this.h.onPartial(""); this.setPhase("idle"); return; }
       // Hold through a mid-thought pause (model says "not done", or the words
       // trail off) instead of cutting in — but never longer than the configured
       // hold / 20 s.
-      const done = modelComplete && !endsMidThought(text, loadPipelineConfig().language);
+      const done = barged || !!this.h.answersAsk?.(text) || (modelComplete && !endsMidThought(text, loadPipelineConfig().language));
       if (!done && combined.length < 16000 * 20) {
         this.pending = combined;
         this.pendingText = text;
+        this.pendingAt = heard.at;
         this.h.onPartial(text);
         this.scheduleHold();
         this.setPhase("idle");
@@ -403,17 +468,19 @@ export class VoiceEngine {
       this.clearHold();
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
+      this.voicing = null;
       this.replyFed = false;
       this.replyVoice = null;
       this.acceptingReply = true; // re-arm: this turn's reply should be voiced
       this.replyOpen = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(sttEndpointMs);
-      this.h.onUserText(text);
+      this.h.onUserText(text, heard.at);
     } catch {
       // A stalled/failed inference (now time-limited in models.call) must not strand
       // the turn loop — recover to idle and clear the frozen partial caption.
       if (this.stopped) return;
+      if (this.tentative) this.bargeIn(); // words unknown over a paused reply: talk always stops the agent
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
     } finally {
       this.finalizing = false;
@@ -422,8 +489,10 @@ export class VoiceEngine {
       if (this.deferred.length) {
         const parts = this.deferred; this.deferred = [];
         const merged = this.concat(parts.map((p) => p.audio), parts.reduce((n, p) => n + p.audio.length, 0));
+        let n = 0;
+        const starts = parts.map((p) => (n += p.audio.length) - p.audio.length);
         const finals = parts.every((p) => p.final)
-          ? Promise.all(parts.map((p) => p.final!)).then((ts) => ts.map((t) => t.trim()).filter(Boolean).join(" "))
+          ? Promise.all(parts.map((p) => p.final!)).then((hs) => hs.reduce((a, h, i) => joinHeard(a, starts[i]!, h), { text: "", at: [] }))
           : undefined;
         void this.onSpeechEnd(merged, finals);
       }
@@ -442,21 +511,21 @@ export class VoiceEngine {
     // Kept, not sent: mid-segment onSpeechEnd folds it in, and over a spoken line it
     // waits for the engine to go idle.
     if (this.phase !== "idle") { if (this.pending && this.phase !== "listening") this.scheduleHold(); return; }
-    const p = this.pending; const cached = this.pendingText.trim();
+    const p = this.pending; const cached: Heard = { text: this.pendingText.trim(), at: this.pendingAt };
     this.pending = null; this.pendingText = "";
     this.clearHold();
     if (!p) return;
-    const commit = (t: string) => {
+    const commit = (h: Heard) => {
       if (this.stopped) return;
-      const text = t.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text); }
+      const text = h.text.trim();
+      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.voicing = null; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text, h.at); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
     // was mid-thought), so reuse that transcript instead of re-running STT here —
     // the auto-send path was paying for a second transcription. Fall back to STT
     // only if for some reason we don't have the cached text.
-    if (cached) commit(cached);
+    if (cached.text) commit(cached);
     else void stt(p).then(commit).catch(() => this.h.onPartial("")); // stalled/failed STT → don't strand the caption
   }
   /** Public "send now": commit a held utterance without waiting for the hold timer. */
@@ -470,7 +539,7 @@ export class VoiceEngine {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
-    if ((this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
+    if ((this.tentative || this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
     if (this.muted) void this.vad.start(); // lift a mute for the hold (restored on release)
   }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
@@ -484,24 +553,26 @@ export class VoiceEngine {
     if (this.stopped) return;
     this.ptt = false;
     if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
-    const p = this.pending; const cached = this.pendingText;
+    const p = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt };
     this.pending = null;
     if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
     const perf0 = performance.now();
     try {
       // `pendingText` is always the transcript of exactly `pending`.
-      const text = (cached || (await stt(p))).trim();
+      const heard = cached.text ? cached : await stt(p);
+      const text = heard.text.trim();
       if (this.stopped) return;
       if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
       this.setPhase("thinking");
       this.spokenText = "";
+      this.voicing = null;
       this.replyFed = false;
       this.replyVoice = null;
       this.acceptingReply = true;
       this.replyOpen = true;
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
-      this.h.onUserText(text);
+      this.h.onUserText(text, heard.at);
     } catch { if (!this.stopped) { this.h.onPartial(""); this.setPhase("idle"); } }
   }
   pttActive() { return this.ptt; }
@@ -532,67 +603,99 @@ export class VoiceEngine {
     const ep = this.epoch;
     void this.ttsChain.then(() => { if (this.epoch === ep && this.phase === "speaking") this.waitDrainThenIdle(ep); if (this.epoch === ep && this.phase === "thinking") this.setPhase("idle"); });
   }
+  /** Once the voice goes quiet: idle after the reply, or thinking while it waits on
+   *  an ask, which surfaces show as waiting for the user. */
   private waitDrainThenIdle(ep: number) {
     const check = () => {
-      if (this.epoch !== ep || this.replyOpen) return;
+      if (this.epoch !== ep || (this.replyOpen && !this.h.holdBargeIn?.())) return;
       if (this.player.playing()) { setTimeout(check, 120); return; }
-      if (this.phase === "speaking") this.setPhase("idle");
+      if (this.phase === "speaking") this.setPhase(this.replyOpen ? "thinking" : "idle");
     };
     check();
   }
 
   private enqueueSpeak(sentence: string, epoch: number, v: ReplyVoice, outOfBand = false) {
+    if (this.stopped) return;
     this.ttsChain = this.ttsChain.then(async () => {
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
+      // The caption shows `spoken`, as the model wrote it; the voice says `said`.
       const spoken = stripMarkdown(sentence);
       if (!spoken) return;
+      const { said, from } = normalizeAligned(spoken, v.lang, v.lexicon);
       const abort = new AbortController();
       this.ttsAbort = abort;
+      // Each word's onset: paced by an estimate, then placed on each piece's
+      // audio once all of it is in (timing.ts).
+      const words = spokenWords(spoken, said, from);
+      const estimate = (i: number) => estimateSpeechMs(said.slice(i), v.family, v.speed, v.lang);
+      let at = paceWords(words, estimate(0)), shownAs = 0;
       // A streaming engine hands over the sentence in pieces; the chain still waits
       // for all of them, so sentences play in order while the next one synthesizes
       // under the current one's playback.
-      let samples = 0, rate = 24000, synthDone = false, first = true;
+      let samples = 0, rate = 24000, first = true, end = 0;
       try {
-        await ttsStream(toSpeech(spoken, v.lang), { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate) => {
-          if (this.epoch !== epoch) return;
-          samples += audio.length; rate = sampleRate;
-          // Over the user's sentence the phase stays listening, which is what keeps
-          // gathering their words; setPhase hands it over when the sentence ends.
-          if (this.phase !== "speaking" && this.phase !== "listening") {
-            this.speakingStartAt = Date.now(); this.setPhase("speaking");
-            if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
-          }
-          // Show the caption for THIS sentence when its first piece actually starts
-          // playing (not now, when it was synthesized: synth runs ahead of the voice),
-          // so the subtitle reads out only the words being spoken right now.
-          const onStart = first ? () => {
+        for (const piece of speechPieces(said, v.lang)) {
+          if (this.epoch !== epoch || abort.signal.aborted) break;
+          const start = said.indexOf(piece, end), heard: Float32Array[] = [], before = samples;
+          end = start + piece.length;
+          await ttsStream(piece, { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate) => {
             if (this.epoch !== epoch) return;
-            // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
-            // model's reply: keep them out of `spokenText` (barge-in cutoff) and out of
-            // onAgentText (which the client persists into the transcript), or they get
-            // saved as if the assistant said them and contaminate the cutoff.
-            if (outOfBand) return;
-            // Accumulate ONLY as each sentence actually begins playing, so on barge-in
-            // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
-            // tail is excluded from the saved history.
-            this.spokenText += (this.spokenText ? " " : "") + spoken;
-            // How long the sentence voices paces the caption reveal: exact once
-            // synthesis is done (always, for a one-piece engine), else estimated.
-            this.h.onAgentText(spoken, synthDone ? (samples / rate) * 1000 : estimateSpeechMs(spoken, v.family, v.speed, v.lang));
-          } : undefined;
-          first = false;
-          this.player.play(audio, epoch, sampleRate, onStart);
-        }, abort.signal);
+            samples += audio.length; rate = sampleRate;
+            heard.push(audio);
+            // Over the user's sentence the phase stays listening, which is what keeps
+            // gathering their words; setPhase hands it over when the sentence ends.
+            if (this.phase !== "speaking" && this.phase !== "listening") {
+              this.speakingStartAt = Date.now(); this.setPhase("speaking");
+              if (this.turnSentAt) { this.turnSentAt = 0; perf.firstAudio(); }
+            }
+            // Show the caption for THIS sentence when its first piece actually starts
+            // playing (not now, when it was synthesized: synth runs ahead of the voice),
+            // so the subtitle reads out only the words being spoken right now.
+            const onStart = first ? () => {
+              if (this.epoch !== epoch) return;
+              // Out-of-band lines (say(): errors, reminders) are VOICED but are not the
+              // model's reply: keep them out of `spokenText` (barge-in cutoff) and out of
+              // onAgentText (which the client persists into the transcript), or they get
+              // saved as if the assistant said them and contaminate the cutoff.
+              if (outOfBand) return;
+              // Accumulate ONLY as each sentence actually begins playing, so on barge-in
+              // `spokenText` is exactly what was voiced, and the unspoken (still-queued)
+              // tail is excluded from the saved history.
+              const onsets = captionOnsets(spoken, words, at);
+              this.voicing = { before: this.spokenText, text: spoken, at: onsets, t0: performance.now(), lag: 0 };
+              this.spokenText += (this.spokenText ? " " : "") + spoken;
+              shownAs = ++this.captionSeq;
+              this.h.onAgentText(spoken, onsets);
+            } : undefined;
+            first = false;
+            this.player.play(audio, epoch, sampleRate, onStart);
+          }, abort.signal);
+          if (this.epoch !== epoch || !heard.length) continue;
+          const i0 = words.filter((w) => w.start < start).length, i1 = words.filter((w) => w.start < end).length;
+          const pcm = new Float32Array(samples - before);
+          heard.reduce((o, a) => (pcm.set(a, o), o + a.length), 0);
+          at = [
+            ...at.slice(0, i0),
+            ...placeWords(words.slice(i0, i1), pcm, rate).map((t) => t + (before / rate) * 1000),
+            ...paceWords(words.slice(i1), estimate(end)).map((t) => t + (samples / rate) * 1000),
+          ];
+          if (shownAs && shownAs === this.captionSeq) {
+            const onsets = captionOnsets(spoken, words, at);
+            if (this.voicing) { this.voicing.at = onsets; this.h.onAgentTiming?.(this.shownAt(this.voicing)); }
+          }
+        }
         // No voice speaks the language: the words still reach the caption and transcript.
         if (first && !outOfBand && this.epoch === epoch && !abort.signal.aborted) {
+          this.voicing = null;
           this.spokenText += (this.spokenText ? " " : "") + spoken;
-          this.h.onAgentText(spoken, estimateSpeechMs(spoken, v.family, v.speed, v.lang));
+          this.h.onAgentText(spoken, captionOnsets(spoken, words, at));
         }
       } finally {
-        synthDone = true;
         if (this.ttsAbort === abort) this.ttsAbort = null;
       }
     }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
+    // An ask's question: once it is voiced, the reply waits on the user.
+    if (this.replyOpen && this.h.holdBargeIn?.()) void this.ttsChain.then(() => this.waitDrainThenIdle(epoch));
   }
 
   /** Speak a short out-of-band line (e.g. an agent failure) through the same
@@ -618,6 +721,45 @@ export class VoiceEngine {
     this.replyVoice = null;
     // The new epoch strands the drain that would have idled a speaking or thinking reply.
     if (this.phase !== "listening") this.setPhase("idle");
+    // A paused reply is now cut: the surface still shows the phase it paused in.
+    if (this.tentative) { this.tentative = null; this.h.onPhase(this.phase); }
+  }
+
+  private pauseReply() {
+    if (this.tentative) return;
+    this.tentative = this.phase;
+    this.pausedAt = performance.now();
+    this.player.hold();
+    if (this.voicing) this.h.onAgentTiming?.(this.shownAt(this.voicing)); // the caption waits with the voice
+  }
+
+  /** Nothing in the paused-over sound asked the agent to stop: go on from the
+   *  same sample, in the same phase, the segment dropped. A later segment still
+   *  being heard or transcribed decides instead. */
+  private resumeReply() {
+    if (this.hearing || this.deferred.length) return;
+    const shown = this.tentative!;
+    this.tentative = null;
+    this.phase = shown; // never reported as listening
+    if (this.voicing) { this.voicing.lag += performance.now() - this.pausedAt; this.h.onAgentTiming?.(this.shownAt(this.voicing)); }
+    this.player.release();
+    const playing = this.player.playing();
+    if (playing) this.speakingStartAt = Date.now(); // its first syllable back is echo, as at the reply's start
+    this.setPhase(playing ? "speaking" : this.replyOpen ? shown : "idle");
+    if (playing && !this.replyOpen) this.waitDrainThenIdle(this.epoch);
+  }
+
+  /** The segment ended without a verdict (a misfire, a mute, a new mic). */
+  private segmentLost() {
+    this.hearing = false;
+    if (this.tentative && !this.finalizing) this.resumeReply();
+  }
+
+  /** `v.at` as voiced: shifted by its pauses, and while paused, the words not yet
+   *  heard held off (Infinity) so the caption does not run on without the voice. */
+  private shownAt(v: NonNullable<VoiceEngine["voicing"]>): number[] {
+    const heard = this.tentative ? this.pausedAt - v.t0 - v.lag : Infinity;
+    return v.at.map((t) => (t <= heard ? t + v.lag : Infinity));
   }
 
   private bargeIn() {
@@ -625,12 +767,22 @@ export class VoiceEngine {
   }
 
   /** Silence the reply and drop the rest of it, returning what was actually
-   *  voiced. Barge-in and a Stop button are the same cut from two directions. */
+   *  voiced. Barge-in, a Stop button and hanging up are the same cut. */
   cutReply(): string | undefined {
+    const spoken = this.spokenSoFar();
     this.acceptingReply = false; // ignore the interrupted reply's remaining deltas until the next turn
     this.replyOpen = false;
     this.hush();
-    return this.replyFed ? this.spokenText.trim() : undefined;
+    return this.replyFed ? spoken : undefined;
+  }
+
+  /** The reply as voiced by now: whole sentences, then the words of the playing
+   *  one begun by now, as its caption reveals them. O(length of that sentence). */
+  private spokenSoFar(): string {
+    const v = this.voicing;
+    if (!v) return this.spokenText.trim();
+    const heard = heardText(v.text, this.shownAt(v), performance.now() - v.t0);
+    return (v.before ? `${v.before} ${heard}` : heard).trim();
   }
 
   // ── helpers / lifecycle ────────────────────────────────────────────────
@@ -647,7 +799,7 @@ export class VoiceEngine {
     // its reply's end, or its own, found the phase on listening and idled nothing.
     const handover = p === "idle" && this.phase === "listening" && this.player.playing();
     if (handover) p = "speaking";
-    if (p !== this.phase) { this.phase = p; this.h.onPhase(p); }
+    if (p !== this.phase) { this.phase = p; if (!this.tentative) this.h.onPhase(p); }
     if (handover && !this.replyOpen) this.waitDrainThenIdle(this.epoch);
   }
 
@@ -655,7 +807,7 @@ export class VoiceEngine {
   setMuted(muted: boolean) {
     this.muted = muted;
     if (!this.vad) return;
-    if (muted) { this.clearHold(); this.pending = null; this.streaming = false; this.ring.clear(); this.micRms = 0; void this.vad.pause(); if (this.phase === "listening") this.setPhase("idle"); }
+    if (muted) { this.clearHold(); this.pending = null; this.streaming = false; this.segmentLost(); this.ring.clear(); this.micRms = 0; void this.vad.pause(); if (this.phase === "listening") this.setPhase("idle"); }
     else void this.vad.start();
   }
 

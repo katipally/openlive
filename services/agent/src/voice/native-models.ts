@@ -1,11 +1,12 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
 import { DATA_DIR } from "@openlive/db";
 import { SAMPLE_RATE } from "./pcm.js";
+import type { Accel } from "./accel.js";
 
 // Native speech engines the user can pick in place of the in-browser models:
 // families of variants, each variant one prebuilt sherpa-onnx archive,
@@ -15,8 +16,9 @@ import { SAMPLE_RATE } from "./pcm.js";
 // model's card (the archive README where it has one).
 
 export type EngineKind = "asr" | "tts";
-/** How sherpa builds and runs a variant: sherpaConfig below, native-worker.ts. */
-export type ModelType = "online-transducer" | "nemo-transducer" | "moonshine" | "canary" | "pocket" | "kitten" | "kokoro" | "vits" | "matcha";
+/** How sherpa builds and runs a variant: sherpaConfig below, native-worker.ts.
+ *  "supertonic" runs on onnxruntime-node instead (onOrt). */
+export type ModelType = "online-transducer" | "nemo-transducer" | "moonshine" | "canary" | "pocket" | "kitten" | "kokoro" | "vits" | "matcha" | "supertonic";
 export type Quality = "fastest" | "fast" | "balanced" | "best";
 /** `lang` is ISO 639-1; `espeak` is the phonemizer voice a kokoro speaker reads with. */
 export interface EngineVoice { id: string; name: string; lang?: string; gender?: "female" | "male"; sid?: number; wav?: string; espeak?: string }
@@ -27,7 +29,7 @@ export interface NativeEngine {
   kind: EngineKind;
   type: ModelType;
   name: string;
-  url: string;
+  url: string; // a .tar.bz2 archive, or the base URL `files` are fetched from one by one
   vocoder?: string; // a second download that lands next to the archive's files
   sizeBytes: number; // download bytes (archive plus vocoder), the progress total
   quality: Quality;
@@ -39,7 +41,9 @@ export interface NativeEngine {
   voices?: EngineVoice[];
   legacyId?: string; // the engine id saved before variants existed
 }
-export interface EngineFamily { id: string; kind: EngineKind; name: string; variants: NativeEngine[] }
+/** `browser`: the in-browser engine this family runs on this computer, as the
+ *  same model and voices, rather than a choice of its own (models.ts ttsStream). */
+export interface EngineFamily { id: string; kind: EngineKind; name: string; variants: NativeEngine[]; browser?: string }
 
 const RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download";
 const asr = (name: string) => `${RELEASES}/asr-models/${name}.tar.bz2`;
@@ -49,8 +53,8 @@ const ESPEAK = "espeak-ng-data/phontab";
 const CHUNK_QUALITY: Record<number, Quality> = { 80: "fastest", 160: "fast", 320: "balanced", 560: "balanced", 1120: "best" };
 
 type VariantSpec = Omit<NativeEngine, "family" | "kind">;
-const family = (id: string, kind: EngineKind, name: string, variants: VariantSpec[]): EngineFamily =>
-  ({ id, kind, name, variants: variants.map((v) => ({ ...v, family: id, kind })) });
+const family = (id: string, kind: EngineKind, name: string, variants: VariantSpec[], browser?: string): EngineFamily =>
+  ({ id, kind, name, variants: variants.map((v) => ({ ...v, family: id, kind })), browser });
 
 // Transcription-ready and broad-coverage locales of nvidia/nemotron-3.5-asr-streaming-0.6b;
 // its adaptation-ready ones need fine-tuning first.
@@ -112,9 +116,15 @@ const KOKORO_V1_VOICES = kokoroVoices("af_alloy af_aoede af_bella af_heart af_je
   + "jf_alpha jf_gongitsune jf_nezumi jf_tebukuro jm_kumo pf_dora pm_alex pm_santa zf_xiaobei zf_xiaoni zf_xiaoxiao zf_xiaoyi "
   + "zm_yunjian zm_yunxi zm_yunxia zm_yunyang").filter((v) => v.lang !== "ja");
 
+// Every voice speaks every language: it is a style, the language a tag on the text.
+const SUPERTONIC_VOICES: EngineVoice[] = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
+  .map((id) => ({ id, name: id, gender: id[0] === "F" ? "female" : "male" }));
+
 // Piper voices, int8 builds (the fp32 archives are 3x the download for the
 // same voice); at most three speakers per language. Speakers of a
-// multi-speaker model are its speaker_id_map rows; licenses are the MODEL_CARD's.
+// multi-speaker model are its speaker_id_map rows. Licenses are the MODEL_CARD's
+// dataset license, the one a voice is judged by; the voice it was fine-tuned
+// from is named for information (checked 2026-09-25 against rhasspy/piper-voices).
 type PiperTier = "x_low" | "low" | "medium" | "high";
 const PIPER_QUALITY: Record<PiperTier, Quality> = { x_low: "fastest", low: "fast", medium: "balanced", high: "best" };
 interface PiperVoice {
@@ -127,30 +137,30 @@ interface PiperVoice {
   pinyin?: true; // phonemized from a lexicon, not espeak
 }
 const PIPER: PiperVoice[] = [
-  { voice: "en_US-lessac", gender: "female", license: "Blizzard 2013 Lessac license", tiers: { low: 21_070_568, medium: 20_969_179, high: 35_022_847 } },
-  { voice: "en_US-amy", gender: "female", license: "Mimic 3 voices license", tiers: { low: 21_099_246, medium: 21_028_122 } },
+  { voice: "en_US-lessac", gender: "female", license: "Blizzard 2013 Lessac research-only license", tiers: { low: 21_070_568, medium: 20_969_179, high: 35_022_847 } },
+  { voice: "en_US-amy", gender: "female", license: "unknown (MODEL_CARD: see Mimic 3 voices); fine-tuned from lessac", tiers: { low: 21_099_246, medium: 21_028_122 } },
   { voice: "en_US-ryan", gender: "male", license: "CC BY-NC-SA 4.0", tiers: { low: 21_212_659, medium: 21_083_446, high: 34_473_341 } },
-  { voice: "en_US-libritts_r", license: "CC BY 4.0", tiers: { medium: 23_398_348 }, speakers: [["3922"], ["8699"], ["4535"], ["6701"]] },
-  { voice: "es_ES-davefx", gender: "male", license: "CC0", tiers: { medium: 21_171_632 } },
-  { voice: "es_ES-sharvard", license: "CC BY 3.0", tiers: { medium: 23_477_120 }, speakers: [["M", "male"], ["F", "female"]] },
-  { voice: "es_AR-daniela", gender: "female", license: "CC BY-SA 4.0", tiers: { high: 35_069_782 } },
-  { voice: "fr_FR-siwis", gender: "female", license: "CC BY 4.0", tiers: { low: 13_317_962, medium: 20_914_888 } },
+  { voice: "en_US-libritts_r", license: "CC BY 4.0; fine-tuned from lessac", tiers: { medium: 23_398_348 }, speakers: [["3922"], ["8699"], ["4535"], ["6701"]] },
+  { voice: "es_ES-davefx", gender: "male", license: "CC0; fine-tuned from lessac", tiers: { medium: 21_171_632 } },
+  { voice: "es_ES-sharvard", license: "CC BY 3.0; fine-tuned from lessac", tiers: { medium: 23_477_120 }, speakers: [["M", "male"], ["F", "female"]] },
+  { voice: "es_AR-daniela", gender: "female", license: "CC BY-SA 4.0; fine-tuned from lessac", tiers: { high: 35_069_782 } },
+  { voice: "fr_FR-siwis", gender: "female", license: "CC BY 4.0; fine-tuned from lessac", tiers: { low: 13_317_962, medium: 20_914_888 } },
   { voice: "fr_FR-tom", gender: "male", license: "AGPLv3", tiers: { medium: 21_019_617 } },
-  { voice: "fr_FR-upmc", license: "CC BY-SA 4.0", tiers: { medium: 22_588_190 }, speakers: [["jessica", "female"], ["pierre", "male"]] },
-  { voice: "de_DE-thorsten", gender: "male", license: "CC0", tiers: { low: 21_292_232, medium: 20_949_833, high: 35_066_527 } },
-  { voice: "de_DE-kerstin", gender: "female", license: "CC0", tiers: { low: 21_174_728 } },
-  { voice: "de_DE-ramona", gender: "female", license: "M-AILABS license", tiers: { low: 21_199_380 } },
-  { voice: "it_IT-paola", gender: "female", license: "see huggingface.co/datasets/paolapersico1/Voice-Dataset-Italian", tiers: { medium: 21_143_212 } },
-  { voice: "it_IT-riccardo", gender: "male", license: "M-AILABS license", tiers: { x_low: 13_329_285 } },
-  { voice: "pt_BR-faber", license: "CC0", tiers: { medium: 21_336_772 } },
-  { voice: "pt_BR-cadu", license: "CC0", tiers: { medium: 21_135_464 } },
-  { voice: "pt_PT-tugao", license: "CC0", tiers: { medium: 21_253_211 } },
+  { voice: "fr_FR-upmc", license: "CC BY-SA 4.0; fine-tuned from lessac", tiers: { medium: 22_588_190 }, speakers: [["jessica", "female"], ["pierre", "male"]] },
+  { voice: "de_DE-thorsten", gender: "male", license: "CC0; fine-tuned from lessac", tiers: { low: 21_292_232, medium: 20_949_833, high: 35_066_527 } },
+  { voice: "de_DE-kerstin", gender: "female", license: "CC0; fine-tuned from ryan", tiers: { low: 21_174_728 } },
+  { voice: "de_DE-ramona", gender: "female", license: "BSD-3-Clause style (M-AILABS)", tiers: { low: 21_199_380 } },
+  { voice: "it_IT-paola", gender: "female", license: "unknown (see huggingface.co/datasets/paolapersico1/Voice-Dataset-Italian); fine-tuned from lessac", tiers: { medium: 21_143_212 } },
+  { voice: "it_IT-riccardo", gender: "male", license: "BSD-3-Clause style (M-AILABS)", tiers: { x_low: 13_329_285 } },
+  { voice: "pt_BR-faber", license: "CC0; fine-tuned from lessac", tiers: { medium: 21_336_772 } },
+  { voice: "pt_BR-cadu", license: "CC0; fine-tuned from lessac", tiers: { medium: 21_135_464 } },
+  { voice: "pt_PT-tugao", license: "CC0; fine-tuned from lessac", tiers: { medium: 21_253_211 } },
   { voice: "hi_IN-pratham", gender: "male", license: "CC BY-NC-SA 4.0", tiers: { medium: 20_987_965 } },
   { voice: "hi_IN-priyamvada", gender: "female", license: "CC BY-NC-SA 4.0", tiers: { medium: 21_097_319 } },
-  { voice: "hi_IN-rohan", gender: "male", license: "IITM IndicTTS license", tiers: { medium: 21_064_499 } },
-  { voice: "zh_CN-chaowen", license: "CC0", tiers: { medium: 14_011_298 }, pinyin: true },
+  { voice: "hi_IN-rohan", gender: "male", license: "IITM IndicTTS license; fine-tuned from lessac", tiers: { medium: 21_064_499 } },
+  { voice: "zh_CN-chaowen", license: "CC0; fine-tuned from xiao_ya", tiers: { medium: 14_011_298 }, pinyin: true },
   { voice: "zh_CN-xiao_ya", gender: "female", license: "non-commercial (Data Baker BZNSYP)", tiers: { medium: 14_016_124 }, pinyin: true },
-  { voice: "zh_CN-huayan", gender: "female", license: "unknown (MODEL_CARD)", tiers: { medium: 67_255_926 }, fp32: true },
+  { voice: "zh_CN-huayan", gender: "female", license: "unknown (MODEL_CARD); fine-tuned from lessac", tiers: { medium: 67_255_926 }, fp32: true },
 ];
 const cap = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 const piperVariants = (p: PiperVoice): VariantSpec[] => Object.entries(p.tiers).map(([tier, sizeBytes]) => {
@@ -249,6 +259,18 @@ export const NATIVE_FAMILIES: EngineFamily[] = [
       files: ["model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", ESPEAK], voices: KOKORO_V1_VOICES,
     },
   ]),
+  // The browser's Supertonic (apps/web/src/lib/live/supertonic.ts) from the same
+  // Hugging Face repo, pinned to the revision tools/voice-regress checks.
+  // Sizes verified 2026-09-25 against the repo tree at that revision.
+  family("supertonic", "tts", "Supertonic", [
+    {
+      id: "supertonic-3", type: "supertonic", name: "Supertonic 3", url: "https://huggingface.co/Supertone/supertonic-3/resolve/3cadd1ee6394adea1bd021217a0e650ede09a323",
+      sizeBytes: 401_276_744, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "ja", "ko"], license: "OpenRAIL-M",
+      files: [...["duration_predictor.onnx", "text_encoder.onnx", "vector_estimator.onnx", "vocoder.onnx", "tts.json", "unicode_indexer.json"].map((f) => `onnx/${f}`),
+        ...SUPERTONIC_VOICES.map((v) => `voice_styles/${v.id}.json`)],
+      voices: SUPERTONIC_VOICES,
+    },
+  ], "supertonic"),
   family("matcha", "tts", "Matcha", [
     {
       id: "matcha-en-ljspeech", type: "matcha", name: "Matcha LJSpeech", url: tts("matcha-icefall-en_US-ljspeech"),
@@ -290,6 +312,9 @@ for (const e of NATIVE_ENGINES) {
   }
 }
 
+/** Runs on onnxruntime-node rather than sherpa-onnx (device.ts probes each runtime's providers). */
+export const onOrt = (e: NativeEngine) => e.type === "supertonic";
+
 export const engineInstalled = (e: NativeEngine) => e.files.every((f) => existsSync(join(engineDir(e.id), f)));
 
 /** O(files under the dir). */
@@ -308,8 +333,8 @@ export function engineDiskBytes(id: string): number {
 
 /** The sherpa-onnx-node config for a variant, as native-worker.ts creates it.
  *  File roles come from the variant's file list, so a build with other file
- *  names (fp16, int8) needs no code. */
-export function sherpaConfig(e: NativeEngine): object {
+ *  names (fp16, int8) needs no code. `accel` is where it runs (accel.ts). */
+export function sherpaConfig(e: NativeEngine, { provider, numThreads }: Accel): object {
   const dir = engineDir(e.id);
   const f = (re: RegExp) => { const name = e.files.find((x) => re.test(x)); return name ? join(dir, name) : ""; };
   const all = (re: RegExp) => e.files.filter((x) => re.test(x)).map((x) => join(dir, x)).join(",");
@@ -317,40 +342,41 @@ export function sherpaConfig(e: NativeEngine): object {
   const dataDir = e.files.includes(ESPEAK) ? join(dir, "espeak-ng-data") : "";
   const transducer = { encoder: f(/^encoder/), decoder: f(/^decoder/), joiner: f(/^joiner/) };
   const featConfig = { sampleRate: SAMPLE_RATE, featureDim: 80 };
-  const numThreads = 2;
   switch (e.type) {
     case "online-transducer": return {
       featConfig: { sampleRate: SAMPLE_RATE, featureDim: 128 },
-      modelConfig: { transducer, tokens, numThreads },
+      modelConfig: { transducer, tokens, numThreads, provider },
       // Endpoints only bound how much audio one stream holds: the text is
       // committed and the stream reset, and "end" still decides the final.
       enableEndpoint: true, rule1MinTrailingSilence: 2.4, rule2MinTrailingSilence: 1.2, rule3MinUtteranceLength: 20,
     };
-    case "nemo-transducer": return { featConfig, modelConfig: { transducer, tokens, modelType: "nemo_transducer", numThreads } };
-    case "moonshine": return { featConfig, modelConfig: { moonshine: { encoder: f(/^encoder_model/), mergedDecoder: f(/^decoder_model_merged/) }, tokens, numThreads } };
+    case "nemo-transducer": return { featConfig, modelConfig: { transducer, tokens, modelType: "nemo_transducer", numThreads, provider } };
+    case "moonshine": return { featConfig, modelConfig: { moonshine: { encoder: f(/^encoder_model/), mergedDecoder: f(/^decoder_model_merged/) }, tokens, numThreads, provider } };
     // The worker switches srcLang/tgtLang per request (setConfig), as the upstream nodejs example does.
-    case "canary": return { featConfig, modelConfig: { canary: { encoder: f(/^encoder/), decoder: f(/^decoder/), srcLang: "en", tgtLang: "en", usePnc: 1 }, tokens, numThreads } };
+    case "canary": return { featConfig, modelConfig: { canary: { encoder: f(/^encoder/), decoder: f(/^decoder/), srcLang: "en", tgtLang: "en", usePnc: 1 }, tokens, numThreads, provider } };
     case "pocket": return {
       model: {
         pocket: {
           lmFlow: f(/^lm_flow/), lmMain: f(/^lm_main/), encoder: f(/^encoder/), decoder: f(/^decoder/), textConditioner: f(/^text_conditioner/),
           vocabJson: f(/^vocab\.json$/), tokenScoresJson: f(/^token_scores\.json$/), voiceEmbeddingCacheCapacity: 8,
         },
-        numThreads,
+        numThreads, provider,
       },
       maxNumSentences: 1,
     };
-    case "kitten": return { model: { kitten: { model: f(/^model/), voices: f(/^voices/), tokens, dataDir }, numThreads }, maxNumSentences: 1 };
-    case "kokoro": return { model: { kokoro: { model: f(/^model/), voices: f(/^voices/), tokens, dataDir, lexicon: all(/^lexicon-/) }, numThreads }, maxNumSentences: 1 };
-    case "vits": return { model: { vits: { model: f(/\.onnx$/), tokens, dataDir, lexicon: f(/^lexicon\.txt$/) }, numThreads }, ruleFsts: all(/\.fst$/), maxNumSentences: 1 };
-    case "matcha": return { model: { matcha: { acousticModel: f(/^model/), vocoder: f(/^vocos/), tokens, dataDir }, numThreads }, maxNumSentences: 1 };
+    case "kitten": return { model: { kitten: { model: f(/^model/), voices: f(/^voices/), tokens, dataDir }, numThreads, provider }, maxNumSentences: 1 };
+    case "kokoro": return { model: { kokoro: { model: f(/^model/), voices: f(/^voices/), tokens, dataDir, lexicon: all(/^lexicon-/) }, numThreads, provider }, maxNumSentences: 1 };
+    case "vits": return { model: { vits: { model: f(/\.onnx$/), tokens, dataDir, lexicon: f(/^lexicon\.txt$/) }, numThreads, provider }, ruleFsts: all(/\.fst$/), maxNumSentences: 1 };
+    case "matcha": return { model: { matcha: { acousticModel: f(/^model/), vocoder: f(/^vocos/), tokens, dataDir }, numThreads, provider }, maxNumSentences: 1 };
+    // Not sherpa's: native-worker.ts loads it on onnxruntime-node.
+    case "supertonic": return { dir, numThreads, provider };
   }
 }
 
-/** Stream the archive (and a vocoder, if any) into <id>.part and rename it
- *  into place only once every expected file is there, so a failed, aborted,
- *  or killed download never leaves a half-installed engine (a stale .part is
- *  wiped by the next try). */
+/** Stream the archive (and a vocoder, if any), or each file of a variant that
+ *  has no archive, into <id>.part and rename it into place only once every
+ *  expected file is there, so a failed, aborted, or killed download never
+ *  leaves a half-installed engine (a stale .part is wiped by the next try). */
 export async function downloadEngine(e: NativeEngine, onBytes: (n: number) => void, signal: AbortSignal): Promise<void> {
   const dir = engineDir(e.id);
   const part = `${dir}.part`;
@@ -364,7 +390,12 @@ export async function downloadEngine(e: NativeEngine, onBytes: (n: number) => vo
   };
   try {
     // Some archives list their entries as "./<dir>/<file>", which strip: 1 alone would leave one level deep.
-    await pipeline(await get(e.url), unbzip2(), extract({ cwd: part, strip: 1, onReadEntry: (entry) => { entry.path = entry.path.replace(/^\.\//, ""); } }), { signal });
+    if (!e.url.endsWith(".tar.bz2")) {
+      for (const f of e.files) {
+        mkdirSync(dirname(join(part, f)), { recursive: true });
+        await pipeline(await get(`${e.url}/${f}`), createWriteStream(join(part, f)), { signal });
+      }
+    } else await pipeline(await get(e.url), unbzip2(), extract({ cwd: part, strip: 1, onReadEntry: (entry) => { entry.path = entry.path.replace(/^\.\//, ""); } }), { signal });
     if (e.vocoder) await pipeline(await get(e.vocoder), createWriteStream(join(part, e.vocoder.split("/").pop()!)), { signal });
     const missing = e.files.filter((f) => !existsSync(join(part, f)));
     if (missing.length) throw new Error(`archive is missing ${missing.join(", ")}`);

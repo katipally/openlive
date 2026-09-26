@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Loader2, Mic, Pencil, Play, RotateCcw, Square, Trash2, Upload, Volume2 } from "lucide-react";
 import { stt, modelsReady, loadModels } from "@/lib/live/models";
-import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, chooseVariant, LANGUAGE_DEFAULTS } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, chooseVariant, familyInfo, LANGUAGE_DEFAULTS } from "@/lib/live/pipelineConfig";
+import { AllowRestricted } from "./PipelineSettings";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
@@ -16,7 +17,8 @@ import { AudioBar } from "./AudioBar";
 // Your voices, the cloning half of the Voice tab. Clone a voice from a short recording
 // and manage the results: record → listen back → transcript → save, then
 // preview with any text, rename, export/import, set as the speaking voice.
-// Synthesis runs in the local agent service (ZipVoice, Apache-2.0, sherpa-onnx);
+// Synthesis runs in the local agent service (ZipVoice via sherpa-onnx; its weights
+// are restricted, so all of this waits for the user's OK, pipelineConfig.ts `restricted`);
 // nothing recorded or spoken ever leaves the machine.
 
 export interface VoiceProfile { id: string; name: string; transcript: string; createdAt: string; seconds?: number }
@@ -67,11 +69,18 @@ export function VoicesSettings() {
   const pending = usePendingDeletes((s) => s.keys);
   const profiles = allProfiles.filter((p) => !pending.has(`voice:${p.id}`));
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["voice-model"] }); void qc.invalidateQueries({ queryKey: ["voice-profiles"] }); };
+  const [cfg, setCfg] = useState(loadPipelineConfig);
+  useEffect(() => onPipelineConfig(setCfg), []);
+  const desc = <>A one-time, deletable download: ZipVoice (code Apache-2.0, weights unlicensed) running <span className="text-foreground">entirely on this machine</span>. English and Chinese. Only clone your own voice, or one you have clear permission to use.</>;
 
+  if (!cfg.allowRestricted) return (
+    <Section title="Cloning engine" desc={desc}>
+      <AllowRestricted family={familyInfo("tts", "clone")!} onAllow={() => setCfg(savePipelineConfig({ ...cfg, allowRestricted: true }))} />
+    </Section>
+  );
   return (
     <div className="flex flex-col gap-7">
-      <Section title="Cloning engine"
-        desc={<>A one-time, deletable download — ZipVoice (Apache-2.0) running <span className="text-foreground">entirely on this machine</span>. English and Chinese. Only clone your own voice, or one you have clear permission to use.</>}>
+      <Section title="Cloning engine" desc={desc}>
         <ModelCard model={model} failed={modelError} onRetry={() => void retryModel()} onChange={refresh} />
       </Section>
 
@@ -215,7 +224,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
         const ratio = sampleRate / 16000; // Whisper expects 16 kHz — cheap linear resample
         const out = new Float32Array(Math.floor(capped.length / ratio));
         for (let i = 0; i < out.length; i++) out[i] = capped[Math.floor(i * ratio)]!;
-        const text = await stt(out);
+        const { text } = await stt(out);
         if (text.trim()) setTranscript(text.trim());
       } catch (e) { log.error("voice", "reference transcribe:", e); }
       finally { setBusy(null); }

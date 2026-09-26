@@ -9,9 +9,11 @@ import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
 import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
-import { NATIVE_FAMILIES, nativeEngine, engineInstalled, engineDiskBytes, engineDir, downloadEngine, langCode, speakable, type EngineVoice, type NativeEngine } from "./native-models.js";
+import { NATIVE_ENGINES, NATIVE_FAMILIES, nativeEngine, onOrt, engineInstalled, engineDiskBytes, engineDir, downloadEngine, langCode, speakable, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
-import { speak, transcribe, unloadNative } from "./native.js";
+import { benchState, rebench, speak, transcribe, unloadNative } from "./native.js";
+import { accelStatus, currentDevice, providersFor, setOverride, type Override } from "./accel.js";
+import { ortProbe, threadsFor, tier } from "./device.js";
 import { log } from "../log.js";
 
 // Voice Studio REST surface, mounted at /voice (behind the same shared-secret
@@ -188,16 +190,18 @@ const STT_MAX_BYTES = 60 * SAMPLE_RATE * 4; // 60 s of mono Float32
 const TTS_MAX_CHARS = 5_000;
 const engineDownloads = new Map<string, AbortController>();
 const notInstalled = (name: string) => ({ error: "engine-not-installed", message: `${name} is not downloaded yet` });
+/** onnxruntime-node ships no binary for some platforms (Intel Macs as of 1.30.0). */
+const runnable = (e: NativeEngine) => !onOrt(e) || !!ortProbe();
 /** An engine asked for a language it does not speak refuses rather than
  *  transcribing or reading it wrong. */
 const unsupported = (e: NativeEngine, lang: string) => ({ error: "language-not-supported", message: `${e.name} does not support "${lang}"` });
 
 // O(variants + files on disk under the installed ones).
 voiceRoutes.get("/engines", (c) => c.json(NATIVE_FAMILIES.map((f) => ({
-  family: f.id, kind: f.kind, name: f.name,
+  family: f.id, kind: f.kind, name: f.name, browser: f.browser,
   variants: f.variants.map((e) => ({
     id: e.id, legacyId: e.legacyId, name: e.name, sizeBytes: e.sizeBytes, quality: e.quality, languages: e.languages,
-    streaming: !!e.streaming, latencyMs: e.latencyMs, license: e.license,
+    streaming: !!e.streaming, latencyMs: e.latencyMs, license: e.license, runnable: runnable(e),
     installed: engineInstalled(e), downloading: engineDownloads.has(e.id), bytes: engineDiskBytes(e.id),
     voices: e.voices?.map(({ id, name, lang, gender }) => ({ id, name, lang, gender })),
   })),
@@ -210,6 +214,7 @@ voiceRoutes.post("/engines/:id/download", (c) => {
   if (!e) return c.json({ error: "unknown engine" }, 400);
   if (engineDownloads.has(e.id)) return c.json({ error: "already downloading" }, 409);
   if (engineInstalled(e)) return c.json({ error: "already installed" }, 409);
+  if (!runnable(e)) return c.json({ error: `${e.name} cannot run on this computer` }, 409);
   const abort = new AbortController();
   engineDownloads.set(e.id, abort);
 
@@ -246,6 +251,41 @@ voiceRoutes.delete("/engines/:id", (c) => {
   return c.json({ ok: true });
 });
 
+// Where native speech runs on this device (accel.ts): the device profile, and
+// per installed engine its provider, threads, the user's override and the
+// benchmark behind the choice. O(installed engines x their files).
+voiceRoutes.get("/perf", (c) => {
+  const d = currentDevice();
+  const { running, queued } = benchState();
+  return c.json({
+    device: { ...d, tier: tier(d), numThreads: threadsFor(d) },
+    engines: Object.fromEntries(NATIVE_ENGINES.filter(engineInstalled).map((e) => {
+      const s = accelStatus(e);
+      const bench = running === e.id ? "running" : queued.includes(e.id) ? "queued" : s.providers.length < 2 ? "cpu-only" : s.measuredAt ? "done" : "pending";
+      return [e.id, { ...s, bench }];
+    })),
+  });
+});
+
+// Body: { override: "auto" | a provider this device has }. The next load uses it.
+voiceRoutes.put("/perf/engines/:id", async (c) => {
+  const e = nativeEngine(c.req.param("id"));
+  if (!e) return c.json({ error: "unknown engine" }, 400);
+  const { override } = await c.req.json().catch(() => ({})) as { override?: string };
+  if (override !== "auto" && !providersFor(e, currentDevice()).some((p) => p === override)) return c.json({ error: "unsupported provider" }, 400);
+  setOverride(e, override as Override);
+  unloadNative(e);
+  return c.json(accelStatus(e));
+});
+
+voiceRoutes.post("/perf/engines/:id/bench", (c) => {
+  const e = nativeEngine(c.req.param("id"));
+  if (!e) return c.json({ error: "unknown engine" }, 400);
+  if (!engineInstalled(e)) return c.json(notInstalled(e.name), 409);
+  rebench(e);
+  return c.json({ ok: true });
+});
+
 // Body: raw little-endian Float32 PCM, 16 kHz mono.
 voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.json({ error: "audio is longer than 60 s" }, 413) }), async (c) => {
   const e = nativeEngine(c.req.query("engine"));
@@ -257,7 +297,7 @@ voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.j
   if (!samples) return c.json({ error: "body must be raw Float32 PCM" }, 400);
   if (!samples.length) return c.json({ text: "" });
   try {
-    return c.json({ text: await transcribe(e, samples, c.req.raw.signal, lang) });
+    return c.json(await transcribe(e, samples, c.req.raw.signal, lang));
   } catch (err) {
     log.error("voice", "stt:", err);
     return c.json({ error: String((err as Error)?.message ?? err) }, 500);
@@ -278,10 +318,12 @@ async function nativeTts(body: { engine?: string; text?: string; voice?: string;
   if (lang && !e.languages.includes(lang)) return Response.json(unsupported(e, lang), { status: 400 });
   const named = e.voices?.find((v) => v.id === body.voice);
   if (body.voice !== undefined && !named) return Response.json({ error: "unknown voice" }, { status: 400 });
-  const speaks = (v: EngineVoice) => !lang || v.lang === lang;
+  // A voice without a language (a Supertonic style) speaks every one of the engine's.
+  const speaks = (v: EngineVoice) => !lang || !v.lang || v.lang === lang;
   const voice = named && speaks(named) ? named : e.voices?.find(speaks);
   if (!voice) return Response.json({ error: "unknown voice" }, { status: 400 });
   if (!engineInstalled(e)) return Response.json(notInstalled(e.name), { status: 409 });
+  if (!runnable(e)) return Response.json({ error: "engine-not-runnable", message: `${e.name} cannot run on this computer` }, { status: 409 });
   const speed = Math.min(2, Math.max(0.5, Number(body.speed) || 1));
   // Nothing left to say (a lone emoji): silence, not an error the client would
   // count against the engine.
@@ -289,7 +331,7 @@ async function nativeTts(body: { engine?: string; text?: string; voice?: string;
 
   let out!: ReadableStreamDefaultController<Uint8Array>;
   const audio = new ReadableStream<Uint8Array>({ start: (ctrl) => { out = ctrl; }, cancel: () => job.cancel() });
-  const job = speak(e, text, voice, speed, (s) => { try { out.enqueue(pcmBytes(s)); } catch { /* client gone */ } });
+  const job = speak(e, text, voice, speed, (s) => { try { out.enqueue(pcmBytes(s)); } catch { /* client gone */ } }, lang ?? undefined);
   if (signal.aborted) job.cancel();
   else signal.addEventListener("abort", job.cancel, { once: true });
   job.done.then(() => { try { out.close(); } catch { /* closed */ } }, (err) => {

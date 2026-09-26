@@ -9,7 +9,7 @@ describe("liveStore slice stability", () => {
     const pick = (s: typeof before) => ({ muted: s.muted, cameraOn: s.cameraOn, mics: s.mics, phase: s.phase });
     const a = pick(before);
 
-    useLiveStore.getState().set({ agentCaption: "streaming words", agentCaptionMs: 1200 });
+    useLiveStore.getState().set({ agentCaption: "streaming words", agentCaptionAt: [0, 600], agentCaptionStart: 1 });
     useLiveStore.getState().set({ toolStatus: "web_search" });
 
     const b = pick(useLiveStore.getState());

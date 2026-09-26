@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
 import { loadPipelineConfig, isNativeVariant, browserModels } from "@/lib/live/pipelineConfig";
+import { missingEngines, engineName } from "@/lib/live/engineMenu";
+import { useNativeEngines, variantStatus, downloadEngine, NoticeDownload } from "@/components/settings/PipelineSettings";
 import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
@@ -48,8 +50,17 @@ export function Lobby(props: LobbyProps) {
   // Only the in-browser models slow down without WebGPU; native engines and a
   // cloned voice run on the agent's CPU either way.
   const voice = loadPipelineConfig();
-  const downloads = browserModels(voice);
+  // A selected native engine the agent has not downloaded: the call runs on
+  // its stand-in, so it joins the download offer rather than gating Start.
+  const qc = useQueryClient();
+  const { data: engines } = useNativeEngines();
+  const missing = missingEngines(voice, engines);
+  const downloads = [...browserModels(voice), ...missing.map((m) => engineName(m.id, engines))];
   const plural = downloads.length > 1;
+  const downloadAll = () => {
+    onDownload();
+    for (const m of missing) { const e = variantStatus(engines, m.id); if (e && !e.downloading) void downloadEngine(e, qc); }
+  };
   const cpu = typeof navigator !== "undefined" && !hasWebGPU()
     && (!isNativeVariant(voice.stt.variant) || voice.tts.family === "kokoro" || voice.tts.family === "supertonic");
   // A project folder is REQUIRED only for a coding agent (its file-access scope + where
@@ -116,7 +127,7 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={onDownload} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
+      <button onClick={downloadAll} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
         {plural ? "Download AI models" : "Download AI model"}
       </button>
       <p className="max-w-[17rem] text-caption text-faint">A one-time download of {downloads.length} small AI {plural ? "models" : "model"} ({downloads.join(", ")}) that {plural ? "run" : "runs"} fully on your device. Nothing is sent to a server.</p>
@@ -151,6 +162,14 @@ export function Lobby(props: LobbyProps) {
       {micGap && <p className="text-caption text-arc-text">No microphone detected — connect one so the call can hear you.</p>}
     </div>
   );
+  const missingRows = missing.map((m) => (
+    <div key={m.id} className="flex max-w-[22rem] flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-label text-arc-text">
+      <span className="min-w-0 break-words">
+        {engineName(m.id, engines)} isn&apos;t downloaded, so {m.standIn ? `calls use ${m.standIn} for now.` : "replies go unspoken in this language for now."}
+      </span>
+      <NoticeDownload id={m.id} />
+    </div>
+  ));
 
   return (
     <div ref={root} className="@container/lobby fixed inset-0 z-[var(--z-stage)] bg-background">
@@ -191,6 +210,7 @@ export function Lobby(props: LobbyProps) {
           </div>
 
           {cta}
+          {missingRows}
           {error && <p className="max-w-sm text-label text-danger">{error}</p>}
         </div>
       </main>

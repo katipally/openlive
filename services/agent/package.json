@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench:voice": "tsx src/voice/bench.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.2.1",
@@ -17,6 +18,7 @@
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
     "hono": "^4.12.27",
+    "onnxruntime-node": "1.30.0",
     "sherpa-onnx-node": "^1.13.8",
     "tar": "^7.5.20",
     "unbzip2-stream": "^1.4.3",

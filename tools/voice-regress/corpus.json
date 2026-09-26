@@ -1,0 +1,16 @@
+[
+"Sure. The quickest way to fix that is to clear the cache and restart the dev server. If it still fails, check that your node version matches the one in the lockfile. Let me know what you see.",
+"Great question, so the short answer is yes, but it depends on how you measure it. Most studies only look at the first year. After that, the effect gets much smaller, and some people see no change at all. I'd treat it as a nice bonus rather than the main reason to do it.",
+"Here are three things to try:\n\n1. Restart the router and wait a full minute.\n2. Move closer to it, or take away anything metal in between.\n3. Update the firmware from the admin page.\n\nIf none of those help, it's probably your provider.",
+"Okay! I found two meetings tomorrow. The first is the design review at ten, with Priya and Marcus. The second is a one on one with your manager at three thirty. Want me to move either of them?",
+"Hmm, that's a tricky one. Honestly, I think the second option is better, because it keeps the data in one place and it's easier to test. The first one is faster to build, sure. But you'd pay for it later, every time the schema changes.",
+"The main reason the build is slow is that every package compiles its own copy of the shared types, which means the same work happens six times on every change. Switching to project references lets TypeScript reuse that output. In my experience it cuts the time by more than half.",
+"Yes. Done. I moved the call to Friday at two and let everyone know. Anything else?",
+"No problem! **Step one** is to open the settings page. Then pick the `Voice` tab, choose a model, and press download. It takes about a minute on a normal connection, and after that it works offline.",
+"Yeah, so basically what happens is the phone keeps the old address around for a while. When you switch networks, it tries that one first and waits for it to time out. Turning wifi off and on again clears it right away.",
+"Absolutely, and the easiest way to do that is with a shared calendar. Everyone adds their own busy times. Then you just look for the gaps.",
+"Good catch, that line is actually wrong, the loop should stop one step earlier. Otherwise it reads past the end of the list. Changing the less than or equal to a plain less than fixes it.",
+"So, the weather tomorrow looks mostly sunny with a high of seventy two. There's a small chance of rain in the evening, around twenty percent. I'd still bring a light jacket.",
+"Right. First, open the terminal. Then run the install command again, but this time with the verbose flag, so we can see where it stops. Paste me the last few lines.",
+"Honestly, I'm not sure that's the best plan, because the deadline is so close. What if we ship the smaller version first and add the rest next week?"
+]

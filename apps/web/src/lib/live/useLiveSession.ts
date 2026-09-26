@@ -15,6 +15,7 @@ import { kindMeta } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
 import { useLiveStore } from "./liveStore";
+import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
 
@@ -158,6 +159,8 @@ export function useLiveSession(chatId: string) {
   const segText = useRef("");
   const curChunk = useRef<string | null>(null);
   const revealRaf = useRef<number | null>(null);
+  const revealAt = useRef<number[]>([]); // the revealing chunk's word onsets (ms), retimed as its audio comes in
+  const revealStart = useRef(0); // when the revealing chunk began to voice (performance.now())
   const stopReveal = () => { if (revealRaf.current != null) { cancelAnimationFrame(revealRaf.current); revealRaf.current = null; } };
   const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; };
   // A tool/reasoning part "closes" the current spoken text segment. Snap the chunk
@@ -224,6 +227,10 @@ export function useLiveSession(chatId: string) {
     if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
     window.removeEventListener("pagehide", onPageHide.current);
     if (activeLiveClient === client.current) activeLiveClient = null;
+    // Hanging up mid-reply is a barge-in the server must hear before the close, or it
+    // saves the whole generated reply instead of what was voiced.
+    const phase = engine.current?.currentPhase();
+    if (phase === "speaking" || phase === "thinking") client.current?.cancel(engine.current!.cutReply());
     try { client.current?.close(); } catch { /* */ }
     try { engine.current?.stop(); } catch { /* */ }              // destroys VAD + closes audio
     try { player.current?.close(); } catch { /* */ }             // free the audio ctx (also if start() failed before the engine)
@@ -494,15 +501,18 @@ export function useLiveSession(chatId: string) {
         // sees themselves (or "Listening…") the moment they start talking.
         onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
         onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
-        onUserText: (text) => void handleUserText(text),
+        onUserText: (text, wordsAt) => void handleUserText(text, wordsAt),
         // Mid-thought hold → "waiting for you… tap to send" affordance (null clears it).
         onHold: (h) => set({ holdUntil: h?.until ?? null }),
         // A chunk just STARTED voicing. Drive TWO things from it: the composer
         // subtitle (rolling 3-4 word window — VoiceBar reads agentCaption) AND the
         // chat transcript, which types this chunk word-by-word in lockstep with the
         // audio so the panel shows exactly what's been said (honest on barge-in).
-        onAgentText: (sentence, durationMs) => {
-          set({ agentCaption: sentence, agentCaptionMs: durationMs });
+        onAgentText: (sentence, wordsAt) => {
+          const startedAt = performance.now();
+          set({ agentCaption: sentence, agentCaptionAt: wordsAt, agentCaptionStart: startedAt });
+          revealAt.current = wordsAt;
+          revealStart.current = startedAt;
           const id = assistantId.current;
           // The previous chunk's audio has finished (this one is now playing) — commit
           // it into the current segment.
@@ -510,30 +520,29 @@ export function useLiveSession(chatId: string) {
           curChunk.current = sentence;
           stopReveal();
           if (!id) return;
-          const words = sentence.split(/\s+/).filter(Boolean);
+          const words = captionWords(sentence);
           const base = segText.current;
           // Hidden or minimised window: rAF is frozen — write the whole chunk
           // at once instead of animating it.
           if (document.hidden) { chatStore.liveText(chatId, id, base ? `${base} ${sentence}` : sentence); return; }
-          const dur = durationMs > 0 ? durationMs : words.length * 320;
-          const startedAt = performance.now();
           let lastIdx = 0; // only write to the store when a NEW word is revealed —
           // the rAF still paces the reveal, but the transcript re-renders at word
           // rate (~3-6/s) instead of 60fps for the whole time the agent speaks.
           const step = () => {
             if (id !== assistantId.current) return; // turn moved on
-            const frac = Math.min(1, (performance.now() - startedAt) / dur);
-            const idx = Math.max(1, Math.min(words.length, Math.ceil(frac * words.length)));
+            const idx = Math.min(words.length, wordsHeard(revealAt.current, performance.now() - startedAt));
             if (idx !== lastIdx) {
               lastIdx = idx;
-              const revealed = words.slice(0, idx).join(" ");
+              const revealed = sentence.slice(0, words[idx - 1]![1]);
               chatStore.liveText(chatId, id, base ? `${base} ${revealed}` : revealed);
             }
-            if (frac < 1) revealRaf.current = requestAnimationFrame(step);
+            if (idx < words.length) revealRaf.current = requestAnimationFrame(step);
             else revealRaf.current = null;
           };
           step();
         },
+        // The chunk on screen, timed on its audio now that more of it is in.
+        onAgentTiming: (wordsAt) => { set({ agentCaptionAt: wordsAt }); revealAt.current = wordsAt; },
         // Barge-in: cancel the server turn AND drop the stale caption immediately,
         // so interrupting gives instant "I'm listening" feedback.
         onBargeIn: (spoken) => {
@@ -544,9 +553,13 @@ export function useLiveSession(chatId: string) {
           // (the engine's authoritative, sentence-granular cutoff).
           stopReveal();
           set({ toolStatus: "" });
-          // Keep what's already revealed (voice-synced ≈ what was spoken); just stop
-          // advancing. Commit the current chunk so the next turn starts clean.
-          if (curChunk.current) segText.current = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+          // Reveal the chunk to the word voiced at the cut, as the engine cut `spoken`,
+          // and stop there.
+          if (curChunk.current) {
+            const said = heardText(curChunk.current, revealAt.current, performance.now() - revealStart.current);
+            segText.current = segText.current ? `${segText.current} ${said}` : said;
+            if (assistantId.current) chatStore.liveText(chatId, assistantId.current, segText.current);
+          }
           curChunk.current = null;
           // Clear any pending permission chip — the server cancels the ask on
           // barge-in, so a lingering approve/deny would just no-op if tapped.
@@ -557,6 +570,7 @@ export function useLiveSession(chatId: string) {
         // answered. handleUserText routes the utterance to whichever modal is open
         // (yes/no for permission, form-fill for elicitation) — fully hands-free.
         holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
+        answersAsk: (text) => !!useLiveStore.getState().permission && !!classifyYesNo(text),
         // The chosen mic can come back later; the call needs one now.
         onMicLost: () => { toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
       }, player.current ?? undefined);
@@ -658,7 +672,7 @@ export function useLiveSession(chatId: string) {
 
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
-  const handleUserText = useCallback(async (text: string) => {
+  const handleUserText = useCallback(async (text: string, wordsAt: number[]) => {
     // While a permission ask or an elicitation is pending, EVERY utterance is the
     // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
     // "mmm" mid-approval must never become a coding turn).
@@ -671,12 +685,12 @@ export function useLiveSession(chatId: string) {
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
     if (tornDown.current) return;
-    client.current?.userText(text, frames);
+    client.current?.userText(text, frames, wordsAt);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
-    assistantId.current = chatStore.liveUserTurn(chatId, text);
+    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt);
   }, [chatId, set, answerModalByVoice]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until

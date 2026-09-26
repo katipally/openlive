@@ -3,6 +3,9 @@
 // Whisper silence-hallucinations, spotting a mid-thought pause, cleaning text
 // before TTS, and chunking the reply stream into stable-length speakable pieces.
 
+export { normalizeSpeech as toSpeech } from "@openlive/shared/speech/normalize";
+import type { LanguageCode } from "@openlive/shared";
+
 export const MIN_TTS_CHARS = 40; // don't hand Kokoro a tiny fragment — short
                                  // snippets render with an unstable timbre.
 // The FIRST chunk of a reply speaks at a lower bar, so the agent starts talking
@@ -35,19 +38,42 @@ const ENGLISH_CHARS_PER_SEC = 16;
  * on the agent es 18-20, fr 19-23, it 18, pt 18, hi 13, zh 4.6-5.1; Supertonic 3
  * in the browser es 17, fr 19, de 18, it 16, pt 17, hi 18, ja 7.3-12, ko 8-12.
  * The languages at or above English's 16 use English's numbers.
+ * `maxSpoken`: the most of toSpeech's output one engine call gets. Spelled-out
+ * numbers and names grow a chunk (twice over, for a line of prices), and
+ * kokoro-js drops what passes 510 phoneme tokens: 400 English characters stay
+ * under it, and for the unspaced scripts and Korean, 150, just past the
+ * 120-character chunk.
  */
-const LANG_TEXT: Record<string, { rate: number; spaced: boolean; maxChunk: number }> = {
-  en: { rate: ENGLISH_CHARS_PER_SEC, spaced: true, maxChunk: MAX_CHUNK_CHARS },
-  hi: { rate: 13, spaced: true, maxChunk: MAX_CHUNK_CHARS },
-  zh: { rate: 4.5, spaced: false, maxChunk: 120 },
-  ja: { rate: 7, spaced: false, maxChunk: 120 },
-  ko: { rate: 8, spaced: true, maxChunk: 120 },
+const LANG_TEXT: Record<string, { rate: number; spaced: boolean; maxChunk: number; maxSpoken: number }> = {
+  en: { rate: ENGLISH_CHARS_PER_SEC, spaced: true, maxChunk: MAX_CHUNK_CHARS, maxSpoken: 2 * MAX_CHUNK_CHARS },
+  hi: { rate: 13, spaced: true, maxChunk: MAX_CHUNK_CHARS, maxSpoken: 2 * MAX_CHUNK_CHARS },
+  zh: { rate: 4.5, spaced: false, maxChunk: 120, maxSpoken: 150 },
+  ja: { rate: 7, spaced: false, maxChunk: 120, maxSpoken: 150 },
+  ko: { rate: 8, spaced: true, maxChunk: 120, maxSpoken: 150 },
 };
 const langText = (lang: string) => LANG_TEXT[lang] ?? LANG_TEXT.en!;
 
 /** How long `text` takes `engine` to speak in `lang`, for pacing a caption before its audio is all in. */
 export const estimateSpeechMs = (text: string, engine: string, speed = 1, lang = "en") =>
   (text.length / (lang === "en" ? SPOKEN_CHARS_PER_SEC[engine] ?? ENGLISH_CHARS_PER_SEC : langText(lang).rate) / speed) * 1000;
+
+// The rolling agent caption holds five English words' width; a Chinese or
+// Japanese character (a caption word of its own) is 0.4 of one, about 12 to the line.
+const CAPTION_WIDTH = 5;
+const UNSPACED_CHAR = /^[\p{scx=Han}\p{scx=Hira}\p{scx=Kana}]/u;
+/** The caption's last words heard: `units` (captionWords of `text`) up to the
+ *  `heard`th, as many as fit CAPTION_WIDTH. The whole text when it all fits. O(window). */
+export function captionWindow(text: string, units: readonly [number, number][], heard: number): string {
+  if (!units.length) return text;
+  const end = Math.max(1, Math.min(units.length, heard));
+  let from = end - 1, width = 0;
+  for (let k = end - 1; k >= 0; k--) {
+    width += UNSPACED_CHAR.test(text.slice(units[k]![0], units[k]![1])) ? 0.4 : 1;
+    if (width > CAPTION_WIDTH) break;
+    from = k;
+  }
+  return text.slice(units[from]![0], units[end - 1]![1]);
+}
 
 // Whisper hallucinates these on silence/ambient noise — never treat as a turn.
 // Kept tight: only true silence artifacts. Real short answers ("okay", "yeah",
@@ -80,6 +106,56 @@ export function endsMidThought(text: string, lang = "en"): boolean {
   return !!last && TRAILING.has(last);
 }
 
+// What a listener says to keep a speaker going, and the sounds a thought
+// starts on. Over the agent's voice none of it asks the agent to stop; as a
+// turn of its own ("yeah" to a question) it is an answer and is sent as one.
+// Whisper writes a cough or a laugh as "(coughs)" or "[laughs]", or as nothing,
+// or spells it (SOUND below).
+const FILLERS = ["ok", "okay", "mm", "mhm", "hmm", "uh", "um", "ah", "oh", "eh", "aha", "huh"];
+const BACKCHANNELS: Record<LanguageCode, string[]> = {
+  en: ["yeah", "yea", "ya", "yep", "yup", "yes", "kay", "right", "all right", "alright", "sure", "got it", "gotcha", "i see", "cool", "nice", "great", "wow", "exactly", "totally", "true", "uh huh", "mm hmm"],
+  es: ["sí", "si", "vale", "claro", "ajá", "aja", "ya", "bueno", "exacto", "de acuerdo", "entiendo", "vaya"],
+  fr: ["oui", "ouais", "d'accord", "voilà", "bien", "bon", "ah bon", "euh", "hein", "exactement", "c'est ça", "je vois", "tout à fait", "super"],
+  de: ["ja", "jo", "jap", "genau", "gut", "klar", "stimmt", "richtig", "äh", "ähm", "achso", "ach so", "verstehe", "alles klar", "super"],
+  it: ["sì", "si", "certo", "esatto", "vero", "va bene", "d'accordo", "capito", "già", "ecco", "bene"],
+  pt: ["sim", "é", "tá", "ta", "certo", "claro", "isso", "exato", "beleza", "entendi", "uhum", "aham", "pois", "tá bom"],
+  hi: ["हाँ", "हां", "हा", "जी", "हाँजी", "अच्छा", "ठीक", "ठीक है", "सही", "बिल्कुल", "हम्म", "हूँ", "हूं", "ओके", "haan", "han", "ji", "accha", "acha", "theek hai", "thik hai"],
+  zh: ["嗯", "恩", "对", "对的", "是", "是的", "好", "好的", "好吧", "行", "哦", "噢", "啊", "呃", "嗯哼", "没错", "明白", "明白了", "知道了"],
+  ja: ["はい", "うん", "ええ", "ああ", "あ", "え", "えー", "ん", "そう", "そうそう", "そうですね", "そっか", "そうか", "ですね", "ね", "なるほど", "へえ", "ほう", "ふーん", "確かに", "たしかに", "了解", "オッケー"],
+  ko: ["네", "예", "응", "어", "음", "아", "오", "그래", "그래요", "그렇죠", "그렇구나", "맞아", "맞아요", "맞습니다", "알겠어", "알겠어요", "좋아", "좋아요", "오케이", "흠", "아하"],
+};
+// Lowercase, bracketed sound notes and punctuation out, then every run of one
+// letter down to one, so "Mmmm-hmm!" and "mm hmm" both read "m hm".
+const fold = (s: string) => s.toLowerCase().replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, " ")
+  .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").replace(/(\p{L})\1+/gu, "$1").trim();
+const FOLDED = Object.fromEntries(Object.entries(BACKCHANNELS).map(([l, w]) => [l, [...new Set([...w, ...FILLERS].map(fold))]])) as Record<LanguageCode, string[]>;
+// Laughs and throat sounds as a transcriber spells them, after fold(): a laugh
+// is one syllable repeated ("Hahaha", "jajaja", "ahah", "hihi", "哈哈", "ははは",
+// "ㅋㅋㅋ", "हाहा", Portuguese "kkkk"), a throat sound "ugh", "ahem", "hck",
+// "hmph". Real words that Whisper makes of an "ahem" ("A ham", "hand") are left:
+// they voice as long as "stop" or "no" (480 ms against 416-512 ms, Silero v6),
+// so nothing tells them apart from a real one-word interruption.
+const SOUND = String.raw`[ae]?([hj][aeiouéè])\1+h?|(?:[ae]h){2,}|[hj]ah?|heh|lol|lmao|(?:rs){2,}|(?:h?c?kh?)+|[au]r?gh|[aeä]h[aeä]m|[aeä] h[eä]m|h[eä]m|[aeä]hm|ejem|hmp[hf]|h?m(?:h?m)*|pft?|tsk|[pw]hew|(?:ह[ािीेो]){2,}|[哈呵嘿嘻咳]|[あえ]?[はハへヘふフ]|(?:ゴホ)+|[하허히흐호크킥ㅋㅎ]|에헴|어흠|크흠`;
+const SOUND_WORD = new RegExp(`(?:${SOUND})(?= |$)`, "uy"), SOUND_ANY = new RegExp(SOUND, "uy");
+/** Nothing but backchannels, fillers, laughs and throat sounds, or no words at
+ *  all. Chinese and Japanese write no spaces, so their entries may meet
+ *  anywhere; elsewhere only at a space. O(n·(k + m)): n characters, k entries,
+ *  m the longest sound spelled at one position. */
+export function isBackchannel(text: string, lang: LanguageCode): boolean {
+  const s = fold(text), words = FOLDED[lang], unspaced = lang === "zh" || lang === "ja";
+  const sound = unspaced ? SOUND_ANY : SOUND_WORD;
+  const reach = new Array<boolean>(s.length + 1).fill(false); // reach[i]: s[0, i) is all backchannel
+  reach[0] = true;
+  for (let i = 0; i < s.length; i++) {
+    if (!reach[i]) continue;
+    if (s[i] === " ") { reach[i + 1] = true; continue; }
+    for (const w of words) if (s.startsWith(w, i) && (unspaced || i + w.length === s.length || s[i + w.length] === " ")) reach[i + w.length] = true;
+    sound.lastIndex = i;
+    if (sound.test(s)) reach[sound.lastIndex] = true;
+  }
+  return reach[s.length]!;
+}
+
 // Strip markdown so the voice never reads out "-", "*", "#", or "[p.18]" symbols,
 // and scrub photo-narration ("the image/photo/…") into natural spoken language as
 // a backstop to the prompt — with the camera on the agent should talk about
@@ -93,7 +169,9 @@ export function stripMarkdown(s: string): string {
   return s
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")   // links → text
     .replace(/`([^`]*)`|\bhttps?:\/\/[^\s)\]]+/gi, (m, code?: string) => keep(code ?? m))
-    .replace(/[*~#>]+|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])/g, "") // bold/italic/heading/quote marks
+    // Bold, italic, strikethrough, heading and quote marks. A mark that means
+    // something in prose stays for the voice to say: "#1", "~5", "> 10", "C#".
+    .replace(/\*+|~+(?!\d)|(?<!\S)#+(?!\S)|>+(?!\s?\d)|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])/g, "")
     .replace(/^\s*[-•]\s+/gm, "")               // list bullets
     .replace(/^\s*\d+\.\s+/gm, "")              // numbered lists
     .replace(/\[p\.\s*\d+\]/gi, "")             // citation tokens
@@ -113,20 +191,11 @@ export function stripMarkdown(s: string): string {
     .trim();
 }
 
-// Agents (esp. coding agents) narrate file paths, filenames and URLs. Read aloud
-// they're symbol soup ("src slash foo dot tsx", "h-t-t-p-s colon…"), and Kokoro
-// turns "alpha.txt" into "alpha txt". Say a URL as its site, a path as its file
-// name, and the dot in a file name or domain as "dot". Conservative: a name needs a
-// known extension or domain ending, so versions (v0.2.4), decimals and "e.g." are
-// left for the TTS engine's own number and abbreviation reading.
-const NAME_END = "tsx?|jsx?|mjs|cjs|json|css|scss|less|html?|md|mdx|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|yml|yaml|toml|xml|sql|php|lock|txt|csv|ipynb|pdf|png|jpe?g|com|org|net|io|dev|ai|app|co|edu|gov";
-const DOTTED_NAME = new RegExp(`\\b[\\w-]+(?:\\.[\\w-]+)*\\.(?:${NAME_END})\\b`, "gi");
-// Outside English the dot stays a dot: "dot" would be read out as an English word.
-export function toSpeech(s: string, lang = "en"): string {
-  const said = s
-    .replace(/\bhttps?:\/\/(?:www\.)?([^\s/?#]+)\S*/gi, "$1")
-    .replace(/\/?(?:[\w.-]+\/)+([\w-]+\.\w{1,6})\b/g, "$1");
-  return lang === "en" ? said.replace(DOTTED_NAME, (m) => m.replace(/\./g, " dot ")) : said;
+/** `said`, toSpeech's output, cut into pieces one engine call takes whole
+ *  (LANG_TEXT maxSpoken); almost always the one piece. O(n). */
+export function speechPieces(said: string, lang = "en"): string[] {
+  const { spaced, maxSpoken } = langText(lang);
+  return splitLong(said, maxSpoken, spaced);
 }
 
 // A sentence ends at . ! or ? (and any closing quote or bracket) followed by
@@ -139,7 +208,13 @@ const SENTENCE_END = /[.!?]+["')\]]*(?=\s)|[。！？．।॥]+["'”’」』�
 // Where a sentence of unspaced text may be cut: after a clause mark.
 const CLAUSE_MARK = /[、，；：,;:。！？．]/;
 // "Dr. Smith", "e.g. this", "U.S. law", "A. Lincoln": the dot belongs to the word.
-const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|approx|fig)\.$/i;
+const ABBREVIATION = /(?:^|[\s(])(?:[a-z]|(?:[a-z]\.)+[a-z]|dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|approx|fig|inc|ltd|corp|dept|aka|jan|feb|apr|jun|jul|aug|sept?|oct|nov|dec|sra|srta|dra|mme|mlle|bzw|usw|ecc|ej|ex)\.$/i;
+// Abbreviations only before a number ("No. 5", "vol. 2"): elsewhere "no." ends
+// a sentence. German writes an ordinal with a dot ("am 3. Oktober"). Both wait
+// for the next word before they decide.
+const BEFORE_NUMBER = /(?:^|[\s(])(?:no|nr|nos|vol|ch|pp)\.$/i;
+const ORDINAL_DOT = /(?:^|[\s(])\d{1,2}\.$/;
+const DE_MONTH_AHEAD = /^\s+(?:Jan|Feb|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez)/;
 // An odd number of backticks before i opens a code span, unless the last one is far
 // back: code spans are short, and a stray backtick must not hold the rest of the
 // reply unspoken until the turn ends.
@@ -152,7 +227,8 @@ function inCodeSpan(s: string, i: number): boolean {
  *  space, or in unspaced text just past a clause mark; -1 when there is none. O(end - from). */
 function lastBreak(t: string, from: number, end: number, spaced: boolean): number {
   if (spaced) return t.lastIndexOf(" ", end);
-  for (let j = end - 1; j > from; j--) if (CLAUSE_MARK.test(t[j]!)) return j + 1;
+  // Not inside a number: the comma of 1,200 or the colon of 3:30.
+  for (let j = end - 1; j > from; j--) if (CLAUSE_MARK.test(t[j]!) && !(/[,:]/.test(t[j]!) && /\d/.test(t[j - 1]!) && /\d/.test(t[j + 1] ?? ""))) return j + 1;
   return -1;
 }
 
@@ -218,7 +294,13 @@ export class SentenceChunker {
     let last = 0;
     for (const m of this.buf.matchAll(SENTENCE_END)) {
       const end = m.index + m[0].length;
-      if (m[0][0] === "." && ABBREVIATION.test(this.buf.slice(last, m.index + 1))) continue;
+      const upTo = this.buf.slice(last, m.index + 1);
+      if (m[0][0] === "." && ABBREVIATION.test(upTo)) continue;
+      const ahead = m[0][0] !== "." ? null : BEFORE_NUMBER.test(upTo) ? /^\s+\d/ : lang === "de" && ORDINAL_DOT.test(upTo) ? DE_MONTH_AHEAD : null;
+      if (ahead) {
+        if (!/^\s+(?:\S{3}|\S+\s)/.test(this.buf.slice(end))) break;
+        if (ahead.test(this.buf.slice(end))) continue;
+      }
       if (inCodeSpan(this.buf, m.index)) continue;
       this.ready += this.buf.slice(last, end);
       last = end;

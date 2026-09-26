@@ -166,6 +166,88 @@ describe("native TTS stall", () => {
   });
 });
 
+describe("a browser voice the agent runs", () => {
+  const listing = (installed: boolean, runnable = true) => Response.json([
+    { family: "kitten", kind: "tts", name: "Kitten TTS", variants: [{ id: "kitten-nano-int8", installed: true, runnable: true }] },
+    { family: "supertonic", kind: "tts", name: "Supertonic", browser: "supertonic", variants: [{ id: "supertonic-3", installed, runnable }] },
+  ]);
+  /** The agent's engine listing from `list`, every /tts from `speak`. */
+  const agent = (speak: () => Promise<Response>, list = () => listing(true)) =>
+    vi.fn(async (url: string) => (url === "/api/voice/engines" ? list() : speak()));
+  const ttsCalls = (f: ReturnType<typeof vi.fn>) => f.mock.calls.filter((c) => c[0] === "/api/voice/tts").length;
+  const opts = { engine: "supertonic", voice: "F2", speed: 1.2, lang: "es" as const };
+
+  it("streams from the agent in the same voice, and loads nothing in the browser", async () => {
+    const fetch = agent(async () => spoken([new Float32Array([0.1, 0.2, 0.3])]));
+    vi.stubGlobal("fetch", fetch);
+    const got: number[] = [];
+    await models.ttsStream("Hola.", opts, (a) => got.push(a.length));
+    await models.ttsStream("Otra.", opts, (a) => got.push(a.length));
+    expect(got).toEqual([3, 3]);
+    expect(bodyOf(fetch, 1)).toEqual({ engine: "supertonic-3", text: "Hola.", voice: "F2", speed: 1.2, lang: "es" });
+    expect(fetch.mock.calls.filter((c) => c[0] === "/api/voice/engines")).toHaveLength(1); // asked once a call
+    expect(posted).toEqual([]);
+  });
+
+  it("tries the agent again after a one-off failure rather than switching voice mid-reply", async () => {
+    const speak = vi.fn().mockResolvedValueOnce(Response.json({ error: "boom" }, { status: 500 })).mockResolvedValueOnce(spoken([new Float32Array([0.5])]));
+    vi.stubGlobal("fetch", agent(speak));
+    const got: number[] = [];
+    await models.ttsStream("Hola.", opts, (a) => got.push(a.length));
+    expect(got).toEqual([1]);
+    expect(posted.some((m) => m.type === "tts")).toBe(false);
+  });
+
+  it("gives way to the same voice in the browser on a lasting failure, quietly, for the rest of the call", async () => {
+    const fetch = agent(async () => Response.json({ error: "engine-not-runnable" }, { status: 409 }));
+    vi.stubGlobal("fetch", fetch);
+    await models.ttsStream("Uno.", opts, () => {});
+    await models.ttsStream("Dos.", opts, () => {});
+    expect(ttsCalls(fetch)).toBe(1);
+    expect(posted.filter((m) => m.type === "tts").map((m) => [m.engine, m.voice])).toEqual([["supertonic", "F2"], ["supertonic", "F2"]]);
+    expect(toast).not.toHaveBeenCalled();
+    models.resetNativeFallbacks(); // the next call tries the agent again
+    await models.ttsStream("Tres.", opts, () => {});
+    expect(ttsCalls(fetch)).toBe(2);
+  });
+
+  it("speaks in the browser when the agent's copy is not downloaded, cannot run here, or no agent answers", async () => {
+    for (const list of [() => listing(false), () => listing(true, false), () => Promise.reject(new TypeError("fetch failed"))]) {
+      posted.length = 0;
+      const fetch = agent(async () => spoken([]), list);
+      vi.stubGlobal("fetch", fetch);
+      models.resetNativeFallbacks();
+      const got: number[] = [];
+      await models.ttsStream("Hola.", opts, (a) => got.push(a.length));
+      expect(got).toEqual([2]);
+      expect(ttsCalls(fetch)).toBe(0);
+      expect(posted.filter((m) => m.type === "tts").map((m) => m.engine)).toEqual(["supertonic"]);
+    }
+  });
+
+  it("loads no browser Supertonic for a call the agent speaks, and does once its copy is gone", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ stt: { engine: "parakeet" }, tts: { engine: "supertonic" } }), setItem: () => {} });
+    let installed = true;
+    vi.stubGlobal("fetch", agent(async () => spoken([]), () => listing(installed)));
+    await models.loadModels(() => {});
+    expect(posted.find((m) => m.type === "load")).toMatchObject({ ttsEngine: null, ttsNative: true });
+    posted.length = 0;
+    installed = false;
+    models.resetNativeFallbacks();
+    await models.loadModels(() => {});
+    expect(posted.find((m) => m.type === "load")).toMatchObject({ ttsEngine: "supertonic", ttsNative: false });
+  });
+
+  it("never asks the agent about a browser voice it does not run", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await models.ttsStream("Hello.", { engine: "kokoro", lang: "en" }, () => {});
+    expect(fetch).not.toHaveBeenCalled();
+    expect(posted.filter((m) => m.type === "tts").map((m) => m.engine)).toEqual(["kokoro"]);
+  });
+});
+
 describe("no voice for the language", () => {
   it("says so once per call, and again on the next call", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "engine-not-installed" }, { status: 409 })));
@@ -227,9 +309,28 @@ describe("native STT fallback", () => {
   it("loads the worker on demand and transcribes the same utterance with Whisper", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "boom" }, { status: 500 })));
     const audio = new Float32Array(1600);
-    await expect(models.stt(audio)).resolves.toBe("from whisper");
+    const heard = await models.stt(audio);
+    expect(heard.text).toBe("from whisper");
+    expect(heard.at).toHaveLength(2); // Whisper times no words: placed on the audio
     expect(posted.find((m) => m.type === "load" && "whisper" in m)).toMatchObject({ whisper: false, ttsNative: true });
     expect(posted.at(-1)).toMatchObject({ type: "stt", audio });
+  });
+
+  it("keeps the engine's word onsets, each 50 s window's from its own start", async () => {
+    const replies = [{ text: "one two", at: [100, 400] }, { text: "three", at: [50] }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(replies.shift())));
+    expect(await models.stt(new Float32Array(16000 * 60))).toEqual({ text: "one two three", at: [100, 400, 50_050] });
+  });
+
+  it("places the words on the audio when a window comes back untimed", async () => {
+    const replies = [{ text: "one two", at: [100, 400] }, { text: "three" }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(replies.shift())));
+    const audio = new Float32Array(16000 * 60);
+    audio.fill(0.3, 16000, 16000 * 2);
+    const heard = await models.stt(audio);
+    expect(heard.text).toBe("one two three");
+    expect(heard.at).toHaveLength(3);
+    expect(heard.at[0]).toBe(1000); // where the voice begins, not the engine's 100
   });
 
   it("an aborted request rejects and never falls back", async () => {

@@ -2,7 +2,7 @@
 // half of the Language picker, the Model menus and the switch notice.
 
 import type { LanguageCode } from "@openlive/shared";
-import { CURATED_LANGUAGES, variantInfo, type EngineChange, type Stage } from "./pipelineConfig";
+import { CURATED_LANGUAGES, variantInfo, isNativeVariant, browserTtsFallback, type EngineChange, type NativeCatalog, type PipelineConfig, type Stage } from "./pipelineConfig";
 
 const LANGUAGE = new Map<string, (typeof CURATED_LANGUAGES)[number]>(CURATED_LANGUAGES.map((l) => [l.code, l]));
 
@@ -22,12 +22,20 @@ export function languagesNote(langs: readonly string[]): string {
   return known.map((l) => l.name).join(", ");
 }
 
-/** A license as a tag, flagging the ones that restrict use or cannot be checked. */
+/** A license as a tag. Open means MIT, Apache, BSD, CC BY or looser, OpenMDW
+ *  (as permissive), or the exceptions the user made (Supertonic's OpenRAIL-M,
+ *  the NVIDIA Open Model License), with no restricting qualifier anywhere in it;
+ *  a Piper voice is judged by its own data's license, not the voice it was
+ *  fine-tuned from. Anything else needs the user's OK (pipelineConfig.ts
+ *  `restricted`). */
 export function licenseTag(license: string): { label: string; kind: "open" | "restricted" | "unknown" } {
   if (/non-commercial|-NC-/i.test(license)) return { label: "Non-commercial", kind: "restricted" };
+  if (/research/i.test(license)) return { label: "Research only", kind: "restricted" };
   if (/AGPL/i.test(license)) return { label: "AGPLv3", kind: "restricted" };
-  if (/unknown|^see /i.test(license)) return { label: "Unknown license", kind: "unknown" };
-  return { label: license, kind: "open" };
+  if (/-SA\b/i.test(license)) return { label: "Share-alike", kind: "restricted" };
+  if (/unknown|unstated|^see /i.test(license)) return { label: "Unknown license", kind: "unknown" };
+  if (/^(MIT|Apache|BSD|CC0|CC[- ]BY[- ]\d|OpenMDW|OpenRAIL-M|NVIDIA Open Model License)/i.test(license)) return { label: license, kind: "open" };
+  return { label: license, kind: "restricted" };
 }
 
 /** A family's variants for its Model menu: grouped by language when each
@@ -78,4 +86,17 @@ export function switchNotice(lang: LanguageCode, changes: readonly EngineChange[
     })),
     ...unsupported.map((s) => ({ text: `No ${STAGE_NAME[s].toLowerCase()} engine speaks ${language} yet.` })),
   ];
+}
+
+/** The selected native engines the agent lists as not downloaded, each with
+ *  the name of what a call uses instead (null: nothing speaks the language).
+ *  None while the agent's catalog is unknown. O(variants). */
+export function missingEngines(c: PipelineConfig, catalog?: NativeCatalog): { stage: Stage; id: string; standIn: string | null }[] {
+  const listed = new Map(catalog?.flatMap((f) => f.variants.map((v) => [v.id, v.installed] as const)));
+  return (["stt", "tts"] as const).flatMap((stage) => {
+    const id = c[stage].variant;
+    if (!isNativeVariant(id) || listed.get(id) !== false) return [];
+    const standIn = stage === "stt" ? "whisper" : browserTtsFallback(c.language);
+    return [{ stage, id, standIn: standIn && (variantInfo(standIn)?.family.name ?? standIn) }];
+  });
 }

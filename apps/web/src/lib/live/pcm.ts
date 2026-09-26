@@ -16,19 +16,6 @@ export function pcmDecoder(): (bytes: Uint8Array) => Float32Array {
   };
 }
 
-const SILENCE = 10 ** (-50 / 20);
-
-/** `wav` cut to its speech, the first to the last sample above -50 dBFS, keeping
- *  up to `leadS` seconds before it and `tailS` after. Empty when it is all
- *  silence. O(n). */
-export function trimSilence(wav: Float32Array, sampleRate: number, leadS: number, tailS: number): Float32Array {
-  let first = 0, last = wav.length - 1;
-  while (first <= last && Math.abs(wav[first]!) < SILENCE) first++;
-  while (last > first && Math.abs(wav[last]!) < SILENCE) last--;
-  if (first > last) return new Float32Array(0);
-  return wav.slice(Math.max(0, first - Math.round(leadS * sampleRate)), Math.min(wav.length, last + 1 + Math.round(tailS * sampleRate)));
-}
-
 /** The last `size` mic frames, so speech the VAD only recognised a few frames in
  *  can still be sent from its true start. push is O(1); drain is O(samples held). */
 export class FrameRing {

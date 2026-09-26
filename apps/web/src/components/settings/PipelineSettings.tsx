@@ -3,18 +3,22 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
-import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X } from "lucide-react";
+import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X, Cpu, ExternalLink, Lock } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
   DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, CURATED_LANGUAGES, languageSupport, pickCompatible,
+  familyVariant, isRestricted, permitted,
 } from "@/lib/live/pipelineConfig";
-import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName, switchNotice } from "@/lib/live/engineMenu";
+import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
   listNativeEngines, downloadNativeEngine, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
+  getVoicePerf, setEngineAccel, rebenchEngine, type AccelProvider, type AccelResult,
 } from "@/lib/live/models";
+import { toSpeech } from "@/lib/live/voiceText";
+import { compileLexicon } from "@openlive/shared/speech/lexicon";
 import { cn } from "@/lib/cn";
 import { Segmented } from "@/lib/seg";
 import { log } from "@/lib/log";
@@ -119,7 +123,7 @@ const ENGINE_COPY: Record<string, { title: string; desc: string }> = {
   parakeet: { title: "Parakeet TDT", desc: "NVIDIA's models, run once you stop talking, for high accuracy: English, or 25 languages in v3." },
   moonshine: { title: "Moonshine", desc: "Useful Sensors' small English models: the fastest and lightest native downloads, less accurate on long speech." },
   kokoro: { title: "Kokoro", desc: "82M StyleTTS2: natural, 28 English voices (~82 MB)." },
-  supertonic: { title: "Supertonic", desc: "Supertone's 66M flow-matching TTS: quick first word, 10 voices (~400 MB, OpenRAIL-M)." },
+  supertonic: { title: "Supertonic", desc: "Supertone's 66M flow-matching TTS: quick first word, 10 voices (~400 MB)." },
   clone: { title: "Your voice", desc: "Cloned from a short recording. Record and manage them under Your voices below (runs locally)." },
   pocket: { title: "Pocket TTS", desc: "Streams speech as it is generated, the quickest to start talking. 2 voices." },
   kitten: { title: "Kitten TTS", desc: "KittenML's tiny models, streamed as they are generated. 8 voices." },
@@ -134,11 +138,75 @@ const mb = (n: number) => `${Math.round(n / 1e6)} MB`; // decimal, as the engine
 
 // Two stages read this; one cache. Polls only while the agent reports a
 // download this page did not start (one begun before a reload keeps going).
-const useNativeEngines = () => useQuery({
-  queryKey: ["native-engines"], queryFn: listNativeEngines, retry: 1,
+export const useNativeEngines = () => useQuery({
+  queryKey: ["native-engines"], queryFn: () => listNativeEngines(), retry: 1,
   refetchInterval: (q) => (q.state.data?.some((f) => f.variants.some((e) => e.downloading)) ? 1000 : false),
 });
-const variantStatus = (families: NativeFamilyStatus[] | undefined, id: string) => families?.flatMap((f) => f.variants).find((e) => e.id === id);
+export const variantStatus = (families: NativeFamilyStatus[] | undefined, id: string) => families?.flatMap((f) => f.variants).find((e) => e.id === id);
+
+// Where native engines run on this device (the agent's accel.ts). Polls only
+// while a benchmark is running or waiting for a call to end.
+const useVoicePerf = () => useQuery({
+  queryKey: ["voice-perf"], queryFn: getVoicePerf, retry: 1,
+  refetchInterval: (q) => (Object.values(q.state.data?.engines ?? {}).some((a) => a.bench === "running" || a.bench === "queued") ? 2000 : false),
+});
+const PROVIDER_LABEL: Record<AccelProvider, string> = { cpu: "CPU", coreml: "CoreML", cuda: "CUDA", directml: "DirectML", webgpu: "WebGPU" };
+const resultLine = (r: AccelResult) => ("error" in r ? `${PROVIDER_LABEL[r.provider]} can't run it` : `${PROVIDER_LABEL[r.provider]} ${r.firstMs} ms to first output, RTF ${r.rtf}`);
+
+/** The installed engine's execution provider: Auto (the benchmark's pick) or
+ *  one the user pins, the benchmark behind it, and a way to measure again. */
+function AccelRow({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const { data } = useVoicePerf();
+  const [busy, setBusy] = useState(false);
+  const a = data?.engines[id];
+  if (!data || !a) return null;
+  const { providers } = a;
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try { await fn(); } catch (err) { toast(`Couldn't change where it runs: ${String((err as Error)?.message ?? err)}`); }
+    finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["voice-perf"] }); }
+  };
+  const status = {
+    running: "Benchmarking on this device…",
+    queued: "Benchmarks once no call is running.",
+    pending: "Benchmarked on this device after its first use; CPU until then.",
+    "cpu-only": "No accelerator on this device that OpenLive's speech runtime supports.",
+    done: a.results.map(resultLine).join(" · "),
+  }[a.bench];
+  return (
+    <div className="flex basis-full flex-wrap items-center gap-x-3 gap-y-2">
+      <label className="flex min-w-0 items-center gap-1.5 text-label text-muted-foreground">
+        <Cpu className="size-3.5 shrink-0" /> Runs on
+        <select value={a.override} disabled={busy || providers.length < 2} onChange={(ev) => void act(() => setEngineAccel(id, ev.target.value as AccelProvider | "auto"))}
+          className={cn(selectClass, "w-auto")}>
+          <option value="auto">Auto{a.override === "auto" ? ` (${PROVIDER_LABEL[a.provider]})` : ""}</option>
+          {providers.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>)}
+        </select>
+      </label>
+      {providers.length > 1 && (
+        <button onClick={() => void act(() => rebenchEngine(id))} disabled={busy || a.bench === "running"} className={rowButton}>
+          {a.bench === "running" ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Re-run benchmark
+        </button>
+      )}
+      <p className="basis-full text-caption text-faint" title={a.results.map((r) => ("error" in r ? `${r.provider}: ${r.error}` : "")).filter(Boolean).join("\n") || undefined}>
+        {a.numThreads} {a.numThreads === 1 ? "thread" : "threads"} · {status}
+      </p>
+    </div>
+  );
+}
+
+/** What the agent found this device to be; all of it stays on the machine. */
+function DeviceSummary() {
+  const { data } = useVoicePerf();
+  if (!data) return null;
+  const d = data.device;
+  const gpu = d.gpus.map((g) => g.model).filter((m) => m !== d.cpu).join(", ");
+  const accelerators = [...new Set([...d.providers, ...(d.ortProviders ?? [])])].filter((p) => p !== "cpu");
+  const facts = [d.cpu, `${d.physicalCores ?? d.cores} cores`, `${Math.round(d.ramBytes / 2 ** 30)} GB`, gpu, d.osVersion,
+    `${d.tier} tier`, accelerators.length > 0 && `${accelerators.map((p) => PROVIDER_LABEL[p]).join(", ")} available`].filter(Boolean);
+  return <p className="mt-2 text-caption leading-relaxed text-faint">This device: {facts.join(" · ")}.</p>;
+}
 
 // A download outlives the stage panel that started it (switching stages
 // unmounts the panel), so its progress and last error live at module scope.
@@ -146,7 +214,7 @@ const useEngineJobs = create<Record<string, { pct?: number; error?: string } | u
 const setJob = (id: string, job?: { pct?: number; error?: string }) => useEngineJobs.setState({ [id]: job });
 const downloadAborts = new Map<string, AbortController>();
 
-async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
+export async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
   const abort = new AbortController();
   downloadAborts.set(e.id, abort);
   setJob(e.id, { pct: 0 });
@@ -161,17 +229,34 @@ async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
   } finally {
     downloadAborts.delete(e.id);
     void qc.invalidateQueries({ queryKey: ["native-engines"] });
+    void qc.invalidateQueries({ queryKey: ["voice-perf"] });
   }
+}
+
+/** Where an engine family runs, for its card: in the browser, or on this
+ *  computer on the provider the agent chose there (accel.ts), which for a
+ *  browser voice means its copy on the agent is downloaded. */
+function useWhereItRuns() {
+  const { data: engines } = useNativeEngines();
+  const { data: perf } = useVoicePerf();
+  return (f: EngineFamilyInfo, variant: string) => {
+    const copy = f.native ? undefined : engines?.find((x) => x.browser === f.id)?.variants.find((v) => v.installed && v.runnable);
+    const onComputer = f.native ? variant : copy?.id;
+    if (!onComputer) return f.id === "clone" ? "This computer: CPU" : `Browser: ${hasWebGPU() ? "WebGPU" : "WASM"}`;
+    const a = perf?.engines[onComputer];
+    return a ? `This computer: ${PROVIDER_LABEL[a.provider]}` : "This computer";
+  };
 }
 
 // One engine in a stage's picker. A native engine adds its size and installed
 // state from the agent, which are missing while the agent is unreachable.
 // `unsupported` names the languages it does speak when the session's is not
-// among them: the card stays visible, greyed, and cannot be picked.
-function EngineChoice({ id, active, streaming, note, status, unsupported, onPick }: {
-  id: string; active: boolean; streaming?: boolean; note?: string; status?: NativeEngineStatus; unsupported?: string; onPick: () => void;
+// among them: the card stays visible, greyed, and cannot be picked. `missing`
+// says what plays instead while the active engine is not downloaded.
+function EngineChoice({ id, active, streaming, note, where, status, unsupported, locked, missing, onPick }: {
+  id: string; active: boolean; streaming?: boolean; note?: string; where: string; status?: NativeEngineStatus; unsupported?: string; locked?: boolean; missing?: string; onPick: () => void;
 }) {
-  const meta = [status && mb(status.sizeBytes), note, status?.installed && "Downloaded"].filter(Boolean).join(" · ");
+  const meta = [where, status && mb(status.sizeBytes), note, status?.installed && "Downloaded"].filter(Boolean).join(" · ");
   const copy = ENGINE_COPY[id] ?? { title: id, desc: "" };
   return (
     <button onClick={onPick} aria-pressed={active} disabled={!!unsupported && !active}
@@ -180,8 +265,10 @@ function EngineChoice({ id, active, streaming, note, status, unsupported, onPick
         unsupported && "opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[var(--shadow-card)]")}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-semibold text-foreground">
         <span className="min-w-0 break-words">{copy.title}</span>
-        {active && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Active</span>}
+        {active && !missing && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Active</span>}
+        {active && missing && <span className="flex min-w-0 items-center gap-1 break-words rounded-full bg-arc/10 px-2 py-0.5 text-micro font-medium text-arc-text"><Download className="size-2.5 shrink-0" aria-hidden /> {missing}</span>}
         {streaming && <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground">Streaming</span>}
+        {locked && <span className="flex items-center gap-1 rounded-full bg-arc/10 px-2 py-0.5 text-micro font-medium text-arc-text"><Lock className="size-2.5" aria-hidden /> Restricted license</span>}
       </div>
       <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{copy.desc}</p>
       {unsupported && <p className="mt-1.5 text-caption font-medium text-foreground">{unsupported}</p>}
@@ -211,7 +298,7 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
       setJob(id);
       if (e.installed) toast(`Removed ${e.name}, freed ${mb(e.bytes)}. It downloads again from here.`, "info");
     } catch (err) { setJob(id, { error: `Couldn't remove it: ${String((err as Error)?.message ?? err)}` }); }
-    finally { setRemoving(false); void qc.invalidateQueries({ queryKey: ["native-engines"] }); }
+    finally { setRemoving(false); void qc.invalidateQueries({ queryKey: ["native-engines"] }); void qc.invalidateQueries({ queryKey: ["voice-perf"] }); }
   };
 
   if (!e) return data || isError ? (
@@ -250,6 +337,7 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
         {removing ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} Remove
       </button>
       {error}
+      <AccelRow id={e.id} />
     </div>
   ) : (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -269,7 +357,7 @@ const chip = "max-w-full break-words rounded-full bg-foreground/10 px-2 py-0.5 t
  *  latency and install state, grouped by language for Piper. One that cannot
  *  speak the session language stays listed, disabled, with the ones it can.
  *  The chosen variant's facts and license follow. */
-function VariantPicker({ cfg, stage, update }: { cfg: PipelineConfig; stage: Stage; update: Update }) {
+function VariantPicker({ cfg, stage, update, onAsk }: { cfg: PipelineConfig; stage: Stage; update: Update; onAsk: () => void }) {
   const { data } = useNativeEngines();
   const family = familyInfo(stage, cfg[stage].family);
   if (!family || family.variants.length < 2) return null;
@@ -279,9 +367,9 @@ function VariantPicker({ cfg, stage, update }: { cfg: PipelineConfig; stage: Sta
     const s = v.status;
     const license = s && licenseTag(s.license);
     return [s?.name ?? engineName(v.id), s && mb(s.sizeBytes), s?.quality, s?.latencyMs && !s.name.includes(`${s.latencyMs} ms`) && `${s.latencyMs} ms`,
-      license?.kind !== "open" && license?.label, s?.installed && "Downloaded", !speaks(v) && languagesNote(v.languages)].filter(Boolean).join(" · ");
+      license ? license.kind !== "open" && license.label : v.restricted && "Restricted license", s?.installed && "Downloaded", !speaks(v) && languagesNote(v.languages)].filter(Boolean).join(" · ");
   };
-  const options = (vs: typeof rows) => vs.map((v) => <option key={v.id} value={v.id} disabled={!speaks(v)}>{line(v)}</option>);
+  const options = (vs: typeof rows) => vs.map((v) => <option key={v.id} value={v.id} disabled={!speaks(v) || !permitted(cfg, v.id)}>{line(v)}</option>);
   const cur = rows.find((v) => v.id === cfg[stage].variant)?.status;
   const license = cur && licenseTag(cur.license);
   return (
@@ -303,8 +391,69 @@ function VariantPicker({ cfg, stage, update }: { cfg: PipelineConfig; stage: Sta
           </span>
         </div>
       )}
+      {!cfg.allowRestricted && rows.some((v) => v.restricted) && (
+        <p className="text-caption text-faint">
+          Models with a restricted license are locked.{" "}
+          <button onClick={onAsk} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Allow them</button>
+        </p>
+      )}
     </div>
   );
+}
+
+/** The active engine's license, when it links one: Supertonic's and
+ *  Nemotron's own terms, or what a restricted variant's license limits. */
+function LicenseNote({ family, variant }: { family: EngineFamilyInfo; variant: string }) {
+  const restricted = isRestricted(variant);
+  if (!family.licenseUrl || (family.restriction && !restricted)) return null;
+  return (
+    <p className={cn("-mt-1 text-caption", restricted ? "text-arc-text" : "text-faint")}>
+      {restricted ? `${family.name} has a restricted license. ${family.restriction}.` : `${family.name}'s model license: ${family.note}.`}{" "}
+      <a href={family.licenseUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        Read the license <ExternalLink className="size-3" aria-hidden />
+      </a>
+    </p>
+  );
+}
+
+/** The inline OK a restricted model needs before it can be picked: what its
+ *  license limits, a link to it, and an explicit Allow. The choice is saved in
+ *  the pipeline config; OpenLive still never picks a restricted model itself. */
+export function AllowRestricted({ family, onAllow, onCancel }: { family: EngineFamilyInfo; onAllow: () => void; onCancel?: () => void }) {
+  return (
+    <div role="group" aria-label={`Allow ${family.name}`} className="flex flex-col gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2.5 text-label text-arc-text">
+      <p className="min-w-0 break-words">
+        <span className="font-medium">{family.name} has a restricted license.</span> {family.restriction}.{" "}
+        {family.licenseUrl && (
+          <a href={family.licenseUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-2">
+            Read the license <ExternalLink className="size-3" aria-hidden />
+          </a>
+        )}
+      </p>
+      <p className="text-caption">Allowing restricted models unlocks them here, for you to pick. OpenLive never switches to one on its own.</p>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={onAllow} className="rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition hover:opacity-90">Allow restricted models</button>
+        {onCancel && <button onClick={onCancel} className={rowButton}>Not now</button>}
+      </div>
+    </div>
+  );
+}
+
+/** Picking an engine family: straight away when its variant is permitted, else
+ *  through AllowRestricted first. `asking` is the family waiting for that OK. */
+function useFamilyPick(cfg: PipelineConfig, stage: Stage, update: Update) {
+  const [asking, setAsking] = useState<string | null>(null);
+  const pick = (f: EngineFamilyInfo) => {
+    if (permitted(cfg, familyVariant(cfg, stage, f))) { setAsking(null); update(chooseFamily(cfg, stage, f.id)); } else setAsking(f.id);
+  };
+  const family = asking ? familyInfo(stage, asking) : undefined;
+  const allow = () => {
+    const next = { ...cfg, allowRestricted: true };
+    update(cfg[stage].family === asking ? next : chooseFamily(next, stage, asking!));
+    setAsking(null);
+  };
+  const gate = family && <AllowRestricted family={family} onAllow={allow} onCancel={() => setAsking(null)} />;
+  return { pick, ask: () => setAsking(cfg[stage].family), gate };
 }
 
 function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
@@ -328,22 +477,37 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   );
 }
 
+/** The active card's badge while `stage`'s engine is not downloaded: what a call uses instead. */
+const missingNote = (cfg: PipelineConfig, stage: Stage, engines?: NativeFamilyStatus[]) => {
+  const gap = missingEngines(cfg, engines).find((m) => m.stage === stage);
+  return gap && (gap.standIn ? `Not downloaded, using ${gap.standIn}` : "Not downloaded, no voice for the language");
+};
+
 const unsupportedNote = (f: EngineFamilyInfo, lang: LanguageCode) =>
   languageSupport(f.id, lang) ? undefined : languagesNote(f.variants.flatMap((v) => v.languages));
 
 function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const { data: engines } = useNativeEngines();
+  const where = useWhereItRuns();
   const whisper = !isNativeVariant(cfg.stt.variant);
+  const { pick, ask, gate } = useFamilyPick(cfg, "stt", update);
+  const active = familyInfo("stt", cfg.stt.family);
+  const missing = missingNote(cfg, "stt", engines);
   return (
     <div className="space-y-4">
       <StageHead title="Speech-to-text" desc="Transcribes your voice on this device: Whisper in the browser, or a native engine on this machine's CPU, downloaded once. Applies on the next call." />
       <div className={ENGINE_GRID}>
-        {STT_FAMILIES.map((e) => (
-          <EngineChoice key={e.id} id={e.id} active={cfg.stt.family === e.id} streaming={e.variants.some((v) => v.streaming)} note={e.note}
-            unsupported={unsupportedNote(e, cfg.language)}
-            status={variantStatus(engines, chooseFamily(cfg, "stt", e.id).stt.variant)} onPick={() => update(chooseFamily(cfg, "stt", e.id))} />
-        ))}
+        {STT_FAMILIES.map((e) => {
+          const variant = familyVariant(cfg, "stt", e);
+          return (
+            <EngineChoice key={e.id} id={e.id} active={cfg.stt.family === e.id} streaming={e.variants.some((v) => v.streaming)} note={e.note}
+              unsupported={unsupportedNote(e, cfg.language)} where={where(e, variant)} locked={!permitted(cfg, variant)}
+              missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
+          );
+        })}
       </div>
+      {gate}
+      {active && <LicenseNote family={active} variant={cfg.stt.variant} />}
       {whisper && <label className="flex flex-col gap-1.5">
         <span className="text-label text-foreground">Model size</span>
         <select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className={selectClass}>
@@ -351,7 +515,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
         </select>
       </label>}
       {whisper && <p className="-mt-2 text-caption text-faint">English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
-      {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} />}
+      {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} onAsk={ask} />}
       {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
       {whisper && cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint: expect the best transcription, but drop back to Small if your machine struggles.</p>}
       {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" />}
@@ -396,45 +560,62 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
 
 const SAMPLE = "Hi! This is how I sound in a live conversation.";
 
+/** Play `text` as a live reply would sound with `cfg`: normalized, respelled
+ *  by the dictionary, in the chosen voice. Loads the browser models first when
+ *  the voice is one of them. */
+export async function playPreview(text: string, cfg: PipelineConfig) {
+  if (!isNativeVariant(cfg.tts.variant) && !modelsReady()) await loadModels(() => {});
+  const said = toSpeech(text, cfg.language, compileLexicon(cfg.pronunciations, cfg.language));
+  const { audio, sampleRate } = await tts(said, { engine: cfg.tts.variant, voice: cfg.tts.voice, speed: cfg.tts.speed, lang: cfg.language });
+  const ctx = new AudioContext();
+  const buf = ctx.createBuffer(1, audio.length, sampleRate);
+  buf.getChannelData(0).set(audio);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start();
+  src.onended = () => { void ctx.close(); };
+}
+
 function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const [busy, setBusy] = useState(false);
   const { data: engines } = useNativeEngines();
+  const where = useWhereItRuns();
   const native = isNativeVariant(cfg.tts.variant);
   const status = variantStatus(engines, cfg.tts.variant);
+  const missing = missingNote(cfg, "tts", engines);
+  // This browser voice's copy on the agent, when the agent has one that runs here.
+  const copy = native ? undefined : engines?.find((f) => f.browser === cfg.tts.family)?.variants.find((v) => v.runnable);
   // Preview always enabled: it downloads the models itself if needed (spinner
   // shows). A disabled-until-cached gate went stale — modelsCached() isn't
   // reactive, so the button stayed dead right after a download finished.
   const preview = async () => {
     setBusy(true);
     try {
-      if (!native && !modelsReady()) await loadModels(() => {});
-      const { audio, sampleRate } = await tts(SAMPLE, { engine: cfg.tts.variant, voice: cfg.tts.voice, speed: cfg.tts.speed, lang: cfg.language });
-      const ctx = new AudioContext();
-      const buf = ctx.createBuffer(1, audio.length, sampleRate);
-      buf.getChannelData(0).set(audio);
-      const src = ctx.createBufferSource();
-      src.buffer = buf; src.connect(ctx.destination); src.start();
-      src.onended = () => { void ctx.close(); };
+      await playPreview(SAMPLE, cfg);
     } catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed — try downloading the models first."); } finally { setBusy(false); }
   };
   const engine = familyInfo("tts", cfg.tts.family) ?? TTS_FAMILIES[0]!;
   // Switching engines swaps the voice list too: chooseFamily snaps the voice to
   // the new engine's default. A native engine without a static list names its
   // voices in the agent's catalog, cut to the session language.
-  const setEngine = (id: string) => update(chooseFamily(cfg, "tts", id));
+  const { pick, ask, gate } = useFamilyPick(cfg, "tts", update);
   const voices = engine.voices?.map((v) => ({ id: v.id, name: v.name, group: v.accent, gender: v.gender })) ?? voiceMenu(status?.voices ?? [], cfg.language);
   const groups = [...new Set(voices.map((v) => v.group))];
   const standIn = familyInfo("tts", browserTtsFallback(cfg.language) ?? "")?.name ?? "no voice";
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="Speaks replies back to you on this device. Engine and voice apply to the next reply. Kokoro and Supertonic download their weights on first use; native engines are a one-time download below. Speaking speed is at the top of this tab." />
+      <StageHead title="Text-to-speech" desc="Speaks replies back to you on this device. Engine and voice apply to the next reply. Kokoro and Supertonic download their weights on first use; native engines, and Supertonic on this computer, are a one-time download below. Speaking speed is at the top of this tab." />
       <div className={ENGINE_GRID}>
-        {TTS_FAMILIES.map((e) => (
-          <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note} unsupported={unsupportedNote(e, cfg.language)}
-            status={variantStatus(engines, chooseFamily(cfg, "tts", e.id).tts.variant)} onPick={() => setEngine(e.id)} />
-        ))}
+        {TTS_FAMILIES.map((e) => {
+          const variant = familyVariant(cfg, "tts", e);
+          return (
+            <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note} unsupported={unsupportedNote(e, cfg.language)}
+              locked={!permitted(cfg, variant)} where={where(e, variant)} missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
+          );
+        })}
       </div>
-      <VariantPicker cfg={cfg} stage="tts" update={update} />
+      {gate}
+      <LicenseNote family={engine} variant={cfg.tts.variant} />
+      <VariantPicker cfg={cfg} stage="tts" update={update} onAsk={ask} />
       {cfg.tts.family === "clone" ? (
         <CloneVoicePicker cfg={cfg} update={update} />
       ) : (
@@ -460,6 +641,15 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       )}
       {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} />
         : <ModelStatus removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
+      {copy && (
+        <div className="space-y-2">
+          <p className="text-label text-foreground">On this computer</p>
+          <p className="text-caption text-faint">
+            {engine.name} can also run in OpenLive&apos;s agent, on this computer&apos;s CPU or GPU, whichever it measures faster here. Same voice; the browser copy above stays the fallback. {mb(copy.sizeBytes)}, {copy.license}.
+          </p>
+          <NativeEngineRow id={copy.id} fallback={`${engine.name} in the browser`} />
+        </div>
+      )}
     </div>
   );
 }
@@ -500,8 +690,8 @@ function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update
   );
 }
 
-/** The download a switch notice asks for, sharing the stage rows' job store. */
-function NoticeDownload({ id }: { id: string }) {
+/** The download a switch notice or the call lobby asks for, sharing the stage rows' job store. */
+export function NoticeDownload({ id }: { id: string }) {
   const qc = useQueryClient();
   const { data } = useNativeEngines();
   const job = useEngineJobs((s) => s[id]);
@@ -580,16 +770,18 @@ export function PipelineSettings() {
   // config back, rather than deferring like a delete.
   const reset = () => {
     const prev = cfg;
-    update(DEFAULT_PIPELINE_CONFIG);
+    // The dictionary and the restricted-license OK are the user's, not engine setup.
+    update({ ...DEFAULT_PIPELINE_CONFIG, pronunciations: cfg.pronunciations, allowRestricted: cfg.allowRestricted });
     toast("Speech engine reset to defaults", "info", { undo: () => savePipelineConfig(prev), commit: () => {} });
   };
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
+      <div id="set-voice-device">
         <p className="text-label leading-relaxed text-muted-foreground">
           Your whole voice pipeline runs on-device — tune each stage below. Nothing here leaves your machine.
         </p>
+        <DeviceSummary />
         <Segmented label="Pipeline stage" tone="soft" anchor="set-voice-stage" className="mt-3 grid w-full"
           options={STAGES} value={stage} onChange={setStage} />
       </div>
@@ -604,6 +796,13 @@ export function PipelineSettings() {
       {onDisk.length > 0 && (
         <p className="-mb-3 text-caption text-faint">
           Native models on disk: {diskBytes >= 1e9 ? `${(diskBytes / 1e9).toFixed(1)} GB` : mb(diskBytes)} across {onDisk.length} {onDisk.length === 1 ? "model" : "models"}.
+        </p>
+      )}
+      {cfg.allowRestricted && (
+        <p className="-mb-3 text-caption text-faint">
+          Models with a restricted license are allowed.{" "}
+          <button onClick={() => update({ ...cfg, allowRestricted: false })} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Lock them again</button>
+          {" "}(the engines in use keep working).
         </p>
       )}
       <button id="set-voice-reset" onClick={reset}

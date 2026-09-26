@@ -15,6 +15,7 @@
     "db:reset": "pnpm --filter @openlive/db reset",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
+    "voice:regress": "pnpm --filter @openlive/voice-regress regress",
     "predesktop:dev": "node scripts/free-ports.mjs --sweep 47834 47833 9333 3000 8787",
     "desktop:dev": "cross-env AGENT_PORT=47833 WEB_PORT=47834 concurrently -k --kill-others -n web,agent,app -c cyan,magenta,green \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\" \"pnpm --filter @openlive/desktop start:dev\"",
     "desktop:build": "pnpm --filter @openlive/desktop build",

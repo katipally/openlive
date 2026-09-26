@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, PanelRightOpen, Pointer } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { toolMeta } from "@/lib/live/toolMeta";
+import { captionWindow } from "@/lib/live/voiceText";
+import { captionWords, wordsHeard } from "@openlive/shared/speech/timing";
 import { useUi } from "@/lib/uiStore";
 import { Orb } from "./Orb";
 import { CameraPiP } from "./CameraPiP";
@@ -45,8 +47,8 @@ export function InCall(props: InCallProps) {
     toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, pttUp } = props;
   // Narrow selector: captions re-render this component by design (it displays
   // them), but download/todos/usage/terminals/permission changes should not.
-  const { userCaption, userPartial, agentCaption, agentCaptionMs, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
-    userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption, agentCaptionMs: s.agentCaptionMs,
+  const { userCaption, userPartial, agentCaption, agentCaptionAt, agentCaptionStart, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption, agentCaptionAt: s.agentCaptionAt, agentCaptionStart: s.agentCaptionStart,
     toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, pttEnabled: s.pttEnabled,
     mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId,
   })));
@@ -82,21 +84,20 @@ export function InCall(props: InCallProps) {
   useEffect(() => { localStorage.setItem("ol-transcript-w", String(panelW)); }, [panelW]);
 
   const [agentWindow, setAgentWindow] = useState("");
-  useEffect(() => {
-    const words = agentCaption.split(/\s+/).filter(Boolean);
-    if (words.length <= 5) { setAgentWindow(words.join(" ")); return; }
-    const dur = agentCaptionMs > 0 ? agentCaptionMs : words.length * 320;
-    const start = performance.now();
+  // Revealed word by word even when it all fits: "$1,200.50 on 2026-09-25" is
+  // three words to read and four seconds to say. Before paint, so a new caption
+  // never shows whole for a frame.
+  useLayoutEffect(() => {
+    const units = captionWords(agentCaption);
     let raf = 0;
     const tick = () => {
-      const frac = Math.min(1, (performance.now() - start) / dur);
-      const idx = Math.max(1, Math.min(words.length, Math.ceil(frac * words.length)));
-      setAgentWindow(words.slice(Math.max(0, idx - 5), idx).join(" "));
-      if (frac < 1) raf = requestAnimationFrame(tick);
+      const heard = wordsHeard(agentCaptionAt, performance.now() - agentCaptionStart);
+      setAgentWindow(captionWindow(agentCaption, units, heard));
+      if (heard < units.length) raf = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [agentCaption, agentCaptionMs]);
+  }, [agentCaption, agentCaptionAt, agentCaptionStart]);
 
   // While a permission/elicitation modal is open, the user's speech is that modal's
   // answer — it's shown INSIDE the modal (ModalVoiceInput), so don't also echo the

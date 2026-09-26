@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 // Route validation for the native engines. The worker client is stubbed, so
 // no model is ever loaded; DATA_DIR points at a temp dir before any import.
-const transcribe = vi.fn(async (_e: unknown, s: Float32Array) => `samples:${s.length}`);
+const transcribe = vi.fn(async (_e: unknown, s: Float32Array) => ({ text: `samples:${s.length}`, at: [0] }));
 const speak = vi.fn((_e: unknown, _t: string, _v: unknown, _s: number, onChunk: (s: Float32Array) => void) => {
   const cancel = vi.fn();
   const started = Promise.resolve(24_000);
@@ -13,6 +13,9 @@ const speak = vi.fn((_e: unknown, _t: string, _v: unknown, _s: number, onChunk: 
   return { started, done, cancel };
 });
 vi.mock("./native.js", () => ({ transcribe, speak, unloadNative: vi.fn() }));
+// Whether onnxruntime-node loads here (it ships no binary for Intel Macs).
+const ort = vi.hoisted(() => ({ loads: true }));
+vi.mock("./device.js", async (real) => ({ ...(await real<typeof import("./device.js")>()), ortProbe: () => (ort.loads ? { version: "1.30.0", built: ["cpu"] } : null) }));
 
 let dir: string;
 let app: import("hono").Hono;
@@ -102,7 +105,7 @@ describe("POST /stt", () => {
   it("transcribes up to exactly 60 s", async () => {
     install("parakeet");
     const res = await stt("parakeet", new Uint8Array(60 * 16_000 * 4));
-    expect(await res.json()).toEqual({ text: `samples:${60 * 16_000}` });
+    expect(await res.json()).toEqual({ text: `samples:${60 * 16_000}`, at: [0] });
   });
 });
 
@@ -127,7 +130,7 @@ describe("POST /stt cancellation", () => {
   it("hands the engine a signal that aborts when the client hangs up", async () => {
     install("parakeet");
     let seen: AbortSignal | undefined;
-    transcribe.mockImplementationOnce((_e: unknown, _s: Float32Array, signal?: AbortSignal) => { seen = signal; return new Promise<string>(() => {}); });
+    transcribe.mockImplementationOnce((_e: unknown, _s: Float32Array, signal?: AbortSignal) => { seen = signal; return new Promise<{ text: string; at: number[] }>(() => {}); });
     const hangUp = new AbortController();
     void app.request("/stt?engine=parakeet", { method: "POST", body: new Uint8Array(64), headers: { "content-type": "application/octet-stream" }, signal: hangUp.signal });
     await vi.waitFor(() => expect(seen).toBeDefined());
@@ -212,12 +215,34 @@ describe("POST /tts (native)", () => {
     for (const e of variants) {
       install(e.id);
       for (const v of e.voices!) {
-        for (const lang of [v.lang!, `${v.lang!.toUpperCase()}-XX`]) {
+        for (const lang of [v.lang ?? e.languages[0]!, `${(v.lang ?? e.languages[0]!).toUpperCase()}-XX`]) {
           await (await tts({ engine: e.id, text: "hi", voice: v.id, lang })).arrayBuffer();
           expect((speak.mock.calls.at(-1)![2] as { id: string }).id, `${e.id} ${v.id} ${lang}`).toBe(v.id);
         }
       }
     }
+  });
+
+  it("tells Supertonic the style asked for and the language, and speaks any language with any style", async () => {
+    install("supertonic-3");
+    await (await tts({ engine: "supertonic-3", text: "Hola.", voice: "F2", lang: "es-ES" })).arrayBuffer();
+    const [, text, voice, , , lang] = speak.mock.calls.at(-1)!;
+    expect([text, (voice as { id: string }).id, lang]).toEqual(["Hola.", "F2", "es"]);
+    expect((await tts({ engine: "supertonic-3", text: "你好", lang: "zh" })).status).toBe(400);
+  });
+
+  it("refuses Supertonic, as lasting, where onnxruntime-node cannot load", async () => {
+    install("supertonic-3");
+    ort.loads = false;
+    try {
+      const res = await tts({ engine: "supertonic-3", text: "Hi." });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: "engine-not-runnable" });
+      const listed = (await (await app.request("/engines")).json() as Array<{ family: string; browser?: string; variants: Array<{ runnable: boolean }> }>)
+        .find((f) => f.family === "supertonic")!;
+      expect(listed).toMatchObject({ browser: "supertonic", variants: [{ runnable: false }] });
+      expect(speak).not.toHaveBeenCalled();
+    } finally { ort.loads = true; }
   });
 
   it("leaves the cloned-voice path on the same route unchanged", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { engineName, languageLabel, languagesNote, licenseTag, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
+import { engineName, languageLabel, languagesNote, licenseTag, missingEngines, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
 import { TTS_FAMILIES, pickCompatible, chooseVariant, DEFAULT_PIPELINE_CONFIG } from "./pipelineConfig";
 
 describe("language names", () => {
@@ -24,6 +24,12 @@ test("restrictive and unknown licenses are flagged, the rest pass through", () =
   expect(licenseTag("unknown (MODEL_CARD)").kind).toBe("unknown");
   expect(licenseTag("see huggingface.co/datasets/paolapersico1/Voice-Dataset-Italian").kind).toBe("unknown");
   expect(licenseTag("CC0")).toEqual({ label: "CC0", kind: "open" });
+  // Open only when the license is on the list and nothing in it restricts use;
+  // a fine-tuned voice by its own data's license.
+  expect(licenseTag("CC0; fine-tuned from lessac")).toEqual({ label: "CC0; fine-tuned from lessac", kind: "open" });
+  expect(licenseTag("CC BY-SA 4.0; fine-tuned from lessac")).toEqual({ label: "Share-alike", kind: "restricted" });
+  expect(licenseTag("IITM IndicTTS license; fine-tuned from lessac").kind).toBe("restricted");
+  for (const open of ["MIT", "Apache-2.0", "CC-BY-4.0", "CC BY 3.0", "BSD-3-Clause style (M-AILABS)", "OpenMDW-1.1", "OpenRAIL-M", "NVIDIA Open Model License"]) expect(licenseTag(open).kind).toBe("open");
 });
 
 describe("Model menu groups", () => {
@@ -85,4 +91,19 @@ describe("switch notice", () => {
     expect(engineName("piper-zh_CN-chaowen-medium-int8")).toBe("Piper zh_CN-chaowen-medium-int8");
     expect(engineName("nope")).toBe("nope");
   });
+});
+
+test("missingEngines: a selected native engine the agent has not downloaded, with what speaks instead", () => {
+  const matcha = chooseVariant(DEFAULT_PIPELINE_CONFIG, "tts", "matcha-en-ljspeech");
+  const catalog = (installed: boolean) => [{ variants: [{ id: "matcha-en-ljspeech", installed }, { id: "nemotron-3.5-160ms-int8", installed }] }];
+  expect(missingEngines(matcha, catalog(false))).toEqual([{ stage: "tts", id: "matcha-en-ljspeech", standIn: "Kokoro" }]);
+  expect(missingEngines(matcha, catalog(true))).toEqual([]);
+  expect(missingEngines(matcha, undefined)).toEqual([]); // the agent not heard from: nothing to claim
+  expect(missingEngines(matcha, [])).toEqual([]);        // not listed at all: nothing to offer
+  const both = chooseVariant({ ...matcha, language: "zh" }, "stt", "nemotron-3.5-160ms-int8");
+  expect(missingEngines(both, catalog(false))).toEqual([
+    { stage: "stt", id: "nemotron-3.5-160ms-int8", standIn: "Whisper" },
+    { stage: "tts", id: "matcha-en-ljspeech", standIn: null },
+  ]);
+  expect(missingEngines(DEFAULT_PIPELINE_CONFIG, catalog(false))).toEqual([]); // browser engines download in the browser
 });

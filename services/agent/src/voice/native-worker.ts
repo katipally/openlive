@@ -1,21 +1,34 @@
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { parentPort } from "node:worker_threads";
-import { SAMPLE_RATE, limitPeak, splitAtPauses } from "./pcm.js";
+import { SAMPLE_RATE, fitSilence, limitPeak, splitAtPauses } from "./pcm.js";
 import type { ModelType } from "./native-models.js";
+import type { Provider } from "./device.js";
+import { Supertonic, type Ort } from "@openlive/shared/speech/supertonic";
+import { KEEP_S, trimSilence } from "@openlive/shared/speech/trim";
+import { tokenOnsets } from "@openlive/shared/speech/timing";
 
 // Worker thread that owns every native speech engine handle (native.ts spawns
 // one for ASR and one for TTS). sherpa's streaming decode() is synchronous, so
 // running it here keeps the agent's event loop, and its live sockets, free.
+// A benchmark runs this same file as a short-lived child process instead, so a
+// provider that crashes natively takes down only that child.
+// Supertonic runs here too, on onnxruntime-node rather than sherpa, through
+// the synthesis the browser runs (@openlive/shared/speech/supertonic).
 // Every sherpa call that returns audio passes enableExternalBuffer false:
 // Electron's V8 memory cage rejects external buffers ("External buffers are
 // not allowed"), which only shows up in the packed app, not under plain Node.
 
 type Wave = { samples: Float32Array; sampleRate: number };
 type Stream = { acceptWaveform(w: Wave): void; inputFinished(): void; setOption(key: string, value: string): void };
-type Online = { createStream(): Stream; isReady(s: Stream): boolean; decode(s: Stream): void; isEndpoint(s: Stream): boolean; reset(s: Stream): void; getResult(s: Stream): { text: string } };
-type Offline = { config: { modelConfig: { canary?: { srcLang: string; tgtLang: string } } }; setConfig(cfg: unknown): void; createStream(): Stream; decodeAsync(s: Stream): Promise<{ text: string }> };
+// `timestamps`: each token's start (s), empty from an engine that times none;
+// a streaming one counts from `start_time`, where its last reset left it.
+type Result = { text: string; tokens: string[]; timestamps: number[]; start_time?: number };
+type Online = { createStream(): Stream; isReady(s: Stream): boolean; decode(s: Stream): void; isEndpoint(s: Stream): boolean; reset(s: Stream): void; getResult(s: Stream): Result };
+type Offline = { config: { modelConfig: { canary?: { srcLang: string; tgtLang: string } } }; setConfig(cfg: unknown): void; createStream(): Stream; decodeAsync(s: Stream): Promise<Result> };
 type Tts = { sampleRate: number; generateAsync(req: unknown): Promise<Wave> };
 type Sherpa = {
   OnlineRecognizer: new (cfg: unknown) => Online;
@@ -25,23 +38,31 @@ type Sherpa = {
   readWave(path: string, enableExternalBuffer?: boolean): Wave;
 };
 
-/** A variant to load: its id keys the loaded handle; config is native-models.ts sherpaConfig. */
-export interface ModelRef { engine: string; type: ModelType; config: object }
+/** A variant to load: its id keys the loaded handle; config is native-models.ts
+ *  sherpaConfig, and `provider` the execution provider it names (accel.ts). */
+export interface ModelRef { engine: string; type: ModelType; config: object; provider?: Provider }
 export type WorkerRequest =
   | ({ op: "stt"; id: number; samples: Float32Array; lang?: string } & ModelRef)
-  | ({ op: "tts"; id: number; text: string; speed: number; sid?: number; wav?: string; espeak?: string } & ModelRef)
+  // `voice` and `lang` are what a Supertonic render is told; sherpa's take `sid` and `espeak`.
+  | ({ op: "tts"; id: number; text: string; speed: number; sid?: number; wav?: string; espeak?: string; voice?: string; lang?: string } & ModelRef)
   | ({ op: "open"; id: number; lang?: string } & ModelRef)
+  // A fresh handle timed on a fixed input (accel.ts): `samples` for ASR, `text` for TTS.
+  | ({ op: "bench"; id: number; samples?: Float32Array; text?: string; sid?: number; wav?: string; espeak?: string; voice?: string } & ModelRef)
   | { op: "audio"; id: number; samples: Float32Array }
   | { op: "end" | "reset" | "close"; id: number }
   | { op: "cancel"; id: number }
   | { op: "unload"; engine: string };
 
+/** `at`: each captionWords(text) word's onset, ms from the first sample sent;
+ *  absent when the engine times no tokens (moonshine, canary). */
+export type Heard = { text: string; at?: number[] };
 export type WorkerEvent =
-  | { id: number; type: "done"; text?: string }
+  | { id: number; type: "done"; text?: string; at?: number[] }
   | { id: number; type: "start"; sampleRate: number }
   | { id: number; type: "chunk"; samples: Float32Array }
   | { id: number; type: "ready" | "closed" }
-  | { id: number; type: "partial" | "final"; text: string }
+  | { id: number; type: "partial" | "final"; text: string; at?: number[] }
+  | { id: number; type: "bench"; loadMs: number; warmMs: number; firstMs: number; rtf: number }
   | { id: number; type: "error"; message: string };
 
 const IDLE_UNLOAD_MS = 5 * 60_000; // a loaded engine holds hundreds of MB
@@ -52,14 +73,29 @@ const MAX_LOADED = 2;
 // a synthesis running past 2 s plus this pace is a runaway, not speech.
 const MIN_CHARS_PER_SEC: Record<string, number> = { pocket: 8, kitten: 5 };
 // Model types that reach full scale (pcm.ts limitPeak). Measured 2026-09-24:
-// kitten peaks at 1.08, piper es_ES-davefx at 0.994; kokoro, matcha, pocket
-// and the other Piper voices stay under 0.84.
-const PEAK_LIMITED = new Set<ModelType>(["kitten", "vits"]);
+// kitten peaks at 1.08, piper es_ES-davefx at 0.994; kokoro, pocket and the
+// other Piper voices stay under 0.84. Matcha clipped on 2 of the 14
+// tools/voice-regress replies (measured 2026-09-25).
+const PEAK_LIMITED = new Set<ModelType>(["kitten", "vits", "matcha"]);
+// Seconds of silence kept before and after each sentence of these model
+// types. Rendered apart, a Piper sentence ends with next to no silence or with
+// a -55 dB hiss, by voice, so back to back they joined 17-186 ms apart where
+// one render pauses 66-86 ms (measured 2026-09-25, tools/voice-regress, lessac,
+// amy, ryan); fitted, they join 68-91 ms apart. Matcha: 107 ms vs 110 but
+// uneven, 87 ms off per join, now 68.
+const SENTENCE_EDGE_S: Partial<Record<ModelType, [lead: number, tail: number]>> = { vits: [0.01, 0.05], matcha: [0.01, 0.05] };
 // Upstream nemotron example pads 0.4 s so the last 160 ms chunk flushes; 0.5 s leaves margin.
 const TAIL_PADDING = new Float32Array(SAMPLE_RATE / 2);
 // Measured 2026-09-24: speech starting at sample 0 loses its first word on
 // nemotron ("Hello there" -> "There"); 0.3 s of leading silence recovers it.
 const LEAD_PADDING = new Float32Array(SAMPLE_RATE * 0.3);
+const LEAD_MS = (1000 * LEAD_PADDING.length) / SAMPLE_RATE;
+
+/** A streaming result's text and word onsets, from the start of the audio after LEAD_PADDING. */
+function streamed(res: Result): Heard {
+  const text = res.text.trim();
+  return { text, at: tokenOnsets(text, res.tokens, res.timestamps, 1000 * (res.start_time ?? 0) - LEAD_MS) };
+}
 
 /** `lang` pins a multilingual Nemotron to one language; English-only models ignore it. */
 function freshStream(r: Online, lang?: string): Stream {
@@ -70,10 +106,22 @@ function freshStream(r: Online, lang?: string): Stream {
 }
 
 const sherpa = createRequire(import.meta.url)("sherpa-onnx-node") as Sherpa;
-const port = parentPort!;
-const post = (e: WorkerEvent, transfer: ArrayBuffer[] = []) => port.postMessage(e, transfer);
+const post = (e: WorkerEvent, transfer: ArrayBuffer[] = []) => (parentPort ? parentPort.postMessage(e, transfer) : process.send!(e));
+// As a child process: the agent is gone (even SIGKILLed), so this benchmark is moot.
+if (!parentPort) process.on("disconnect", () => process.exit());
+
+// onnxruntime-node's names for the providers that differ from device.ts's.
+const ORT_EP: Partial<Record<Provider, string>> = { directml: "dml" };
+
+/** Loaded on first use, so a platform without its binary still runs sherpa's engines. */
+function supertonic({ dir, provider, numThreads }: { dir: string; provider: Provider; numThreads: number }): Promise<Supertonic> {
+  const ort = createRequire(import.meta.url)("onnxruntime-node") as Ort;
+  return Supertonic.load(ort, { json: async (f) => JSON.parse(await readFile(join(dir, f), "utf8")), model: async (f) => join(dir, f) },
+    { executionProviders: [ORT_EP[provider] ?? provider], intraOpNumThreads: numThreads, interOpNumThreads: 1, logSeverityLevel: 3 });
+}
 
 async function create(op: WorkerRequest["op"], m: ModelRef): Promise<unknown> {
+  if (m.type === "supertonic") return supertonic(m.config as Parameters<typeof supertonic>[0]);
   if (op === "tts") return sherpa.OfflineTts.createAsync(m.config);
   return m.type === "online-transducer" ? new sherpa.OnlineRecognizer(m.config) : sherpa.OfflineRecognizer.createAsync(m.config);
 }
@@ -140,10 +188,10 @@ function serialize<T>(l: Loaded, job: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<string> {
+async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<Heard> {
   const l = await load(req.op, req);
   return serialize(l, async () => {
-    if (cancelled.has(req.id)) return "";
+    if (cancelled.has(req.id)) return { text: "" };
     if (req.type === "online-transducer") {
       const r = l.handle as Online;
       const s = freshStream(r, req.lang);
@@ -151,7 +199,7 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
       s.inputFinished();
       while (r.isReady(s)) r.decode(s);
-      return r.getResult(s).text.trim();
+      return streamed(r.getResult(s));
     }
     const r = l.handle as Offline;
     const canary = r.config.modelConfig.canary;
@@ -159,32 +207,47 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<s
     // Transcribes, not translates: the output language is the spoken one.
     if (canary && canary.srcLang !== lang) { canary.srcLang = canary.tgtLang = lang; r.setConfig(r.config); }
     const texts: string[] = [];
+    let at: number[] | undefined = [];
     // Canary skipped two sentences of a 38 s clip (measured 2026-09-24); the
     // 8 s windows moonshine needs (pcm.ts) keep it whole.
     for (const samples of req.type === "moonshine" || req.type === "canary" ? splitAtPauses(req.samples) : [req.samples]) {
       if (cancelled.has(req.id)) break;
       const s = r.createStream();
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples });
-      texts.push((await r.decodeAsync(s)).text.trim());
+      const res = await r.decodeAsync(s), text = res.text.trim();
+      texts.push(text);
+      const piece = tokenOnsets(text, res.tokens, res.timestamps, (1000 * (samples.byteOffset - req.samples.byteOffset)) / samples.BYTES_PER_ELEMENT / SAMPLE_RATE);
+      if (piece) at?.push(...piece); else at = undefined;
     }
-    return texts.filter(Boolean).join(" ");
+    return { text: texts.filter(Boolean).join(" "), at };
   });
 }
 
 const cancelled = new Set<number>();
 
+type VoiceReq = { speed: number; sid?: number; wav?: string; espeak?: string };
+/** A pocket voice clones its reference clip, read once per handle; the others pick a speaker. */
+function generationConfig(v: VoiceReq, waves: Map<string, Wave>): Record<string, unknown> {
+  if (!v.wav) return { sid: v.sid ?? 0, speed: v.speed, ...(v.espeak && { extra: { lang: v.espeak } }) };
+  let ref = waves.get(v.wav);
+  if (!ref) waves.set(v.wav, ref = sherpa.readWave(v.wav, false));
+  // numSteps and the 12 s reference cap are the upstream pocket example's values.
+  return { speed: v.speed, referenceAudio: ref.samples, referenceSampleRate: ref.sampleRate, numSteps: 5, extra: { max_reference_audio_len: 12 } };
+}
+
 async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> {
   const l = await load(req.op, req);
   await serialize(l, async () => {
     if (cancelled.has(req.id)) return;
-    const tts = l.handle as Tts;
-    let cfg: Record<string, unknown> = { sid: req.sid ?? 0, speed: req.speed, ...(req.espeak && { extra: { lang: req.espeak } }) };
-    if (req.wav) {
-      let ref = l.waves.get(req.wav);
-      if (!ref) l.waves.set(req.wav, ref = sherpa.readWave(req.wav, false));
-      // numSteps and the 12 s reference cap are the upstream pocket example's values.
-      cfg = { speed: req.speed, referenceAudio: ref.samples, referenceSampleRate: ref.sampleRate, numSteps: 5, extra: { max_reference_audio_len: 12 } };
+    if (req.type === "supertonic") {
+      // One render per sentence, cut as the browser worker cuts it (models.worker.ts).
+      const s = l.handle as Supertonic;
+      post({ id: req.id, type: "start", sampleRate: s.sampleRate });
+      const wav = trimSilence(await s.synthesize(req.text, req.voice!, req.speed, req.lang ?? "en"), s.sampleRate, ...KEEP_S.supertonic);
+      if (!cancelled.has(req.id)) post({ id: req.id, type: "chunk", samples: wav }, [wav.buffer as ArrayBuffer]);
+      return;
     }
+    const tts = l.handle as Tts;
     post({ id: req.id, type: "start", sampleRate: tts.sampleRate });
     // Pocket now and then babbles on for 3-10x its text, plain prose included
     // (measured 2026-09-24), and the chain would play all of it.
@@ -192,11 +255,14 @@ async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> 
     await tts.generateAsync({
       text: req.text,
       enableExternalBuffer: false,
-      generationConfig: new sherpa.GenerationConfig(cfg),
+      generationConfig: new sherpa.GenerationConfig(generationConfig(req, l.waves)),
       onProgress: ({ samples }: { samples: Float32Array }) => {
         if (cancelled.has(req.id)) return 0;
         // kokoro-multi int8 now and then returns all-NaN audio (native-models.ts): play silence, not NaN.
         if (samples.some(Number.isNaN)) samples.fill(0);
+        // Each progress call is one sentence (sherpaConfig's maxNumSentences 1).
+        const edge = SENTENCE_EDGE_S[req.type];
+        if (edge) samples = fitSilence(samples, tts.sampleRate, ...edge);
         post({ id: req.id, type: "chunk", samples: PEAK_LIMITED.has(req.type) ? limitPeak(samples) : samples });
         return (budget -= samples.length) > 0 ? 1 : 0;
       },
@@ -204,18 +270,71 @@ async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> 
   });
 }
 
+// ── benchmarks (accel.ts) ────────────────────────────────────────────────────
+const BENCH_RUNS = 3; // steady-state runs after the warm-up one; the median is kept
+
+/** Load time, the first (warm-up) run, then the median of BENCH_RUNS: first
+ *  audio chunk or clip transcribed (firstMs), and wall time over audio length (rtf). */
+async function bench(req: Extract<WorkerRequest, { op: "bench" }>): Promise<Extract<WorkerEvent, { type: "bench" }>> {
+  let t = performance.now();
+  const handle = await create(req.text === undefined ? "stt" : "tts", req);
+  const loadMs = performance.now() - t;
+  const waves = new Map<string, Wave>();
+  const once = async () => {
+    const t0 = performance.now();
+    let first: number | undefined, audioSec: number;
+    if (req.type === "supertonic") {
+      const s = handle as Supertonic;
+      audioSec = (await s.synthesize(req.text!, req.voice!)).length / s.sampleRate;
+    } else if (req.text !== undefined) {
+      const tts = handle as Tts;
+      let n = 0;
+      await tts.generateAsync({
+        text: req.text, enableExternalBuffer: false, generationConfig: new sherpa.GenerationConfig(generationConfig({ ...req, speed: 1 }, waves)),
+        onProgress: ({ samples }: { samples: Float32Array }) => { first ??= performance.now() - t0; n += samples.length; return 1; },
+      });
+      audioSec = n / tts.sampleRate;
+    } else if (req.type === "online-transducer") {
+      const r = handle as Online, s = freshStream(r);
+      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples! });
+      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
+      s.inputFinished();
+      while (r.isReady(s)) { r.decode(s); first ??= performance.now() - t0; }
+      audioSec = req.samples!.length / SAMPLE_RATE;
+    } else {
+      const s = (handle as Offline).createStream();
+      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples! });
+      await (handle as Offline).decodeAsync(s);
+      audioSec = req.samples!.length / SAMPLE_RATE;
+    }
+    const total = performance.now() - t0;
+    return { first: first ?? total, rtf: total / 1000 / audioSec };
+  };
+  t = performance.now();
+  await once();
+  const warmMs = performance.now() - t;
+  const runs: Array<{ first: number; rtf: number }> = [];
+  for (let i = 0; i < BENCH_RUNS; i++) runs.push(await once());
+  const median = (k: "first" | "rtf") => runs.map((r) => r[k]).sort((a, b) => a - b)[BENCH_RUNS >> 1]!;
+  return { id: req.id, type: "bench", loadMs: Math.round(loadMs), warmMs: Math.round(warmMs), firstMs: Math.round(median("first")), rtf: Number(median("rtf").toPrecision(3)) };
+}
+
 // ── streaming sessions (nemotron) ────────────────────────────────────────────
-interface Session { engine: string; lang?: string; l: Loaded; r: Online; s: Stream; committed: string; last: string }
+// `committedAt`: the onsets of `committed`'s words, undefined if any went untimed.
+interface Session { engine: string; lang?: string; l: Loaded; r: Online; s: Stream; committed: string; committedAt?: number[]; last: string }
 const sessions = new Map<number, Session>();
 // Sockets that closed while their engine was still loading.
 const closedEarly = new Set<number>();
 
 const joinText = (a: string, b: string) => (a && b ? `${a} ${b}` : a || b);
+const joinAt = (a?: number[], b?: number[]) => a && b && [...a, ...b];
 
 function decodeSession(id: number, ss: Session) {
   while (ss.r.isReady(ss.s)) ss.r.decode(ss.s);
-  const text = joinText(ss.committed, ss.r.getResult(ss.s).text.trim());
+  const res = ss.r.getResult(ss.s);
+  const text = joinText(ss.committed, res.text.trim());
   if (ss.r.isEndpoint(ss.s)) {
+    ss.committedAt = joinAt(ss.committedAt, streamed(res).at);
     ss.committed = text;
     ss.r.reset(ss.s);
   }
@@ -227,7 +346,7 @@ async function open(req: Extract<WorkerRequest, { op: "open" }>) {
   const r = l.handle as Online;
   if (closedEarly.delete(req.id)) return post({ id: req.id, type: "closed" });
   l.users++;
-  sessions.set(req.id, { engine: req.engine, lang: req.lang, l, r, s: freshStream(r, req.lang), committed: "", last: "" });
+  sessions.set(req.id, { engine: req.engine, lang: req.lang, l, r, s: freshStream(r, req.lang), committed: "", committedAt: [], last: "" });
   post({ id: req.id, type: "ready" });
 }
 
@@ -242,10 +361,11 @@ function sessionOp(req: Extract<WorkerRequest, { op: "audio" | "end" | "reset" |
     ss.s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
     ss.s.inputFinished();
     while (ss.r.isReady(ss.s)) ss.r.decode(ss.s);
-    post({ id: req.id, type: "final", text: joinText(ss.committed, ss.r.getResult(ss.s).text.trim()) });
-    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", last: "" }); // a finished stream takes no more input
+    const tail = streamed(ss.r.getResult(ss.s));
+    post({ id: req.id, type: "final", text: joinText(ss.committed, tail.text), at: joinAt(ss.committedAt, tail.at) });
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", committedAt: [], last: "" }); // a finished stream takes no more input
   } else if (req.op === "reset") {
-    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", last: "" });
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", committedAt: [], last: "" });
   } else {
     sessions.delete(req.id);
     ss.l.users--;
@@ -253,13 +373,14 @@ function sessionOp(req: Extract<WorkerRequest, { op: "audio" | "end" | "reset" |
   }
 }
 
-port.on("message", (req: WorkerRequest) => {
+(parentPort ?? process).on("message", (req: WorkerRequest) => {
   const fail = (e: unknown) => post({ id: (req as { id: number }).id, type: "error", message: String((e as Error)?.message ?? e) });
   try {
     switch (req.op) {
-      case "stt": transcribe(req).then((text) => { cancelled.delete(req.id); post({ id: req.id, type: "done", text }); }, (e) => { cancelled.delete(req.id); fail(e); }); break;
+      case "stt": transcribe(req).then((h) => { cancelled.delete(req.id); post({ id: req.id, type: "done", ...h }); }, (e) => { cancelled.delete(req.id); fail(e); }); break;
       case "tts": speak(req).then(() => { cancelled.delete(req.id); post({ id: req.id, type: "done" }); }, (e) => { cancelled.delete(req.id); fail(e); }); break;
       case "cancel": cancelled.add(req.id); break;
+      case "bench": bench(req).then((e) => post(e), fail); break;
       case "open": open(req).catch((e) => { closedEarly.delete(req.id); fail(e); }); break;
       case "unload":
         drop(req.engine);

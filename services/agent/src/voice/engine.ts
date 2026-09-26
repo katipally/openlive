@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { DATA_DIR } from "@openlive/db";
 import { log } from "../log.js";
+import { currentDevice } from "./accel.js";
+import { threadsFor } from "./device.js";
 
 // Zero-shot voice cloning on the agent service's CPU: ZipVoice (k2-fsa,
 // Apache-2.0, 123M distilled int8) through the sherpa-onnx Node addon.
@@ -67,7 +69,10 @@ function loadEngine(): InstanceType<Sherpa["OfflineTts"]> {
         dataDir: join(VOICE_MODEL_DIR, "espeak-ng-data"),
         lexicon: join(VOICE_MODEL_DIR, "lexicon.txt"),
       },
-      numThreads: 4,
+      // Not benchmarked like the native engines: a run needs a saved voice
+      // profile to clone, so it stays on CPU, on this device's thread share.
+      numThreads: threadsFor(currentDevice()),
+      provider: "cpu",
     },
     maxNumSentences: 1,
   });

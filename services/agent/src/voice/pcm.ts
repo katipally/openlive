@@ -52,3 +52,29 @@ export function limitPeak(samples: Float32Array): Float32Array {
   for (let i = 0; i < samples.length; i++) samples[i] = samples[i]! * gain;
   return samples;
 }
+
+const SILENCE = 10 ** (-50 / 20); // trimSilence's floor (@openlive/shared/speech/trim)
+
+/** `wav` cut to its speech, the first to the last 10 ms frame above -50 dBFS
+ *  RMS, with exactly `leadS` seconds before it and `tailS` after: the render's
+ *  own samples where it has them, zeros where it has fewer. Frame RMS, not a
+ *  sample peak, finds the edge: Piper voices end on a -55 dB hiss whose peaks
+ *  cross the floor. Empty when it is all silence. O(n). */
+export function fitSilence(wav: Float32Array, sampleRate: number, leadS: number, tailS: number): Float32Array {
+  const hop = Math.round(sampleRate / 100);
+  const loud = (f: number) => {
+    const end = Math.min(wav.length, f + hop);
+    let sum = 0;
+    for (let i = f; i < end; i++) sum += wav[i]! ** 2;
+    return sum / (end - f) >= SILENCE ** 2;
+  };
+  let first = 0;
+  while (first < wav.length && !loud(first)) first += hop;
+  if (first >= wav.length) return new Float32Array(0);
+  let last = Math.floor((wav.length - 1) / hop) * hop;
+  while (!loud(last)) last -= hop;
+  const end = Math.min(wav.length, last + hop), lead = Math.round(leadS * sampleRate), from = Math.max(0, first - lead);
+  const out = new Float32Array(lead + end - first + Math.round(tailS * sampleRate));
+  out.set(wav.subarray(from, Math.min(wav.length, from + out.length - (lead - first + from))), lead - first + from);
+  return out;
+}

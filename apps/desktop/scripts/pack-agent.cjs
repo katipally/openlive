@@ -1,9 +1,10 @@
 "use strict";
 // Bundle the agent service into a single CJS file the Electron app runs. The
-// JSON-file DB keeps the bundle native-free; the ONE native piece — the
-// sherpa-onnx voice-cloning addon — is loaded lazily via createRequire at
-// runtime (never bundled), so it ships as a real node_modules dir next to
-// agent.mjs and the app still boots fine without it.
+// JSON-file DB keeps the bundle native-free; the native pieces (the
+// sherpa-onnx voice addon and onnxruntime-node for Supertonic on this computer)
+// are loaded lazily via createRequire at runtime (never bundled), so they ship
+// as real node_modules dirs next to agent.mjs and the app still boots fine
+// without them.
 const esbuild = require("esbuild");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -56,6 +57,24 @@ function copySherpa() {
   console.log(`[pack-agent] shipped sherpa-onnx-node@${version} + ${shipped.join(", ")}`);
 }
 
+// onnxruntime-node carries every platform's binary (bin/napi-v6/<os>/<arch>);
+// only the target OS's ship. It has none for Intel Macs (1.30.0), where
+// Supertonic stays in the browser. On Linux x64 its postinstall adds the CUDA
+// provider libraries, which ship as installed.
+function copyOrt() {
+  const nmOut = path.join(outdir, "node_modules");
+  let resolved;
+  try { resolved = fs.realpathSync(path.join(root, "services/agent/node_modules/onnxruntime-node")); } catch { console.warn("[pack-agent] onnxruntime-node not installed, packing without it"); return; }
+  const os_ = { darwin: "darwin", win32: "win32" }[process.platform] ?? "linux";
+  fs.cpSync(resolved, path.join(nmOut, "onnxruntime-node"), {
+    recursive: true, dereference: true,
+    filter: (src) => { const rel = path.relative(path.join(resolved, "bin", "napi-v6"), src).split(path.sep); return rel[0] === ".." || rel[0] === "" || rel[0] === os_; },
+  });
+  // Its one runtime dependency, resolved as it resolves it.
+  fs.cpSync(fs.realpathSync(path.join(resolved, "..", "onnxruntime-common")), path.join(nmOut, "onnxruntime-common"), { recursive: true, dereference: true });
+  console.log(`[pack-agent] shipped onnxruntime-node (${os_} binaries) + onnxruntime-common`);
+}
+
 esbuild.build({
   // The native speech worker is its own entry: native.ts loads it by URL
   // (./native-worker.mjs next to agent.mjs), so it cannot live inside agent.mjs.
@@ -70,12 +89,13 @@ esbuild.build({
   outdir,
   outExtension: { ".js": ".mjs" },
   // ws pulls these optional native speedups; it works fine without them.
-  // sherpa-onnx-node is a native addon shipped as node_modules (see above).
-  external: ["bufferutil", "utf-8-validate", "sherpa-onnx-node"],
+  // sherpa-onnx-node and onnxruntime-node are native addons shipped as node_modules (see above).
+  external: ["bufferutil", "utf-8-validate", "sherpa-onnx-node", "onnxruntime-node"],
   // Some bundled CJS deps reference these — shim them for the ESM output.
   banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
   logLevel: "info",
 }).then(() => {
   copySherpa();
+  copyOrt();
   console.log("[pack-agent] wrote dist/agent/agent.mjs + native-worker.mjs");
 }).catch((e) => { console.error(e); process.exit(1); });

@@ -48,8 +48,8 @@ const PANEL = "border border-border bg-surface shadow-[var(--shadow-card)]";
 /** The one button shape here; the focus ring follows it (html.chromeless in globals.css). */
 const PILL_BTN = "rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
 
-/** Flow's phases onto the orb's states: acting and confirming are both work on the machine. */
-const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "acting" : p);
+/** Flow's phases onto the orb's states: confirming waits on the person's answer. */
+const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "listening" : p);
 
 export function FlowOrb() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
@@ -188,6 +188,14 @@ export function FlowOrb() {
   // arrives to make its buttons clickable.
   useEffect(() => retest.current(), [cardUp, stripUp, call]);
 
+  // In the strip while Flow works, and on the card while a question waits on its answer.
+  const stop = (
+    <button type="button" onClick={() => cmd({ t: "flowStop" })} title="Stop" aria-label="Stop what Flow is doing"
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+      <Square className="size-3 fill-current" aria-hidden /> Stop
+    </button>
+  );
+
   // Same root element either way, so the hit testing wired to it carries over.
   if (call) {
     return (
@@ -229,6 +237,7 @@ export function FlowOrb() {
                   </button>
                 ))}
                 <span className="ml-auto whitespace-nowrap text-caption text-muted-strong">or say “yes” / “cancel”</span>
+                {stop}
               </div>
             </>
           ) : ask.failure && (
@@ -266,10 +275,7 @@ export function FlowOrb() {
         <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
           <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
           <span ref={captionRef} role="status" className="min-w-0 flex-1 break-words py-1 text-label font-medium" title={caption}>{caption}</span>
-          {s.phase !== "listening" && <button type="button" onClick={() => cmd({ t: "flowStop" })} title="Stop" aria-label="Stop what Flow is doing"
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
-            <Square className="size-3 fill-current" aria-hidden /> Stop
-          </button>}
+          {s.phase !== "listening" && stop}
         </div>
       )}
 

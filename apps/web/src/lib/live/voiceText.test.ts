@@ -2,7 +2,8 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, endsMidThought, stripMarkdown, toSpeech, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs } from "./voiceText.ts";
+import { isJunk, isBackchannel, endsMidThought, stripMarkdown, toSpeech, speechPieces, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs, captionWindow } from "./voiceText.ts";
+import { captionWords } from "@openlive/shared/speech/timing";
 
 test("isJunk: silence artifacts dropped, real short answers kept", () => {
   assert.equal(isJunk("thank you for watching"), true);
@@ -51,22 +52,20 @@ test("stripMarkdown: the transcript keeps file names, URLs and code spans as wri
 });
 
 test("toSpeech: paths, file names and URLs are said as plain words", () => {
-  assert.equal(toSpeech("I updated src/components/Foo.tsx for you"), "I updated Foo dot tsx for you");
-  assert.equal(toSpeech("saved to app/main.py"), "saved to main dot py");
-  assert.equal(toSpeech("You've got three files: alpha.txt, beta.md, and gamma.json."), "You've got three files: alpha dot txt, beta dot md, and gamma dot json.");
+  assert.equal(toSpeech("I updated src/components/Foo.tsx for you"), "I updated Foo dot T S X for you");
+  assert.equal(toSpeech("saved to app/main.py"), "saved to main dot P Y");
+  assert.equal(toSpeech("You've got three files: alpha.txt, beta.md, and gamma.json."), "You've got three files: alpha dot T X T, beta dot M D, and gamma dot json.");
   assert.equal(toSpeech("see https://www.example.com/docs for more"), "see example dot com for more");
   assert.equal(toSpeech("visit docs.example.com today"), "visit docs dot example dot com today");
-  // Versions, decimals, abbreviations and ordinary slashes are left for the TTS engine.
-  for (const s of ["it's either and/or both", "open 24/7 tomorrow", "e.g. the third one", "ship v0.2.4 at 3.5 GHz", "Dr. Lee said so."]) {
-    assert.equal(toSpeech(s), s);
-  }
+  // Plain prose passes through untouched; the golden set (packages/shared) covers the rest.
+  for (const s of ["It's a lovely day, isn't it?", "Honestly, I think the second option is better."]) assert.equal(toSpeech(s), s);
 });
 
 // Streams `text` in pieces of `size` and returns every chunk the chunker emits.
-function chunked(text: string, size: number): string[] {
+function chunked(text: string, size: number, lang = "en"): string[] {
   const c = new SentenceChunker();
   const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size)));
+  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), lang));
   const tail = c.flush();
   return tail ? [...out, tail] : out;
 }
@@ -84,6 +83,36 @@ test("SentenceChunker: dots inside names, versions, URLs, decimals, abbreviation
       assert.equal(out.join(" "), text, `size ${size}`);
     }
   }
+});
+
+test("streaming: no number, date, price, version or address splits across chunks, so each chunk reads as the whole reply does", () => {
+  const replies: [lang: string, text: string][] = [
+    ["en", "It costs $1,200.50 now. Version v1.2.3 shipped on 2026-09-25 at 3:30 PM, e.g. for 15% of users. Call 555-123-4567 or mail ops@example.com. See No. 5 for the 3.5 GHz part."],
+    ["en", "The 1990s were wild. About 10k people, i.e. roughly 3/4 of them, paid 12.5 USD. Dr. Lee said 5-10 minutes. It ran at 60 mph!"],
+    ["de", "Am 3. Oktober 1990 kamen 1.500 Leute. Es kostet 12,50 € und dauert ca. 3,5 Stunden, z. B. bis 15:30 Uhr."],
+    ["es", "Cuesta 12,50 € hoy. El 1º de mayo llegan 1.500 personas a las 15:30, p. ej. con un 50% de descuento."],
+    ["zh", "我有3个苹果。2026年9月25日下午3:05，价格是¥12.5，打了15%的折扣，共1,200个。"],
+  ];
+  for (const [lang, text] of replies) {
+    const join = lang === "zh" ? "" : " ";
+    const whole = toSpeech(stripMarkdown(text), lang);
+    for (const size of [1, 2, 3, 5, 8, 13, 400]) {
+      const out = chunked(text, size, lang);
+      assert.equal(out.join(join), text, `${lang} size ${size}`);
+      assert.equal(out.map((c) => toSpeech(stripMarkdown(c), lang)).join(join), whole, `${lang} size ${size}`);
+      assert.ok(!out.some((c) => /\b(?:No|\d)\.$/.test(c)), `${lang} size ${size}: ${out.join(" | ")}`);
+    }
+  }
+});
+
+test("speechPieces: a chunk that grows past what one engine call takes is cut at a word", () => {
+  const prices = "They cost $1,234,567.89, $2,345,678.90, $3,456,789.01 and $4,567,890.12 in total.";
+  const said = toSpeech(prices, "en");
+  assert.ok(prices.length <= MAX_CHUNK_CHARS && said.length > 2 * MAX_CHUNK_CHARS);
+  const pieces = speechPieces(said, "en");
+  assert.ok(pieces.length > 1 && pieces.every((p) => p.length <= 2 * MAX_CHUNK_CHARS));
+  assert.equal(pieces.join(" "), said);
+  assert.deepEqual(speechPieces("Short.", "ja"), ["Short."]);
 });
 
 test("SentenceChunker: real sentence boundaries still split for streaming", () => {
@@ -286,10 +315,11 @@ test("endsMidThought: the English word list applies only to English", () => {
   assert.equal(endsMidThought("明日は晴れです。", "ja"), false);
 });
 
-test("toSpeech: outside English file names keep their dot", () => {
-  assert.equal(toSpeech("revisa src/app/main.py ahora", "es"), "revisa main.py ahora");
-  assert.equal(toSpeech("ve a https://www.example.com/docs", "es"), "ve a example.com");
-  assert.equal(toSpeech("saved to app/main.py", "en"), "saved to main dot py");
+test("toSpeech: outside English the dot is said in the language", () => {
+  assert.equal(toSpeech("revisa src/app/main.py ahora", "es"), "revisa main punto P Y ahora");
+  assert.equal(toSpeech("ve a https://www.example.com/docs", "es"), "ve a example punto com");
+  assert.equal(toSpeech("va sur example.com", "fr"), "va sur example point com");
+  assert.equal(toSpeech("saved to app/main.py", "en"), "saved to main dot P Y");
 });
 
 test("isJunk: a one-syllable CJK answer is a turn, multilingual Whisper's silence lines are not", () => {
@@ -307,4 +337,51 @@ test("estimateSpeechMs: a language's own rate, the engine's in English", () => {
   assert.equal(estimateSpeechMs("x".repeat(14), "piper", 2, "ja"), 1000);
   assert.equal(estimateSpeechMs("x".repeat(32), "pocket", 1, "es"), 2000); // Spanish speaks at English's pace
   assert.equal(estimateSpeechMs("x".repeat(30), "kitten", 1, "en"), 3000);
+});
+
+test("captionWindow: the last words heard, five English words or about twelve characters wide", () => {
+  const win = (text: string, heard: number) => captionWindow(text, captionWords(text), heard);
+  const en = "one two three four five six seven";
+  assert.equal(win(en, 1), "one");
+  assert.equal(win(en, 3), "one two three");
+  assert.equal(win(en, 7), "three four five six seven");
+  assert.equal(win(en, 99), "three four five six seven");
+  assert.equal(win(en, 0), "one"); // the first word shows from the start
+  assert.equal(win("short caption", 1), "short");
+  assert.equal(win("short caption", 2), "short caption"); // fits whole
+  const zh = "今天天气很好，我们去公园散步吧。";
+  assert.equal(win(zh, 3), "今天天");
+  assert.equal(win(zh, 14), "天气很好，我们去公园散步吧。"); // the last 12 of 14
+  assert.equal(win("", 1), "");
+});
+
+test("isBackchannel: acknowledgements, fillers and no words at all, in every language", () => {
+  const yes: [string, string][] = [
+    ["en", ""], ["en", "(coughs)"], ["en", "[laughter]"], ["en", "Mm-hmm."], ["en", "Mmmm hmm"], ["en", "uh-huh"], ["en", "Yeah, yeah, okay."], ["en", "Oh, I see. Right."], ["en", "All right, got it"],
+    ["es", "Sí, sí, vale."], ["es", "Ajá, claro"], ["fr", "Ouais, d'accord."], ["fr", "Oui oui, c'est ça"], ["de", "Ja ja, genau."], ["de", "Alles klar, mhm"],
+    ["it", "Sì, sì, va bene."], ["pt", "Uhum, tá bom."], ["hi", "हाँ हाँ, ठीक है।"], ["hi", "accha, theek hai"],
+    ["zh", "嗯嗯，对对对。"], ["zh", "好的好的"], ["ja", "うんうん、なるほど。"], ["ja", "はい、そうですね"], ["ko", "네 네, 맞아요."], ["ko", "아 그렇구나"],
+  ];
+  for (const [lang, t] of yes) assert.equal(isBackchannel(t, lang as never), true, `${lang}: ${t}`);
+  const no: [string, string][] = [
+    ["en", "mm-hmm wait stop"], ["en", "no"], ["en", "yeah but the other one"], ["en", "okay stop"], ["en", "right now"], ["en", "I see it"],
+    ["es", "sí, pero espera"], ["fr", "non"], ["de", "ja, aber warte"], ["it", "no, aspetta"], ["pt", "não"], ["hi", "रुको"],
+    ["zh", "对不对"], ["zh", "等一下"], ["ja", "ちょっと待って"], ["ja", "そうじゃない"], ["ko", "잠깐만요"],
+  ];
+  for (const [lang, t] of no) assert.equal(isBackchannel(t, lang as never), false, `${lang}: ${t}`);
+});
+
+test("isBackchannel: laughs of any length and throat sounds are no words, real words still are", () => {
+  const yes: [string, string][] = [
+    ["en", "Hahaha"], ["en", "ha"], ["en", "Ha ha ha!"], ["en", "Hahahahahaha."], ["en", "hehe"], ["en", "heh"], ["en", "hah, okay"], ["en", "lol"], ["en", "Ugh."], ["en", "Uggh"], ["en", "argh"],
+    ["en", "Ahem."], ["en", "ahem"], ["en", "A hem"], ["en", "Aham"], ["en", "Hck Hck"], ["en", "HCKHCK"], ["en", "Hmm."], ["en", "Hmmmm"], ["en", "hmph"], ["en", "tsk"], ["en", "phew"], ["en", "Ah."],
+    ["es", "jajaja"], ["es", "jeje, sí"], ["es", "ejem"], ["fr", "hihi"], ["fr", "héhé"], ["de", "ähem"], ["de", "hehe, ja"], ["it", "ahahah"], ["it", "ehm"], ["pt", "kkkkk"], ["pt", "rsrsrs"], ["pt", "hahaha"],
+    ["hi", "हाहाहा"], ["hi", "haha"], ["zh", "哈哈哈"], ["zh", "呵呵，好的"], ["zh", "咳咳"], ["ja", "ははは"], ["ja", "あはは、なるほど"], ["ja", "ふふふ"], ["ja", "えへへ"], ["ko", "하하하"], ["ko", "ㅋㅋㅋ"], ["ko", "에헴"], ["ko", "크흠"],
+  ];
+  for (const [lang, t] of yes) assert.equal(isBackchannel(t, lang as never), true, `${lang}: ${t}`);
+  const no: [string, string][] = [
+    ["en", "ugh wait stop"], ["en", "haha no"], ["en", "stop"], ["en", "wait"], ["en", "no"], ["en", "hey"], ["en", "hi"], ["en", "he"], ["en", "hack"], ["en", "hand"], ["en", "A ham"], ["en", "ahem, what about the tests"],
+    ["es", "hija"], ["es", "jaja espera"], ["pt", "kkk para"], ["de", "haha, halt"], ["zh", "哈哈等一下"], ["ja", "ははは、ちょっと待って"], ["ko", "하하 잠깐만요"], ["hi", "हाहा रुको"],
+  ];
+  for (const [lang, t] of no) assert.equal(isBackchannel(t, lang as never), false, `${lang}: ${t}`);
 });

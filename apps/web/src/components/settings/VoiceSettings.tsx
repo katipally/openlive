@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { loadPipelineConfig, savePipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
 import { PipelineSettings, LanguagePicker } from "./PipelineSettings";
 import { VoicesSettings } from "./VoicesSettings";
+import { PronunciationSettings } from "./PronunciationSettings";
 import { Section } from "./Section";
 
 /** Speaking speed for all TTS engines, stored in the pipeline config (same
@@ -23,7 +24,7 @@ function SpeakingSpeed() {
 
 // One home for everything about how OpenLive hears and speaks: the language
 // first (every stage below follows it), then speed (the knob people reach for
-// most), then the on-device engine, then cloned voices.
+// most), then how words are said, then the on-device engine, then cloned voices.
 export function VoiceSettings() {
   return (
     <div className="flex flex-col gap-7">
@@ -32,6 +33,9 @@ export function VoiceSettings() {
       </Section>
       <Section id="set-voice-speaking" title="Speaking" desc="How fast replies are read out, whichever voice is speaking.">
         <SpeakingSpeed />
+      </Section>
+      <Section id="set-voice-pronunciation" title="Pronunciation" desc="Numbers, dates, money and symbols are already read the way a person says them. For a name or brand the voice gets wrong, write how it sounds.">
+        <PronunciationSettings />
       </Section>
       <Section id="set-voice-engine" title="Speech engine" desc="Voice detection, transcription, turn-taking and the voice that answers.">
         <PipelineSettings />

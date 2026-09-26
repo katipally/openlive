@@ -88,6 +88,22 @@ test("a barge-in before any of the reply was voiced keeps none of it", async () 
   ws.emit("close");
 });
 
+test("a spoken turn is saved with its word onsets, two joined behind a turn keep none, and the model sees only words", async () => {
+  const { ws, say, until, done, started } = connect("words-at");
+  say({ t: "user_text", text: "Count slowly.", wordsAt: [800, 1100] });
+  await started;
+  await until(() => ws.sent.some((m) => m.event?.type === "text_delta"));
+  say({ t: "user_text", text: "Also this.", wordsAt: [900, 1200] });
+  say({ t: "user_text", text: "And that.", wordsAt: [700, 1000] });
+  await done(2);
+  expect(listMessages("words-at").filter((m) => m.role === "user").map((m) => m.content)).toEqual([
+    [{ type: "text", text: "Count slowly.", wordsAt: [800, 1100] }],
+    [{ type: "text", text: "Also this. And that." }],
+  ]);
+  expect(JSON.stringify(inputs.at(-1))).not.toContain("wordsAt");
+  ws.emit("close");
+});
+
 test("a cut mid-turn with nothing voiced yet saves none of the reply", async () => {
   const { ws, say, until, done, started } = connect("cut-mid");
   say({ t: "user_text", text: "Count slowly." });

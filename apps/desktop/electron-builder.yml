@@ -56,8 +56,9 @@ mac:
   # identical across the two single-arch passes of the universal build. Declare
   # them or electron-builder rejects the merge ("not covered by x64ArchFiles").
   # The ol-input addon is already a universal (lipo'd) Mach-O, so it is identical
-  # across the passes too.
-  x64ArchFiles: "{**/sherpa-onnx-darwin-*/**,**/ol-input/*.node}"
+  # across the passes too, as is onnxruntime-node's arm64-only binary (it ships
+  # none for Intel; pack-agent.cjs).
+  x64ArchFiles: "{**/sherpa-onnx-darwin-*/**,**/ol-input/*.node,**/onnxruntime-node/**}"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist

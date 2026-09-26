@@ -20,6 +20,8 @@ export class AudioPlayer {
   private minEpoch = 0;
   private sources = new Set<AudioBufferSourceNode>();
   private timers = new Set<ReturnType<typeof setTimeout>>(); // pending onStart callbacks
+  private cues = new Map<() => void, number>(); // each onStart not yet fired → the context time its chunk starts
+  private held = false; // hold(): the clock stops, and every chunk and cue waits for release()
   private rms = 0;
 
   private ensure(): AudioContext {
@@ -42,7 +44,8 @@ export class AudioPlayer {
       void el.play().catch(() => {});
       this.el = el;
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    if (this.held) void this.ctx.suspend();
+    else if (this.ctx.state === "suspended") void this.ctx.resume();
     return this.ctx;
   }
 
@@ -67,10 +70,26 @@ export class AudioPlayer {
     this.nextAt = startAt + buf.duration;
     this.sources.add(src);
     src.onended = () => { this.sources.delete(src); if (this.sources.size === 0) this.rms = 0; };
-    if (onStart) {
-      const t = setTimeout(() => { this.timers.delete(t); onStart(); }, Math.max(0, (startAt - ctx.currentTime) * 1000));
-      this.timers.add(t);
-    }
+    if (onStart) { this.cues.set(onStart, startAt); if (!this.held) this.arm(onStart, startAt); }
+  }
+  private arm(onStart: () => void, at: number) {
+    const t = setTimeout(() => { this.timers.delete(t); this.cues.delete(onStart); onStart(); }, Math.max(0, (at - this.ctx!.currentTime) * 1000));
+    this.timers.add(t);
+  }
+
+  /** Pause mid-word, keeping everything queued: release() goes on from the same sample. */
+  hold() {
+    this.held = true;
+    void this.ctx?.suspend();
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+  }
+  release() {
+    if (!this.held) return;
+    this.held = false;
+    if (!this.ctx) return;
+    void this.ctx.resume();
+    for (const [onStart, at] of this.cues) this.arm(onStart, at);
   }
 
   flush(epoch: number) {
@@ -79,6 +98,9 @@ export class AudioPlayer {
     this.sources.clear();
     for (const t of this.timers) clearTimeout(t); // drop pending caption updates
     this.timers.clear();
+    this.cues.clear();
+    // A barge-in over a paused reply: the clock runs again for the next one.
+    if (this.held) { this.held = false; void this.ctx?.resume(); }
     this.nextAt = 0;
     this.rms = 0;
   }
@@ -87,6 +109,7 @@ export class AudioPlayer {
   // moving value so the orb pulses with the voice. Falls back to the last chunk's
   // static RMS if the analyser isn't available or nothing is scheduled.
   level() {
+    if (this.held) return 0;
     if (this.analyser && this.tap && this.sources.size > 0) {
       this.analyser.getFloatTimeDomainData(this.tap as Float32Array<ArrayBuffer>);
       let sum = 0; for (let i = 0; i < this.tap.length; i++) sum += this.tap[i]! * this.tap[i]!;
@@ -97,7 +120,7 @@ export class AudioPlayer {
   /** N octave-band magnitudes (0..1) of the agent's voice — a real spectrum for the
    *  orb while it speaks. Zeros when nothing is playing. */
   agentBands(n = 5): number[] {
-    if (!this.analyser || !this.freq || this.sources.size === 0) return new Array(n).fill(0);
+    if (this.held || !this.analyser || !this.freq || this.sources.size === 0) return new Array(n).fill(0);
     this.analyser.getByteFrequencyData(this.freq as Uint8Array<ArrayBuffer>);
     return octaveBands(this.freq, n);
   }

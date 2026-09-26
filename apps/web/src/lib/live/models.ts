@@ -6,8 +6,11 @@
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
 import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES } from "./pipelineConfig";
 import type { LanguageCode } from "@openlive/shared";
+import { normalizeAligned } from "@openlive/shared/speech/normalize";
+import { heardOnsets } from "@openlive/shared/speech/timing";
+import type { StreamedFinal } from "./asrStream";
 import { pcmDecoder } from "./pcm";
-import { failureIsLasting } from "./nativeFailure";
+import { failureIsLasting, notDownloaded } from "./nativeFailure";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 
@@ -57,7 +60,7 @@ export function modelsMatchConfig(): boolean { return ready && loadedTag === rea
 const READY_KEY = "openlive-models-ready-v1";
 const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
-const readyTag = () => workerTag(loadPipelineConfig(), deviceTier());
+const readyTag = () => { const c = loadPipelineConfig(); return workerTag(c, deviceTier(), !!onAgent(c.tts.variant)); };
 // Every config that finished loading, space-separated (a pre-list value is one tag),
 // so a later switch counts whatever parts of it are already in the cache.
 const loadedTags = () => (localStorage.getItem(READY_KEY) ?? "").split(" ").filter(Boolean);
@@ -101,10 +104,15 @@ export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Pr
 let loading: Promise<void> | null = null;
 
 export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {
-  if (modelsMatchConfig()) return Promise.resolve();
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise.
-  if (loading) return loading;
+  // Which voice the agent runs decides what the worker loads, so it is read first.
+  loading ??= agentCopy(loadPipelineConfig().tts.variant).then(() => loadWorker(onProgress)).finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
+  return loading;
+}
+
+function loadWorker(onProgress: (p: LoadProgress) => void): Promise<void> {
+  if (modelsMatchConfig()) return Promise.resolve();
   // A warm worker loaded with a DIFFERENT config (the user changed Whisper size /
   // TTS engine) — tear it down so we reload the right weights. This is what makes
   // "Applies on the next call" true instead of needing a full app restart.
@@ -114,7 +122,7 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
   files.clear();
   // Best-effort: ask the browser not to evict the model cache under storage pressure.
   try { navigator.storage?.persist?.(); } catch { /* not supported */ }
-  loading = new Promise<void>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
     const tw = new Worker(new URL("./turn.worker.ts", import.meta.url), { type: "module" });
     worker = w;
@@ -168,16 +176,15 @@ export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void>
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     const cfg = loadPipelineConfig();
-    // A cloned voice loads the browser voice that stands in for it in the language (none for Chinese).
-    const browserTts = isNativeVariant(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
+    // A cloned voice loads the browser voice that stands in for it in the language
+    // (none for Chinese); a voice the agent runs loads nothing here until it fails.
+    const browserTts = isNativeVariant(cfg.tts.variant) || onAgent(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
     w.postMessage({
       type: "load", device: tier, whisperModel: whisperCheckpoint(cfg.stt.whisperSize, cfg.language, tier), whisper: !isNativeVariant(cfg.stt.variant),
       ttsEngine: browserTts, ttsNative: !browserTts, ttsVoice: cfg.tts.voice, lang: cfg.language,
     });
     tw.postMessage({ type: "load" });
   });
-  loading.finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
-  return loading;
 }
 
 // Safety net: a hung/dead worker (a stalled inference, a dropped message, a crashed
@@ -223,8 +230,34 @@ const httpError = async (res: Response) =>
 
 export const isNativeTts = isNativeVariant;
 
+// Browser voices the agent also runs on this computer (pipelineConfig.ts
+// `onAgent`), on the provider it measured fastest here: browser engine -> the
+// agent's variant (native-models.ts `browser`), when downloaded there and
+// runnable. The same model, voice and seeded noise either way, so the browser
+// is the fallback in the same voice. Read once per call; the last answer
+// stands until the next one lands, and none when the agent is unreachable.
+let copies = new Map<string, string>();
+let copiesLoading: Promise<void> | null = null;
+/** The agent variant that speaks for browser voice `engine` in this call, unless it failed. */
+const onAgent = (engine: string | undefined) => {
+  const v = engine ? copies.get(engine) : undefined;
+  return v !== ttsFallback ? v : undefined;
+};
+/** onAgent, once this call's answer is in; no request for an engine the agent never runs. */
+async function agentCopy(engine: string | undefined): Promise<string | undefined> {
+  if (!variantInfo(engine)?.family.onAgent) return undefined;
+  copiesLoading ??= listNativeEngines(AbortSignal.timeout(3000)).then((families) => {
+    copies = new Map(families.flatMap((f) => {
+      const v = f.browser && f.variants.find((x) => x.installed && x.runnable);
+      return v ? [[f.browser!, v.id] as const] : [];
+    }));
+  }, () => { copies = new Map(); });
+  await copiesLoading;
+  return onAgent(engine);
+}
+
 /** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; hungSentences = 0; }
+export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; hungSentences = 0; copiesLoading = null; }
 
 /** The STT variant this session really uses: the selection, or Whisper once it
  *  failed (Whisper speaks every curated language). */
@@ -234,10 +267,10 @@ export function activeSttEngine(): string {
 }
 
 export function nativeSttFailed(engine: string, err: unknown, lasting = failureIsLasting(err)) {
-  log.error("stt", `${engine} failed, using Whisper:`, err);
+  (notDownloaded(err) ? log.warn : log.error)("stt", `${engine} failed, using Whisper:`, err);
   if (!lasting || sttFallback === engine) return;
   sttFallback = engine;
-  toast(`${familyName(engine)} unavailable, using Whisper. Check Settings > Voice pipeline.`);
+  toast(`${familyName(engine)} ${notDownloaded(err) ? "isn't downloaded" : "unavailable"}, using Whisper. Check Settings > Voice pipeline.`);
 }
 
 // Call start, model load, every Flow open and a running call's keep-warm tick
@@ -261,21 +294,26 @@ export function warmNativeEngines() {
   if (isNativeVariant(s.variant) && s.variant !== sttFallback && warmDue(s.variant)) {
     void fetch(`/api/voice/stt?engine=${s.variant}&lang=${lang}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: new Float32Array(1600) }).catch(() => {});
   }
-  // A cloned voice runs on the agent too (ZipVoice), with the same cold start.
-  // The warm-up line is English: it is never played, and every voice reads it.
-  const body = isNativeTts(t.variant) && t.variant !== ttsFallback ? { engine: t.variant, voice: t.voice || undefined, text: "Hi." }
-    : t.family === "clone" && t.voice && !cloneFailed ? { profileId: t.voice, text: "Hi." } : null;
-  if (body && warmDue(t.variant)) {
+  // A cloned voice runs on the agent too (ZipVoice), with the same cold start,
+  // as does a browser voice the agent runs. The warm-up line is English: it is
+  // never played, and every voice reads it.
+  const warm = (body: object) => {
+    if (!warmDue(t.variant)) return;
     void fetch("/api/voice/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       .then((r) => r.arrayBuffer()).catch(() => {});
-  }
+  };
+  if (isNativeTts(t.variant)) { if (t.variant !== ttsFallback) warm({ engine: t.variant, voice: t.voice || undefined, text: "Hi." }); }
+  else if (t.family === "clone") { if (t.voice && !cloneFailed) warm({ profileId: t.voice, text: "Hi." }); }
+  else void agentCopy(t.variant).then((copy) => copy && warm({ engine: copy, voice: t.voice || undefined, text: "Hi." }));
 }
 
 const STT_WINDOW = 50 * 16000; // the agent refuses more than 60 s per request
 
-/** O(samples); one request per 50 s window, so a long monologue still transcribes. */
-async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array, signal?: AbortSignal): Promise<string> {
+/** O(samples); one request per 50 s window, so a long monologue still transcribes.
+ *  Word onsets only when the engine timed every window. */
+async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array, signal?: AbortSignal): Promise<StreamedFinal> {
   const texts: string[] = [];
+  let at: number[] | undefined = [];
   for (let i = 0; i < audio.length; i += STT_WINDOW) {
     warmedAt.set(engine, Date.now());
     const res = await fetch(`/api/voice/stt?engine=${engine}&lang=${lang}`, {
@@ -285,24 +323,28 @@ async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]) : AbortSignal.timeout(CALL_TIMEOUT_MS),
     });
     if (!res.ok) throw await httpError(res);
-    texts.push(((await res.json()) as { text: string }).text.trim());
+    const window = (await res.json()) as StreamedFinal;
+    texts.push(window.text.trim());
+    if (window.at) at?.push(...window.at.map((t) => t + (1000 * i) / 16000)); else at = undefined;
   }
-  return texts.filter(Boolean).join(" ");
+  return { text: texts.filter(Boolean).join(" "), at };
 }
 
-/** One downloadable variant, as GET /api/voice/engines lists it. */
+/** One downloadable variant, as GET /api/voice/engines lists it. `runnable`:
+ *  its runtime loads on this computer. */
 export interface NativeEngineStatus {
   id: string; legacyId?: string; name: string; sizeBytes: number; quality: "fastest" | "fast" | "balanced" | "best";
-  languages: string[]; streaming: boolean; latencyMs?: number; license: string;
+  languages: string[]; streaming: boolean; latencyMs?: number; license: string; runnable: boolean;
   installed: boolean; downloading: boolean; bytes: number;
   voices?: { id: string; name: string; lang?: string; gender?: "female" | "male" }[];
 }
-export interface NativeFamilyStatus { family: string; kind: "asr" | "tts"; name: string; variants: NativeEngineStatus[] }
+/** `browser`: the in-browser engine this family runs on this computer, rather than a choice of its own. */
+export interface NativeFamilyStatus { family: string; kind: "asr" | "tts"; name: string; browser?: string; variants: NativeEngineStatus[] }
 
 /** The agent's engine families, each with its variants' sizes, languages,
  *  licenses, voices and install state. */
-export async function listNativeEngines(): Promise<NativeFamilyStatus[]> {
-  const res = await fetch("/api/voice/engines");
+export async function listNativeEngines(signal?: AbortSignal): Promise<NativeFamilyStatus[]> {
+  const res = await fetch("/api/voice/engines", { signal });
   if (!res.ok) throw await httpError(res);
   return res.json();
 }
@@ -335,21 +377,69 @@ export async function deleteNativeEngine(id: string): Promise<void> {
   if (!res.ok) throw await httpError(res);
 }
 
-/** Transcribe a 16 kHz mono utterance → text, on the selected engine. Aborting
+export type AccelProvider = "cpu" | "coreml" | "cuda" | "directml" | "webgpu";
+export type AccelResult =
+  | { provider: AccelProvider; loadMs: number; warmMs: number; firstMs: number; rtf: number }
+  | { provider: AccelProvider; error: string };
+/** Where one installed native engine runs, as GET /api/voice/perf reports it;
+ *  `providers` are the ones its runtime has on this device. */
+export interface EngineAccel {
+  provider: AccelProvider; providers: AccelProvider[]; numThreads: number; override: AccelProvider | "auto"; results: AccelResult[]; measuredAt?: string;
+  bench: "running" | "queued" | "pending" | "done" | "cpu-only";
+}
+/** This device as the agent probed it; nothing of it leaves the machine. */
+export interface VoicePerf {
+  device: {
+    os: string; osVersion: string; arch: string; cpu: string; cores: number; physicalCores?: number; performanceCores?: number; ramBytes: number;
+    gpus: { vendor: string; model: string; driver?: string }[]; onBattery?: boolean; runtime: string; providers: AccelProvider[];
+    ortRuntime?: string; ortProviders?: AccelProvider[];
+    tier: "low" | "mid" | "high"; numThreads: number;
+  };
+  engines: Record<string, EngineAccel>;
+}
+
+export async function getVoicePerf(): Promise<VoicePerf> {
+  const res = await fetch("/api/voice/perf");
+  if (!res.ok) throw await httpError(res);
+  return res.json();
+}
+
+/** Pins an engine to a provider, or "auto" for the benchmark's choice; the next load uses it. */
+export async function setEngineAccel(id: string, override: AccelProvider | "auto"): Promise<void> {
+  const res = await fetch(`/api/voice/perf/engines/${id}`, { method: "PUT", body: JSON.stringify({ override }) });
+  if (!res.ok) throw await httpError(res);
+}
+
+/** Measures the engine again, as soon as no call is running. */
+export async function rebenchEngine(id: string): Promise<void> {
+  const res = await fetch(`/api/voice/perf/engines/${id}/bench`, { method: "POST" });
+  if (!res.ok) throw await httpError(res);
+}
+
+/** A transcript with each captionWords(text) word's onset, ms from the first sample of its audio. */
+export type Heard = { text: string; at: number[] };
+
+/** `final`'s word onsets, or where they fall on `audio` when its engine timed none. */
+export const timedOn = (final: StreamedFinal, audio: Float32Array, lang: LanguageCode): Heard =>
+  ({ text: final.text, at: final.at ?? heardOnsets(final.text, normalizeAligned(final.text, lang), audio, 16000) });
+
+/** Transcribe a 16 kHz mono utterance, on the selected engine. Aborting
  *  `signal` drops a native request the agent has not started yet (an interim
- *  caption giving way to the final); it rejects and never falls back. */
-export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<string> {
+ *  caption giving way to the final); it rejects and never falls back. Whisper
+ *  times no words here: its word timestamps need another export of every
+ *  checkpoint and cost 40% more decoding (tiny.en on CPU, 2026-09-25). */
+export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<Heard> {
   const engine = activeSttEngine();
   const lang = loadPipelineConfig().language;
   if (isNativeVariant(engine)) {
-    try { return await nativeStt(engine, lang, audio, signal); }
+    try { return timedOn(await nativeStt(engine, lang, audio, signal), audio, lang); }
     catch (e) { signal?.throwIfAborted(); nativeSttFailed(engine, e); }
   }
   // The checkpoint follows the language, so a switch mid-call swaps it on the next utterance.
   const model = whisperCheckpoint(loadPipelineConfig().stt.whisperSize, lang, deviceTier());
   const m = await call<{ text: string }>({ type: "stt", audio, lang, model });
   whisperLoaded = model;
-  return m.text;
+  return timedOn(m, audio, lang);
 }
 
 // Cloned-voice synthesis runs in the LOCAL agent service (ZipVoice via
@@ -429,8 +519,10 @@ let hungSentences = 0;
  *  would repeat. Resolves once every piece is handed over; aborting `signal`
  *  ends it quietly. */
 export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk: (audio: Float32Array, sampleRate: number) => void, signal?: AbortSignal): Promise<void> {
-  const engine = opts?.engine;
-  if (isNativeTts(engine) && engine !== ttsFallback) {
+  // A browser voice the agent runs streams from it the same way, and on a
+  // lasting failure gives way to the same voice in the browser, quietly.
+  const engine = isNativeTts(opts?.engine) ? opts?.engine : await agentCopy(opts?.engine);
+  if (engine && engine !== ttsFallback) {
     let voiced = false;
     for (let attempt = 1; ; attempt++) {
       const stalled = new AbortController();
@@ -470,11 +562,12 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
           log.error("tts", `${engine} failed twice, this sentence goes unspoken:`, e);
           return;
         }
-        const standIn = browserTtsFallback(opts?.lang ?? "en");
-        log.error("tts", `${engine} failed, using ${standIn ?? "no voice"} for this call:`, e);
+        const copy = engine !== opts?.engine;
+        const standIn = copy ? opts?.engine : browserTtsFallback(opts?.lang ?? "en");
+        (notDownloaded(e) ? log.warn : log.error)("tts", `${engine} failed, using ${standIn ?? "no voice"} in the browser for this call:`, e);
         if (ttsFallback !== engine) {
-          ttsFallback = engine!;
-          if (standIn) toast(`${familyName(engine!)} unavailable, using ${familyName(standIn)}. Check Settings > Voice pipeline.`);
+          ttsFallback = engine;
+          if (standIn && !copy) toast(`${familyName(engine)} ${notDownloaded(e) ? "isn't downloaded" : "unavailable"}, using ${familyName(standIn)}. Check Settings > Voice pipeline.`);
         }
         break;
       } finally { clearTimeout(timer); }
@@ -494,7 +587,7 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
  *  agent service and, once it is unavailable for the call, gives way to the
  *  browser voice for the language (silence when there is none). */
 export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float32Array; sampleRate: number }> {
-  if (isNativeTts(opts?.engine)) {
+  if (isNativeTts(opts?.engine) || await agentCopy(opts?.engine)) {
     const parts: Float32Array[] = [];
     let sampleRate = 24000;
     await ttsStream(text, opts, (a, r) => { parts.push(a); sampleRate = r; });

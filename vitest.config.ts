@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // before this config but had no framework to run them).
 export default defineConfig({
   test: {
-    include: ["{apps,services,packages}/*/src/**/*.test.ts"],
+    include: ["{apps,services,packages,tools}/*/src/**/*.test.ts"],
     environment: "node",
   },
 });

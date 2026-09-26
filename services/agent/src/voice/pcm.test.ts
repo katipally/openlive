@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { limitPeak, pcmBytes, pcmFromBytes, splitAtPauses, SAMPLE_RATE } from "./pcm.js";
+import { fitSilence, limitPeak, pcmBytes, pcmFromBytes, splitAtPauses, SAMPLE_RATE } from "./pcm.js";
 
 describe("pcmFromBytes / pcmBytes", () => {
   it("round-trips samples", () => {
@@ -67,5 +67,31 @@ describe("limitPeak", () => {
   it("never raises a quiet chunk", () => {
     expect(Array.from(limitPeak(new Float32Array([0.1, -0.9, 0])))).toEqual(Array.from(new Float32Array([0.1, -0.9, 0])));
     expect(limitPeak(new Float32Array(0)).length).toBe(0);
+  });
+});
+
+describe("fitSilence", () => {
+  // At 1 kHz a frame is 10 samples. This hiss is under -50 dBFS RMS though half its samples cross -50 dBFS.
+  const hiss = (n: number) => Array.from({ length: n }, (_, i) => (i % 2 ? 0.004 : 0.001));
+  const speech = Array.from({ length: 30 }, (_, i) => (i % 2 ? 0.5 : -0.4));
+  const wav = new Float32Array([...hiss(300), ...speech, ...hiss(400)]);
+
+  it("keeps exactly the lead and tail asked for, the render's own samples first", () => {
+    const out = fitSilence(wav, 1000, 0.05, 0.1);
+    expect(out.length).toBe(50 + 30 + 100);
+    expect(Array.from(out.subarray(50, 80))).toEqual(Array.from(wav.subarray(300, 330)));
+    expect(out[49]).toBe(wav[299]);
+    expect(out[179]).toBe(wav[429]);
+  });
+
+  it("pads with zeros where the render has less silence than asked", () => {
+    const out = fitSilence(new Float32Array(speech.slice(0, 20)), 1000, 0.01, 0.02);
+    expect(out.length).toBe(10 + 20 + 20);
+    expect([out[0], out[9], out[30], out[49]]).toEqual([0, 0, 0, 0]);
+    expect(out[10]).toBe(Math.fround(-0.4));
+  });
+
+  it("returns nothing for all silence", () => {
+    expect(fitSilence(new Float32Array(hiss(500)), 1000, 0.05, 0.1).length).toBe(0);
   });
 });

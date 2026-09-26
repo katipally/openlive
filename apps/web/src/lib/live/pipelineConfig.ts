@@ -7,6 +7,7 @@
 // construction, so they apply on the next session start.
 
 import { LANGUAGE_CODES, type LanguageCode } from "@openlive/shared";
+import type { LexiconEntry } from "@openlive/shared/speech/lexicon";
 
 export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
 export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
@@ -25,6 +26,8 @@ export interface PipelineConfig {
   tts: StageChoice & { voice: string; speed: number };           // TTS engine + voice id ("" = the engine's own pick) + speaking rate
   turn: { engine: TurnEngine; threshold: number; holdMs: number }; // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1); max mid-thought hold before auto-send
   vad: { model: VadModel; speechThreshold: number; redemptionMs: number }; // Silero weights + sensitivity + trailing silence before a turn ends
+  pronunciations: LexiconEntry[];                                // the user's dictionary: how the voice says a word or name
+  allowRestricted: boolean;                                      // the user's OK to pick models under a restricted license (`restricted`)
 }
 
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
@@ -33,6 +36,8 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   tts: { family: "kokoro", variant: "kokoro", variants: { kokoro: "kokoro" }, voice: "af_heart", speed: 1 },
   turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000 },
   vad: { model: "v6", speechThreshold: 0.5, redemptionMs: 550 },
+  pronunciations: [],
+  allowRestricted: false,
 };
 
 /** The languages a session can run in, named in English and in their own script. */
@@ -133,13 +138,19 @@ export const KITTEN_VOICES: VoiceOption[] = ([
 // the curated languages, so a config validates with the agent offline;
 // services/agent/src/voice/web-catalog.test.ts keeps the two in step.
 
-export interface EngineVariantInfo { id: string; languages: readonly LanguageCode[]; streaming?: boolean; legacy?: string }
+/** `restricted`: its license is outside MIT, Apache, BSD and CC BY (engineMenu.ts
+ *  licenseTag), so it is picked only once the user allows it. */
+export interface EngineVariantInfo { id: string; languages: readonly LanguageCode[]; streaming?: boolean; legacy?: string; restricted?: true }
 export interface EngineFamilyInfo {
   id: string;
   stage: Stage;
   name: string;
   native: boolean;
+  /** The model's license, shown on its engine card (Piper's differs per voice). */
   note?: string;
+  licenseUrl?: string;
+  /** What a restricted variant's license limits, said before the user allows it. */
+  restriction?: string;
   variants: EngineVariantInfo[];
   defaultVariant: string;
   /** A language whose default is not `defaultVariant` (Piper's voices are one language each). */
@@ -147,6 +158,8 @@ export interface EngineFamilyInfo {
   /** Voices known without the agent; a family without them lists its voices in the agent's catalog. */
   voices?: VoiceOption[];
   defaultVoice?: string;
+  /** A browser engine the agent can also run on this computer, once downloaded there (models.ts agentCopy). */
+  onAgent?: true;
 }
 
 const ALL = LANGUAGE_CODES;
@@ -155,6 +168,7 @@ const langs = (s: string) => s.split(" ") as LanguageCode[];
 const variants = (ids: string, languages: readonly LanguageCode[], extra: Omit<EngineVariantInfo, "id" | "languages"> = {}) =>
   ids.split(" ").map((id) => ({ id, languages, ...extra }));
 const one = (id: string, languages: readonly LanguageCode[]): EngineVariantInfo[] => [{ id, languages }];
+const restrict = (vs: EngineVariantInfo[]): EngineVariantInfo[] => vs.map((v) => ({ ...v, restricted: true }));
 const PIPER_IDS = "en_US-lessac-low-int8 en_US-lessac-medium-int8 en_US-lessac-high-int8 en_US-amy-low-int8 en_US-amy-medium-int8 "
   + "en_US-ryan-low-int8 en_US-ryan-medium-int8 en_US-ryan-high-int8 en_US-libritts_r-medium-int8 es_ES-davefx-medium-int8 "
   + "es_ES-sharvard-medium-int8 es_AR-daniela-high-int8 fr_FR-siwis-low-int8 fr_FR-siwis-medium-int8 fr_FR-tom-medium-int8 "
@@ -162,12 +176,18 @@ const PIPER_IDS = "en_US-lessac-low-int8 en_US-lessac-medium-int8 en_US-lessac-h
   + "de_DE-ramona-low-int8 it_IT-paola-medium-int8 it_IT-riccardo-x_low-int8 pt_BR-faber-medium-int8 pt_BR-cadu-medium-int8 "
   + "pt_PT-tugao-medium-int8 hi_IN-pratham-medium-int8 hi_IN-priyamvada-medium-int8 hi_IN-rohan-medium-int8 "
   + "zh_CN-chaowen-medium-int8 zh_CN-xiao_ya-medium-int8 zh_CN-huayan-medium";
+// Voices whose own data is CC0, CC BY or BSD-style, whatever voice they were
+// fine-tuned from; the rest are research-only, non-commercial, share-alike,
+// AGPL or unknown (licenses in native-models.ts PIPER).
+const PIPER_OPEN = new Set(["en_US-libritts_r", "es_ES-davefx", "es_ES-sharvard", "fr_FR-siwis", "de_DE-thorsten", "de_DE-kerstin",
+  "de_DE-ramona", "it_IT-riccardo", "pt_BR-faber", "pt_BR-cadu", "pt_PT-tugao", "zh_CN-chaowen"]);
 const KOKORO_MULTI = langs("en es fr hi it pt zh");
 
 export const STT_FAMILIES: EngineFamilyInfo[] = [
-  { id: "whisper", stage: "stt", name: "Whisper", native: false, variants: one("whisper", ALL), defaultVariant: "whisper" },
+  { id: "whisper", stage: "stt", name: "Whisper", native: false, note: "Apache 2.0", variants: one("whisper", ALL), defaultVariant: "whisper" },
   {
     id: "nemotron", stage: "stt", name: "Nemotron Streaming", native: true, note: "NVIDIA Open Model License",
+    licenseUrl: "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
     variants: variants("nemotron-en-80ms-int8 nemotron-en-160ms-int8 nemotron-en-560ms-int8 nemotron-en-1120ms-int8", EN, { streaming: true })
       .map((v) => (v.id === "nemotron-en-160ms-int8" ? { ...v, legacy: "nemotron" } : v)),
     defaultVariant: "nemotron-en-160ms-int8",
@@ -196,22 +216,29 @@ export const STT_FAMILIES: EngineFamilyInfo[] = [
 ];
 
 export const TTS_FAMILIES: EngineFamilyInfo[] = [
-  { id: "kokoro", stage: "tts", name: "Kokoro", native: false, variants: one("kokoro", EN), defaultVariant: "kokoro", voices: KOKORO_VOICES, defaultVoice: "af_heart" },
+  { id: "kokoro", stage: "tts", name: "Kokoro", native: false, note: "Apache 2.0", variants: one("kokoro", EN), defaultVariant: "kokoro", voices: KOKORO_VOICES, defaultVoice: "af_heart" },
   // Verified 2026-09-24 against huggingface.co/Supertone/supertonic-3: 31
   // languages, Chinese not among them; the language rides as a tag (supertonic.ts).
   {
     id: "supertonic", stage: "tts", name: "Supertonic", native: false, variants: one("supertonic", langs("en es fr de it pt hi ja ko")),
-    defaultVariant: "supertonic", voices: SUPERTONIC_VOICES, defaultVoice: "M1",
+    note: "OpenRAIL-M, with use restrictions", licenseUrl: "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
+    defaultVariant: "supertonic", voices: SUPERTONIC_VOICES, defaultVoice: "M1", onAgent: true,
   },
   // Cloned voices (Voice Studio): synthesis runs in the local agent service
   // (ZipVoice via sherpa-onnx, English and Chinese); `voice` holds a profile
   // id, and the runtime falls back to a browser voice if it is missing.
-  { id: "clone", stage: "tts", name: "Your voice", native: false, variants: one("clone", langs("en zh")), defaultVariant: "clone", defaultVoice: "" },
+  // ZipVoice's code is Apache 2.0; its weights state no license (checked 2026-09-25).
+  {
+    id: "clone", stage: "tts", name: "Your voice", native: false, note: "ZipVoice, weights' license unstated", licenseUrl: "https://github.com/k2-fsa/ZipVoice",
+    restriction: "ZipVoice's weights state no license, and it was trained on Emilia, which is for non-commercial use (CC BY-NC 4.0)",
+    variants: restrict(one("clone", langs("en zh"))), defaultVariant: "clone", defaultVoice: "",
+  },
   // Native engines: synthesized on the local agent and streamed as it goes, so
   // speech starts before the sentence is finished.
   {
     id: "pocket", stage: "tts", name: "Pocket TTS", native: true, note: "Non-commercial use only (the sherpa-onnx package terms)",
-    variants: [{ id: "pocket-int8", languages: EN, legacy: "pocket" }, { id: "pocket-fp32", languages: EN }],
+    licenseUrl: "https://huggingface.co/KevinAHM/pocket-tts-onnx/blob/main/onnx/LICENSE", restriction: "The ONNX export it runs is for non-commercial use only",
+    variants: restrict([{ id: "pocket-int8", languages: EN, legacy: "pocket" }, { id: "pocket-fp32", languages: EN }]),
     defaultVariant: "pocket-int8", voices: POCKET_VOICES, defaultVoice: "bria",
   },
   {
@@ -220,10 +247,13 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
     defaultVariant: "kitten-nano-int8", voices: KITTEN_VOICES, defaultVoice: "bella",
   },
   {
-    id: "piper", stage: "tts", name: "Piper", native: true,
-    variants: PIPER_IDS.split(" ").map((v) => ({ id: `piper-${v}`, languages: [v.slice(0, 2) as LanguageCode] })),
+    id: "piper", stage: "tts", name: "Piper", native: true, note: "License per voice, under Model", licenseUrl: "https://huggingface.co/rhasspy/piper-voices",
+    restriction: "Some Piper voices were trained on research-only, non-commercial, share-alike or unknown-license data; each voice's terms are under Model",
+    variants: PIPER_IDS.split(" ").map((v) => ({
+      id: `piper-${v}`, languages: [v.slice(0, 2) as LanguageCode], ...(PIPER_OPEN.has(v.split("-", 2).join("-")) ? {} : { restricted: true as const }),
+    })),
     defaultVariant: "piper-en_US-lessac-medium-int8",
-    // The permissive voice of each language (licenses in the agent's catalog).
+    // Each language's pick; a restricted one (it, hi) waits for the user's OK.
     byLanguage: {
       es: "piper-es_ES-davefx-medium-int8", fr: "piper-fr_FR-siwis-medium-int8", de: "piper-de_DE-thorsten-medium-int8",
       it: "piper-it_IT-paola-medium-int8", pt: "piper-pt_BR-faber-medium-int8", hi: "piper-hi_IN-rohan-medium-int8", zh: "piper-zh_CN-chaowen-medium-int8",
@@ -231,11 +261,11 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
   },
   {
     // Default fp32: the int8 build returned all-NaN audio for short lines, and runs 2x slower (measured 2026-09-24, native-models.ts).
-    id: "kokoro-native", stage: "tts", name: "Kokoro (CPU)", native: true,
+    id: "kokoro-native", stage: "tts", name: "Kokoro (CPU)", native: true, note: "Apache 2.0",
     variants: [{ id: "kokoro-en-v0_19-int8", languages: EN }, ...variants("kokoro-multi-v1_0-int8 kokoro-multi-v1_0", KOKORO_MULTI)],
     defaultVariant: "kokoro-multi-v1_0",
   },
-  { id: "matcha", stage: "tts", name: "Matcha", native: true, variants: one("matcha-en-ljspeech", EN), defaultVariant: "matcha-en-ljspeech" },
+  { id: "matcha", stage: "tts", name: "Matcha", native: true, note: "Apache 2.0", variants: one("matcha-en-ljspeech", EN), defaultVariant: "matcha-en-ljspeech" },
 ];
 
 const FAMILIES: Record<Stage, EngineFamilyInfo[]> = { stt: STT_FAMILIES, tts: TTS_FAMILIES };
@@ -251,14 +281,25 @@ export const familyInfo = (stage: Stage, id: string | undefined) => FAMILIES[sta
 /** Runs on the local agent (the browser loads nothing for it). */
 export const isNativeVariant = (id: string | undefined) => !!variantInfo(id)?.family.native;
 const speaks = (id: string | undefined, lang: LanguageCode) => !!variantInfo(id)?.variant.languages.includes(lang);
+export const isRestricted = (id: string | undefined) => !!variantInfo(id)?.variant.restricted;
+/** Whether `c` may switch to `id`: open, or restricted and the user allowed those. */
+export const permitted = (c: Pick<PipelineConfig, "allowRestricted">, id: string) => c.allowRestricted || !isRestricted(id);
 
 /** The variant a family starts on in `lang`: its language pick, else its
- *  default, else the first variant that speaks `lang`, else its default. Pure. */
-export function defaultVariant(family: EngineFamilyInfo, lang: LanguageCode): string {
-  const pick = family.byLanguage?.[lang];
-  if (pick) return pick;
-  if (speaks(family.defaultVariant, lang)) return family.defaultVariant;
-  return family.variants.find((v) => v.languages.includes(lang))?.id ?? family.defaultVariant;
+ *  default, else the first variant that speaks `lang`, each only when
+ *  unrestricted or `allowRestricted`; else a restricted one that speaks it,
+ *  else its default. Only a pick the user confirms reaches a restricted one
+ *  (chooseVariant). Pure, O(variants). */
+export function defaultVariant(family: EngineFamilyInfo, lang: LanguageCode, allowRestricted = false): string {
+  const picks = [family.byLanguage?.[lang], family.defaultVariant, ...family.variants.map((v) => v.id)].filter((id): id is string => !!id && speaks(id, lang));
+  return picks.find((id) => permitted({ allowRestricted }, id)) ?? picks[0] ?? family.defaultVariant;
+}
+
+/** The variant a click on `family` switches to: the one last picked there if
+ *  it speaks the session language and is permitted, else its default for it. Pure. */
+export function familyVariant(c: PipelineConfig, stage: Stage, family: EngineFamilyInfo): string {
+  const last = c[stage].variants[family.id];
+  return last && speaks(last, c.language) && permitted(c, last) ? last : defaultVariant(family, c.language, c.allowRestricted);
 }
 
 /** Whether `lang` can be spoken: for a config, per stage; for a variant id, by
@@ -272,8 +313,9 @@ export function languageSupport(target: PipelineConfig | string, lang: LanguageC
 }
 
 /** The recommended engines per language: fast and good, on the agent where a
- *  native engine does it better than the browser. Kokoro in the browser is
- *  English only, and nothing speaks Japanese or Korean but Supertonic. */
+ *  native engine does it better than the browser, and never a restricted one.
+ *  Kokoro in the browser is English only, and nothing speaks Japanese or
+ *  Korean but Supertonic. */
 export const LANGUAGE_DEFAULTS: Record<LanguageCode, Record<Stage, string>> = {
   en: { stt: "parakeet-0.6b-v2-int8", tts: "kokoro" },
   es: { stt: "parakeet-0.6b-v3-int8", tts: "kokoro-multi-v1_0" },
@@ -293,10 +335,11 @@ export const browserTtsFallback = (lang: LanguageCode): string | null => ["kokor
 
 /** Make `variant` the stage's engine, remembering it for its family. A voice
  *  that the new engine does not have gives way to its default (a native engine
- *  without a static list: "", the agent picks one that speaks the language). Pure. */
+ *  without a static list: "", the agent picks one that speaks the language).
+ *  A restricted variant the user has not allowed changes nothing. Pure. */
 export function chooseVariant(c: PipelineConfig, stage: Stage, variant: string): PipelineConfig {
   const hit = variantInfo(variant);
-  if (hit?.family.stage !== stage) return c;
+  if (hit?.family.stage !== stage || !permitted(c, hit.variant.id)) return c;
   const { family } = hit;
   const id = hit.variant.id;
   const variants = { ...c[stage].variants, [family.id]: id };
@@ -305,13 +348,10 @@ export function chooseVariant(c: PipelineConfig, stage: Stage, variant: string):
   return { ...c, tts: { ...c.tts, family: family.id, variant: id, variants, voice: keep ? c.tts.voice : family.defaultVoice ?? "" } };
 }
 
-/** Switch the stage to `family`, on the variant last picked there if it speaks
- *  the session language, else the family's default for it. Pure. */
+/** Switch the stage to `family`, on familyVariant. Pure. */
 export function chooseFamily(c: PipelineConfig, stage: Stage, family: string): PipelineConfig {
   const f = familyInfo(stage, family);
-  if (!f) return c;
-  const last = c[stage].variants[f.id];
-  return chooseVariant(c, stage, last && speaks(last, c.language) ? last : defaultVariant(f, c.language));
+  return f ? chooseVariant(c, stage, familyVariant(c, stage, f)) : c;
 }
 
 /** What the agent says about its engines, as far as picking one needs. */
@@ -324,7 +364,8 @@ export interface EngineChange { stage: Stage; from: string; to: string; needsDow
  * another variant of the same family first, then (from a browser engine) the
  * browser, or (from a native one) the language's recommended engine, then the
  * other; with the agent's `catalog`, only downloaded native engines, and a
- * download only when nothing downloaded speaks it (`needsDownload`).
+ * download only when nothing downloaded speaks it (`needsDownload`); a
+ * restricted engine only when the user allowed those.
  * `unsupported` names a stage nothing can do in `lang`. O(variants).
  */
 export function pickCompatible(c: PipelineConfig, lang: LanguageCode, catalog?: NativeCatalog): { cfg: PipelineConfig; changes: EngineChange[]; unsupported: Stage[] } {
@@ -340,10 +381,10 @@ export function pickCompatible(c: PipelineConfig, lang: LanguageCode, catalog?: 
     const browser = stage === "stt" ? "whisper" : browserTtsFallback(lang);
     const recommended = LANGUAGE_DEFAULTS[lang][stage];
     const candidates = [
-      ...(family ? [defaultVariant(family, lang), ...family.variants.map((v) => v.id)] : []),
+      ...(family ? [defaultVariant(family, lang, c.allowRestricted), ...family.variants.map((v) => v.id)] : []),
       ...(isNativeVariant(cur) ? [recommended, browser] : [browser, recommended]),
       ...FAMILIES[stage].filter((f) => f.native).flatMap((f) => f.variants.map((v) => v.id)),
-    ].filter((id): id is string => !!id && speaks(id, lang));
+    ].filter((id): id is string => !!id && speaks(id, lang) && permitted(c, id));
     const to = candidates.find(ready) ?? candidates[0];
     if (!to) { unsupported.push(stage); continue; }
     cfg = chooseVariant(cfg, stage, to);
@@ -368,12 +409,14 @@ export const whisperMaxTokens = (samples: number): number => Math.min(440, Math.
 
 /** The weights the in-browser model worker loads for `c`, as a cache tag. A
  *  native engine loads nothing there, so moving between native engines neither
- *  reloads the worker nor asks for a download. A multilingual Whisper build is
- *  another download from the English one, so it tags as "<size>-ml". Pure. */
-export function workerTag(c: PipelineConfig, tier: "webgpu" | "wasm"): string {
+ *  reloads the worker nor asks for a download; nor does a browser voice the
+ *  agent runs on this computer (`ttsOnAgent`, models.ts agentCopy). A
+ *  multilingual Whisper build is another download from the English one, so it
+ *  tags as "<size>-ml". Pure. */
+export function workerTag(c: PipelineConfig, tier: "webgpu" | "wasm", ttsOnAgent = false): string {
   const ck = whisperCheckpoint(c.stt.whisperSize, c.language, tier).replace("onnx-community/whisper-", "");
   const whisper = ck.endsWith(".en") || ck === "large-v3-turbo" ? ck.replace(".en", "") : `${ck}-ml`;
-  return `${tier}:${isNativeVariant(c.stt.variant) ? "native" : whisper}:${isNativeVariant(c.tts.variant) ? "native" : c.tts.family}`;
+  return `${tier}:${isNativeVariant(c.stt.variant) ? "native" : whisper}:${isNativeVariant(c.tts.variant) || ttsOnAgent ? "native" : c.tts.family}`;
 }
 
 /** Whether everything `tag` needs in the browser was already loaded under one of
@@ -403,6 +446,18 @@ const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.m
 
 const oneOf = <T extends string>(x: unknown, allowed: readonly T[], d: T): T => (allowed.includes(x as T) ? (x as T) : d);
 const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
+
+// Caps keep a pasted or corrupted list from filling localStorage; a thousand
+// entries compile in well under a millisecond.
+export const PRONUNCIATION_LIMITS = { entries: 1000, from: 100, to: 200 } as const;
+/** Saved dictionary entries, each trimmed and capped; one without a word is dropped. O(entries). */
+function pronunciations(x: unknown): LexiconEntry[] {
+  const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  return (Array.isArray(x) ? x : []).slice(0, PRONUNCIATION_LIMITS.entries).map(obj).map((e) => ({
+    from: str(e.from, PRONUNCIATION_LIMITS.from), to: str(e.to, PRONUNCIATION_LIMITS.to),
+    lang: oneOf(e.lang, ["", ...LANGUAGE_CODES], ""), matchCase: e.matchCase === true, wholeWord: e.wholeWord !== false,
+  })).filter((e) => e.from);
+}
 
 /** A stage's engine from anything saved: the variant (or a pre-variant engine
  *  id in `engine`, the shape before variants), else the family on its
@@ -453,6 +508,8 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
       speechThreshold: clamp(num(vad.speechThreshold, d.vad.speechThreshold), 0.1, 0.9),
       redemptionMs: clamp(Math.round(num(vad.redemptionMs, d.vad.redemptionMs)), 200, 1500),
     },
+    pronunciations: pronunciations(p.pronunciations),
+    allowRestricted: p.allowRestricted === true,
   };
 }
 

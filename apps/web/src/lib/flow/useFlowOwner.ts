@@ -241,7 +241,7 @@ export function useFlowOwner(): void {
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
           onPartial: () => {},
-          onUserText: (text) => void onUserText(text),
+          onUserText: (text, wordsAt) => void onUserText(text, wordsAt),
           // The first chunk that actually STARTS playing is when speaking begins;
           // the text itself is accumulated from the stream, ahead of the voice.
           onAgentText: () => setPhase("speaking"),
@@ -255,6 +255,7 @@ export function useFlowOwner(): void {
           },
           // While an approval chip is up, speech is the ANSWER, never a barge-in.
           holdBargeIn: () => !!permission.current,
+          answersAsk: (text) => !!permission.current && !!classifyYesNo(text),
           onMicLost: () => void recoverMic(eng),
         // Flow's own turn-taking, not the one a call runs on: cut off in a call
         // the person sees it and presses a key, and here the half-sentence is
@@ -312,6 +313,8 @@ export function useFlowOwner(): void {
     const onEnginePhase = (p: EnginePhase) => {
       if (p === "listening") return setPhase("listening");
       if (p === "speaking") return setPhase("speaking");
+      // The question has been voiced and the reply waits on the answer.
+      if (p === "thinking" && permission.current) return setPhase("confirming");
       // The session is still open and the microphone is still on: the resting
       // state between turns is listening, not gone.
       if (p === "idle" && !turnActive.current) backToListening();
@@ -428,7 +431,7 @@ export function useFlowOwner(): void {
       backToListening();
     };
 
-    const onUserText = async (text: string) => {
+    const onUserText = async (text: string, wordsAt: number[]) => {
       // An approval is open, so this sentence is its answer.
       if (permission.current) return answerByVoice(text);
       // A question that was asked keeps the orb until it has been answered, even
@@ -441,7 +444,7 @@ export function useFlowOwner(): void {
       setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
       armAnswerWatchdog();
       const context = valueOr(await api.context(), undefined) as FlowContextWire | undefined;
-      client.current?.flowText(text, context);
+      client.current?.flowText(text, context, wordsAt);
     };
 
     // A cold start compiles the weights that are already on disk. Nothing is

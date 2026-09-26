@@ -32,6 +32,14 @@ describe("settings search", () => {
     for (const q of ["piper", "matcha", "kokoro cpu", "thorsten", "kitten mini", "fp32", "huayan"]) expect(find(q)).toEqual(["Text-to-speech"]);
   });
 
+  it("finds where restricted-license models are allowed", () => {
+    for (const q of ["restricted", "non-commercial", "license"]) expect(find(q)).toContain("Text-to-speech");
+  });
+
+  it("finds the pronunciation dictionary by what people call it", () => {
+    for (const q of ["pronunciation", "dictionary", "mispronounced", "respell"]) expect(find(q)).toEqual(["Pronunciation"]);
+  });
+
   it("needs every term, in any order", () => {
     expect(find("speed speaking")).toEqual(["Speaking speed"]);
     expect(find("whisper kokoro")).toEqual([]);
