@@ -19,6 +19,7 @@ import { readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames } from "../live/turn-runner.js";
+import { rememberedNotes } from "../prompt.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
@@ -44,6 +45,16 @@ export function preamble(): string {
   const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
   if (!custom) return PREAMBLE;
   return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;
+}
+
+/** The MCP server a call hands its agent: the call's own tools the agent lacks. */
+export const CALL_MCP_SERVER = "openlive";
+
+/** A call's preamble once those tools ride along, with what `remember` kept so
+ *  the agent knows it too, as the built-in brain does. */
+export function callPreamble(hosted: string[]): string {
+  return `${preamble()}
+[OpenLive has attached tools of its own to this session over MCP, from a server called "${CALL_MCP_SERVER}": ${hosted.join(", ")}. Your harness lists them namespaced, like mcp__${CALL_MCP_SERVER}__${hosted[0]} or mcp.${CALL_MCP_SERVER}.${hosted[0]}, and may hold them back until something loads them: load them, then call them.]${rememberedNotes()}`;
 }
 
 // Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on

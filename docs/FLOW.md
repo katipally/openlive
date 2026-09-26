@@ -288,7 +288,13 @@ process, two hidden or floating renderers, and the agent service.
   `AcpBrain` wraps a supervised ACP agent, which reaches the same `Tool[]` through
   the local MCP server, so both brains see identical tools. Its calls there
   reach the orb and the session file as the built-in brain's do, and a cut
-  reply is cut in its memory too (`Agent.cut`).
+  reply is cut in its memory too (`Agent.cut`). Its own tools (Read, Bash,
+  Edit) show on the orb by kind and file ("Reading src/app.ts") and are kept in
+  the session file with their kind, file and short arguments, never the title
+  (for a command that is the command line) or an argument named like a secret.
+  `insert_text` types at once for a coding agent: MCP hands a tool its
+  arguments whole, and Claude Code's ACP adapter streams a tool's input only
+  field by field, so the text arrives in one piece.
 - **Harness adapters** (`packages/harness`). Anthropic `/messages`, OpenAI
   `/responses` and `/chat/completions` cover every provider, including tool
   screenshots and signed thinking between tool calls.

@@ -4,16 +4,22 @@ import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema, agentLabel, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import type { Emit, OpenLiveTool } from "../tools.js";
+import { makeRemember, type Emit, type OpenLiveTool } from "../tools.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { buildFileTools } from "./file-tools.js";
 import { narrationEnabled, wrapEmitWithNarration, createCommentaryGate } from "./narrator.js";
-import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
+import { serveFlowMcp, servedTool } from "../flow/mcp.js";
+import { ForwardOnlyInsertion } from "../flow/tools.js";
+import { hostedBy } from "../agents/mcp-config.js";
+import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, CALL_MCP_SERVER, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { log } from "../log.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
+/** A call's tools reach the machine through its own bridge, so the context, typing
+ *  and clipboard ports Flow's MCP transport hands a tool go unused here. */
+const UNUSED_PORTS = { context: null, insert: new ForwardOnlyInsertion(() => {}), clipboard: { read: async () => "", write: async () => {} } };
 const HISTORY_TURNS = 20; // recent messages to rehydrate on reconnect
 
 // Some providers (e.g. MiniMax) leak control-token fragments like "[e[" into the
@@ -52,6 +58,17 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
     if (!placed) { b.text = s; placed = true; } else b.text = "";
   }
   if (!placed && s) blocks.unshift({ type: "text", text: s });
+}
+
+/** The agent reports its use of the call's own tools as tool calls of its own.
+ *  Dropped, so they show as the built-in brain's do and not twice. */
+function hideHosted(emit: Emit): Emit {
+  const hidden = new Set<string>();
+  return (e) => {
+    if (e.type === "acp_tool_call" && hostedBy(e.call.title, CALL_MCP_SERVER)) hidden.add(e.call.id);
+    const id = e.type === "acp_tool_call" ? e.call.id : e.type === "acp_tool_update" ? e.delta.id : "";
+    return id && hidden.has(id) ? undefined : emit(e);
+  };
 }
 
 // One live call — THIN. The browser runs the whole voice stack (VAD, STT, turn
@@ -103,6 +120,12 @@ export class LiveSession {
   // OS bridge (clipboard / open_url) ↔ client handshake. The client runs the
   // action via Electron and replies; on the web it replies "not available".
   private bridgePending = new Map<string, (out: string) => void>();
+  // The tools a coding agent lacks, served to it over MCP: the same objects the
+  // built-in brain runs, so one implementation answers both.
+  private hosted: OpenLiveTool[];
+  private mcp: ReturnType<typeof serveFlowMcp> | null = null;
+  /** The running agent turn's emit, so `remember` shows its chip in that turn. */
+  private toolEmit: Emit = () => {};
 
   constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode) {
     const lookTool: OpenLiveTool = {
@@ -140,6 +163,7 @@ export class LiveSession {
     // through the same permission ask the coding agents use; reads are free.
     const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
     this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl, ...fileTools]);
+    this.hosted = [lookTool, clipboardRead, clipboardWrite, openUrl, makeRemember((e) => this.toolEmit(e))];
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
@@ -318,7 +342,8 @@ export class LiveSession {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
         await this.cutSaved;
         if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
-        await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, gate.emit, ac.signal);
+        this.toolEmit = gate.emit;
+        await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, hideHosted(gate.emit), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -346,6 +371,7 @@ export class LiveSession {
       // agent permission ask dangling; answer it cancelled (ACP MUST). No-op unless
       // one was actually pending.
       this.cancelPendingPermissions();
+      this.toolEmit = () => {};
       const byRunner = !this.agent && !this.boundId;
       // On barge-in, persist only what was actually SPOKEN.
       if (ac.signal.aborted && this.bargeSpoken != null) {
@@ -488,12 +514,20 @@ export class LiveSession {
     // user who speaks before the session/load finishes doesn't make ingestReplay think
     // the chat is OpenLive-origin and drop the recovered transcript.
     this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
+    const mcp = await (this.mcp ??= serveFlowMcp({
+      name: CALL_MCP_SERVER,
+      tools: this.hosted.map(servedTool),
+      // A call arriving outside a turn is refused, as the built-in brain never makes one.
+      ctx: () => ({ signal: this.ac?.signal ?? AbortSignal.abort(), ...UNUSED_PORTS }),
+    }));
+    if (epoch !== this.bindEpoch || this.closed) return;
     const agent = createBoundAgent(this.chatId, (q, o, toolCallId) => this.askPermission(q, o, toolCallId), {
       onMeta: (meta) => { this.lastMeta = meta; if (!this.closed) this.send({ t: "agent_meta", ...meta }); },
       // Recovered transcript from a session/load — persist + tell the client to reload.
       onReplay: (msgs) => this.ingestReplay(msgs),
       askElicitation: (req) => this.askElicitation(req),
       completeElicitation: (elicitationId) => this.elicitById.get(elicitationId)?.({ action: "accept" }),
+      mcp: { wire: mcp.wire, tools: this.hosted.map((t) => t.name) },
     });
     if (!agent) return;
     this.agent = agent;
@@ -603,6 +637,7 @@ export class LiveSession {
     this.ac?.abort();
     this.agentAc?.abort();
     void this.agent?.dispose();
+    void this.mcp?.then((m) => m.close()).catch(() => {});
     for (const settle of [...this.permPending.values()]) settle("deny");
     this.cancelPendingElicitations();
     this.lookPending?.resolve(null);

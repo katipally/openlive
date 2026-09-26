@@ -1,10 +1,11 @@
 import { isUnreachable, streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
-import { withReplyLanguage, type LanguageCode, type SseEvent } from "@openlive/shared";
+import { mergeToolCall, withReplyLanguage, type LanguageCode, type SseEvent, type ToolCallState } from "@openlive/shared";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
+import { hostedBy } from "../agents/mcp-config.js";
 import { parsePartialJson } from "./partial-json.js";
-import type { Brain, BrainEvent, TurnRequest, Usage } from "./types.js";
+import { MCP_SERVER_NAME, type Brain, type BrainEvent, type TurnRequest, type Usage } from "./types.js";
 
 // ── provider mapping ────────────────────────────────────────────────────────
 
@@ -159,27 +160,54 @@ function channel<T>() {
   };
 }
 
+const SETTLED = new Set(["completed", "failed", "canceled", "rejected"]);
+
+/**
+ * The agent's own tools (Read, Bash, Edit), for the orb and the session file:
+ * each call once as it changes and once as it settles. Flow's tools it reaches
+ * over MCP are left out, since Flow reports those as it runs them. A call the
+ * turn ended before it settled is reported cancelled.
+ */
+export type AgentToolSink = (call: ToolCallState, settled: boolean) => void;
+
 /** A coding agent over ACP, driven as the Flow brain. */
 export class AcpBrain implements Brain {
   readonly id: string;
   /** `lang` is read per turn: the session language the last utterance carried. */
-  constructor(private readonly agent: Agent, private readonly lang: () => LanguageCode | undefined = () => undefined) { this.id = agent.id; }
+  constructor(private readonly agent: Agent, private readonly lang: () => LanguageCode | undefined = () => undefined, private readonly onTool: AgentToolSink = () => {}) { this.id = agent.id; }
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     const ch = channel<BrainEvent>();
     let usage: Usage | undefined;
     let failed = false;
     const input = acpTurnInput(req);
+    /** Open calls by id; null once hidden or settled, so a late update is not a second report. */
+    const calls = new Map<string, ToolCallState | null>();
+    const track = (e: Extract<SseEvent, { type: "acp_tool_call" | "acp_tool_update" }>) => {
+      const id = e.type === "acp_tool_call" ? e.call.id : e.delta.id;
+      const prev = calls.get(id);
+      if (prev === null) return;
+      if (e.type === "acp_tool_call" && hostedBy(e.call.title, MCP_SERVER_NAME)) { calls.set(id, null); return; }
+      const call = e.type === "acp_tool_call" ? e.call : mergeToolCall(prev, e.delta);
+      const settled = SETTLED.has(call.status);
+      calls.set(id, settled ? null : call);
+      const seen = prev && prev.kind === call.kind && prev.locations[0]?.path === call.locations[0]?.path;
+      if (settled || !seen) this.onTool(call, settled);
+    };
     const run = this.agent
       .runTurn({ ...input, text: withReplyLanguage(input.text, this.lang()) }, (e) => {
         if (e.type === "usage") { usage = { input: e.contextTokens, output: e.outputTokens ?? 0 }; return; }
+        if (e.type === "acp_tool_call" || e.type === "acp_tool_update") { track(e); return; }
         const ev = acpEventToBrain(e);
         if (!ev) return;
         if (ev.type === "turn_error") failed = true;
         ch.push(ev);
       }, signal)
       .catch((e: unknown) => { failed = true; ch.push({ type: "turn_error", message: message(e), aborted: signal.aborted }); })
-      .finally(() => ch.close());
+      .finally(() => {
+        for (const call of calls.values()) if (call) this.onTool({ ...call, status: "canceled" }, true);
+        ch.close();
+      });
 
     for await (const ev of ch.drain()) yield ev;
     await run;

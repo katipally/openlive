@@ -4,6 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerWire } from "../agents/mcp-config.js";
+import type { OpenLiveTool } from "../tools.js";
 import { dispatch, toolSpecs } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { MCP_SERVER_NAME, type Approve, type Tool, type ToolCtx } from "./types.js";
@@ -19,6 +20,8 @@ import { MCP_SERVER_NAME, type Approve, type Tool, type ToolCtx } from "./types.
 const MAX_BODY_BYTES = 1_000_000;
 
 export interface FlowMcpOpts {
+  /** What the agent sees the server called, and so namespaces every tool under. */
+  name?: string;
   tools: Tool[];
   /** The live turn's context, insertion sink and clipboard. Resolved per call. */
   ctx: () => Omit<ToolCtx, "callId">;
@@ -35,7 +38,7 @@ export interface FlowMcpOpts {
 }
 
 export function flowMcpServer(opts: FlowMcpOpts): Server {
-  const server = new Server({ name: MCP_SERVER_NAME, version: "1" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: opts.name ?? MCP_SERVER_NAME, version: "1" }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolSpecs(opts.tools).map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters as { type: "object" } })),
@@ -58,6 +61,21 @@ export function flowMcpServer(opts: FlowMcpOpts): Server {
   });
 
   return server;
+}
+
+/** A chat tool on the same transport: its own execute, its output as the
+ *  content, and a failure it reports as the error result the agent sees. */
+export function servedTool(t: OpenLiveTool): Tool {
+  return {
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    async execute(args) {
+      const r = await t.execute(args);
+      if (r.isError) throw new Error(r.output);
+      return { content: [{ type: "text", text: r.output }, ...(r.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mime: i.mime }))], details: null };
+    },
+  };
 }
 
 /**
@@ -112,7 +130,7 @@ export async function serveFlowMcp(opts: FlowMcpOpts): Promise<{ wire: McpServer
   const port = typeof address === "object" && address ? address.port : 0;
 
   return {
-    wire: { type: "http", name: MCP_SERVER_NAME, url: `http://127.0.0.1:${port}${path}`, headers: [] },
+    wire: { type: "http", name: opts.name ?? MCP_SERVER_NAME, url: `http://127.0.0.1:${port}${path}`, headers: [] },
     close: async () => {
       await Promise.all([...live.values()].map((t) => t.close().catch(() => {})));
       live.clear();

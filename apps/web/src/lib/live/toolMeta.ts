@@ -61,3 +61,9 @@ export const KIND_META: Record<ToolKind, { icon: typeof Wrench; active: string }
   other: { icon: Hammer, active: "Working" },
 };
 export const kindMeta = (kind: ToolKind) => KIND_META[kind] ?? KIND_META.other;
+
+/** A coding agent's own tool in Flow, which reports what it does and the file it touches. */
+export const agentToolLabel = (kind: string, target?: string) => {
+  const verb = kindMeta(kind as ToolKind).active;
+  return target ? `${verb} ${target}` : verb;
+};

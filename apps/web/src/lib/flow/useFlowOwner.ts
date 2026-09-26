@@ -7,7 +7,7 @@ import { VoiceEngine, type EnginePhase, type TurnTuning } from "@/lib/live/voice
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
 import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
-import { toolMeta } from "@/lib/live/toolMeta";
+import { agentToolLabel, toolMeta } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
@@ -466,7 +466,7 @@ export function useFlowOwner(): void {
           return;
         case "tool_start":
           if (snap.current.speaking) engine.current?.endAgentStep();
-          return setPhase("acting", toolMeta(e.name).active);
+          return setPhase("acting", e.kind ? agentToolLabel(e.kind, e.target) : toolMeta(e.name).active);
         case "tool_result":
           // Deliberately nothing. A run of tool calls is one continuous piece of
           // work, and bouncing the orb back to thinking between every pair of

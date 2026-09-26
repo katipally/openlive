@@ -51,6 +51,15 @@ export const WORKER_PROMPT = `You are OpenLive's research assistant. You do NOT 
 - Return only the findings — a few plain sentences with the key facts, and any number, date, or name that matters (a source name if it helps). No preamble, no "I found", no markdown, no lists.
 - If the tools turned up nothing useful, say so plainly in one line.`;
 
+/** The facts the `remember` tool saved, whichever brain saved them. */
+export function rememberedNotes(): string {
+  try {
+    const arr = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
+    if (arr.length) return `\n\n---\nWHAT YOU REMEMBER ABOUT THIS USER (saved earlier; use naturally, don't recite):\n${arr.map((n) => `- ${n}`).join("\n")}`;
+  } catch { /* no notes */ }
+  return "";
+}
+
 /** Slim, spoken-conversation system prompt for live voice mode. Injects the real
  *  current date (so the agent never guesses "the date") and appends any facts the
  *  user asked to be remembered (the `remember` tool) so they persist. */
@@ -58,11 +67,7 @@ export function buildLivePrompt(): string {
   const now = new Date();
   const date = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const clock = `\n\n---\nRIGHT NOW IT IS ${date}. That is the real current date — use it, never guess or default to your training date. For anything that changes over time (news, weather, prices, scores, "latest"/"current"/"today"), the date alone isn't enough — delegate to look it up.`;
-  let notes = "";
-  try {
-    const arr = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
-    if (arr.length) notes = `\n\n---\nWHAT YOU REMEMBER ABOUT THIS USER (saved earlier — use naturally, don't recite):\n${arr.map((n) => `- ${n}`).join("\n")}`;
-  } catch { /* no notes */ }
+  const notes = rememberedNotes();
   // The user's own instructions from Settings → General (same text every ACP
   // agent receives via its session preamble). Read per session build.
   const custom = getSetting("customInstructions")?.trim().slice(0, 2000);

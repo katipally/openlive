@@ -2,12 +2,14 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { getSetting, setSetting, setChatAgentSession } from "@openlive/db";
 import { isAgentId } from "@openlive/shared";
-import { AcpAgent } from "./acp-agent.js";
+import { AcpAgent, callPreamble } from "./acp-agent.js";
+import type { McpServerWire } from "./mcp-config.js";
 import { AgentSupervisor } from "./supervisor.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
 
 export type { Agent, AgentId, AgentMeta, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
 export { PERMISSION_CANCELLED } from "./types.js";
+export { CALL_MCP_SERVER } from "./acp-agent.js";
 
 /** Callbacks a live session wires into a bound agent (streamed meta, recovered
  *  transcript on resume, non-fatal notices, agent-side title). */
@@ -21,6 +23,8 @@ export interface BoundHooks {
   /** The agent says a URL elicitation finished on its own (OAuth landed) —
    *  settle the pending ask as accepted. */
   completeElicitation?: (elicitationId: string) => void;
+  /** The call's own tools, served to the agent, and their names for its preamble. */
+  mcp?: { wire: McpServerWire; tools: string[] };
 }
 export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean };
 export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
@@ -70,6 +74,7 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     onReplay: hooks.onReplay,
     askElicitation: hooks.askElicitation,
     completeElicitation: hooks.completeElicitation,
+    ...(hooks.mcp && { mcpServers: [hooks.mcp.wire], preamble: callPreamble(hooks.mcp.tools) }),
   }), askPermission, { startMs: 60_000 });
 }
 

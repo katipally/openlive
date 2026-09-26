@@ -176,7 +176,7 @@ function makeUpdateTodos(emit: Emit): OpenLiveTool {
 
 // Lightweight persistent memory: append a fact to notes.json. Remembered notes
 // are auto-injected into the system prompt on the next call (see buildLivePrompt).
-function makeRemember(emit: Emit): OpenLiveTool {
+export function makeRemember(emit: Emit): OpenLiveTool {
   return {
     name: "remember",
     description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",

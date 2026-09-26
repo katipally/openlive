@@ -65,3 +65,7 @@ export function parseMcpJson(raw: string, caps: { http: boolean; sse: boolean })
   }
   return out;
 }
+
+/** Whether a tool call the agent reports is its use of `server`'s tool: Claude
+ *  Code titles one `mcp__<server>__<tool>`, Codex `mcp.<server>.<tool>`. */
+export const hostedBy = (title: string, server: string): boolean => title.split(/__|\./).includes(server);

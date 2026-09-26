@@ -23,6 +23,8 @@ const fake = vi.hoisted(() => ({
   /** Flow's tools as served to a coding agent, and what that agent was told was cut. */
   mcp: null as null | { onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void },
   cuts: [] as string[],
+  /** Where the coding-agent brain reports its own tools. */
+  agentTool: null as null | ((call: Record<string, unknown>, settled: boolean) => void),
 }));
 
 const store = {
@@ -58,7 +60,11 @@ vi.mock("../flow/brain.js", () => {
   }
   return {
     LocalBrain: class { readonly id = "local"; stream = stream; },
-    AcpBrain: class { readonly id: string; stream = stream; constructor(agent: { id: string }) { this.id = agent.id; } },
+    AcpBrain: class {
+      readonly id: string;
+      stream = stream;
+      constructor(agent: { id: string }, _lang: unknown, onTool: typeof fake.agentTool) { this.id = agent.id; fake.agentTool = onTool; }
+    },
   };
 });
 
@@ -123,6 +129,7 @@ beforeEach(() => {
   fake.brain = null;
   fake.mcp = null;
   fake.cuts = [];
+  fake.agentTool = null;
 });
 
 describe("FlowLiveSession", () => {
@@ -398,6 +405,34 @@ describe("a coding agent as the brain", () => {
     await until(() => turnsDone(ws) === 1);
     expect(ws.sent.find((m) => m.t === "flow" && m.event.type === "tool_start")).toEqual({ t: "flow", event: { type: "tool_start", id: "c1", name: "screenshot" }, turn: 3 });
     expect(fake.appended.some((e) => e.type === "tool_call" && e.data.name === "screenshot")).toBe(true);
+  });
+});
+
+describe("the coding agent's own tools", () => {
+  it("show on the orb by what they do and the file they touch, and are kept without secrets", async () => {
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    const read = { id: "t1", title: "Read src/app.ts", kind: "read", status: "pending", content: [], locations: [{ path: "/tmp/src/app.ts" }] };
+    const bash = { id: "t2", title: "curl -H 'x' api", kind: "execute", status: "failed", content: [], locations: [], rawInputJson: JSON.stringify({ command: "c".repeat(300), apiKey: "sk-1", timeout: 5 }) };
+    fake.script = [async () => {
+      fake.agentTool!(read, false);
+      fake.agentTool!({ ...read, status: "completed" }, true);
+      fake.agentTool!(bash, true);
+      await tick();
+    }, ...reply("Done.")];
+    ws.client({ t: "flow_text", text: "check the app", turn: 5 });
+    await until(() => turnsDone(ws) === 1);
+    await until(() => fake.appended.filter((e) => e.type === "tool_result").length === 2);
+    expect(ws.sent.filter((m) => m.t === "flow" && m.event.type === "tool_start"))
+      .toEqual([{ t: "flow", event: { type: "tool_start", id: "t1", name: "read", kind: "read", target: "src/app.ts" }, turn: 5 }]);
+    const kept = fake.appended.filter((e) => e.type === "tool_call" || e.type === "tool_result").map((e) => ({ type: e.type, ...e.data }));
+    expect(kept).toEqual([
+      { type: "tool_call", callId: "t1", name: "read", kind: "read", target: "src/app.ts", args: {} },
+      { type: "tool_result", callId: "t1", name: "read", kind: "read", target: "src/app.ts", isError: false },
+      { type: "tool_call", callId: "t2", name: "execute", kind: "execute", args: { command: `${"c".repeat(200)}…`, timeout: 5 } },
+      { type: "tool_result", callId: "t2", name: "execute", kind: "execute", isError: true },
+    ]);
   });
 });
 

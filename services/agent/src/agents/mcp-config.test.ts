@@ -2,7 +2,7 @@
 // allowed to break the ACP handshake, and transports the agent didn't advertise
 // must not be sent.
 import { expect, test } from "vitest";
-import { parseMcpJson } from "./mcp-config.ts";
+import { hostedBy, parseMcpJson } from "./mcp-config.ts";
 
 const CAPS = { http: true, sse: false };
 
@@ -31,4 +31,11 @@ test("transports the agent didn't advertise are skipped; garbage never throws", 
 test("caps the server count at 20", () => {
   const servers = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`s${i}`, { command: "bin" }]));
   expect(parseMcpJson(JSON.stringify({ mcpServers: servers }), CAPS)).toHaveLength(20);
+});
+
+test("a tool call is told apart as OpenLive's by the server its title names, in either harness's spelling", () => {
+  expect(hostedBy("mcp__openlive__look", "openlive")).toBe(true);
+  expect(hostedBy("mcp.openlive-flow.screenshot", "openlive-flow")).toBe(true);
+  expect(hostedBy("mcp__openlive-flow__screenshot", "openlive")).toBe(false);
+  expect(hostedBy("Read src/openlive.ts", "openlive")).toBe(false);
 });

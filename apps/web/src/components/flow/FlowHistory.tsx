@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import { Check, ImageIcon, Play, Search, Volume2, X } from "lucide-react";
 import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
 import { cn } from "@/lib/cn";
-import { toolMeta } from "@/lib/live/toolMeta";
+import { agentToolLabel, toolMeta } from "@/lib/live/toolMeta";
 import { flowBridge } from "@/lib/flow/bridge";
 import { clock, dayLabel, duration, latency, stamp } from "@/lib/flow/format";
 import {
@@ -132,8 +132,7 @@ function Transcript({ id, onBack }: { id: string; onBack: () => void }) {
   const last = entries[entries.length - 1]?.timestamp ?? first;
   const ms = new Date(last).getTime() - new Date(first).getTime();
   const app = entries.find((e) => e.type === "context" && (e.context as { app?: string })?.app);
-  const tools = [...new Set(entries.filter((e) => e.type === "tool_call").map((e) => str(e.name)))]
-    .filter(Boolean).map((name) => toolMeta(name).label);
+  const tools = [...new Set(entries.filter((e) => e.type === "tool_call" && str(e.name)).map(toolLabel))];
 
   const remove = async () => {
     if (!(await deleteFlowSession(id))) return;
@@ -263,13 +262,16 @@ export function headline(data: FlowSessionDetail | undefined): string {
   return str(said?.text).trim() || "Flow session";
 }
 
+/** A coding agent's own tool is kept by its kind and file; Flow's by name. */
+const toolLabel = (e: FlowSessionEntry) => (str(e.kind) ? agentToolLabel(str(e.kind), str(e.target)) : toolMeta(str(e.name)).label);
+
 /** One line of the plain-text copy, so a pasted transcript reads like the screen. */
 export function lineOf(e: FlowSessionEntry): string {
   if (e.type === "message") return `${e.role === "user" ? "You" : "Flow"}: ${str(e.text)}`;
-  if (e.type === "tool_call") return `${toolMeta(str(e.name)).label}: ${JSON.stringify(e.args ?? {})}`;
+  if (e.type === "tool_call") return `${toolLabel(e)}: ${JSON.stringify(e.args ?? {})}`;
   if (e.type === "tool_result") {
     const shots = Array.isArray(e.assets) ? e.assets.length : 0;
-    return `${toolMeta(str(e.name)).label} → ${e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
+    return `${toolLabel(e)} → ${e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
   }
   if (e.type === "context") return `In front: ${str((e.context as { app?: string })?.app)}`;
   return e.type;
@@ -320,7 +322,7 @@ function Body({ entry, sessionId, assets, onZoom }: EventProps) {
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <span className={cn("size-[7px] shrink-0 rounded-full", failed ? "bg-destructive-fill" : "bg-success")} aria-hidden />
           <span className="min-w-0 truncate text-label font-medium" title={str(entry.name)}>
-            {str(entry.name) ? toolMeta(str(entry.name)).label : "A tool"}
+            {str(entry.name) ? toolLabel(entry) : "A tool"}
           </span>
           {entry.type === "tool_result" && (
             <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-caption",

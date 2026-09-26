@@ -63,6 +63,13 @@ over stdio ("LSP for agents"). Design points:
 - **Resume.** Reopening a conversation calls `session/load`; the replayed updates
   rebuild the transcript. Resume failures fall back to a fresh session silently
   (the original stays on disk and in History).
+- **The call's own tools.** A call serves the tools a coding agent lacks (`look`,
+  `clipboard_read`, `clipboard_write`, `open_url`, `remember`) to it over a
+  loopback MCP server named `openlive`, built by Flow's `serveFlowMcp` from the
+  same tool objects the built-in brain runs. They take the same bridge, turn
+  number and chips; the agent's own report of those calls is dropped so they
+  show once, as the built-in brain's do. What `remember` kept rides the agent's
+  preamble. Web search, fetching, files and plans stay the agent's own.
 - **Models / modes / options.** The agent reports its models, modes, and other
   config options over ACP; the UI renders pickers generically and switches them
   mid-session (`set_model` / `set_mode` / `set_option`).
@@ -323,7 +330,8 @@ Flow is the voice assistant for the whole machine, summoned with a double tap of
 second `/live` connection (`live/flow-ws.ts`); an always-on-top orb window (`/flow`)
 only draws what the owner publishes. On the server, `runFlow` loops turns and tool
 calls on a `LocalBrain` (provider) or an `AcpBrain` (coding agent, which gets the
-same tools over a local MCP server, and shows on the orb as it calls them). Device tools reach the `native/ol-input` Rust
+same tools over a local MCP server, and shows on the orb as it calls them and as it
+uses its own tools, labelled by what they do: "Reading src/app.ts"). Device tools reach the `native/ol-input` Rust
 addon through the owner renderer and `flow-runtime.cjs` in the main process. Config
 and history live in `~/.openlive/flow` via `packages/flow-store`.
 

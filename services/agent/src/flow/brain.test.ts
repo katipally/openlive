@@ -190,3 +190,34 @@ describe("ACP brain language", () => {
     expect(seen).toEqual(["[Always reply in Spanish.]\n\nabre el PR", "abre el PR", "abre el PR"]);
   });
 });
+
+describe("ACP brain tool activity", () => {
+  const call = (id: string, title: string, kind: string, status: string, path?: string) =>
+    ({ id, title, kind, status, content: [], locations: path ? [{ path }] : [] });
+
+  it("reports the agent's own tools as they change and settle, and never Flow's", async () => {
+    const { AcpBrain } = await import("./brain.js");
+    const events: SseEvent[] = [
+      { type: "acp_tool_call", call: call("r", "Read File", "read", "pending") } as SseEvent,
+      { type: "acp_tool_update", delta: { id: "r", locations: [{ path: "/p/src/app.ts" }], title: "Read src/app.ts" } },
+      { type: "acp_tool_update", delta: { id: "r", status: "in_progress" } },
+      { type: "acp_tool_call", call: call("m", "mcp__openlive-flow__screenshot", "other", "pending") } as SseEvent,
+      { type: "acp_tool_update", delta: { id: "m", status: "completed" } },
+      { type: "acp_tool_update", delta: { id: "r", status: "completed" } },
+      { type: "acp_tool_update", delta: { id: "r", status: "completed" } },
+      { type: "acp_tool_call", call: call("b", "rm -rf build", "execute", "in_progress") } as SseEvent,
+    ];
+    const agent = { id: "claude", runTurn: async (_: unknown, emit: (e: SseEvent) => void) => { for (const e of events) emit(e); } } as never;
+    const seen: [string, string, string | undefined, boolean][] = [];
+    const brain = new AcpBrain(agent, () => undefined, (c, settled) => seen.push([c.id, c.status, c.locations[0]?.path, settled]));
+    for await (const _ of brain.stream({ systemPrompt: "", tools: [], messages: [{ role: "user", text: "go" }] }, new AbortController().signal)) { /* drain */ }
+    expect(seen).toEqual([
+      ["r", "pending", undefined, false],
+      ["r", "pending", "/p/src/app.ts", false],
+      ["r", "completed", "/p/src/app.ts", true],
+      ["b", "in_progress", undefined, false],
+      // The turn ended before it did.
+      ["b", "canceled", undefined, true],
+    ]);
+  });
+});

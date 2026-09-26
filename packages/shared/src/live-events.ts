@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sseEventSchema } from "./sse-events";
+import { toolKindSchema } from "./tool-call";
 import { AGENT_IDS } from "./agent-registry";
 
 // The live-mode wire protocol between the browser and the agent's /live
@@ -68,7 +69,9 @@ export const flowContentSchema = z.discriminatedUnion("type", [
 
 export const flowEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text_delta"), delta: z.string() }),
-  z.object({ type: z.literal("tool_start"), id: z.string(), name: z.string() }),
+  // `kind` and `target` mark a coding agent's own tool, labelled by what it does
+  // ("Reading src/app.ts") rather than by a name Flow does not know.
+  z.object({ type: z.literal("tool_start"), id: z.string(), name: z.string(), kind: toolKindSchema.optional(), target: z.string().optional() }),
   // Best-effort parse of the arguments streamed so far: strings may be cut
   // mid-word and arrays may be short. Speculate on it, never act on it.
   z.object({ type: z.literal("tool_args_delta"), id: z.string(), argsPartial: z.record(z.unknown()) }),

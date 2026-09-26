@@ -52,6 +52,14 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **A coding agent in a call can look, use the clipboard, open links and
+  remember.** It gets the call's own `look`, `clipboard_read`,
+  `clipboard_write`, `open_url` and `remember` over a local MCP server: the same
+  tools the built-in brain runs, shown the same way. Facts either brain
+  remembered reach both.
+- **Flow shows a coding agent's own work.** When Claude Code reads, edits or
+  runs something, the orb says so ("Reading src/app.ts"), and the session file
+  keeps it next to Flow's own tools.
 - **Replies read the way a person says them.** Every voice now reads numbers,
   ordinals, dates, times, prices, percentages, units, ranges, phone numbers,
   emails, web addresses, file names, version numbers, code names, initialisms

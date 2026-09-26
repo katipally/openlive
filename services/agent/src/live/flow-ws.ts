@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { WebSocket } from "ws";
-import type { FlowContentWire, LanguageCode, LiveServerMsg } from "@openlive/shared";
+import type { FlowContentWire, LanguageCode, LiveServerMsg, ToolCallState } from "@openlive/shared";
 import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
@@ -111,6 +112,31 @@ export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLiv
 /** How hard a coding agent thinks, where it exposes that as a config option. */
 export const agentEffortOption = (meta: AgentMeta | null) =>
   meta?.options.find((o) => o.category === "thought_level") ?? null;
+
+/** An argument whose name says it is a secret is never written down. */
+const SECRET_ARG = /key|token|secret|passw|auth|cookie|credential/i;
+const ARG_CAP = 200;
+
+/**
+ * A coding agent's own tool call as Flow shows and keeps it: the kind (the
+ * orb's verb) and the file it touches, relative to where the agent runs. The
+ * title is left out, since for a command it is the command line itself.
+ */
+export function agentToolEntry(call: ToolCallState, cwd: string) {
+  const file = call.locations[0]?.path;
+  const rel = file && path.relative(cwd, path.resolve(cwd, file));
+  const target = !file ? "" : rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : path.basename(file);
+  const raw = call.rawInputJson ? safeJson(call.rawInputJson) : null;
+  const args: Record<string, unknown> = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw)) {
+      if (SECRET_ARG.test(k)) continue;
+      if (typeof v === "string") args[k] = v.length > ARG_CAP ? `${v.slice(0, ARG_CAP)}…` : v;
+      else if (typeof v === "number" || typeof v === "boolean") args[k] = v;
+    }
+  }
+  return { kind: call.kind, target, args };
+}
 
 const YES_NO: PermissionAskOption[] = [
   { id: "allow", label: "Yes", kind: "allow_once" },
@@ -545,7 +571,18 @@ export class FlowLiveSession {
     await this.applyQuietMode();
     await this.applyAgentModel(cfg.brain.agentModel);
     await this.applyAgentEffort(cfg.brain.agentEffort);
-    return (this.brain = new AcpBrain(agent, () => this.lang));
+    return (this.brain = new AcpBrain(agent, () => this.lang, (call, settled) => this.onAgentTool(call, settled)));
+  }
+
+  /** The agent's own tools, shown and kept as Flow's are. */
+  private onAgentTool(call: ToolCallState, settled: boolean): void {
+    const { kind, target, args } = agentToolEntry(call, flowAgentCwd());
+    const shown = { kind, ...(target && { target }) };
+    if (!settled) { this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn }); return; }
+    this.write(async () => {
+      await this.persist("tool_call", { callId: call.id, name: kind, ...shown, args });
+      await this.persist("tool_result", { callId: call.id, name: kind, ...shown, isError: call.status !== "completed" });
+    });
   }
 
   /** Never throws: an agent that will not take a model still answers on its own. */
