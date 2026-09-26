@@ -344,3 +344,43 @@ it("a pause holds the caption with the voice: a cut after it keeps only the word
   eng.pausedAt -= 1000; eng.voicing.t0 -= 1000; // a second into the pause
   expect(eng.cutReply()).toBe("First one. Second part");
 });
+
+// Silero trails a soft voice's onset: its first words tick along under the speech
+// threshold while the engine is still idle, and must not count as the room.
+it("a soft talker's own first words do not raise the noise gate over them", async () => {
+  tts.heard = "can you hear me";
+  const { eng } = overReply("idle");
+  const soft = new Float32Array(512).fill(0.012), quiet = new Float32Array(512).fill(0.001);
+  for (let i = 0; i < 60; i++) eng.onFrame(quiet, false);
+  for (let i = 0; i < 20; i++) eng.onFrame(soft, false); // under the threshold, already talk
+  eng.onFrame(soft, true);
+  eng.onSpeechStart();
+  for (let i = 0; i < 30; i++) eng.onFrame(soft, true);
+  const heard = [...Array(5).fill(quiet), ...Array(51).fill(soft)];
+  await eng.onSpeechEnd(eng.concat(heard, heard.length * 512));
+  expect(eng.pendingText).toBe("can you hear me");
+  eng.clearHold();
+});
+
+// Agent voice leaking back opens an echo segment while a user segment waits on
+// the one still finalizing: the waiting words are theirs, and still heard.
+it("words that waited on a finalizing segment are kept while an echo segment is open", async () => {
+  let open!: () => void;
+  tts.gate = new Promise((r) => (open = r));
+  tts.heard = "okay so";
+  const { eng } = overReply("idle");
+  eng.onSpeechStart();
+  const first = eng.onSpeechEnd(second);
+  eng.onSpeechStart();
+  await eng.onSpeechEnd(second); // deferred behind the first
+  eng.player.playing = () => true; // a line starts playing
+  eng.micRms = 0;
+  eng.onSpeechStart(); // its echo
+  expect(eng.echo).toBe(true);
+  open();
+  await first;
+  await vi.waitFor(() => expect(eng.pending?.length).toBe(2 * second.length));
+  expect(eng.echo).toBe(true); // the echo segment's own end is still dropped
+  eng.clearHold();
+  tts.gate = Promise.resolve();
+});

@@ -172,6 +172,13 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A soft talker could be dropped by their own first words.** Silero trails a
+  soft voice's onset, and those words counted as room noise while the engine was
+  idle, lifting the noise gate over the rest of the sentence. The floor now goes
+  back to where it stood before each segment's audio began.
+- **Words said while another sentence finalized could vanish.** When the
+  agent's voice leaked back into the mic at that moment, the waiting words were
+  dropped as if they were the echo. Only the echo is dropped now.
 - **A coding agent remembered replies the user never heard.** Cutting in on
   Claude Code, Codex or any agent cut the transcript, but the agent kept its whole
   reply in its own session and answered as if it had been heard. Its next turn

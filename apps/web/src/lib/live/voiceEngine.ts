@@ -119,6 +119,8 @@ export class VoiceEngine {
   private micFreq: Uint8Array | null = null;
   private micSrc: MediaStreamAudioSourceNode | null = null;
   private noiseFloor = 0.002;                     // learned room ambient (see onFrame/gate)
+  private floors: number[] = Array(PRE_SPEECH_FRAMES).fill(this.noiseFloor); // noiseFloor before each of the last frames, oldest at floorAt
+  private floorAt = 0;
   private epoch = 0;                              // bumped on barge-in; stales TTS + audio
   private captionSeq = 0;                         // counts captions shown: only the one on screen takes a new timing
   private ttsChain: Promise<void> = Promise.resolve();
@@ -296,6 +298,9 @@ export class VoiceEngine {
 
   // ── user speech ─────────────────────────────────────────────────────────
   private onSpeechStart() {
+    // The segment opens with the frames before Silero fired, a soft voice's first
+    // words among them: the floor they taught while idle is not the room's.
+    this.noiseFloor = this.floors[this.floorAt]!;
     // Barge-in: the user talks over the agent — whether it's SPEAKING, or still
     // THINKING/working (e.g. a coding agent running tools or editing). Cancel the
     // in-flight turn AND the agent's execution (the server aborts the turn, which
@@ -356,6 +361,8 @@ export class VoiceEngine {
     // background chatter tripping a turn — but stays at the fixed floor in a quiet
     // room so a soft talker is still heard. ponytail: a real room needs this
     // calibration; clamp keeps it from ever rising high enough to swallow speech.
+    this.floors[this.floorAt] = this.noiseFloor;
+    this.floorAt = (this.floorAt + 1) % PRE_SPEECH_FRAMES;
     if (this.phase === "idle") this.noiseFloor = Math.min(0.03, this.noiseFloor + (rms - this.noiseFloor) * 0.05);
     if (this.tentative && this.hearing && speech && (this.voicedMs += frame.length / 16) > BACKCHANNEL_MAX_MS) this.bargeIn();
     if (this.streaming) { this.asr!.send(frame); return; }
@@ -402,9 +409,12 @@ export class VoiceEngine {
   }
 
   // `final` is the streamed transcript of `audio` alone, when it was streamed.
-  private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>) {
-    if (this.echo) { this.echo = false; return; }
-    this.hearing = false;
+  // `vadEnded`: the VAD's segment ended, not deferred audio replayed while another may be open.
+  private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>, vadEnded = true) {
+    if (vadEnded) {
+      if (this.echo) { this.echo = false; return; }
+      this.hearing = false;
+    }
     // The agent runs one transcription at a time: a caption still queued there
     // would make the final wait for it.
     this.partialAbort?.abort();
@@ -494,7 +504,7 @@ export class VoiceEngine {
         const finals = parts.every((p) => p.final)
           ? Promise.all(parts.map((p) => p.final!)).then((hs) => hs.reduce((a, h, i) => joinHeard(a, starts[i]!, h), { text: "", at: [] }))
           : undefined;
-        void this.onSpeechEnd(merged, finals);
+        void this.onSpeechEnd(merged, finals, false);
       }
     }
   }
