@@ -15,7 +15,7 @@ import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput
 import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
 import { killTree, track } from "./proc.js";
-import { readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
+import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames } from "../live/turn-runner.js";
@@ -63,12 +63,15 @@ export function callPreamble(hosted: string[]): string {
 //     ~/.claude/projects/<cwd-slug>/ where `claude --resume` finds them.
 //   • systemPrompt append — the voice-call context goes into the system prompt
 //     instead of polluting the first user message of the saved transcript.
+//   • allowedTools: a server OpenLive hosts carries its own tools, which run
+//     on OpenLive's terms as they do for the built-in brain, so no agent-side ask.
 // Other agents have no such channel, so they keep the first-turn preamble.
-const buildClaudeMeta = (text: string) => ({
+const buildClaudeMeta = (text: string, hosted: string[]) => ({
   claudeCode: {
     options: {
       persistSession: true,
       systemPrompt: { type: "preset", preset: "claude_code", append: text },
+      allowedTools: hosted.map((s) => `mcp__${s}`),
     },
   },
 });
@@ -248,7 +251,7 @@ export class AcpAgent implements Agent {
     const quirks = AGENT_REGISTRY[this.id].acp;
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText()) : undefined;
+    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText(), (this.opts.mcpServers ?? []).map((s) => s.name)) : undefined;
     if (meta) this.sentPreamble = true;
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
     // MCP passthrough: the project's own .mcp.json rides along for agents that
@@ -485,7 +488,9 @@ export class AcpAgent implements Agent {
         // bare "allow it?" is unanswerable. The agent's own title first, then the
         // one it already sent with the tool call.
         const named = req.toolCall?.title || (toolCallId ? this.turnTools.get(toolCallId)?.title : "") || "";
-        const title = named ? ` ${named}.` : "";
+        // A hosted tool's card is hidden and its title is a namespaced id, so name the tool itself.
+        const shown = this.isHosted(named) ? `OpenLive's ${named.split(/__|\./).pop()!.replace(/_/g, " ")}` : named;
+        const title = shown ? ` ${shown}.` : "";
         const choice = await this.askPermission(`${labelFor(this.id)} wants permission:${title} Allow it?`, options, toolCallId);
         // Barge-in / interrupt resolves any pending ask with this sentinel — ACP
         // requires the client to answer in-flight permission requests as cancelled.
@@ -583,6 +588,7 @@ export class AcpAgent implements Agent {
         if (u.content.type === "text") add("assistant", { type: "reasoning", text: u.content.text });
         return;
       case "tool_call":
+        if (this.isHosted(u.title ?? "")) return; // hidden live, so hidden here; its updates find no card and drop
         add("assistant", {
           type: "acp_tool",
           call: {
@@ -616,6 +622,11 @@ export class AcpAgent implements Agent {
       default:
         return; // plans/usage/etc. aren't part of the recovered transcript
     }
+  }
+
+  /** The agent's call of a tool OpenLive hosts for it, which OpenLive reports itself. */
+  private isHosted(title: string): boolean {
+    return !!title && (this.opts.mcpServers ?? []).some((s) => hostedBy(title, s.name));
   }
 
   /** Settle a tool card's status from the client side (permission denied /

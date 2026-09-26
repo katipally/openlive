@@ -80,6 +80,8 @@ export interface Tool<P = any, D = any> {
   parameters: Record<string, unknown>;
   /** Lines contributed to the system prompt when this tool is available. */
   promptGuidelines?: string[];
+  /** It only reads. Said over MCP, so Codex runs it without asking first. */
+  readOnly?: boolean;
   execute(args: P, ctx: ToolCtx): Promise<ToolResult<D>>;
 }
 

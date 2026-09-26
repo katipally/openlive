@@ -51,6 +51,14 @@ describe("Flow over MCP", () => {
       .toEqual(toolSpecs(tools));
   });
 
+  it("marks the tools that only read, so Codex runs them without asking", async () => {
+    const client = await connect(flowTools({ device, screenshotDelayMs: 0 }));
+    const listed = (await client.listTools()).tools;
+    const reads = listed.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name);
+    expect(reads).toEqual(expect.arrayContaining(["screenshot", "read_screen_text", "get_context", "read_selection", "clipboard_read"]));
+    for (const acts of ["click", "insert_text", "clipboard_write"]) expect(reads).not.toContain(acts);
+  });
+
   it("runs a call through the same dispatch, images and all", async () => {
     const client = await connect(flowTools({ device, screenshotDelayMs: 0 }));
     const r = await client.callTool({ name: "screenshot", arguments: {} });

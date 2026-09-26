@@ -170,6 +170,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
   const perception: Tool[] = [
     {
       name: "screenshot",
+      readOnly: true,
       description: "Look at the screen. Returns a picture of a display, or of one window, with the size you must use for coordinates.",
       parameters: obj({ display_id: { type: "integer", description: "Which display. Omit for the one in front." }, window_id: { type: "integer", description: "Capture just this window instead." } }, []),
       promptGuidelines: [
@@ -184,6 +185,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "read_screen_text",
+      readOnly: true,
       description: "Read the text on screen with OCR, with where each piece of text sits in the screenshot it was read from. Those coordinates are the ones click takes.",
       parameters: obj({ display_id: { type: "integer" }, window_id: { type: "integer" } }, []),
       async execute(args: { display_id?: number; window_id?: number }) {
@@ -198,6 +200,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "wait",
+      readOnly: true,
       description: "Let the screen catch up, then look again. For a page still loading, an app still starting, or anything that was not finished when you last looked.",
       parameters: obj({ seconds: { type: "number", description: "How long to wait, up to 10. Defaults to 1." } }, []),
       async execute(args: { seconds?: number }) {
@@ -209,6 +212,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "list_windows",
+      readOnly: true,
       description: "Every open window: the app, the window title when the system will say it, and its position and size in desktop coordinates. Those are not screenshot coordinates: to click something in a window, take a screenshot.",
       parameters: obj({}, []),
       async execute() {
@@ -219,6 +223,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "get_window",
+      readOnly: true,
       description: "Details of one window, or of the window in front when you do not name one. Its position and size are desktop coordinates, not screenshot coordinates.",
       parameters: obj({ window_id: { type: "integer", description: "Omit for the window in front." } }, []),
       async execute(args: { window_id?: number }) {
@@ -231,6 +236,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "camera_frame",
+      readOnly: true,
       description: "One frame from the user's camera, for when they ask about something they are holding up or pointing at.",
       parameters: obj({}, []),
       async execute() {

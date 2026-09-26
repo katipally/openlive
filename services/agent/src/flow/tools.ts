@@ -371,6 +371,7 @@ const readSelection: Tool<Record<string, never>, { selection: string }> = {
   name: "read_selection",
   description: "Read the text the user currently has selected in the app they are in.",
   parameters: noParams,
+  readOnly: true,
   async execute(_args, ctx) {
     const selection = ctx.context?.selection;
     if (selection === undefined) {
@@ -384,6 +385,7 @@ const clipboardRead: Tool<Record<string, never>, { text: string }> = {
   name: "clipboard_read",
   description: "Read the text currently on the user's clipboard.",
   parameters: noParams,
+  readOnly: true,
   async execute(_args, ctx) {
     const value = await ctx.clipboard.read();
     return { content: [text(value || "The clipboard is empty.")], details: { text: value } };
@@ -404,6 +406,7 @@ const getContext: Tool<Record<string, never>, { context: unknown }> = {
   name: "get_context",
   description: "What the user is looking at: the foreground app, its window title, any selected text, and the page URL when it is a browser.",
   parameters: noParams,
+  readOnly: true,
   async execute(_args, ctx) {
     const c = ctx.context;
     if (!c) return { content: [text("I cannot see what app they are in right now.")], details: { context: null } };

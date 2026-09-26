@@ -124,12 +124,13 @@ export class LiveSession {
   // built-in brain runs, so one implementation answers both.
   private hosted: OpenLiveTool[];
   private mcp: ReturnType<typeof serveFlowMcp> | null = null;
-  /** The running agent turn's emit, so `remember` shows its chip in that turn. */
+  /** The running turn's emit, so a hosted tool shows its chip in that turn. */
   private toolEmit: Emit = () => {};
 
   constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode) {
     const lookTool: OpenLiveTool = {
       name: "look",
+      readOnly: true,
       description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => {
@@ -142,6 +143,7 @@ export class LiveSession {
     };
     const clipboardRead: OpenLiveTool = {
       name: "clipboard_read",
+      readOnly: true,
       description: "Read the text currently on the user's clipboard (what they just copied). Use when they say things like 'what did I just copy' or 'read my clipboard'. Desktop app only.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => ({ output: await this.bridge("clipboard_read") }),
@@ -162,8 +164,9 @@ export class LiveSession {
     // folder (`boundCwd`, read live so it tracks folder changes). Writes/edits go
     // through the same permission ask the coding agents use; reads are free.
     const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
-    this.runner = new LiveTurnRunner([lookTool, clipboardRead, clipboardWrite, openUrl, ...fileTools]);
-    this.hosted = [lookTool, clipboardRead, clipboardWrite, openUrl, makeRemember((e) => this.toolEmit(e))];
+    const bridged = [this.chipped(lookTool), this.chipped(clipboardRead), this.chipped(clipboardWrite), this.chipped(openUrl, (a) => String(a?.url ?? ""))];
+    this.runner = new LiveTurnRunner([...bridged, ...fileTools]);
+    this.hosted = [...bridged, makeRemember((e) => this.toolEmit(e))];
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
@@ -337,12 +340,12 @@ export class LiveSession {
     // Both wrap the SAME emit, so every agent (and the built-in brain) behaves alike.
     const narrated = narrationEnabled(getSetting("narrateProgress")) ? wrapEmitWithNarration(emit, ac.signal) : emit;
     const gate = createCommentaryGate(narrated, ac.signal);
+    this.toolEmit = gate.emit;
     try {
       if (this.agent) {
         await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
         await this.cutSaved;
         if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
-        this.toolEmit = gate.emit;
         await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, hideHosted(gate.emit), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
@@ -539,6 +542,18 @@ export class LiveSession {
     this.agentReady = agent.start(ac.signal)
       .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })
       .catch((e) => { if (!this.closed) this.send({ t: "sse", event: { type: "error", message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}` } }); });
+  }
+
+  /** A bridge tool with its chip in the running turn, the same whichever brain calls it. */
+  private chipped(t: OpenLiveTool, summary?: (args: any) => string): OpenLiveTool {
+    return {
+      ...t,
+      execute: async (args) => {
+        const id = randomUUID();
+        await this.toolEmit({ type: "tool_start", id, tool: t.name, ...(summary && { summary: summary(args) }) });
+        try { return await t.execute(args); } finally { await this.toolEmit({ type: "tool_done", id }); }
+      },
+    };
   }
 
   /** Relay an agent permission ask to the client (spoken + chips + inline on the

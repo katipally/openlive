@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerWire } from "../agents/mcp-config.js";
 import type { OpenLiveTool } from "../tools.js";
-import { dispatch, toolSpecs } from "./tools.js";
+import { dispatch } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { MCP_SERVER_NAME, type Approve, type Tool, type ToolCtx } from "./types.js";
 
@@ -41,7 +41,7 @@ export function flowMcpServer(opts: FlowMcpOpts): Server {
   const server = new Server({ name: opts.name ?? MCP_SERVER_NAME, version: "1" }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: toolSpecs(opts.tools).map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters as { type: "object" } })),
+    tools: opts.tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters as { type: "object" }, ...(t.readOnly && { annotations: { readOnlyHint: true } }) })),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -70,6 +70,7 @@ export function servedTool(t: OpenLiveTool): Tool {
     name: t.name,
     description: t.description,
     parameters: t.parameters,
+    readOnly: t.readOnly,
     async execute(args) {
       const r = await t.execute(args);
       if (r.isError) throw new Error(r.output);

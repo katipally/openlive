@@ -56,7 +56,11 @@ Releases before 0.1.9 predate this file — see the
   remember.** It gets the call's own `look`, `clipboard_read`,
   `clipboard_write`, `open_url` and `remember` over a local MCP server: the same
   tools the built-in brain runs, shown the same way. Facts either brain
-  remembered reach both.
+  remembered reach both. Looking, the clipboard and opening a link now show a
+  chip with either brain. Claude Code calls OpenLive's tools, in a call and in
+  Flow, without asking first; Codex skips the ask for the ones that only read,
+  and when it does ask, the ask names the tool ("OpenLive's open url"). A
+  resumed session shows those calls the way it did live, not as raw cards.
 - **Flow shows a coding agent's own work.** When Claude Code reads, edits or
   runs something, the orb says so ("Reading src/app.ts"), and the session file
   keeps it next to Flow's own tools.

@@ -17,6 +17,8 @@ export interface OpenLiveTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  /** It only reads: see the Flow tool's field of the same name. */
+  readOnly?: boolean;
   execute: (args: any) => Promise<ToolResult>;
 }
 export interface ToolResult {

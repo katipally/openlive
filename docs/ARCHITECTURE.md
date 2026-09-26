@@ -70,6 +70,12 @@ over stdio ("LSP for agents"). Design points:
   number and chips; the agent's own report of those calls is dropped so they
   show once, as the built-in brain's do. What `remember` kept rides the agent's
   preamble. Web search, fetching, files and plans stay the agent's own.
+  Claude Code is handed `allowedTools: ["mcp__<server>"]` for every server
+  OpenLive hosts (`openlive`, `openlive-flow`), so it never asks before one.
+  Codex-acp builds its MCP config itself and offers no such switch; it runs
+  a tool marked `readOnly` (sent as the MCP `readOnlyHint`) without asking and
+  asks for the rest, which the ask names as "OpenLive's <tool>" since the card
+  it points at is hidden. Replay drops those calls as live does.
 - **Models / modes / options.** The agent reports its models, modes, and other
   config options over ACP; the UI renders pickers generically and switches them
   mid-session (`set_model` / `set_mode` / `set_option`).
