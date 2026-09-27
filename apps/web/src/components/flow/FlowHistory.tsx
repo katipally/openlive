@@ -83,7 +83,7 @@ function Rows({ sessions, onSelect }: { sessions: FlowSessionSummary[]; onSelect
   return (
     <>
       {groups.map((g) => (
-        <div key={g.day} className="flex flex-col">
+        <div key={g.rows[0]!.id} className="flex flex-col">
           <span className="px-3 pb-1 pt-3 text-micro font-medium uppercase tracking-[0.06em] text-muted-foreground">{g.day}</span>
           {g.rows.map((s) => {
             const ms = new Date(s.updatedAt).getTime() - new Date(s.createdAt).getTime();

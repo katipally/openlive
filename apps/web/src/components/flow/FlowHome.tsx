@@ -157,7 +157,7 @@ export function FlowHome({ sessionId, onOpen, caps }: {
           )}
           <AnimatePresence>
           {groups.flatMap((g) => [
-            <motion.span key={`day:${g.day}`} {...CROSSFADE} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }} transition={fade}
+            <motion.span key={`day:${g.rows[0]!.id}`} {...CROSSFADE} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }} transition={fade}
               className="overflow-hidden px-3.5 pb-1 pt-3 text-micro font-medium uppercase tracking-[0.06em] text-muted-foreground">{g.day}</motion.span>,
             ...g.rows.map((s, i) => (
               <SessionRow key={s.id} session={s} first={i === 0} onOpen={() => onOpen(s.id)}
