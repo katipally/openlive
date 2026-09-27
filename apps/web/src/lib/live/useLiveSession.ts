@@ -281,7 +281,7 @@ export function useLiveSession(chatId: string) {
       // user may not be looking at the countdown.
       onPermission: (reqId, question, options, expiresAt, toolCallId) => {
         set({ permission: { reqId, question, options, expiresAt, toolCallId } });
-        engine.current?.feedAgentDelta(`${question} `);
+        engine.current?.ask(question);
         // High-stakes while unfocused: an unanswered ask auto-denies in 2 minutes.
         notifyDesktop("Permission needed", question);
         if (permReminder.current) clearTimeout(permReminder.current);
@@ -303,12 +303,12 @@ export function useLiveSession(chatId: string) {
       onElicitation: (e) => {
         set({ elicitation: e });
         if (e.mode === "url" && e.url) {
-          engine.current?.feedAgentDelta(`${e.message} I opened your browser — say done when you're finished, or cancel. `);
+          engine.current?.ask(`${e.message} I opened your browser. Say done when you're finished, or cancel.`);
           const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
           if (api?.bridge) void api.bridge("open_url", e.url);
           else window.open(e.url, "_blank", "noopener");
         } else {
-          engine.current?.feedAgentDelta(`${e.message} I put a short form on screen. `);
+          engine.current?.ask(`${e.message} I put a short form on screen.`);
         }
         notifyDesktop("Input needed", e.message);
       },

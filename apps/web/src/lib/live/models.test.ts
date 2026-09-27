@@ -355,3 +355,26 @@ describe("modelsCached", () => {
     expect(models.modelsCached()).toBe(true);
   });
 });
+
+describe("downloadModel", () => {
+  const lines = (...ls: object[]) => new Response(ls.map((l) => JSON.stringify(l) + "\n").join(""));
+
+  it("reports progress and resolves once the agent says done", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => lines({ loaded: 5, total: 10 }, { loaded: 10, total: 10, done: true })));
+    const seen: number[] = [];
+    await models.downloadModel("/api/voice/model/download", (l, t) => seen.push(l / t));
+    expect(seen).toEqual([0.5, 1]);
+  });
+
+  it("throws when the agent refuses, instead of reporting an install", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "already downloading" }, { status: 409 })));
+    await expect(models.downloadModel("/api/voice/model/download", () => {})).rejects.toThrow("already downloading");
+  });
+
+  it("throws on a failure line and on a stream that ends early", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => lines({ loaded: 1, total: 10 }, { error: "vocoder download HTTP 404" })));
+    await expect(models.downloadModel("/api/voice/model/download", () => {})).rejects.toThrow("vocoder download HTTP 404");
+    vi.stubGlobal("fetch", vi.fn(async () => lines({ loaded: 1, total: 10 })));
+    await expect(models.downloadModel("/api/voice/engines/x/download", () => {})).rejects.toThrow("download ended early");
+  });
+});

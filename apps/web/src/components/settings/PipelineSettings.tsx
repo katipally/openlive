@@ -14,7 +14,7 @@ import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, eng
 import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
-  listNativeEngines, downloadNativeEngine, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
+  listNativeEngines, downloadModel, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
   getVoicePerf, setEngineAccel, rebenchEngine, type AccelProvider, type AccelResult,
 } from "@/lib/live/models";
 import { toSpeech } from "@/lib/live/voiceText";
@@ -224,7 +224,7 @@ export async function downloadEngine(e: NativeEngineStatus, qc: QueryClient) {
   downloadAborts.set(e.id, abort);
   setJob(e.id, { pct: 0 });
   try {
-    await downloadNativeEngine(e.id, (loaded, total) => setJob(e.id, { pct: loaded / total }), abort.signal);
+    await downloadModel(`/api/voice/engines/${e.id}/download`, (loaded, total) => setJob(e.id, { pct: loaded / total }), abort.signal);
     resetNativeFallbacks();
     setJob(e.id);
     toast(`${e.name} downloaded. It's used from your next reply.`, "info");

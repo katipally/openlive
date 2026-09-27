@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Loader2, Mic, Pencil, Play, RotateCcw, Square, Trash2, Upload, Volume2 } from "lucide-react";
-import { stt, modelsReady, loadModels } from "@/lib/live/models";
+import { stt, modelsReady, loadModels, downloadModel } from "@/lib/live/models";
 import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, chooseVariant, familyInfo, LANGUAGE_DEFAULTS } from "@/lib/live/pipelineConfig";
 import { AllowRestricted } from "./PipelineSettings";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
@@ -106,22 +106,8 @@ function ModelCard({ model, failed, onRetry, onChange }: { model?: ModelState; f
   const download = async () => {
     setProgress(0);
     try {
-      const res = await fetch("/api/voice/model/download", { method: "POST" });
-      const reader = res.body?.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      if (reader) for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n"); buf = lines.pop() ?? "";
-        for (const line of lines) {
-          const m = JSON.parse(line) as { loaded?: number; total?: number; error?: string };
-          if (m.error) throw new Error(m.error);
-          if (m.loaded && m.total) setProgress(m.loaded / m.total);
-        }
-      }
-      toast("Cloning engine installed — record your first voice below.");
+      await downloadModel("/api/voice/model/download", (loaded, total) => setProgress(loaded / total));
+      toast("Cloning engine installed. Record your first voice below.", "info");
     } catch (e) {
       log.error("voice", "model download:", e);
       toast(`Download failed: ${String((e as Error)?.message ?? e)}`);
@@ -131,7 +117,7 @@ function ModelCard({ model, failed, onRetry, onChange }: { model?: ModelState; f
   const remove = async () => {
     await fetch("/api/voice/model", { method: "DELETE" }).catch(() => {});
     onChange();
-    toast("Cloning engine removed — disk space freed. Your saved profiles remain.");
+    toast("Cloning engine removed, disk space freed. Your saved profiles remain.", "info");
   };
 
   if (!model && failed) return (

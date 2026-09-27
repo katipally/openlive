@@ -354,11 +354,13 @@ export async function listNativeEngines(signal?: AbortSignal): Promise<NativeFam
   return res.json();
 }
 
-/** Streams the agent's JSON-lines progress; resolves when installed, throws on
- *  failure or cancel. Aborting `signal` only stops listening: the agent keeps
- *  going until deleteNativeEngine cancels it. */
-export async function downloadNativeEngine(id: string, onProgress: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<void> {
-  const res = await fetch(`/api/voice/engines/${id}/download`, { method: "POST", signal });
+/** Starts a model download on the agent (`/api/voice/engines/<id>/download`, or
+ *  the cloning engine's `/api/voice/model/download`) and streams its JSON-lines
+ *  progress; resolves when installed, throws on a refusal, failure or cancel.
+ *  Aborting `signal` only stops listening: the agent keeps going until its
+ *  DELETE cancels it. */
+export async function downloadModel(url: string, onProgress: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(url, { method: "POST", signal });
   if (!res.ok || !res.body) throw await httpError(res);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let rest = "";

@@ -109,6 +109,16 @@ it("cuts the reply at the word being voiced, not the end of its sentence", async
   expect(eng.cutReply()).toBe("First one. Second part");
 });
 
+it("voices all of a question the reply waits on, its last sentence too", async () => {
+  const spoken: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onAgentText: (s: string) => spoken.push(s) } as never, playNow as never);
+  tts.chunks = [tone([[0, 300]], 300)];
+  Object.assign(eng, { acceptingReply: true });
+  eng.ask("Claude Code wants permission: Write notes.txt. Allow it?");
+  await (eng as any).ttsChain;
+  expect(spoken.join(" ")).toBe("Claude Code wants permission: Write notes.txt. Allow it?");
+});
+
 it("voices nothing, and asks no engine, once stopped", async () => {
   const eng = new VoiceEngine({ onPhase() {}, onAgentText() {} } as never, playNow as never);
   tts.chunks = [tone([[0, 300]], 300)];
@@ -276,6 +286,61 @@ it("a sentence begun while a backchannel is still transcribing decides for both"
   await new Promise((r) => setTimeout(r, 0));
   expect(seen).toMatchObject({ cuts: 1, sent: ["yeah actually stop"] });
   tts.gate = Promise.resolve();
+});
+
+it("a laugh over the reply is no turn when talk after it cut the reply before its words were in", async () => {
+  let finish!: (h: { text: string; at: number[] }) => void;
+  const { eng, seen } = overReply();
+  eng.onSpeechStart();
+  const laugh = eng.onSpeechEnd(second, new Promise((r) => (finish = r)));
+  eng.onSpeechStart(); // the user goes on talking
+  for (let i = 0; i < 47; i++) eng.onFrame(frame, true); // 1504 ms voiced: cut
+  expect(seen.cuts).toBe(1);
+  finish({ text: "Ha ha ha", at: [] });
+  await laugh;
+  expect(seen.sent).toEqual([]);
+  tts.heard = "wait stop";
+  await eng.onSpeechEnd(second);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen).toMatchObject({ cuts: 1, sent: ["wait stop"] });
+});
+
+it("sounds over the reply, held while another transcribes, are no turn after talk cut the reply", async () => {
+  let finish!: (h: { text: string; at: number[] }) => void;
+  const { eng, seen } = overReply();
+  eng.onSpeechStart();
+  const laugh = eng.onSpeechEnd(second, new Promise((r) => (finish = r)));
+  eng.onSpeechStart();
+  void eng.onSpeechEnd(second, Promise.resolve({ text: "ahem", at: [] })); // held: the laugh still transcribes
+  eng.onSpeechStart(); // the user goes on talking
+  for (let i = 0; i < 47; i++) eng.onFrame(frame, true); // 1504 ms voiced: cut
+  finish({ text: "Ha ha ha", at: [] });
+  await laugh;
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen).toMatchObject({ cuts: 1, sent: [] });
+});
+
+it("a held thought is not sent on its own while its continuation still transcribes", async () => {
+  let open1!: () => void, open2!: () => void;
+  tts.gate = new Promise((r) => (open1 = r));
+  tts.heard = "so I was thinking about the";
+  const { eng, seen } = overReply("idle");
+  eng.onSpeechStart();
+  const first = eng.onSpeechEnd(second);
+  eng.onSpeechStart();
+  void eng.onSpeechEnd(second); // ends while the first transcribes: replayed after it
+  tts.gate = new Promise((r) => (open2 = r));
+  open1();
+  await first; // the first is held, and its continuation now transcribes
+  tts.heard = "so I was thinking about the weather tomorrow?";
+  eng.flushPending(); // the hold runs out before the continuation's words are in
+  open2();
+  await new Promise((r) => setTimeout(r, 0));
+  eng.commitPending(); // the turn model calls it unfinished; the hold sends it
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.sent).toEqual(["so I was thinking about the weather tomorrow?"]);
+  tts.gate = Promise.resolve();
+  eng.clearHold();
 });
 
 it("outside a reply a lone yeah is an answer, and over a pending ask a yes answers it", async () => {

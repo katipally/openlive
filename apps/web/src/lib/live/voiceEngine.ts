@@ -178,7 +178,7 @@ export class VoiceEngine {
   private hearing = false;                         // the VAD is inside a segment
   // Audio segments that arrived while the previous one was still finalizing (slow STT
   // on CPU/WASM) — deferred, not dropped, then re-processed so no speech is lost.
-  private deferred: { audio: Float32Array; final?: Promise<Heard>; voiced: number }[] = [];
+  private deferred: { audio: Float32Array; final?: Promise<Heard>; voiced: number; over: boolean }[] = [];
   private asr: AsrStream | null = null;          // open while the active STT engine streams
   private streaming = false;                      // this utterance's frames are going up the socket
   private ring = new FrameRing(PRE_SPEECH_FRAMES); // recent frames, sent when speech starts
@@ -594,7 +594,9 @@ export class VoiceEngine {
   // `verdict` the voiceprint's on all of it, when it is known already.
   // `vadEnded`: the VAD's segment ended, not deferred audio replayed while another may be open.
   // `voiced`: the voiced time of `audio`, taken when its segment ended.
-  private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>, verdict?: Verdict, vadEnded = true, voiced = this.voicedMs) {
+  // `overReply`: said over a paused reply. Talk after it can cut the reply before
+  // its words are in, and a sound said over the reply is still never a turn.
+  private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>, verdict?: Verdict, vadEnded = true, voiced = this.voicedMs, overReply = !!this.tentative) {
     if (vadEnded) {
       if (this.echo) {
         this.echo = false;
@@ -609,7 +611,7 @@ export class VoiceEngine {
     // A segment ended while the previous one is still finalizing (STT + turn detection
     // take real time on CPU/WASM). DON'T drop it — defer and re-process below, or the
     // user's words vanish.
-    if (this.finalizing) { this.deferred.push({ audio, final, voiced }); return; }
+    if (this.finalizing) { this.deferred.push({ audio, final, voiced, over: overReply }); return; }
     let combined = this.pending ? this.concat([this.pending, audio], this.pending.length + audio.length) : audio;
     if (this.tentative && (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate())) { this.resumeReply(); return; }
     // Reject blips and near-silence up front (ambient noise that tripped the VAD) —
@@ -678,10 +680,14 @@ export class VoiceEngine {
       }
       const speaker = who?.speaker;
       if (speaker) this.lastSpeaker = speaker;
-      if (this.tentative) {
+      if (overReply) {
         if (aside) this.h.onSideTalk?.(text, speaker, judged);
-        if (aside || isJunk(text) || isBackchannel(text, loadPipelineConfig().language)) { this.resumeReply(); return; }
-        this.bargeIn();
+        if (aside || isJunk(text) || isBackchannel(text, loadPipelineConfig().language)) {
+          if (this.tentative) this.resumeReply();
+          else if (!this.hearing && !this.deferred.length) { this.h.onPartial(""); this.setPhase("idle"); }
+          return;
+        }
+        if (this.tentative) this.bargeIn();
       }
       const sttEndpointMs = performance.now() - perf0;
       if (this.ptt) {
@@ -741,7 +747,7 @@ export class VoiceEngine {
         const finals = parts.every((p) => p.final)
           ? Promise.all(parts.map((p) => p.final!)).then((hs) => hs.reduce((a, h, i) => joinHeard(a, starts[i]!, h), { text: "", at: [] }))
           : undefined;
-        void this.onSpeechEnd(merged, finals, undefined, false, parts.reduce((n, p) => n + p.voiced, 0));
+        void this.onSpeechEnd(merged, finals, undefined, false, parts.reduce((n, p) => n + p.voiced, 0), parts.some((p) => p.over));
       }
     }
   }
@@ -755,9 +761,9 @@ export class VoiceEngine {
   /** Send the held mid-thought utterance NOW (hold timer fired, or the user tapped
    *  "send now" / hit Enter instead of waiting it out). `now`: whatever the phase. */
   private flushPending(now = false) {
-    // Kept, not sent: mid-segment onSpeechEnd folds it in, and over a spoken line it
-    // waits for the engine to go idle.
-    if (this.phase !== "idle" && !now) { if (this.pending && this.phase !== "listening") this.scheduleHold(); return; }
+    // Kept, not sent: mid-segment onSpeechEnd folds it in, a continuation still
+    // transcribing already has, and over a spoken line it waits for the engine to go idle.
+    if ((this.phase !== "idle" || this.finalizing) && !now) { if (this.pending && this.phase !== "listening") this.scheduleHold(); return; }
     const p = this.pending; const cached: Heard = { text: this.pendingText.trim(), at: this.pendingAt }, speaker = this.pendingSpeaker, judged = this.pendingJudged;
     this.pending = null; this.pendingText = "";
     this.clearHold();
@@ -852,6 +858,13 @@ export class VoiceEngine {
     perf.firstToken(); // no-op after the first delta of a turn
     const v = this.replyVoice ??= voiceNow();
     for (const s of this.chunker.push(text, v.lang)) this.enqueueSpeak(s, this.epoch, v);
+  }
+  /** A question the reply now waits on (a permission ask, an elicitation): all
+   *  of it voiced now, never its last sentence held for text that comes only
+   *  after the answer. */
+  ask(text: string) {
+    this.feedAgentDelta(text);
+    this.endAgentStep();
   }
   /** A tool is about to run: voice everything said so far now. Held for the
    *  length bar, its tail spoke only after the tool, cut off mid-sentence. */
