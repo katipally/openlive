@@ -391,8 +391,9 @@ test("the listening sounds are what the backchannel check itself takes for one, 
   for (const [lang, words] of Object.entries(LISTENING)) for (const w of words) assert.ok(isBackchannel(w, lang as LanguageCode), `${lang}: ${w}`);
 });
 
-test("a question is heard by its mark, or in English by its first word", () => {
+test("a question is heard by its mark, or in English by the first word of its last clause", () => {
   assert.ok(asksQuestion("what do you think about the", "en"));
+  assert.ok(asksQuestion("So I was thinking about a walk. Maybe the weather tomorrow, what will it be like", "en"));
   assert.ok(asksQuestion("¿Qué piensas?", "es"));
   assert.ok(asksQuestion("你觉得呢？", "zh"));
   assert.ok(!asksQuestion("so I went to the store and", "en"));

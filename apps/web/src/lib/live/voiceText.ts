@@ -165,9 +165,10 @@ export const LISTENING: Record<LanguageCode, string[]> = {
 
 const ASKS = /^(?:what|why|how|when|where|who|whose|which|can|could|would|will|should|shall|do|does|did|is|are|am|was|were|have|has)\b/i;
 /** The words so far ask something: they end on a question mark, or in English
- *  begin with a question word (the streaming engines write no question mark). */
+ *  their last clause begins with a question word (the streaming engines write
+ *  no question mark, and a turn held over pauses runs several clauses). */
 export function asksQuestion(text: string, lang: LanguageCode): boolean {
-  return /[?？]\s*$/.test(text) || (lang === "en" && ASKS.test(text.trim()));
+  return /[?？]\s*$/.test(text) || (lang === "en" && ASKS.test(text.trim().split(/[.!?,;:]\s+/).pop()!));
 }
 
 // Strip markdown so the voice never reads out "-", "*", "#", or "[p.18]" symbols,
