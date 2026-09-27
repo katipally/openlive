@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getAllSettings, getSetting, setSetting } from "@openlive/db";
-import { isLoopbackUrl, normalizeOllamaUrl } from "@openlive/harness/registry";
+import { getAllSettings, getSetting, listProviders, setSetting } from "@openlive/db";
+import { isLoopbackUrl, normalizeOllamaUrl, resolveApiMode } from "@openlive/harness/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +65,11 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
+  // A model picked under the default provider belongs to it. Saved alone, the
+  // turn ignores it and runs that provider's default model instead.
+  if (typeof body.liveModel === "string" && body.liveModel && typeof body.liveProviderId !== "string" && !getSetting("liveProviderId")) {
+    body.liveProviderId = resolveApiMode(getAllSettings(), listProviders()).provider.id;
+  }
   for (const [k, v] of Object.entries(body)) {
     if (typeof v !== "string" || !isExposed(k)) continue;
     if (k.startsWith("acpCommand:") && v.trim() && !isSafeAcpCommand(v)) {

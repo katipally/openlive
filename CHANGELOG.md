@@ -225,6 +225,10 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A model picked in Settings ran as the default one.** Choosing a model
+  before ever choosing a provider saved the model alone, so Chat and Flow
+  kept running the provider's default while the picker showed your choice.
+  The model is now saved with the provider it was picked from.
 - **Nemotron streaming lost short answers and last words.** A lone word like
   "Sure" came back empty, and the 560 ms and 1120 ms variants dropped the last
   word of a sentence ("...ten minutes" for "...ten minutes, please"). The

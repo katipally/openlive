@@ -7,7 +7,7 @@ process.env.OPENLIVE_DATA_DIR = mkdtempSync(join(tmpdir(), "openlive-settings-")
 const SECRET = "per-launch-secret";
 process.env.OPENLIVE_SETTINGS_SECRET = SECRET;
 const { GET, PUT } = await import("./route");
-const { getSetting } = await import("@openlive/db");
+const { getSetting, upsertProviderByKind } = await import("@openlive/db");
 
 const put = (body: Record<string, string>, headers: Record<string, string> = {}) =>
   PUT(new Request("http://x/api/settings", { method: "PUT", body: JSON.stringify(body), headers }));
@@ -68,5 +68,19 @@ describe("ollamaBaseUrl", () => {
     } finally {
       process.env.OPENLIVE_SETTINGS_SECRET = SECRET;
     }
+  });
+});
+
+describe("liveModel", () => {
+  it("is saved with the provider it was picked from, so the turn runs the model the picker shows", async () => {
+    await upsertProviderByKind("minimax", "MiniMax", "sk-test");
+    await put({ liveModel: "MiniMax-M3" });
+    expect(getSetting("liveProviderId")).toBe("minimax");
+  });
+
+  it("keeps a provider already chosen", async () => {
+    await put({ liveProviderId: "openai" });
+    await put({ liveModel: "gpt-5" });
+    expect(getSetting("liveProviderId")).toBe("openai");
   });
 });
