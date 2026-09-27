@@ -56,10 +56,11 @@ export class AgentSupervisor implements Agent {
 
   async dispose(): Promise<void> { this.disposed = true; await this.agent.dispose(); }
 
-  cut(spoken: string) {
+  cut(spoken: string, cancelled = false) {
+    // A stopped turn never reached the history, so its last reply is an older turn's.
     const last = this.history[this.history.length - 1];
-    if (last?.role === "assistant") last.text = clipHistoryText(spoken.trim());
-    this.agent.cut?.(spoken);
+    if (!cancelled && last?.role === "assistant") last.text = clipHistoryText(spoken.trim());
+    this.agent.cut?.(spoken, cancelled);
   }
 
   async setModel(modelId: string): Promise<void> { await this.agent.setModel?.(modelId); }

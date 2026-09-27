@@ -225,6 +225,31 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A stopped request came back on the next turn.** Stop, close, hang-up or a
+  barge-in mid-turn left the request in the brain's history unanswered, so the
+  next unrelated turn carried it out (Claude Code opened Calculator after the
+  user stopped it). Both brains are now told the request was cancelled and must
+  not be done unless asked again, in chat and Flow and across a hang-up; a
+  coding agent is no longer resent it, and a tool call it makes between turns
+  is refused.
+- **A refused Flow action had the brain nag about settings.** The tool result
+  told it to point the user at Flow's settings right after they said no. It now
+  says they declined this time and not to retry or ask, and the same turn does
+  not ask again.
+- **Flow's history said a quiet reply was spoken and a refused tool failed.**
+  A reply Flow only showed now reads "Shown, not spoken", and a tool the user
+  refused reads "You declined".
+- **Claude Code kept what the user asked it to remember to itself.** It wrote
+  its own memory files, so the built-in brain never learned it. A coding agent
+  in a call is now told to use OpenLive's `remember`, which every brain reads.
+- **Flow claimed actions it never took.** Side talk sent on with "Send it"
+  ("Hey Sam, can you grab the mail") got "done, mail retrieved". Flow's rules
+  now forbid saying something is done unless a tool did it, and a sentence sent
+  on from side talk reaches either brain marked as maybe meant for someone else.
+- **A slow transcription could send a turn over a playing reply without
+  cutting it.** The old reply played through, then the new answer. A turn
+  committed while a reply plays now cuts it as a barge-in does, at the word
+  being voiced.
 - **A soft talker could be dropped by their own first words.** Silero trails a
   soft voice's onset, and those words counted as room noise while the engine was
   idle, lifting the noise gate over the rest of the sentence. The floor now goes

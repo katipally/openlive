@@ -14,11 +14,12 @@ import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
 import { buildFlowAcpPreamble, buildFlowPrompt } from "../flow/prompt.js";
-import { consentApprove } from "../flow/approval.js";
+import { consentApprove, isDeclined } from "../flow/approval.js";
 import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
 import type { DevicePort } from "../flow/device.js";
 import type { Approve, Brain, ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
 import { log } from "../log.js";
+import { cancelledText, sentAside } from "../turn.js";
 
 // Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
 // Flow runtime lives in its own renderer, and a WebSocket cannot be shared across
@@ -50,6 +51,17 @@ export function truncateToSpoken(messages: Msg[], spoken: string, from: number):
     m.text = spoken.trim() || undefined;
     if (!m.text && !m.toolCalls?.length) messages.splice(i, 1);
     return;
+  }
+}
+
+/** Every request of a stopped run, from the utterances that started it to the
+ *  ones it drained, so neither brain carries one out on a later turn. */
+export function markCancelled(messages: Msg[], from: number): void {
+  let i = from;
+  while (i > 0 && messages[i - 1]!.role === "user") i--;
+  for (; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.role === "user") m.text = cancelledText(m.text);
   }
 }
 
@@ -194,6 +206,8 @@ export class FlowLiveSession {
   private lastContext: FlowContext | null = null;
   /** The language the last utterance was spoken in; the next turn answers in it. */
   private lang: LanguageCode | undefined;
+  /** The orb only showed the last utterance's answer, so the session file must not say it was spoken. */
+  private quiet = false;
 
   private insert = new ForwardOnlyInsertion(
     (id, chunk) => this.bridge("flow_insert", JSON.stringify({ id, chunk })).then(() => {}),
@@ -258,8 +272,9 @@ export class FlowLiveSession {
         this.cancelPendingPermissions();
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
+        this.quiet = !!msg.quiet;
         this.turn = msg.turn;
-        return this.onUtterance(msg.text, msg.wordsAt, msg.speaker);
+        return this.onUtterance(msg.text, msg.wordsAt, msg.speaker, msg.aside);
       }
       case "flow_cancel":
         // The orb holds its barge-in while it shows an ask, so a cancel is Stop,
@@ -297,9 +312,9 @@ export class FlowLiveSession {
     }
   }
 
-  private onUtterance(text: string, wordsAt?: number[], speaker?: string) {
+  private onUtterance(text: string, wordsAt?: number[], speaker?: string, aside?: boolean) {
     if (!text.trim() || this.closed) return;
-    const m: Msg = { role: "user", text };
+    const m: Msg = { role: "user", text: aside ? sentAside(text) : text };
     this.write(() => this.persist("message", { role: "user", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }) }));
     if (this.turnActive) { this.steering.push(m); return; }
     this.messages.push(m);
@@ -355,16 +370,17 @@ export class FlowLiveSession {
       // An ask left hanging by a cancelled turn must be settled, or the client's
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
-      if (ac.signal.aborted && this.spoken !== null) { truncateToSpoken(this.messages, this.spoken, startedAt); this.agent?.cut?.(this.spoken); }
+      if (ac.signal.aborted) markCancelled(this.messages, startedAt);
+      if (ac.signal.aborted && this.spoken !== null) { truncateToSpoken(this.messages, this.spoken, startedAt); this.agent?.cut?.(this.spoken, true); }
       else if (!ac.signal.aborted) this.voicedFrom = startedAt;
       this.spoken = null;
       const last = this.messages[this.messages.length - 1];
       this.savedReply = null;
       if (last?.role === "assistant" && (last.text || last.toolCalls?.length)) {
-        const saved = { id: "" };
+        const saved = { id: "" }, quiet = this.quiet;
         this.savedReply = saved;
         this.write(async () => {
-          try { saved.id = (await (await this.session()).append("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "" })).id; }
+          try { saved.id = (await (await this.session()).append("message", { role: "assistant", text: last.text?.slice(0, PERSIST_TEXT_CAP) ?? "", ...(quiet && { quiet }) })).id; }
           catch (e) { log.error("flow", "persist:", e); }
         });
       }
@@ -389,8 +405,10 @@ export class FlowLiveSession {
     if (event.type === "tool_call") return this.persist("tool_call", { callId: event.id, name: event.name, args: event.args });
     if (event.type === "tool_result") {
       const assets = await this.saveAssets(String(event.id), event.content as FlowContentWire[]);
+      const declined = (event.content as FlowContentWire[] | undefined)?.some((c) => c.type === "text" && isDeclined(c.text));
       return this.persist("tool_result", {
         callId: event.id, name: event.name, isError: event.isError,
+        ...(declined && { declined }),
         ...(assets.length ? { assets } : {}),
       });
     }
@@ -541,7 +559,8 @@ export class FlowLiveSession {
     void this.dropAgent();
     this.mcp ??= await serveFlowMcp({
       tools: this.tools,
-      ctx: () => ({ signal: this.ac?.signal ?? signal, context: this.lastContext, insert: this.insert, clipboard: this.clipboard }),
+      // A call arriving outside a turn is refused, as the built-in brain never makes one.
+      ctx: () => ({ signal: this.ac?.signal ?? AbortSignal.abort(), context: this.lastContext, insert: this.insert, clipboard: this.clipboard }),
       approve: (req, s) => this.approve(req, s),
       // An agent brain drives these tools itself, so the session only learns
       // what it did if the server says so.
@@ -581,7 +600,7 @@ export class FlowLiveSession {
     if (!settled) { this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn }); return; }
     this.write(async () => {
       await this.persist("tool_call", { callId: call.id, name: kind, ...shown, args });
-      await this.persist("tool_result", { callId: call.id, name: kind, ...shown, isError: call.status !== "completed" });
+      await this.persist("tool_result", { callId: call.id, name: kind, ...shown, isError: call.status !== "completed", ...(call.status === "rejected" && { declined: true }) });
     });
   }
 

@@ -502,7 +502,7 @@ export function useLiveSession(chatId: string) {
         // sees themselves (or "Listening…") the moment they start talking.
         onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
         onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
-        onUserText: (text, wordsAt, speaker, judged) => void handleUserText(text, wordsAt, speaker, judged),
+        onUserText: (text, wordsAt, speaker, judged, aside) => void handleUserText(text, wordsAt, speaker, judged, aside),
         onSideTalk: (text, speaker, judged) => chatStore.aside(chatId, text, speaker, judged),
         // Mid-thought hold → "waiting for you… tap to send" affordance (null clears it).
         onHold: (h) => set({ holdUntil: h?.until ?? null }),
@@ -674,7 +674,7 @@ export function useLiveSession(chatId: string) {
 
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
-  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string) => {
+  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string, aside?: boolean) => {
     // While a permission ask or an elicitation is pending, EVERY utterance is the
     // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
     // "mmm" mid-approval must never become a coding turn).
@@ -687,7 +687,7 @@ export function useLiveSession(chatId: string) {
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
     if (tornDown.current) return;
-    client.current?.userText(text, frames, wordsAt, speaker);
+    client.current?.userText(text, frames, wordsAt, speaker, aside);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);

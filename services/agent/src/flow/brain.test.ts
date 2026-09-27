@@ -3,6 +3,7 @@ import type { ProviderEvent } from "@openlive/harness";
 import type { SseEvent } from "@openlive/shared";
 import { acpEventToBrain, acpTurnInput, createProviderMapper, LocalBrain } from "./brain.js";
 import type { BrainEvent } from "./types.js";
+import { cancelledText } from "../turn.js";
 
 const run = (events: ProviderEvent[]): BrainEvent[] => {
   const map = createProviderMapper();
@@ -142,6 +143,14 @@ describe("ACP mapping", () => {
       ],
     })).toEqual({ text: "second", frames: [] });
     expect(acpTurnInput({ systemPrompt: "", tools: [], messages: [] })).toEqual({ text: "", frames: [] });
+  });
+
+  it("never sends a cancelled request again, since the agent was already told it is dead", () => {
+    expect(acpTurnInput({
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", text: cancelledText("open Calculator") }, { role: "user", text: "three facts about octopuses" }],
+    })).toEqual({ text: "three facts about octopuses", frames: [] });
   });
 
   it("carries every utterance the turn drained, not just the last one", () => {

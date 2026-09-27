@@ -37,19 +37,30 @@ describe("consent", () => {
     expect(a).toHaveBeenCalledOnce();
   });
 
-  it("blocks on a no, and asks again next time", async () => {
+  it("blocks on a no for the rest of the turn, tells the model not to nag, and asks again next turn", async () => {
     const a = ask(false);
-    const approve = consentApprove({ granted: () => false, ask: a, remember: async () => {} });
-    expect(await approve(call, signal())).toMatchObject({ block: true });
-    expect(await approve(call, signal())).toMatchObject({ block: true });
+    const opts = { granted: () => false, ask: a, remember: async () => {} };
+    const approve = consentApprove(opts);
+    const refused = await approve(call, signal());
+    expect(refused).toMatchObject({ block: true, reason: expect.stringContaining("declined") });
+    expect(refused.reason).not.toMatch(/settings/i);
+    expect(await approve(call, signal())).toEqual(refused);
+    expect(a).toHaveBeenCalledOnce();
+    await consentApprove(opts)(call, signal());
     expect(a).toHaveBeenCalledTimes(2);
+  });
+
+  it("calls a Stop over the ask a cancel, not a refusal", async () => {
+    const ac = new AbortController();
+    const approve = consentApprove({ granted: () => false, ask: async () => { ac.abort(); return false; }, remember: async () => {} });
+    expect(await approve(call, ac.signal)).toEqual({ block: true, reason: "cancelled" });
   });
 
   it("blocks when nobody answers, because silence is not consent", async () => {
     const asker = vi.fn(() => new Promise<boolean>(() => {}));
     const remember = vi.fn(async () => {});
     const approve = consentApprove({ granted: () => false, ask: asker, remember, timeoutMs: 10 });
-    expect(await approve(call, signal())).toMatchObject({ block: true });
+    expect(await approve(call, signal())).toMatchObject({ block: true, reason: expect.stringContaining("did not answer") });
     expect(asker.mock.calls[0]![1].aborted).toBe(true);
     expect(remember).not.toHaveBeenCalled();
   });

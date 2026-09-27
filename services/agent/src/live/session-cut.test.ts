@@ -16,6 +16,7 @@ const dir = mkdtempSync(join(tmpdir(), "ol-cut-"));
 process.env.OPENLIVE_DATA_DIR = dir;
 const { LiveSession } = await import("./session.ts");
 const { getSetting, listMessages, setSetting } = await import("@openlive/db");
+const { cancelledText, sentAside } = await import("../turn.ts");
 
 // A local OpenAI Responses stub, reached as the keyless Ollama provider.
 const inputs: { role?: string; content?: unknown }[][] = [];
@@ -225,6 +226,7 @@ async function stubAgent() {
       cancel: async () => {},
       prompt: async (p) => {
         appendFileSync(${JSON.stringify(log)}, JSON.stringify(p.prompt[0].text) + "\\n");
+        if (p.prompt[0].text.includes("slowly")) await new Promise((r) => setTimeout(r, 300));
         await conn.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: "One. Two. Three." } } });
         return { stopReason: "end_turn" };
       },
@@ -297,4 +299,68 @@ test("a spoken turn's speaker is saved, and neither the built-in brain nor a cod
   }
   expect(JSON.stringify(inputs.at(-1))).not.toContain("other 1");
   expect(prompts().at(-1)).not.toContain("other 1");
+}, 20_000);
+
+test("a request stopped mid-turn is dead for the built-in brain, even after a hang-up", async () => {
+  const a = connect("cancel-api");
+  a.say({ t: "user_text", text: "Count slowly." });
+  await a.started;
+  await a.until(() => a.ws.sent.some((m) => m.event?.type === "text_delta"));
+  a.say({ t: "cancel", spoken: "" });
+  await a.done(1);
+  a.say({ t: "user_text", text: "Go on." });
+  await a.done(2);
+  expect(inputs.at(-1)!.map((m) => m.content)).toEqual([cancelledText("Count slowly."), "Go on."]);
+
+  // Hung up mid-reply: the client cuts, then closes. The next call is told too.
+  const deltas = () => a.ws.sent.filter((m) => m.event?.type === "text_delta").length;
+  const before = deltas();
+  a.say({ t: "user_text", text: "Count slowly." });
+  await a.until(() => deltas() > before);
+  a.say({ t: "cancel", spoken: "One." });
+  a.ws.emit("close");
+  await a.until(() => !!getSetting("agentCut:cancel-api"));
+  const b = connect("cancel-api");
+  b.say({ t: "user_text", text: "Where were we?" });
+  await b.done(1);
+  expect(inputs.at(-1)!.map((m) => m.content).slice(-3)).toEqual([cancelledText("Count slowly."), "One.", "Where were we?"]);
+  expect(getSetting("agentCut:cancel-api")).toBe("");
+  b.ws.emit("close");
+});
+
+test("a coding agent is told a request stopped mid-turn is cancelled", async () => {
+  const { prompts, bindAgent } = await stubAgent();
+  const a = connect("cancel-agent");
+  bindAgent(a.say);
+  await a.started;
+  const n = prompts().length;
+  a.say({ t: "user_text", text: "Count slowly." });
+  await a.until(() => prompts().length > n);
+  a.say({ t: "cancel", spoken: "" });
+  await a.done(1);
+  a.say({ t: "user_text", text: "Go on." });
+  await a.done(2);
+  expect(prompts().at(-1)).toContain("[The user cut you off before hearing any of your last reply.]\n\n[The user cancelled that request before you finished: do not carry it out");
+  a.ws.emit("close");
+}, 20_000);
+
+test("a sentence sent on from side talk reaches either brain marked as maybe for someone else, and is saved as said", async () => {
+  const api = connect("aside-api");
+  api.say({ t: "user_text", text: "Hey Sam, grab the mail.", aside: true });
+  await api.started;
+  await api.done(1);
+  expect(inputs.at(-1)!.at(-1)!.content).toBe(sentAside("Hey Sam, grab the mail."));
+  api.ws.emit("close");
+
+  const { prompts, bindAgent } = await stubAgent();
+  const acp = connect("aside-acp");
+  bindAgent(acp.say);
+  await acp.started;
+  acp.say({ t: "user_text", text: "Hey Sam, grab the mail.", aside: true });
+  await acp.done(1);
+  expect(prompts().at(-1)).toContain(sentAside("Hey Sam, grab the mail."));
+  acp.ws.emit("close");
+  for (const chat of ["aside-api", "aside-acp"]) {
+    expect(listMessages(chat).find((m) => m.role === "user")!.content).toEqual([{ type: "text", text: "Hey Sam, grab the mail." }]);
+  }
 }, 20_000);

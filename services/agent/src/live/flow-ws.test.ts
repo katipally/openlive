@@ -21,8 +21,10 @@ const fake = vi.hoisted(() => ({
   /** The brain the config names; unset, the default. */
   brain: null as null | Record<string, unknown>,
   /** Flow's tools as served to a coding agent, and what that agent was told was cut. */
-  mcp: null as null | { onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void },
+  mcp: null as null | { onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void; ctx: () => { signal: AbortSignal } },
   cuts: [] as string[],
+  /** The cuts that also told the agent its request was cancelled. */
+  cancelled: [] as string[],
   /** Where the coding-agent brain reports its own tools. */
   agentTool: null as null | ((call: Record<string, unknown>, settled: boolean) => void),
 }));
@@ -77,7 +79,7 @@ vi.mock("../agents/supervisor.js", () => ({
     readonly id = "codex";
     async start() {}
     seed() {}
-    cut(spoken: string) { fake.cuts.push(spoken); }
+    cut(spoken: string, cancelled?: boolean) { fake.cuts.push(spoken); if (cancelled) fake.cancelled.push(spoken); }
     async dispose() {}
   },
 }));
@@ -88,6 +90,7 @@ vi.mock("../agents/index.js", async (importOriginal) => ({
 }));
 
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
+const { cancelledText, sentAside } = await import("../turn.js");
 
 /** Answers the bridge the way the desktop would, so no call sits out its timeout. */
 class FakeSocket extends EventEmitter {
@@ -129,6 +132,7 @@ beforeEach(() => {
   fake.brain = null;
   fake.mcp = null;
   fake.cuts = [];
+  fake.cancelled = [];
   fake.agentTool = null;
 });
 
@@ -336,6 +340,27 @@ describe("FlowLiveSession", () => {
     expect(fake.remembered).toBe(0);
   });
 
+  it("keeps what was only shown apart from what was spoken, and a refused tool apart from a broken one", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+
+    fake.script = [
+      { type: "tool_start", id: "c1", name: "list_windows" },
+      { type: "tool_end", id: "c1", name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.client({ t: "flow_text", text: "what is open?", quiet: true });
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    fake.script = reply("Alright, I won't.");
+    ws.client({ t: "permission_response", reqId: ws.sent.find((m) => m.t === "permission")!.reqId, optionId: "deny" });
+    await until(() => turnsDone(ws) === 1);
+    await until(() => fake.appended.some((e) => e.type === "message" && e.data.role === "assistant"));
+
+    expect(fake.appended.find((e) => e.type === "tool_result")!.data).toMatchObject({ isError: true, declined: true });
+    expect(fake.appended.find((e) => e.type === "message" && e.data.role === "assistant")!.data).toEqual({ role: "assistant", text: "Alright, I won't.", quiet: true });
+  });
+
   it("takes a sentence said over an unseen ask as a steer", async () => {
     const ws = new FakeSocket();
     fake.consented = false;
@@ -407,6 +432,50 @@ describe("a coding agent as the brain", () => {
     ws.say("go on");
     await until(() => turnsDone(ws) === 2);
     expect(fake.cuts).toEqual(["One.", ""]);
+  });
+
+  it("tells either brain that a sentence sent on from side talk may be for someone else, and keeps it as said", async () => {
+    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+      fake.brain = brain;
+      fake.appended = [];
+      const ws = new FakeSocket();
+      new FlowLiveSession(ws as never);
+      fake.script = reply("I can't do that.");
+      ws.client({ t: "flow_text", text: "Hey Sam, can you grab the mail", aside: true });
+      await until(() => turnsDone(ws) === 1);
+      expect(fake.seen.at(-1)!.at(-1)!.text).toBe(sentAside("Hey Sam, can you grab the mail"));
+      expect(fake.appended.find((e) => e.type === "message")!.data).toEqual({ role: "user", text: "Hey Sam, can you grab the mail" });
+      ws.emit("close");
+    }
+  });
+
+  it("never picks a stopped request back up, whichever brain answers", async () => {
+    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+      fake.brain = brain;
+      fake.cancelled = [];
+      const ws = new FakeSocket();
+      new FlowLiveSession(ws as never);
+      fake.script = [async () => { ws.client({ t: "flow_cancel", close: true }); await tick(); }];
+      ws.say("open Calculator");
+      await until(() => turnsDone(ws) === 1);
+
+      fake.script = reply("Octopuses have three hearts.");
+      ws.say("three fun facts about octopuses");
+      await until(() => turnsDone(ws) === 2);
+      expect(fake.seen.at(-1)!.map((m) => m.text)).toEqual([cancelledText("open Calculator"), "three fun facts about octopuses"]);
+      expect(fake.cancelled).toEqual(brain ? [""] : []);
+      ws.emit("close");
+    }
+  });
+
+  it("refuses a tool call the agent makes between turns", async () => {
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Done.");
+    ws.say("hi");
+    await until(() => turnsDone(ws) === 1);
+    expect(fake.mcp!.ctx().signal.aborted).toBe(true);
   });
 
   it("shows Flow's tool at work on the orb when the agent calls it", async () => {

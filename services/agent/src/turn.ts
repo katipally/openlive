@@ -3,6 +3,20 @@ import type { SseEvent } from "@openlive/shared";
 
 export type Emit = (e: SseEvent) => Promise<void> | void;
 
+// A request the user stopped stays in the model's history, and a model reading
+// it unanswered picks it back up on the next unrelated turn.
+const LEAVE_IT = "do not carry it out, finish it or answer it, unless they ask for it again.";
+/** What a coding agent's next prompt says about the turn the user stopped. */
+export const AGENT_CANCELLED = `[The user cancelled that request before you finished: ${LEAVE_IT}]`;
+const CANCELLED_NOTE = `[The user cancelled this request before it was done: ${LEAVE_IT}]`;
+/** A stopped request as the built-in brain's history keeps it. */
+export const cancelledText = (text: string): string => (isCancelled(text) ? text : `${text}\n\n${CANCELLED_NOTE}`);
+export const isCancelled = (text: string): boolean => text.endsWith(CANCELLED_NOTE);
+
+/** A sentence the side talk check dropped and the user sent on by hand. */
+export const sentAside = (text: string): string =>
+  `[This was first taken for the user talking to someone else nearby, and they sent it on to you anyway. It may still be meant for another person: if it is nothing you can do, say so briefly, and never claim to have done it.]\n\n${text}`;
+
 /** Parse streamed tool-arg JSON; tolerate an empty/blank string. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function safeParseArgs(s: string): any {

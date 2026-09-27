@@ -4,6 +4,7 @@ import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
 import { hostedBy } from "../agents/mcp-config.js";
+import { isCancelled } from "../turn.js";
 import { parsePartialJson } from "./partial-json.js";
 import { MCP_SERVER_NAME, type Brain, type BrainEvent, type TurnRequest, type Usage } from "./types.js";
 
@@ -124,7 +125,7 @@ export function acpTurnInput(req: TurnRequest): TurnInput {
   const said: string[] = [];
   for (; i >= 0; i--) {
     const m = req.messages[i]!;
-    if (m.role !== "user") break;
+    if (m.role !== "user" || isCancelled(m.text)) break;
     said.unshift(m.text);
   }
   return { text: said.join("\n"), frames: [] };

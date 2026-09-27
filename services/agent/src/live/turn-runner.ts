@@ -1,7 +1,7 @@
 import { isUnreachable, streamProvider, unreachableMessage, type Message } from "@openlive/harness";
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
-import { collectTurn, safeParseArgs } from "../turn.js";
+import { cancelledText, collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { runWorker } from "./worker.js";
@@ -142,7 +142,8 @@ export class LiveTurnRunner {
     }
     // Per turn, so a language change in the middle of a call applies from the next turn.
     this.system.text = withLanguage(this.prompt, lang);
-    this.messages.push({ role: "user", text, images: imgs });
+    const asked = { role: "user" as const, text, images: imgs };
+    this.messages.push(asked);
     // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
     for (const m of withImgs.slice(0, -2)) if (m.role === "user") m.images = undefined;
@@ -221,6 +222,8 @@ export class LiveTurnRunner {
           ? `${provider.name} rejected the API key — update it in Settings.`
           : `Live model error: ${raw}`;
       await emit({ type: "error", message: msg });
+    } finally {
+      if (signal.aborted) asked.text = cancelledText(asked.text);
     }
     this.capHistory();
   }

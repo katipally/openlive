@@ -14,6 +14,7 @@ import { ForwardOnlyInsertion } from "../flow/tools.js";
 import { hostedBy } from "../agents/mcp-config.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, CALL_MCP_SERVER, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { log } from "../log.js";
+import { cancelledText, sentAside } from "../turn.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" };
@@ -39,7 +40,7 @@ function scrubControlTokens(blocks: MessageBlock[]): void {
 // is a single `[…]` block with no internal `]`, so we match its opening marker and
 // cut to the block's close — wherever it sits, and robust even if an agent's replay
 // collapses the blank lines between blocks (a paragraph split would then over-strip).
-const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context \u2014 earlier in this voice conversation|The user is sharing their|A vision model is looking at the user's|Always reply in|The user cut you off)[^\]]*\]/g;
+const OPENLIVE_INJECTED = /\[(You're being used through OpenLive|How the user wants you to behave|Context \u2014 earlier in this voice conversation|The user is sharing their|A vision model is looking at the user's|Always reply in|The user cut you off|The user cancelled|This was first taken for the user talking)[^\]]*\]/g;
 export function stripInjectedContext(blocks: MessageBlock[]): MessageBlock[] {
   return blocks
     .map((b) => (b.type === "text"
@@ -95,7 +96,7 @@ export class LiveSession {
   // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
   // current turn settles. Frames are queued too so a barge-in with the camera on
   // doesn't lose what the user was showing.
-  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number; wordsAt?: number[]; speaker?: string } | null = null;
+  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number; wordsAt?: number[]; speaker?: string; aside?: boolean } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
   private cutSaved: Promise<unknown> = Promise.resolve(); // the last cut written for a coding agent
   // The client's number for the utterance the running turn answers, echoed on its
@@ -215,6 +216,8 @@ export class LiveSession {
       const text = m.content.filter((b) => b.type === "text").map((b) => (b as any).text).join("").trim();
       if (text) out.push({ role: m.role, text });
     }
+    const asked = out.findLast((m) => m.role === "user");
+    if (asked && this.pendingCut()?.cancelled) asked.text = cancelledText(asked.text);
     return out;
   }
 
@@ -243,7 +246,7 @@ export class LiveSession {
         // is refused, and the sentence is a turn like any other.
         this.cancelPendingPermissions();
         this.cancelPendingElicitations();
-        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn, msg.wordsAt, msg.speaker);
+        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn, msg.wordsAt, msg.speaker, msg.aside);
       case "cancel":
         // A client showing an ask holds its barge-in, so a cancel means the ask never
         // reached it: the ask is refused along with the turn.
@@ -297,7 +300,7 @@ export class LiveSession {
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
-  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode, turn?: number, wordsAt?: number[], speaker?: string) {
+  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode, turn?: number, wordsAt?: number[], speaker?: string, aside?: boolean) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
     // queue it (append text, keep the freshest frames) and the finally below drains
@@ -311,6 +314,8 @@ export class LiveSession {
         // Two utterances' onsets count from two different starts: a joined turn keeps none.
         wordsAt: this.queued ? undefined : wordsAt,
         speaker: !this.queued || this.queued.speaker === speaker ? speaker : undefined,
+        // A joined turn is mostly not what was sent on, so it is not flagged.
+        aside: !this.queued && aside,
       };
       return;
     }
@@ -324,6 +329,7 @@ export class LiveSession {
     // loads twice, and goes to the built-in brain instead of the agent.
     await this.startup.catch(() => {});
 
+    const said = aside ? sentAside(text) : text;
     const blocks: MessageBlock[] = [];
     const foldCtx = newFoldCtx();
     const emit = this.blockEmit(blocks, ac.signal, foldCtx);
@@ -343,11 +349,11 @@ export class LiveSession {
     const gate = createCommentaryGate(narrated, ac.signal);
     this.toolEmit = gate.emit;
     try {
+      await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
+      await this.cutSaved;
+      if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
       if (this.agent) {
-        await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
-        await this.cutSaved;
-        if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
-        await this.agent.runTurn({ text: withReplyLanguage(text, lang), frames }, hideHosted(gate.emit), ac.signal);
+        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames }, hideHosted(gate.emit), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -361,7 +367,7 @@ export class LiveSession {
             : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
         });
       } else {
-        await this.runner.runTurn(text, frames, gate.emit, ac.signal, lang);
+        await this.runner.runTurn(said, frames, gate.emit, ac.signal, lang);
         await gate.flush();
       }
     } catch (e) {
@@ -381,7 +387,7 @@ export class LiveSession {
       if (ac.signal.aborted && this.bargeSpoken != null) {
         truncateSpokenText(blocks, this.bargeSpoken);
         if (byRunner) this.runner.truncateReply(this.bargeSpoken);
-        else this.cutAgentReply(this.bargeSpoken);
+        this.cutAgentReply(this.bargeSpoken, true);
       }
       this.bargeSpoken = null;
       scrubControlTokens(blocks);
@@ -395,7 +401,7 @@ export class LiveSession {
       this.send({ t: "sse", event: { type: "done" }, turn: this.replyTurn });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queued; this.queued = null;
-      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang, q.turn, q.wordsAt, q.speaker); // drain a barge-in utterance (with its frames)
+      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang, q.turn, q.wordsAt, q.speaker, q.aside); // drain a barge-in utterance (with its frames)
     }
   }
 
@@ -422,10 +428,19 @@ export class LiveSession {
   }
 
   /** A coding agent keeps its own memory of the reply, and a resumed session
-   *  brings it back: the cut waits in the settings until a turn has told it. */
-  private cutAgentReply(spoken: string) {
-    this.agent?.cut?.(spoken);
-    if (this.chatId) this.cutSaved = setSetting(`agentCut:${this.chatId}`, JSON.stringify(spoken)).catch(() => {});
+   *  brings it back: the cut waits in the settings until a turn has told it. A
+   *  cancelled request waits there for the built-in brain's next call too. */
+  private cutAgentReply(spoken: string, cancelled = false) {
+    this.agent?.cut?.(spoken, cancelled);
+    if (this.chatId) this.cutSaved = setSetting(`agentCut:${this.chatId}`, JSON.stringify({ spoken, cancelled })).catch(() => {});
+  }
+
+  /** The cut no turn has told the brain yet. A bare string is one saved before cancels were kept. */
+  private pendingCut(): { spoken: string; cancelled?: boolean } | null {
+    const raw = this.chatId ? getSetting(`agentCut:${this.chatId}`) : "";
+    if (!raw) return null;
+    const cut = JSON.parse(raw) as string | { spoken: string; cancelled?: boolean };
+    return typeof cut === "string" ? { spoken: cut } : cut;
   }
 
   private interrupt() {
@@ -537,8 +552,8 @@ export class LiveSession {
     this.agent = agent;
     const prior = this.rehydrate();
     if (prior.length) agent.seed(prior);
-    const cut = getSetting(`agentCut:${this.chatId}`);
-    if (cut) agent.cut?.(JSON.parse(cut) as string);
+    const cut = this.pendingCut();
+    if (cut) agent.cut?.(cut.spoken, cut.cancelled);
     const ac = new AbortController(); this.agentAc = ac;
     this.agentReady = agent.start(ac.signal)
       .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })

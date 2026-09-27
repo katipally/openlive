@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 
 vi.mock("@ricky0123/vad-web", () => ({ MicVAD: class {} }));
 // A streaming engine: the sentence's audio in two chunks, a tick apart.
-const tts = vi.hoisted(() => ({ chunks: [] as Float32Array[], calls: 0, heard: "", at: [] as number[], gate: Promise.resolve() }));
+const tts = vi.hoisted(() => ({ chunks: [] as Float32Array[], calls: 0, heard: "", at: [] as number[], gate: Promise.resolve(), complete: false }));
 // Speech-to-text hears `tts.heard` at `tts.at`, and the turn model calls it unfinished.
 vi.mock("./models", () => ({
   resetNativeFallbacks() {},
@@ -12,7 +12,7 @@ vi.mock("./models", () => ({
   },
   stt: async () => { await tts.gate; return { text: tts.heard, at: tts.at }; },
   turnModelReady: () => true,
-  turnComplete: async () => false,
+  turnComplete: async () => tts.complete,
   activeSttEngine: () => "whisper",
   hasWebGPU: () => false,
 }));
@@ -153,6 +153,28 @@ it("sends an utterance that barged in without the mid-thought hold", async () =>
 
 // Each word keeps when it was said, counted from the turn's first segment:
 // a held one, then one streamed, then two that ended while it was transcribing.
+it("an utterance that finishes transcribing while a later reply plays cuts that reply like a barge-in", async () => {
+  let open!: () => void;
+  tts.gate = new Promise((r) => (open = r));
+  tts.heard = "wait stop talking please";
+  tts.complete = true;
+  let playing = false;
+  const seen: string[] = [];
+  const player = { ...playNow, playing: () => playing, flush() { playing = false; } };
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onHold() {}, onAgentText() {}, onUserText: (t: string) => seen.push(`sent ${t}`), onBargeIn: (spoken?: string) => seen.push(`cut ${spoken}`) } as never, player as never) as any;
+  Object.assign(eng, { phase: "idle", micRms: 1 });
+  eng.onSpeechStart();
+  const ended = eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+  // The reply to an earlier turn starts playing while this one still transcribes.
+  Object.assign(eng, { phase: "speaking", replyOpen: true, replyFed: true, spokenText: "Every night, Thomas climbed the stairs." });
+  playing = true;
+  open();
+  await ended;
+  expect(seen).toEqual(["cut Every night, Thomas climbed the stairs.", "sent wait stop talking please"]);
+  tts.gate = Promise.resolve();
+  tts.complete = false;
+});
+
 it("a turn's word onsets run on across its segments", async () => {
   const sent: [string, number[]][] = [];
   const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string, at: number[]) => sent.push([t, at]) } as never, { ...playNow, playing: () => false } as never) as any;

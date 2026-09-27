@@ -271,7 +271,7 @@ export function lineOf(e: FlowSessionEntry): string {
   if (e.type === "tool_call") return `${toolLabel(e)}: ${JSON.stringify(e.args ?? {})}`;
   if (e.type === "tool_result") {
     const shots = Array.isArray(e.assets) ? e.assets.length : 0;
-    return `${toolLabel(e)} → ${e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
+    return `${toolLabel(e)} → ${e.declined ? "declined" : e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
   }
   if (e.type === "context") return `In front: ${str((e.context as { app?: string })?.app)}`;
   return e.type;
@@ -294,11 +294,12 @@ export function Event(props: EventProps) {
 function Body({ entry, sessionId, assets, onZoom }: EventProps) {
   if (entry.type === "message") {
     const user = entry.role === "user";
+    const spoken = !user && entry.quiet !== true;
     return (
       <>
         <span className="flex items-center gap-1.5 text-micro font-medium uppercase tracking-[0.06em] text-muted-foreground">
-          {!user && <Volume2 className="size-3 shrink-0 text-icon-info" aria-hidden />}
-          {user ? "You said" : "Said out loud"}
+          {spoken && <Volume2 className="size-3 shrink-0 text-icon-info" aria-hidden />}
+          {user ? "You said" : spoken ? "Said out loud" : "Shown, not spoken"}
         </span>
         <p className="whitespace-pre-wrap break-words text-callout leading-relaxed">{str(entry.text) || str(entry.content)}</p>
       </>
@@ -316,19 +317,20 @@ function Body({ entry, sessionId, assets, onZoom }: EventProps) {
 
   if (entry.type === "tool_call" || entry.type === "tool_result") {
     const failed = entry.type === "tool_result" && entry.isError === true;
+    const declined = failed && entry.declined === true;
     const shots = shotsFor(entry, assets);
     return (
       <div className="flex flex-col gap-2.5 rounded-lg bg-card p-3.5 shadow-[var(--shadow-card)]">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span className={cn("size-[7px] shrink-0 rounded-full", failed ? "bg-destructive-fill" : "bg-success")} aria-hidden />
+          <span className={cn("size-[7px] shrink-0 rounded-full", declined ? "bg-muted-foreground" : failed ? "bg-destructive-fill" : "bg-success")} aria-hidden />
           <span className="min-w-0 truncate text-label font-medium" title={str(entry.name)}>
             {str(entry.name) ? toolLabel(entry) : "A tool"}
           </span>
           {entry.type === "tool_result" && (
             <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-caption",
-              failed ? "bg-destructive/10 text-destructive-text" : "bg-success/15 text-success-text")}>
+              declined ? "bg-surface-raised text-muted-strong" : failed ? "bg-destructive/10 text-destructive-text" : "bg-success/15 text-success-text")}>
               {!failed && <Check className="size-3" strokeWidth={2.6} aria-hidden />}
-              {failed ? "It did not work" : "Done"}
+              {declined ? "You declined" : failed ? "It did not work" : "Done"}
             </span>
           )}
           <span className="flex-1" />

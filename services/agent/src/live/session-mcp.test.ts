@@ -148,6 +148,12 @@ test("a coding agent is told what the built-in brain remembered", async () => {
   ws.emit("close");
 }, 20_000);
 
+test("a coding agent keeps what it learns about the user in OpenLive's memory, which every brain reads", async () => {
+  const { callPreamble } = await import("../agents/acp-agent.ts");
+  expect(callPreamble(["look", "remember"])).toContain("save it with OpenLive's remember tool, never your own memory");
+  expect(callPreamble(["look"])).not.toContain("remember tool");
+});
+
 test("an agent that asks before one of OpenLive's tools gets a proper ask, and the answer", async () => {
   await stubAgent();
   const { ws, say, done, started } = connect("call-ask");

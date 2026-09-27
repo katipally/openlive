@@ -15,6 +15,10 @@ test("English adds nothing; another language adds one line at the end", () => {
   expect(buildFlowPrompt({ tools: [], lang: "hi" })).toBe(`${buildFlowPrompt({ tools: [] })}\n\nAlways reply in Hindi.`);
 });
 
+test("both brains are told never to claim an action they did not take", () => {
+  for (const said of [buildFlowPrompt({ tools }), buildFlowAcpPreamble({ tools })]) expect(said).toContain("Never say something is done unless a tool of yours did it");
+});
+
 test("the coding agent's preamble has no language line", () => {
   expect(buildFlowAcpPreamble({ tools })).not.toContain("Always reply in");
 });

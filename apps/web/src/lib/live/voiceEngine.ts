@@ -29,7 +29,7 @@ export type EnginePhase = "idle" | "listening" | "thinking" | "speaking";
 export interface VoiceEngineHandlers {
   onPhase: (p: EnginePhase) => void;
   onPartial: (text: string) => void;      // interim user caption (greyed)
-  onUserText: (text: string, wordsAtMs: number[], speaker?: string, judged?: string) => void; // final user turn → send to server: each captionWords word's onset, ms into the turn's audio (its segments back to back); `speaker` "you" or "other N" when the voiceprint is on; `judged` its side talk judgment's id in the agent's log, when that is on
+  onUserText: (text: string, wordsAtMs: number[], speaker?: string, judged?: string, aside?: boolean) => void; // final user turn → send to server: each captionWords word's onset, ms into the turn's audio (its segments back to back); `speaker` "you" or "other N" when the voiceprint is on; `judged` its side talk judgment's id in the agent's log, when that is on; `aside` it was taken for side talk and sent on by hand
 
   onAgentText: (sentence: string, wordsAtMs: number[]) => void; // agent caption chunk, now voicing: each captionWords word's onset from now
   onAgentTiming?: (wordsAtMs: number[]) => void; // the chunk on screen, timed again once more of its audio is in
@@ -719,6 +719,7 @@ export class VoiceEngine {
       this.pending = null;
       this.clearHold();
       if (aside) { this.h.onPartial(""); this.setPhase("idle"); this.h.onSideTalk?.(text, speaker, judged); return; }
+      this.cutPlayingReply();
       this.setPhase("thinking");
       this.spokenText = ""; // new turn: clear the previous reply's spoken text
       this.voicing = null;
@@ -772,7 +773,7 @@ export class VoiceEngine {
     const commit = (h: Heard) => {
       if (this.stopped) return;
       const text = h.text.trim();
-      if (text && !isJunk(text)) { this.setPhase("thinking"); this.spokenText = ""; this.voicing = null; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text, h.at, speaker, judged); }
+      if (text && !isJunk(text)) { this.cutPlayingReply(); this.setPhase("thinking"); this.spokenText = ""; this.voicing = null; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0); this.h.onUserText(text, h.at, speaker, judged); }
       else this.h.onPartial(""); // held fragment came back empty/junk → clear the caption
     };
     // The held audio was already transcribed in onSpeechEnd (that's how we knew it
@@ -790,7 +791,7 @@ export class VoiceEngine {
     if (judged) labelJudgment(judged, "to");
     if (this.replyOpen || this.player.playing()) this.bargeIn();
     this.setPhase("thinking"); this.spokenText = ""; this.voicing = null; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0);
-    this.h.onUserText(text, [], speaker, judged);
+    this.h.onUserText(text, [], speaker, judged, true);
     return true;
   }
   /** "Not for you" on the turn the reply under way answers: cut like a barge-in. */
@@ -1045,6 +1046,12 @@ export class VoiceEngine {
 
   private bargeIn() {
     this.h.onBargeIn(this.cutReply());
+  }
+
+  /** A turn committed while a reply plays: that reply began after the words were
+   *  spoken (a slow transcription), so nothing cut it yet. Cut as a barge-in would. */
+  private cutPlayingReply() {
+    if (this.phase === "speaking" || this.player.playing()) this.bargeIn();
   }
 
   /** Silence the reply and drop the rest of it, returning what was actually

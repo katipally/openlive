@@ -243,7 +243,7 @@ export function useFlowOwner(): void {
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
           onPartial: () => {},
-          onUserText: (text, wordsAt, speaker) => void onUserText(text, wordsAt, speaker),
+          onUserText: (text, wordsAt, speaker, _judged, aside) => void onUserText(text, wordsAt, speaker, aside),
           onSideTalk: (text, speaker, judged) => { aside.current = { text, speaker, judged }; patch({ aside: text }); },
           // The first chunk that actually STARTS playing is when speaking begins;
           // the text itself is accumulated from the stream, ahead of the voice.
@@ -435,7 +435,7 @@ export function useFlowOwner(): void {
       backToListening();
     };
 
-    const onUserText = async (text: string, wordsAt: number[], speaker?: string) => {
+    const onUserText = async (text: string, wordsAt: number[], speaker?: string, aside?: boolean) => {
       if (snap.current.aside) patch({ aside: "" });
       // An approval is open, so this sentence is its answer.
       if (permission.current) return answerByVoice(text);
@@ -449,7 +449,7 @@ export function useFlowOwner(): void {
       setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
       armAnswerWatchdog();
       const context = valueOr(await api.context(), undefined) as FlowContextWire | undefined;
-      client.current?.flowText(text, context, wordsAt, speaker);
+      client.current?.flowText(text, context, wordsAt, speaker, !snap.current.speaking, aside);
     };
 
     // A cold start compiles the weights that are already on disk. Nothing is
