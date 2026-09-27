@@ -39,12 +39,14 @@ export interface InCallProps {
   getBands: () => { mic: number[]; agent: number[] };
   onEnd: () => void;
   sendNow: () => void;
+  sendAside: (id: string) => void;
+  notForYou: (id: string) => void;
   pttUp: () => void;
 }
 
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
-    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, pttUp } = props;
+    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, sendAside, notForYou, pttUp } = props;
   // Narrow selector: captions re-render this component by design (it displays
   // them), but download/todos/usage/terminals/permission changes should not.
   const { userCaption, userPartial, agentCaption, agentCaptionAt, agentCaptionStart, toolStatus, warming, pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
@@ -200,7 +202,7 @@ export function InCall(props: InCallProps) {
         </main>
 
         {/* transcript sidebar — resizable + collapsible */}
-        <TranscriptPanel open={panelOpen} chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} />
+        <TranscriptPanel open={panelOpen} chatId={chatId} width={panelW} onResize={setPanelW} onClose={() => setPanelOpen(false)} onSendAside={sendAside} onNotForYou={notForYou} />
       </div>
 
       <SpotlightTour id="call" steps={[

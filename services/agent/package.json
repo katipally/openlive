@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.2.1",
+    "@huggingface/tokenizers": "0.2.0",
     "@hono/node-server": "^1.13.8",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openlive/db": "workspace:*",

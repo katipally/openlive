@@ -259,7 +259,7 @@ export class FlowLiveSession {
         if (msg.context) this.lastContext = msg.context;
         this.lang = msg.lang;
         this.turn = msg.turn;
-        return this.onUtterance(msg.text, msg.wordsAt);
+        return this.onUtterance(msg.text, msg.wordsAt, msg.speaker);
       }
       case "flow_cancel":
         // The orb holds its barge-in while it shows an ask, so a cancel is Stop,
@@ -297,10 +297,10 @@ export class FlowLiveSession {
     }
   }
 
-  private onUtterance(text: string, wordsAt?: number[]) {
+  private onUtterance(text: string, wordsAt?: number[], speaker?: string) {
     if (!text.trim() || this.closed) return;
     const m: Msg = { role: "user", text };
-    this.write(() => this.persist("message", { role: "user", text, ...(wordsAt && { wordsAt }) }));
+    this.write(() => this.persist("message", { role: "user", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }) }));
     if (this.turnActive) { this.steering.push(m); return; }
     this.messages.push(m);
     void this.run();

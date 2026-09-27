@@ -77,6 +77,8 @@ export function useFlowOwner(): void {
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
   const insertion = useRef<{ id: string; session: number } | null>(null);
+  // The sentence the side talk check dropped last, as the orb shows it (snapshot `aside`).
+  const aside = useRef<{ text: string; speaker?: string; judged?: string } | null>(null);
 
   useEffect(() => {
     const api = flowBridge();
@@ -241,7 +243,8 @@ export function useFlowOwner(): void {
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
           onPartial: () => {},
-          onUserText: (text, wordsAt) => void onUserText(text, wordsAt),
+          onUserText: (text, wordsAt, speaker) => void onUserText(text, wordsAt, speaker),
+          onSideTalk: (text, speaker, judged) => { aside.current = { text, speaker, judged }; patch({ aside: text }); },
           // The first chunk that actually STARTS playing is when speaking begins;
           // the text itself is accumulated from the stream, ahead of the voice.
           onAgentText: () => setPhase("speaking"),
@@ -260,7 +263,8 @@ export function useFlowOwner(): void {
         // Flow's own turn-taking, not the one a call runs on: cut off in a call
         // the person sees it and presses a key, and here the half-sentence is
         // already answered and acted on.
-        }, undefined, settings.current?.voice.turn ?? {});
+        // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
+        }, undefined, { ...settings.current?.voice.turn, backchannels: false });
         try { await eng.start(mic); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
@@ -431,7 +435,8 @@ export function useFlowOwner(): void {
       backToListening();
     };
 
-    const onUserText = async (text: string, wordsAt: number[]) => {
+    const onUserText = async (text: string, wordsAt: number[], speaker?: string) => {
+      if (snap.current.aside) patch({ aside: "" });
       // An approval is open, so this sentence is its answer.
       if (permission.current) return answerByVoice(text);
       // A question that was asked keeps the orb until it has been answered, even
@@ -444,7 +449,7 @@ export function useFlowOwner(): void {
       setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
       armAnswerWatchdog();
       const context = valueOr(await api.context(), undefined) as FlowContextWire | undefined;
-      client.current?.flowText(text, context, wordsAt);
+      client.current?.flowText(text, context, wordsAt, speaker);
     };
 
     // A cold start compiles the weights that are already on disk. Nothing is
@@ -582,6 +587,11 @@ export function useFlowOwner(): void {
         case "permission": return answer(c.optionId);
         case "flowCancel": return onClose();
         case "flowStop": return onStop();
+        case "flowSendAside": {
+          const a = aside.current;
+          if (a && snap.current.aside) engine.current?.sendAside(a.text, a.speaker, a.judged);
+          return;
+        }
         case "flowFix": {
           if (c.code === "no_accessibility") void api.init().then(refreshHealth);
           else if (c.code === "mic_failed") void onOpen();

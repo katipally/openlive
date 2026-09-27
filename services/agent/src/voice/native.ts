@@ -30,7 +30,7 @@ function pool(kind: EngineKind): Pool {
   p.worker.unref();
   p.worker.on("message", (e: WorkerEvent) => {
     p.listeners.get(e.id)?.(e);
-    if (e.type === "done" || e.type === "error" || e.type === "closed") p.listeners.delete(e.id);
+    if (e.type === "done" || e.type === "error" || e.type === "closed" || e.type === "embedding") p.listeners.delete(e.id);
   });
   // A crashed worker fails everything in flight; the next call spawns a fresh one.
   const fail = (err: Error) => {
@@ -80,6 +80,19 @@ export function transcribe(e: NativeEngine, samples: Float32Array, signal?: Abor
     if (signal?.aborted) cancel();
     else signal?.addEventListener("abort", cancel, { once: true });
   }).finally(() => { active = false; signal?.removeEventListener("abort", cancel); });
+}
+
+/** One speaker embedding of `samples` (voiceprint.ts), or one sentence
+ *  embedding of text (addressee.ts), on that kind's own worker, so it never
+ *  queues behind a transcription. */
+export function embed(e: NativeEngine, input: Float32Array | string): Promise<Float32Array> {
+  return new Promise((resolve, reject) => {
+    const payload = typeof input === "string" ? { text: input } : { samples: input };
+    send(e, { op: "embed", id: ++nextId, ...model(e), ...payload }, (ev) => {
+      if (ev.type === "embedding") resolve(ev.embedding);
+      else if (ev.type === "error") reject(new Error(ev.message));
+    }, typeof input === "string" ? [] : [input.buffer as ArrayBuffer]);
+  });
 }
 
 /** `started` resolves with the sample rate once the engine is loaded, before
@@ -156,7 +169,7 @@ export async function benchEngine(e: NativeEngine, providers: Provider[], numThr
   const voice = e.voices?.[0];
   const input = e.kind === "tts"
     ? { text: BENCH_TEXT, sid: voice?.sid, wav: voice?.wav && join(engineDir(e.id), voice.wav), espeak: voice?.espeak, voice: voice?.id }
-    : { samples: benchAudio() };
+    : e.kind === "addressee" ? { text: BENCH_TEXT } : { samples: benchAudio() };
   for (const provider of providers) {
     results.push(await benchInChild({ op: "bench", id: ++nextId, engine: e.id, type: e.type, config: sherpaConfig(e, { provider, numThreads }), provider, ...input }, signal));
   }

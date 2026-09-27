@@ -10,6 +10,7 @@ import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
+import { labelJudgment } from "./addressee";
 import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
 import { kindMeta } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
@@ -501,7 +502,8 @@ export function useLiveSession(chatId: string) {
         // sees themselves (or "Listening…") the moment they start talking.
         onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
         onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
-        onUserText: (text, wordsAt) => void handleUserText(text, wordsAt),
+        onUserText: (text, wordsAt, speaker, judged) => void handleUserText(text, wordsAt, speaker, judged),
+        onSideTalk: (text, speaker, judged) => chatStore.aside(chatId, text, speaker, judged),
         // Mid-thought hold → "waiting for you… tap to send" affordance (null clears it).
         onHold: (h) => set({ holdUntil: h?.until ?? null }),
         // A chunk just STARTED voicing. Drive TWO things from it: the composer
@@ -672,7 +674,7 @@ export function useLiveSession(chatId: string) {
 
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
-  const handleUserText = useCallback(async (text: string, wordsAt: number[]) => {
+  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string) => {
     // While a permission ask or an elicitation is pending, EVERY utterance is the
     // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
     // "mmm" mid-approval must never become a coding turn).
@@ -685,12 +687,12 @@ export function useLiveSession(chatId: string) {
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
     if (tornDown.current) return;
-    client.current?.userText(text, frames, wordsAt);
+    client.current?.userText(text, frames, wordsAt, speaker);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
-    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt);
+    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt, speaker, judged);
   }, [chatId, set, answerModalByVoice]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
@@ -854,9 +856,23 @@ export function useLiveSession(chatId: string) {
 
   // "Send now": commit a held mid-thought utterance instead of waiting out the hold.
   const sendNow = useCallback(() => engine.current?.commitPending(), []);
+  // A sentence the side talk check dropped, tapped in the transcript: sent after all.
+  // Refused while the user talks: then it stays, back at the end.
+  const sendAside = useCallback((id: string) => {
+    const m = engine.current && chatStore.takeAside(chatId, id);
+    if (m && !engine.current!.sendAside(m.text, m.speaker, m.judged)) chatStore.aside(chatId, m.text, m.speaker, m.judged);
+  }, [chatId]);
+  // "Not for you" on a spoken turn: side talk in the judgment log, and the reply
+  // to it cut when it is the one under way. The turn stays in the history the
+  // agent keeps: taking it out would mean rewriting a saved conversation.
+  const notForYou = useCallback((id: string) => {
+    const r = chatStore.notForYou(chatId, id);
+    if (r?.judged) labelJudgment(r.judged, "side");
+    if (r?.last) engine.current?.dropReply();
+  }, [chatId]);
   // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
   const pttDown = useCallback(() => { if (!engine.current) return; engine.current.beginPtt(); set({ pttActive: true }); }, [set]);
   const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(); }, [set]);
 
-  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, pttDown, pttUp };
+  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp };
 }

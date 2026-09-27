@@ -18,8 +18,8 @@ import { ToolCallCard } from "./ToolCallCard";
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
 // by the spoken answer, filled word-by-word in lockstep with the VOICE (see
 // useLiveSession) so it always shows exactly what was said. Resizable + closable.
-export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
-  open: boolean; chatId: string; width: number; onResize: (w: number) => void; onClose: () => void;
+export function TranscriptPanel({ open, chatId, width, onResize, onClose, onSendAside, onNotForYou }: {
+  open: boolean; chatId: string; width: number; onResize: (w: number) => void; onClose: () => void; onSendAside?: (id: string) => void; onNotForYou?: (id: string) => void;
 }) {
   const msgs = useChat(chatId);
   const { userCaption, userPartial, todos } = useLiveStore(useShallow((s) => ({
@@ -80,7 +80,7 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose }: {
       <div ref={scroller} onScroll={onScroll} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
         {empty && <p className="mt-8 text-center text-label text-faint">Your conversation will appear here.</p>}
         {msgs.map((m, i) => (
-          <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} />
+          <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} onSendAside={onSendAside} onNotForYou={onNotForYou} />
         ))}
         {userPartial && userCaption && (
           <div className="flex justify-end">
@@ -121,12 +121,15 @@ function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
   );
 }
 
+/** A voice turn's speaker as shown: "Other voice 2" for the voiceprint's "other 2", else "You". */
+const speakerName = (speaker?: string) => (speaker && speaker !== "you" ? speaker.replace(/^other/, "Other voice") : "You");
+
 /** Download the conversation as a Markdown file (agent replies are already
  *  markdown; tool runs become one-liners). */
 function exportTranscript(msgs: ChatMsg[]) {
   const lines: string[] = [];
   for (const m of msgs) {
-    if (m.role === "user") { lines.push(`**You:** ${m.text ?? ""}`, ""); continue; }
+    if (m.role === "user") { lines.push(`**${speakerName(m.speaker)}${m.aside ? " (taken as side talk, not sent)" : m.notForYou ? " (marked not for you)" : ""}:** ${m.text ?? ""}`, ""); continue; }
     const body = m.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("\n").trim();
     const tools = m.parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
     if (tools.length) lines.push(tools.map((t) => t.kind === "tool"
@@ -191,11 +194,27 @@ const MarkdownText = memo(function MarkdownText({ text, muted }: { text: string;
 
 // Memoized: during the word-by-word voice reveal only ONE message object changes
 // per frame (chatStore preserves identities), so the rest skip re-render.
-const Message = memo(function Message({ msg, streaming }: { msg: ChatMsg; streaming: boolean }) {
-  if (msg.role === "user") {
+const Message = memo(function Message({ msg, streaming, onSendAside, onNotForYou }: { msg: ChatMsg; streaming: boolean; onSendAside?: (id: string) => void; onNotForYou?: (id: string) => void }) {
+  if (msg.aside) {
     return (
-      <div className="flex justify-end">
-        <div className="ol-selectable max-w-[85%] rounded-2xl bg-accent px-3 py-1.5 text-body leading-relaxed text-accent-foreground">{msg.text}</div>
+      <div className="flex flex-col items-end gap-0.5">
+        <div className="ol-selectable max-w-[85%] rounded-2xl border border-dashed border-border px-3 py-1.5 text-body leading-relaxed text-faint">{msg.text}</div>
+        <span className="text-micro text-faint">
+          Taken as side talk, not sent{onSendAside && <> · <button onClick={() => onSendAside(msg.id)} className="underline underline-offset-2 hover:text-foreground">Send it</button></>}
+        </span>
+      </div>
+    );
+  }
+  if (msg.role === "user") {
+    const other = msg.speaker && msg.speaker !== "you";
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        {other && <span className="text-micro text-faint">{speakerName(msg.speaker)}</span>}
+        <div className={cn("ol-selectable max-w-[85%] rounded-2xl px-3 py-1.5 text-body leading-relaxed", other ? "bg-foreground/10 text-foreground" : "bg-accent text-accent-foreground")}>{msg.text}</div>
+        {/* Only a turn with a logged judgment: the mark is a training label. */}
+        {msg.judged && onNotForYou && (msg.notForYou
+          ? <span className="text-micro text-faint">Marked not for you</span>
+          : <button onClick={() => onNotForYou(msg.id)} title="This wasn't said to the agent: stops a reply to it and marks it in the judgment log" className="text-micro text-faint underline-offset-2 hover:text-foreground hover:underline focus-visible:underline">Not for you</button>)}
       </div>
     );
   }

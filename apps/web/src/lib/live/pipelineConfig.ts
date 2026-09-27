@@ -13,6 +13,18 @@ export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
 export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
 export type VadModel = "v6" | "v5";
 export const VAD_MODEL_IDS: readonly VadModel[] = ["v6", "v5"];
+/** The voiceprint (voiceprint.ts): "label" tags each turn you or another
+ *  voice; "gate" also lets only the enrolled user start turns and barge in. */
+export type VoiceprintMode = "off" | "label" | "gate";
+export const VOICEPRINT_MODES: readonly VoiceprintMode[] = ["off", "label", "gate"];
+/** The agent's speaker embedding model behind it (services/agent/src/voice/native-models.ts). */
+export const VOICEPRINT_ENGINE = "speaker-campplus-zh-en";
+/** Side talk (addressee.ts): "ignore" drops a sentence the agent judges was
+ *  said to someone else in the room, or to no one; "shadow" judges each one
+ *  the same and drops none, for the judgment log (`sideTalkLog`). */
+export type SideTalk = "off" | "shadow" | "ignore";
+/** The agent's sentence embedding model behind it (services/agent/src/voice/native-models.ts). */
+export const ADDRESSEE_ENGINE = "addressee-mpnet-multi-int8";
 export type TurnEngine = "smart-turn" | "silence";
 export type Stage = "stt" | "tts";
 
@@ -24,8 +36,11 @@ export interface PipelineConfig {
   language: LanguageCode;                                        // what the user speaks, and what every stage (and the reply) follows
   stt: StageChoice & { whisperSize: WhisperSize };               // STT engine; Whisper's size (applies on reload)
   tts: StageChoice & { voice: string; speed: number };           // TTS engine + voice id ("" = the engine's own pick) + speaking rate
-  turn: { engine: TurnEngine; threshold: number; holdMs: number }; // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1); max mid-thought hold before auto-send
+  turn: { engine: TurnEngine; threshold: number; holdMs: number; backchannels: boolean }; // Smart-Turn (semantic) vs silence timeout; sigmoid cutoff (0..1); max mid-thought hold before auto-send; say "mm-hmm" at held pauses
   vad: { model: VadModel; speechThreshold: number; redemptionMs: number }; // Silero weights + sensitivity + trailing silence before a turn ends
+  voiceprint: VoiceprintMode;                                    // who may start turns: anyone, or only the enrolled user
+  sideTalk: SideTalk;                                            // whether a sentence said to someone else is dropped
+  sideTalkLog: boolean;                                          // keep each side talk judgment on the agent, to train the user's own head
   pronunciations: LexiconEntry[];                                // the user's dictionary: how the voice says a word or name
   allowRestricted: boolean;                                      // the user's OK to pick models under a restricted license (`restricted`)
 }
@@ -34,8 +49,14 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   language: "en",
   stt: { family: "whisper", variant: "whisper", variants: { whisper: "whisper" }, whisperSize: "base" },
   tts: { family: "kokoro", variant: "kokoro", variants: { kokoro: "kokoro" }, voice: "af_heart", speed: 1 },
-  turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000 },
+  // Backchannels are off by default: they are new to the call (tools/converse measures them).
+  turn: { engine: "smart-turn", threshold: 0.5, holdMs: 4000, backchannels: false },
   vad: { model: "v6", speechThreshold: 0.5, redemptionMs: 550 },
+  voiceprint: "off",
+  // Off by default: on the eval's synthetic set it caught 23% of English side
+  // talk, far short of the 60% aimed for (tools/addressee, docs/ARCHITECTURE.md).
+  sideTalk: "off",
+  sideTalkLog: false,
   pronunciations: [],
   allowRestricted: false,
 };
@@ -502,12 +523,16 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
       engine: oneOf(turn.engine, ["smart-turn", "silence"], d.turn.engine),
       threshold: clamp(num(turn.threshold, d.turn.threshold), 0, 1),
       holdMs: clamp(Math.round(num(turn.holdMs, d.turn.holdMs)), 1000, 8000),
+      backchannels: turn.backchannels === true,
     },
     vad: {
       model: oneOf(vad.model, VAD_MODEL_IDS, d.vad.model),
       speechThreshold: clamp(num(vad.speechThreshold, d.vad.speechThreshold), 0.1, 0.9),
       redemptionMs: clamp(Math.round(num(vad.redemptionMs, d.vad.redemptionMs)), 200, 1500),
     },
+    voiceprint: oneOf(p.voiceprint, VOICEPRINT_MODES, d.voiceprint),
+    sideTalk: oneOf(p.sideTalk, ["off", "shadow", "ignore"], d.sideTalk),
+    sideTalkLog: p.sideTalkLog === true,
     pronunciations: pronunciations(p.pronunciations),
     allowRestricted: p.allowRestricted === true,
   };

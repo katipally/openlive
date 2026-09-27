@@ -50,8 +50,11 @@ export interface FlowSnapshot {
   speaking: boolean;
   /** The one thing worth growing the orb for, besides a question. */
   failure: FlowFailure | null;
+  /** The last sentence the side talk check dropped, until the next turn: shown
+   *  with "Send it". Empty when there is none. */
+  aside: string;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {
-  phase: "idle", reply: "", detail: "", speaking: true, failure: null,
+  phase: "idle", reply: "", detail: "", speaking: true, failure: null, aside: "",
 };

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "regress": "tsx src/run.ts",
+    "bakeoff": "tsx src/bakeoff.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

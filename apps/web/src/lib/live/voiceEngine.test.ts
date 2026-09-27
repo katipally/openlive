@@ -17,8 +17,29 @@ vi.mock("./models", () => ({
   hasWebGPU: () => false,
 }));
 vi.mock("./asrStream", () => ({ AsrStream: class {} }));
+// The agent's voiceprint: each verify call answers with the next verdict queued here (null: unreachable).
+const vp = vi.hoisted(() => ({ verdicts: [] as Array<{ you: boolean; score: number; embedding: number[] } | null>, asked: [] as number[] }));
+vi.mock("./voiceprint", () => ({
+  voiceprintStatus: async () => null,
+  verifyVoice: async (_a: Float32Array, _mic: string, voicedMs: number) => { vp.asked.push(voicedMs); return vp.verdicts.shift() ?? null; },
+}));
+// The agent's side talk check: answers `st.side` (never, with `hang`), and records
+// what it was asked, with the Feats and log id sent, and the labels given.
+const st = vi.hoisted(() => ({
+  side: false, hang: false, asked: [] as Array<[string, string, string | undefined]>,
+  sent: [] as Array<{ feats: Record<string, unknown>; keep?: { id: string; mode: string } }>, labels: [] as Array<[string, string]>,
+}));
+vi.mock("./addressee", () => ({
+  sideTalk: (text: string, reply: string, speaker: string | undefined, feats: Record<string, unknown>, keep?: { id: string; mode: string }) => {
+    st.asked.push([text, reply, speaker]);
+    st.sent.push({ feats, keep });
+    return st.hang ? new Promise(() => {}) : Promise.resolve(st.side);
+  },
+  labelJudgment: (id: string, label: string) => st.labels.push([id, label]),
+}));
 vi.mock("@/lib/log", () => ({ log: { debug() {}, info() {}, warn() {}, error() {} } }));
 const { VoiceEngine } = await import("./voiceEngine");
+const { DEFAULT_PIPELINE_CONFIG } = await import("./pipelineConfig");
 
 // Between two words, or in a pause a voice keeps inside a line, the output is
 // silent while the line is still playing.
@@ -345,6 +366,341 @@ it("a pause holds the caption with the voice: a cut after it keeps only the word
   expect(eng.cutReply()).toBe("First one. Second part");
 });
 
+// ── the voiceprint gate ─────────────────────────────────────────────────────
+const you = { you: true, score: 0.7, embedding: [1, 0, 0] };
+const other = (embedding = [0, 1, 0]) => ({ you: false, score: 0.1, embedding });
+/** `mode`: the voiceprint setting, the user enrolled. */
+function gated(mode: "gate" | "label", phase = "idle") {
+  const r = overReply(phase);
+  r.eng.print = { mic: "Built-in", gate: mode === "gate" };
+  const speakers: (string | undefined)[] = [];
+  r.eng.h.onUserText = (t: string, _at: number[], speaker?: string) => { r.seen.sent.push(t); speakers.push(speaker); };
+  return { ...r, speakers };
+}
+
+it("with the gate on, another voice never starts a turn; the user's does, labelled", async () => {
+  tts.heard = "what time is it";
+  for (const [verdict, sent] of [[other(), []], [you, ["what time is it"]], [null, ["what time is it"]]] as const) {
+    vp.verdicts = [verdict]; vp.asked = [];
+    const { eng, seen, speakers } = gated("gate");
+    Object.assign(eng, { replyOpen: false });
+    eng.turnCfg = () => ({ threshold: 0.5, holdMs: 4000, redemptionMs: 550, engine: "silence" });
+    eng.onSpeechStart();
+    await eng.onSpeechEnd(second);
+    expect(seen.sent).toEqual(sent);
+    expect(vp.asked).toEqual([0]); // too short for an early verdict: only the whole segment is checked
+    if (verdict) expect(speakers).toEqual(sent.length ? ["you"] : []);
+    expect(eng.currentPhase()).toBe(sent.length ? "thinking" : "idle");
+  }
+});
+
+it("labels each turn with who said it, other voices numbered as first heard", async () => {
+  tts.heard = "hello there";
+  vp.verdicts = [you, other([0, 1, 0]), other([0, 0, 1]), other([0, 0.9, 0.1])];
+  const { eng, speakers } = gated("label");
+  eng.turnCfg = () => ({ threshold: 0.5, holdMs: 4000, redemptionMs: 550, engine: "silence" });
+  for (let i = 0; i < 4; i++) { Object.assign(eng, { phase: "idle" }); eng.onSpeechStart(); await eng.onSpeechEnd(second); }
+  expect(speakers).toEqual(["you", "other 1", "other 2", "other 1"]);
+});
+
+it("over the reply, another voice's first second lets the reply go on, and its words decide nothing", async () => {
+  tts.heard = "hold on, stop"; // a second person's words, not the user's
+  vp.verdicts = [other(), other()]; vp.asked = [];
+  const { eng, seen } = gated("gate", "speaking");
+  eng.onSpeechStart();
+  expect(seen.held).toBe(true);
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true); // 1024 ms voiced: the early verdict
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.held).toBe(false);
+  expect(eng.currentPhase()).toBe("speaking");
+  for (let i = 0; i < 40; i++) eng.onFrame(frame, true); // past the backchannel cap: still no cut
+  await eng.onSpeechEnd(second);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen).toMatchObject({ cuts: 0, sent: [] });
+  expect(vp.asked).toEqual([1024, 72 * 32]); // the first second, then the whole segment again
+});
+
+it("a first second judged wrong is overturned by the whole segment: the user still cuts in", async () => {
+  tts.heard = "no, the other file";
+  vp.verdicts = [other(), you];
+  const { eng, seen } = gated("gate", "speaking");
+  eng.onSpeechStart();
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  await eng.onSpeechEnd(second);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen).toMatchObject({ cuts: 1, sent: ["no, the other file"] });
+});
+
+it("soft speech the echo check took for the agent's voice barges in once the voiceprint knows it", async () => {
+  tts.heard = "wait, stop";
+  vp.verdicts = [you, you, you];
+  const { eng, seen } = gated("gate", "speaking");
+  Object.assign(eng, { micRms: 0, speakingStartAt: 0 }); // under the echo check's bar
+  eng.onSpeechStart();
+  expect(eng.echo).toBe(true);
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.held).toBe(false); // one second is not sure enough to pause the reply for
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.held).toBe(true);
+  await eng.onSpeechEnd(second);
+  expect(seen).toMatchObject({ cuts: 1, sent: ["wait, stop"] });
+});
+
+it("a verdict that comes back after a mute drops the segment acts on nothing", async () => {
+  vp.verdicts = [you, you];
+  const { eng, seen } = gated("gate", "speaking");
+  Object.assign(eng, { micRms: 0, speakingStartAt: 0, vad: { pause() {}, start() {} } });
+  eng.onSpeechStart();
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true); // the two-second check leaves
+  eng.setMuted(true);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.held).toBe(false);
+  expect(eng.currentPhase()).toBe("speaking");
+});
+
+it("the agent's own voice through the speakers stays echo, and without the agent the gate asks nothing more", async () => {
+  vp.verdicts = [other()]; vp.asked = [];
+  const { eng, seen } = gated("gate", "speaking");
+  Object.assign(eng, { micRms: 0 });
+  eng.onSpeechStart();
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen.held).toBe(false);
+  vp.verdicts = [null];
+  await eng.onSpeechEnd(second);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(seen).toMatchObject({ cuts: 0, sent: [] });
+});
+
+it("without a verdict, soft speech the echo check took for the agent's voice stays echo", async () => {
+  vp.verdicts = [null];
+  const { eng, seen } = gated("gate", "speaking");
+  Object.assign(eng, { micRms: 0, speakingStartAt: 0 });
+  eng.onSpeechStart();
+  for (let i = 0; i < 64; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  await eng.onSpeechEnd(second);
+  expect(seen).toMatchObject({ held: false, cuts: 0, sent: [] });
+});
+
+it("over the reply, talk past the backchannel cap cuts only once two seconds of it pass the voiceprint", async () => {
+  tts.heard = "";
+  vp.verdicts = [you, you];
+  const { eng, seen } = gated("gate", "speaking");
+  eng.onSpeechStart();
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < 30; i++) eng.onFrame(frame, true); // 1984 ms: past the cap, second check not yet asked
+  expect(seen.cuts).toBe(0);
+  eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  eng.onFrame(frame, true);
+  expect(seen.cuts).toBe(1);
+});
+
+it("push-to-talk is never turned away, and is labelled by its longest stretch of speech", async () => {
+  tts.heard = "open the file";
+  vp.verdicts = [other(), you]; vp.asked = [];
+  const { eng, seen, speakers } = gated("gate", "idle");
+  Object.assign(eng, { vad: { start() {}, pause() {} }, replyOpen: false });
+  eng.beginPtt();
+  for (const frames of [40, 10]) {
+    eng.onSpeechStart();
+    for (let i = 0; i < frames; i++) eng.onFrame(frame, true);
+    await eng.onSpeechEnd(second);
+  }
+  await eng.endPtt();
+  expect(vp.asked).toEqual([40 * 32, 10 * 32]); // no early checks: only each segment, for its label
+  expect(seen.sent).toEqual(["open the file"]);
+  expect(speakers).toEqual(["other 1"]);
+});
+
+it("with labels, a held thought is sent on its own when another voice speaks next", async () => {
+  vp.verdicts = [you, other([0, 1, 0]), other([0, 0.9, 0.1])];
+  const { eng, seen, speakers } = gated("label", "idle");
+  Object.assign(eng, { replyOpen: false });
+  eng.turnCfg = () => ({ threshold: 0.5, holdMs: 4000, redemptionMs: 550, engine: "smart-turn" }); // the turn model holds every segment
+  for (const heard of ["No.", "now what have you", "to say"]) {
+    tts.heard = heard;
+    eng.onSpeechStart();
+    await eng.onSpeechEnd(second);
+  }
+  eng.clearHold();
+  expect(seen.sent).toEqual(["No."]);
+  expect(speakers).toEqual(["you"]);
+  expect(eng.pendingSpeaker).toBe("other 1");
+  expect(eng.pending.length).toBe(2 * second.length); // the same voice's two segments still join
+});
+
+it("another voice the gate ignores, onset included, teaches the room's noise floor nothing", async () => {
+  vp.verdicts = [other()];
+  const { eng } = gated("gate", "idle");
+  const floor = eng.noiseFloor;
+  for (let i = 0; i < 10; i++) eng.onFrame(frame, false); // its first words, before the VAD is sure
+  expect(eng.noiseFloor).toBeGreaterThan(floor);
+  eng.onSpeechStart();
+  expect(eng.noiseFloor).toBe(floor);
+  for (let i = 0; i < 32; i++) eng.onFrame(frame, true);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(eng.currentPhase()).toBe("idle"); // ignored: the engine is idle while that voice goes on
+  for (let i = 0; i < 64; i++) eng.onFrame(frame, i % 2 === 0); // its words, and the gaps between them
+  expect(eng.noiseFloor).toBe(floor);
+  await eng.onSpeechEnd(second);
+  eng.onFrame(new Float32Array(512).fill(0.004), false); // the room itself
+  expect(eng.noiseFloor).toBeGreaterThan(floor);
+});
+
+it("with the voiceprint off, a segment's onset is unlearned the same, and a frame reads no settings", () => {
+  let reads = 0;
+  vi.stubGlobal("window", {});
+  vi.stubGlobal("localStorage", { getItem: () => { reads++; return null; } });
+  try {
+    const { eng } = overReply("idle");
+    const floor = eng.noiseFloor;
+    for (let i = 0; i < 10; i++) eng.onFrame(frame, true); // speech heard idle, before the VAD is sure
+    const raised = eng.noiseFloor;
+    expect(raised).toBeGreaterThan(floor);
+    eng.onSpeechStart();
+    expect(eng.noiseFloor).toBe(floor);
+    reads = 0;
+    for (let i = 0; i < 100; i++) eng.onFrame(frame, true);
+    expect(reads).toBe(0);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+/** The side talk check on for `run`, answering `side`; what it was asked comes back. */
+async function withSideTalk(side: boolean, run: () => Promise<void> | void, mode: "ignore" | "shadow" = "ignore", keepLog = false) {
+  Object.assign(st, { side, hang: false, asked: [], sent: [], labels: [] });
+  Object.assign(DEFAULT_PIPELINE_CONFIG, { sideTalk: mode, sideTalkLog: keepLog });
+  try { await run(); } finally { Object.assign(DEFAULT_PIPELINE_CONFIG, { sideTalk: "off", sideTalkLog: false }); }
+  return st.asked;
+}
+
+it("side talk over the reply lets it go on, marked, however long it runs; talk to the app still cuts it", async () => {
+  tts.heard = "honey, did you feed the dog before we left this morning";
+  const marked: string[] = [];
+  const { eng, seen } = overReply("speaking", { onSideTalk: (t: string) => marked.push(t) });
+  Object.assign(eng, { spokenText: "The build passed." });
+  const asked = await withSideTalk(true, async () => {
+    eng.onSpeechStart();
+    for (let i = 0; i < 100; i++) eng.onFrame(frame, true); // 3.2 s voiced: past the cap, the words decide
+    expect(seen.cuts).toBe(0);
+    await eng.onSpeechEnd(second);
+  });
+  expect(asked).toEqual([[tts.heard, "The build passed.", undefined]]);
+  expect(seen).toMatchObject({ sent: [], cuts: 0, held: false });
+  expect(marked).toEqual([tts.heard]);
+  expect(eng.currentPhase()).toBe("speaking");
+  tts.heard = "no wait, use the other file";
+  const app = overReply();
+  await withSideTalk(false, async () => { app.eng.onSpeechStart(); await app.eng.onSpeechEnd(second); });
+  expect(app.seen).toMatchObject({ sent: [tts.heard], cuts: 1 });
+});
+
+it("a held sentence judged side talk is dropped when its hold ends, marked; tapped, it is sent", async () => {
+  tts.heard = "can you grab the milk";
+  for (const tapped of [false, true]) {
+    const marked: string[] = [];
+    const { eng, seen } = overReply("idle", { onSideTalk: (t: string) => marked.push(t) });
+    await withSideTalk(true, async () => { eng.onSpeechStart(); await eng.onSpeechEnd(second); });
+    if (tapped) eng.commitPending(); else eng.flushPending(); // the hold timer's end
+    expect([seen.sent, marked]).toEqual(tapped ? [[tts.heard], []] : [[], [tts.heard]]);
+  }
+});
+
+it("push-to-talk, an open ask and the setting left off never ask the side talk check", async () => {
+  tts.heard = "did you feed the dog";
+  const ptt = overReply("idle");
+  Object.assign(ptt.eng, { vad: { start() {}, pause() {} } });
+  const asks = [await withSideTalk(true, async () => { ptt.eng.beginPtt(); ptt.eng.onSpeechStart(); await ptt.eng.onSpeechEnd(second); await ptt.eng.endPtt(); })];
+  expect(ptt.seen.sent).toEqual([tts.heard]);
+  const ask = overReply("thinking", { holdBargeIn: () => true, answersAsk: () => true });
+  asks.push(await withSideTalk(true, async () => { ask.eng.onSpeechStart(); await ask.eng.onSpeechEnd(second); }));
+  expect(ask.seen.sent).toEqual([tts.heard]);
+  Object.assign(st, { side: true, asked: [] });
+  const off = overReply("speaking");
+  off.eng.onSpeechStart();
+  await off.eng.onSpeechEnd(second);
+  expect(off.seen.sent).toEqual([tts.heard]);
+  expect([...asks, st.asked]).toEqual([[], [], []]);
+});
+
+it("a dropped sentence tapped to send is a turn: it cuts a reply under way, and waits out the user's own talk", () => {
+  const { eng, seen } = overReply("speaking");
+  eng.sendAside("did you feed the dog", "you");
+  expect(seen).toMatchObject({ sent: ["did you feed the dog"], cuts: 1 });
+  expect(eng.currentPhase()).toBe("thinking");
+  const talking = overReply("listening");
+  talking.eng.sendAside("did you feed the dog");
+  expect(talking.seen).toMatchObject({ sent: [], cuts: 0 });
+});
+
+it("judging only, side talk is still answered, over the reply it cuts as with the check off, and the turn never waits on the verdict", async () => {
+  tts.heard = "honey, did you feed the dog";
+  const marked: string[] = [];
+  const { eng, seen } = overReply("speaking", { onSideTalk: (t: string) => marked.push(t) });
+  const asked = await withSideTalk(true, async () => {
+    st.hang = true;
+    eng.onSpeechStart();
+    for (let i = 0; i < 60; i++) eng.onFrame(frame, true); // past the backchannel cap: cut before the words, as with the check off
+    expect(seen.cuts).toBe(1);
+    await eng.onSpeechEnd(second);
+  }, "shadow");
+  expect(asked).toHaveLength(1);
+  expect(marked).toEqual([]);
+  expect(seen.sent).toEqual([tts.heard]);
+});
+
+it("with the log on, each judgment gets an id the surface keeps, with how the sentence sounded", async () => {
+  tts.heard = "can you grab the milk";
+  const judged: Array<string | undefined> = [];
+  const { eng } = overReply("idle", { onUserText: (_t: string, _a: number[], _s?: string, id?: string) => judged.push(id) });
+  Object.assign(eng, { replyOpen: false });
+  const say = (keepLog: boolean) => withSideTalk(false, async () => { eng.onSpeechStart(); await eng.onSpeechEnd(second); eng.flushPending(); }, "shadow", keepLog);
+  await say(true); // the turn model holds it; its hold's end sends it
+  expect(st.sent[0]!.keep).toEqual({ id: judged[0], mode: "shadow" });
+  expect(judged[0]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(st.sent[0]!.feats).toMatchObject({ durS: 1, cut: 0, gapS: null, relDb: null, change: null });
+  // Judged, the sentence sets the user's level: the next one is judged against it.
+  await say(true);
+  expect(st.sent[0]!.feats.relDb).toBe(0);
+  // With the log off, the check still hears how it sounded, but nothing is kept.
+  await say(false);
+  expect(st.sent[0]!.keep).toBeUndefined();
+  expect(judged[2]).toBeUndefined();
+});
+
+it("the user overruling a logged verdict labels it: send now on a held one, Send it on a dropped one", async () => {
+  tts.heard = "can you grab the milk";
+  const marked: Array<string | undefined> = [];
+  const { eng, seen } = overReply("idle", { onSideTalk: (_t: string, _s?: string, id?: string) => marked.push(id) });
+  await withSideTalk(true, async () => { eng.onSpeechStart(); await eng.onSpeechEnd(second); eng.commitPending(); }, "ignore", true);
+  expect(seen.sent).toEqual([tts.heard]);
+  expect(st.labels).toEqual([[st.sent[0]!.keep!.id, "to"]]);
+  const dropped = overReply("idle", { onSideTalk: (_t: string, _s?: string, id?: string) => marked.push(id) });
+  await withSideTalk(true, async () => { dropped.eng.onSpeechStart(); await dropped.eng.onSpeechEnd(second); dropped.eng.flushPending(); }, "ignore", true);
+  expect(marked).toEqual([st.sent[0]!.keep!.id]);
+  st.labels = [];
+  Object.assign(dropped.eng, { phase: "idle" });
+  expect(dropped.eng.sendAside(tts.heard, undefined, marked[0])).toBe(true);
+  expect(st.labels).toEqual([[marked[0], "to"]]);
+});
+
+it("Not for you cuts the reply under way, and does nothing once it is over", () => {
+  const { eng, seen } = overReply("speaking");
+  eng.dropReply();
+  expect(seen.cuts).toBe(1);
+  const done = overReply("idle");
+  Object.assign(done.eng, { replyOpen: false });
+  done.eng.dropReply();
+  expect(done.seen.cuts).toBe(0);
+});
+
 // Silero trails a soft voice's onset: its first words tick along under the speech
 // threshold while the engine is still idle, and must not count as the room.
 it("a soft talker's own first words do not raise the noise gate over them", async () => {
@@ -381,6 +737,26 @@ it("words that waited on a finalizing segment are kept while an echo segment is 
   await first;
   await vi.waitFor(() => expect(eng.pending?.length).toBe(2 * second.length));
   expect(eng.echo).toBe(true); // the echo segment's own end is still dropped
+  eng.clearHold();
+  tts.gate = Promise.resolve();
+});
+
+// The voiced time picks the voiceprint's threshold: audio replayed after a
+// finalizing segment is judged on its own, not on the segment open by then.
+it("deferred segments are judged on their own voiced time", async () => {
+  let open!: () => void;
+  tts.gate = new Promise((r) => (open = r));
+  tts.heard = "okay so";
+  vp.verdicts = []; vp.asked = [];
+  const { eng } = gated("label");
+  const say = (frames: number) => { eng.onSpeechStart(); for (let i = 0; i < frames; i++) eng.onFrame(frame, true); };
+  say(10);
+  const first = eng.onSpeechEnd(second);
+  for (const frames of [20, 5]) { say(frames); await eng.onSpeechEnd(second); } // deferred behind the first
+  say(40); // still open when the deferred audio is replayed
+  open();
+  await first;
+  await vi.waitFor(() => expect(vp.asked).toEqual([10 * 32, 25 * 32]));
   eng.clearHold();
   tts.gate = Promise.resolve();
 });

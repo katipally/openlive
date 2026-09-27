@@ -285,6 +285,225 @@ accelerator override and "Re-run benchmark" (`GET /voice/perf`,
 `pnpm --filter @openlive/agent bench:voice` prints the same benchmark for every
 installed engine, for developers; the app never reads it.
 
+The **voiceprint** (opt-in under Settings → Voice → VAD: Off by default,
+Label voices, Only me) lets only the enrolled user start turns and barge in,
+and labels each turn "you" or "other N". The agent holds the model and the
+print (`voice/voiceprint.ts`): 3D-Speaker's CAM++ zh-en "advanced" (Apache-2.0,
+192-dim, 28 MB, the `voiceprint` family, kind `speaker`) through sherpa's
+`SpeakerEmbeddingExtractor` on a worker thread of its own, benchmarked by P0
+like the other engines. Enrollment is explicit: the user reads a paragraph in
+Settings for about 15 s, each VAD segment folded into the mean of unit
+embeddings for that mic (`POST /voice/voiceprint/enroll`); the gate turns on at
+10 s. Passive enrollment was ruled out because in a shared room the first
+voice need not be the user's, and a print seeded by someone else shuts the
+user out. After that, a segment scoring 0.6 or more with 2 s of speech is
+folded into its mic's print (the user's median over 2 s is 0.67 to 0.79 in
+the eval, other voices' 99th percentile under 0.36), so the print follows the
+user, and a new mic gets a print of its own; a segment scores against the
+best of up to six. Prints live in the settings store under `voiceprint`
+(never exposed by `/api/settings`, never sent anywhere) and go with
+`DELETE /voice/voiceprint` or a model change. `POST /voice/voiceprint/verify`
+takes the PCM and `voiced` (ms of speech the VAD heard) and picks the
+threshold for that much speech. In `VoiceEngine`, with "Only me" on and the
+user enrolled (`GET /voice/voiceprint` at each start, so a mic change
+re-reads it): a segment is checked at 1 s and 2 s of speech. Failing either,
+it is ignored like echo, and a reply it paused goes on; the P3 pause already
+silenced the agent at onset. Talk over the reply cuts it past 1.5 s only once
+both checks passed (never later than 3 s), and soft speech the echo check took
+for the agent's own voice barges in once both pass. At the end the whole
+segment is checked again, alongside transcription: another voice never
+becomes a turn, and a segment ignored early that turns out to be the user's
+becomes their turn after all, cutting the reply. Push-to-talk is never turned
+away, only labelled, by the verdict on its longest segment. Without the agent,
+the model or an enrollment, or on a failed verdict or one 1.5 s late, speech
+goes through as on flow. An embedding with nothing in it (zero or non-finite)
+is no verdict either: verify answers 422 rather than score it 0, which would
+pass the under-a-second threshold, and enroll folds nothing in. The 1.5 s count from when the request leaves: the
+browser sends a fetch only once the page's current task ends, and on a busy
+page a request the agent answered in 130 ms left 1.43 s after the call (QA,
+2026-09-26). "Label voices" checks only the whole segment, for the
+label; other voices are grouped per call at cosine 0.35, and a held mid-thought
+pause is sent on its own rather than joined to the next segment when that one
+is another voice's. The room's noise floor is learned only from idle frames the
+VAD calls silence, never from a voice the gate is ignoring, and a segment's
+start takes it back to where it stood 800 ms earlier, before its first words.
+Labels travel as `speaker` on `user_text`/`flow_text` into the saved text block
+and show over another voice's bubble in the transcript.
+Measured 2026-09-26 (`pnpm voiceprint:eval`, 40 LibriSpeech speakers enrolled
+on 15 s, 480 of their utterances and 126 in the agent's own voices, each clean,
+through a narrow quiet mic, an overdriven mic, an echoey room, 4-talker babble
+at 5 dB, pink noise at 5 dB, and room, babble and mic at once), thresholds
+blocking at most 1% of the user's trials of each length, pooled:
+
+| speech | EER | threshold | FAR other people | FAR agent's voices | worst condition FRR |
+| --- | --- | --- | --- | --- | --- |
+| 0.5 s | 25.5% | -0.085 | 94.7% | 92.7% | 3.3% (babble) |
+| 1 s | 6.0% | 0.087 | 43.3% | 37.7% | 3.3% (babble) |
+| 2 s | 1.5% | 0.286 | 3.8% | 3.4% | 2.7% (room+babble+mic) |
+| 4 s | 0.8% | 0.400 | 0.6% | 0.5% | 2.3% (room+babble+mic) |
+| whole | 0.8% | 0.416 | 0.5% | 0.4% | 2.1% (room+babble+mic) |
+
+At 2% false rejects the 1 s threshold (0.136) still lets 26% of other voices
+through: no model reached 2% false rejects with 5% false accepts on one second.
+Hence the second check at 2 s and the whole-segment verdict. The other
+candidates did worse on every window (EER at 1 s / 2 s / whole): ERes2Net en
+8.3 / 3.9 / 2.2%, TitaNet large 9.5 / 5.3 / 3.3%, TitaNet small 11.4 / 5.9 /
+3.8%; the 512-dim CAM++ exports and WeSpeaker ResNet34 did not work through
+sherpa-onnx-node 1.13.8. Extraction on this M4's CPU (2 threads, P0's choice:
+CoreML was under 20% faster) through the worker, p50 / p95: 6.5 / 11 ms for
+1 s, 9.9 / 16 ms for 2 s, 16 / 27 ms for 4 s, 23 / 82 ms for whole utterances
+of up to 35 s, which run alongside transcription. Not measured: real
+microphones and rooms (the conditions are simulated), languages other than
+English for the user, and children's voices.
+
+The **side talk check** (addressee detection), opt-in under Settings → Voice →
+Turn-taking → Side talk (Off by default; Ignore side talk), drops a finished
+sentence said to someone else in the room, or to no one ("did you feed the
+dog?", "hang on, John, I'm on a call"). `VoiceEngine` asks the agent
+(`POST /voice/addressee`, `voice/addressee.ts`) with the sentence, the reply as
+voiced so far and the voiceprint's label, in parallel with the turn model, so
+it adds at most the check's own few ms after the transcript. The agent embeds
+the sentence with Paraphrase Multilingual MPNet (sentence-transformers,
+Apache-2.0, int8 ONNX export by Xenova, 296 MB; 50+ languages, all ten of the
+app's) on onnxruntime-node in the native worker (`addressee` kind, P0's
+benchmark and accelerator choice like any engine: CPU on this M4, 8 ms per
+sentence against 30 ms on CoreML), and scores it with a logistic head
+(`@openlive/shared/speech/addressee-head`, written by the eval). Rules come
+first, and only ever toward answering: a sentence after a reply that ended on a
+question is its answer unless another voice says it, a sentence naming
+OpenLive is for it, an open ask takes every sentence as its answer, and
+push-to-talk is never judged. Another voice (voiceprint on "Label voices")
+is taken for side talk one log-odds sooner. Asymmetric by design: an agent that
+is down, slow (800 ms), not downloaded or failing lets the sentence through.
+Judged side talk said into silence is dropped (a held mid-thought is dropped when
+its hold ends; tapping "send now" sends it anyway); over a paused reply it
+resumes the reply like a backchannel. With the check on, talk over the reply
+no longer cuts it at 1.5 s voiced: the reply stays paused until the words
+decide. Each dropped sentence shows in the transcript, dashed and faint, with
+"Send it", which sends it as a turn. Flow's orb shows the last one, dashed,
+with "Send it", until the next turn. Neither mark survives a reload: a dropped
+sentence never reaches the agent, so it is not in the saved conversation, and
+keeping it there would mean a message kind the agent's history does not have.
+"Judge only" (`shadow`) judges every sentence the same way and drops none: the
+turn never waits on the verdict, and a reply is cut as with the check off.
+
+Measured 2026-09-26 (`pnpm addressee:eval`). No openly licensed corpus of
+people talking to a voice assistant and to each other in one room was found,
+so the set is synthetic, written for the eval: a training split of 283 English
+sentences in context (the agent's last reply, the speaker), and held-out
+splits of 156 English and 162 in the nine other languages. Its hard cases:
+thinking aloud, questions to the app that sound like ones to a person ("did
+you save the file?"), requests to a person that sound like ones to the app
+("can you grab the milk?"), short commands, vocatives, calls, pets and kids.
+The head and its threshold (ignoring at most 1% of the training split's
+addressed sentences, scored out of fold) come from the training split alone:
+
+| split | AUC | addressed ignored | side talk caught | precision | caught, by you | caught, other voices |
+| --- | --- | --- | --- | --- | --- | --- |
+| English, voiceprint off | 0.895 | 1.1% (1 of 90) | 22.7% | 93.8% | 16.7% | 38.9% |
+| English, voiceprint labels | 0.895 | 1.1% (1 of 90) | 27.3% | 94.7% | 16.7% | 55.6% |
+| nine languages, voiceprint off | 0.979 | 0% | 68.1% | 100% | 63.0% | 83.3% |
+| nine languages, voiceprint labels | 0.979 | 0% | 72.2% | 100% | 63.0% | 100% |
+
+The one addressed sentence ignored is another voice's "Can you tell us a
+joke?"; none of the user's own (87) was. The 60% of side talk aimed for is
+missed on English; the nine-language split scores higher only because its
+sentences are close to the training split's, translated, so it overstates.
+"Only me" drops other voices before this check, leaving the user's own side
+talk: 16.7% caught. The context rules changed no result here (the scores were
+already low after a question); they stand as a floor. Embedding p50 / p95
+through the worker: 3.5 / 5.1 ms; the route answered in about 10 ms warm, 650
+ms on the first sentence, which the call's warm-up takes. Also tried, through
+transformers.js on the same splits: Paraphrase Multilingual MiniLM-L12
+(Apache-2.0, AUC 0.854 on English) and multilingual E5 small (MIT, 0.887),
+both below MPNet; Qwen3 Embedding 0.6B with an instruction (Apache-2.0, 0.889,
+43 ms); Qwen2.5 0.5B Instruct asked zero-shot (Apache-2.0, 0.587, 131 ms);
+adding the reply's similarity or the speaker to the head did not help. Not
+measured: real speech through speech-to-text, the user's tone and loudness (the
+check reads words only), and real rooms.
+
+**Listening sounds** (`turn.backchannels`, off by default; Flow passes
+`backchannels: false`). At a held pause (Smart-Turn or the words say the thought
+goes on) of a turn with 3 s of speech, at most once per 8 s, never after a
+question (a question mark, or an English question word first), over a reply,
+an ask or push-to-talk, the engine plays one of `LISTENING[lang]` (words the
+backchannel check itself counts as one, in all ten languages) at gain 0.4,
+rendered once per voice at call start in the voice the reply will use. It plays
+on its own AudioPlayer, so the reply's echo gate, barge-in and pause (P3) and
+the voiceprint's timing (P2) never see it, and the first voiced frame stops it.
+It never reaches onAgentText, the transcript or the agent. In the eval: 8 sounds
+in 30 turns, p50 820 ms after the pause began, 0 overlapping the user's speech.
+Not measured: the sound leaking into the mic over speakers (the eval has no
+room); the page's echo canceller hears it like the reply, at -8 dB.
+
+The **judgment log** (Settings → Side talk → "Keep a judgment log to train on",
+off by default, shown once the check is on) keeps each judged sentence on the
+agent, in `DATA_DIR/addressee-log.jsonl`, for `pnpm addressee:train`: its words
+(up to 1000 characters), the last 300 characters of the reply before it, the
+time, the score, verdict and head that judged it, the mode, the voiceprint's
+label, and how it sounded (below). Never the audio, and it is never sent
+anywhere. Corrections label an entry: "Send it" on a dropped sentence (or "send
+now" on a held one judged side talk) marks it said to the app; "Not for you",
+under a spoken turn that was logged, marks it side talk and cuts the reply to
+it when that reply is the one under way (the turn stays in the agent's history:
+taking it out would rewrite a saved conversation). The file is append-only, a
+judgment or a label a line, folded into a map on first read (O(lines)); the
+newest 5,000 entries are kept (about 1 KB each, oldest evicted first), and once
+the file holds twice that in lines it is rewritten with the kept ones, so an
+append is O(1) amortized and the file stays under about 10 MB. Settings shows the
+count and how many the user marked, and deletes the log together with the head
+trained on it.
+
+How a sentence sounded (`Feats`, `@openlive/shared/speech/addressee`), from
+audio the engine already holds, in the page: loudness against the user's
+running speech level (an average moving a fifth of the way to each of the
+user's sentences), the spread of frame loudness, median and spread of pitch
+(autocorrelation over 50-400 Hz on 8 kHz frames of 40 ms), words per second of
+speech (words counted by `Intl.Segmenter`, so unspaced scripts count), the
+segment's length, seconds since the agent's voice stopped (0 over it), whether
+it cut or paused the reply, and whether the voiceprint's label changed from the
+sentence before. O(n x 140 lags) over the segment's last 8 s at most: about 18M
+multiply-adds, a few ms, once per finished sentence.
+
+`pnpm addressee:train` fits the user's own head on the synthetic training split
+plus the log (a correction weighs 4 synthetic rows; an unmarked entry 1, labelled
+by what happened to it), with and without the sound features, scores the log
+out of fold (a sentence's repeats in one fold), and sets the threshold that
+ignores at most 1% of the user's own addressed sentences there. It writes
+`DATA_DIR/addressee-head.json`, never the shipped head. The agent judges with it
+(reread when the file changes) only when it is for the same model, has the
+right shape and passed: at least 100 addressed and 20 side talk sentences
+logged, at most 1% of the user's addressed ones ignored, more side talk caught
+than the shipped head at that rate, and no more of either synthetic held-out
+split's addressed sentences ignored than 1% or the shipped head's share.
+Otherwise the shipped head judges.
+
+Checked end to end 2026-09-26 on a simulated log (`pnpm addressee:simulate`, no
+real room): the 156 held-out English sentences in two macOS voices (Samantha,
+Daniel) at levels 6 dB apart, give or take 3 dB, through the agent's Nemotron
+speech-to-text (84% word for word) and the page's `speechStats`, judged in
+"Judge only" and labelled with their truth (310 kept, 2 heard as nothing).
+Scored out of fold on that log, at most 1% of the 154 addressed ones ignored:
+
+| log | head | AUC | addressed ignored | side talk caught |
+| --- | --- | --- | --- | --- |
+| sound unrelated to the label | shipped | 0.870 | 0% | 12.1% |
+| | yours, words only | 0.866 | 0% | 18.9% |
+| | yours, words + sound | 0.847 | 0.6% | 10.6% |
+| side talk 6 dB quieter | shipped | 0.875 | 0% | 12.1% |
+| | yours, words only | 0.870 | 0% | 18.9% |
+| | yours, words + sound | 0.946 | 0.6% | 50.8% |
+
+So the pipeline works (features are computed, logged, standardized, weighted,
+and a passing head is taken by a running agent), and the sound features find a
+cue that is there (loudness got -3.0 log-odds per standard deviation) and cost
+a little when there is none. Whether real side talk is quieter, or differs in
+any way a mic hears, this cannot say: two synthetic voices in a silent room are
+weak evidence. With no cue the head trained on words failed its eval, ignoring
+10% of the nine-language split's addressed sentences against the shipped
+head's 0% (an English log pulls the head away from the other languages); the
+English split's numbers are not held out here, the log being made from it.
+
 The **latency budget** (`lib/live/perf.ts`) records each turn's speech-to-text
 plus end of turn, model to first token, and voice to first sound, measured on the
 device. The call's top bar shows the session's median voice-to-voice time, and

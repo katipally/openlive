@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X, Cpu, ExternalLink, Lock } from "lucide-react";
 import {
-  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
+  loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, VOICEPRINT_ENGINE, type VoiceprintMode, ADDRESSEE_ENGINE, type SideTalk, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
   TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
   DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, CURATED_LANGUAGES, languageSupport, pickCompatible,
   familyVariant, isRestricted, permitted,
@@ -18,9 +18,14 @@ import {
   getVoicePerf, setEngineAccel, rebenchEngine, type AccelProvider, type AccelResult,
 } from "@/lib/live/models";
 import { toSpeech } from "@/lib/live/voiceText";
+import { enrollVoice, forgetVoiceprint, voiceprintStatus } from "@/lib/live/voiceprint";
+import { addresseeStatus, deleteJudgmentLog } from "@/lib/live/addressee";
+import { Switch } from "@/components/Switch";
+import { MicVAD } from "@ricky0123/vad-web";
+import { useLiveStore } from "@/lib/live/liveStore";
 import { compileLexicon } from "@openlive/shared/speech/lexicon";
 import { cn } from "@/lib/cn";
-import { Segmented } from "@/lib/seg";
+import { Segmented, type SegOption } from "@/lib/seg";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 import { usePendingDeletes } from "@/lib/deferredDelete";
@@ -353,6 +358,9 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
 
 const chip = "max-w-full break-words rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground";
 
+/** A feature still being tuned. Inside its control's label, so it is read with it. */
+const Experimental = () => <span className={cn(chip, "bg-arc/10 text-arc-text")}>Experimental</span>;
+
 /** The active family's Model menu: every variant with its size, quality,
  *  latency and install state, grouped by language for Piper. One that cannot
  *  speak the session language stays listed, disabled, with the ones it can.
@@ -456,6 +464,127 @@ function useFamilyPick(cfg: PipelineConfig, stage: Stage, update: Update) {
   return { pick, ask: () => setAsking(cfg[stage].family), gate };
 }
 
+const VOICEPRINT_MODES_UI: SegOption<VoiceprintMode>[] = [{ id: "off", label: "Off" }, { id: "label", label: "Label voices" }, { id: "gate", label: "Only me" }];
+const VOICEPRINT_COPY: Record<VoiceprintMode, string> = {
+  off: "Anyone who talks can start a turn.",
+  label: "Anyone can still start a turn; the transcript marks each one as you or another voice.",
+  gate: "Only your voice starts a turn or cuts in while the agent talks; other people and the agent's own voice are ignored. Push-to-talk always goes through, and if the check can't run, everyone is heard.",
+};
+// Read aloud to enroll: varied sounds, about 15 s at a relaxed pace.
+const ENROLL_TEXT = "The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon. People look, but no one ever finds it.";
+const ENROLL_S = 15;
+const voiceprintKey = ["voiceprint"];
+
+/** Records the user reading ENROLL_TEXT on the call's mic and hands the agent
+ *  each stretch of speech the VAD finds, until ENROLL_S is in. */
+function useEnrollment(cfg: PipelineConfig) {
+  const qc = useQueryClient();
+  const [state, setState] = useState<{ seconds: number; error?: string } | null>(null);
+  const [stop, setStop] = useState<(() => void) | null>(null);
+  // Settings can close while the permission prompt is up or the VAD loads: no effect cleanup has this recording's stop yet.
+  const unmounted = useRef(false);
+  useEffect(() => { unmounted.current = false; return () => { unmounted.current = true; }; }, []);
+  const start = async () => {
+    setState({ seconds: 0 });
+    let stream: MediaStream;
+    try {
+      const micId = useLiveStore.getState().micId;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(micId && { deviceId: { exact: micId } }) } });
+    } catch { return setState({ seconds: 0, error: "Couldn't open the microphone." }); }
+    if (unmounted.current) return stream.getTracks().forEach((t) => t.stop());
+    const mic = stream.getAudioTracks()[0]?.label ?? "";
+    // `heard`: seconds of the stretch being read now (-1 between stretches), so the
+    // bar moves while the user reads, not only as each stretch comes back enrolled.
+    let chain = Promise.resolve(), fresh = true, done = false, saved = 0, heard = -1;
+    const finish = () => { if (done) return; done = true; setStop(null); void vad.then((v) => v.destroy()).finally(() => stream.getTracks().forEach((t) => t.stop())); void qc.invalidateQueries({ queryKey: voiceprintKey }); };
+    const vad = MicVAD.new({
+      model: cfg.vad.model,
+      startOnLoad: false,
+      baseAssetPath: "/vad/", // vendored by scripts/copy-voice-assets.mjs, as voiceEngine.ts's
+      onnxWASMBasePath: "/vad/",
+      getStream: async () => stream,
+      positiveSpeechThreshold: cfg.vad.speechThreshold,
+      negativeSpeechThreshold: Math.max(0.1, cfg.vad.speechThreshold - 0.15),
+      minSpeechMs: 250,
+      redemptionMs: cfg.vad.redemptionMs,
+      onSpeechStart: () => { heard = 0; },
+      onFrameProcessed: (_p, frame) => { if (heard >= 0 && !done) setState({ seconds: saved + (heard += frame.length / 16000) }); },
+      onVADMisfire: () => { heard = -1; setState({ seconds: saved }); },
+      onSpeechEnd: (audio) => {
+        heard = -1;
+        chain = chain.then(async () => {
+          if (done) return;
+          const s = await enrollVoice(audio, mic, fresh);
+          fresh = false;
+          if (!s) { setState((p) => ({ seconds: p?.seconds ?? 0, error: "The agent didn't take the recording. Is the model downloaded?" })); return finish(); }
+          const seconds = saved = s.prints.find((p) => p.mic === mic)?.seconds ?? 0;
+          setState({ seconds: seconds + Math.max(0, heard) });
+          if (seconds >= ENROLL_S) finish();
+        });
+      },
+    });
+    setStop(() => finish);
+    try { await (await vad).start(); } catch { setState({ seconds: 0, error: "Couldn't start listening." }); finish(); }
+    if (unmounted.current) finish();
+  };
+  useEffect(() => () => stop?.(), [stop]); // leaving Settings mid-recording closes the mic
+  return { state, recording: !!stop, start: () => void start(), stop: () => stop?.() };
+}
+
+/** The voiceprint (lib/live/voiceprint.ts): its mode, its model on the agent,
+ *  and the user's enrollment, kept on this machine and deletable here. */
+function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+  const qc = useQueryClient();
+  const { isError, data: engines } = useNativeEngines();
+  const { data: status } = useQuery({ queryKey: voiceprintKey, queryFn: voiceprintStatus, enabled: cfg.voiceprint !== "off" });
+  const enrollment = useEnrollment(cfg);
+  const model = variantStatus(engines, VOICEPRINT_ENGINE);
+  const forget = async () => { await forgetVoiceprint(); void qc.invalidateQueries({ queryKey: voiceprintKey }); toast("Voiceprint deleted.", "info"); };
+  const on = cfg.voiceprint !== "off" && !isError;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-label text-foreground">Voiceprint</span>
+        <Experimental />
+      </div>
+      <p className="text-caption text-faint">Tells your voice from others once you enroll. Phrases under about a second can&apos;t be checked, and in &ldquo;Only me&rdquo; a cut waits about 2 s to confirm it&apos;s you.</p>
+      <fieldset disabled={isError} className="disabled:opacity-50">
+        <Segmented label="Voiceprint (experimental)" tone="soft" className="grid w-full" options={VOICEPRINT_MODES_UI} value={cfg.voiceprint}
+          onChange={(v) => update({ ...cfg, voiceprint: v })} />
+      </fieldset>
+      <p className="text-caption text-faint">
+        {isError ? "Needs OpenLive's local agent, which the desktop app runs." : VOICEPRINT_COPY[cfg.voiceprint]}
+      </p>
+      {on && <NativeEngineRow id={VOICEPRINT_ENGINE} fallback="no voiceprint, so everyone is heard" />}
+      {on && model && <p className="text-caption text-faint">{model.name} · {model.license}</p>}
+      {on && model?.installed && (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          {enrollment.recording ? (
+            <>
+              <p className="text-label text-foreground">Read this aloud at your normal pace:</p>
+              <p className="text-body text-muted-foreground">{ENROLL_TEXT}</p>
+              <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
+                <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.min(100, (100 * (enrollment.state?.seconds ?? 0)) / ENROLL_S)}%` }} />
+              </div>
+              <button onClick={enrollment.stop} className={rowButton}><X className="size-3.5" /> Stop</button>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-label text-muted-foreground">
+                {status?.enrolled ? `Enrolled on ${status.prints.map((p) => p.mic || "the default mic").join(", ")}.` : "Not enrolled yet: until you are, everyone is heard."}
+              </span>
+              <button onClick={enrollment.start} className={rowButton}><Mic className="size-3.5" /> {status?.enrolled ? "Enroll again on this mic" : "Enroll my voice"}</button>
+              {!!status?.prints.length && <button onClick={() => void forget()} className={cn(rowButton, "hover:text-danger")}><Trash2 className="size-3.5" /> Delete voiceprint</button>}
+            </div>
+          )}
+          {enrollment.state?.error && <p role="alert" className="text-caption text-danger">{enrollment.state.error}</p>}
+          <p className="text-caption text-faint">About {ENROLL_S} seconds of your voice, turned into numbers that stay on this computer. Later turns that are clearly you keep it up to date, and a new mic gets its own.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
@@ -473,6 +602,7 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <Slider label="Trailing silence" value={cfg.vad.redemptionMs} min={200} max={1500} step={50}
         fmt={(v) => `${v} ms`} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, redemptionMs: v } })} />
       <p className="-mt-2 text-caption text-faint">How long a pause runs before your turn ends.</p>
+      <VoiceprintPicker cfg={cfg} update={update} />
     </div>
   );
 }
@@ -523,6 +653,61 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   );
 }
 
+const SIDE_TALK_UI: SegOption<SideTalk>[] = [{ id: "off", label: "Off" }, { id: "shadow", label: "Judge only" }, { id: "ignore", label: "Ignore side talk" }];
+const SIDE_TALK_COPY: Record<SideTalk, string> = {
+  off: "Everything you say while the mic is on is taken as said to the agent.",
+  shadow: "Every sentence is judged, and every one still gets an answer: nothing is dropped. For the judgment log below, with no risk of a missed turn.",
+  ignore: "A sentence that sounds said to someone else in the room (\"did you feed the dog?\") gets no answer, and a reply it paused goes on. The transcript shows it, with a button to send it anyway. When unsure, it answers. Push-to-talk, and answers to the agent's questions, always go through.",
+};
+const addresseeKey = ["addressee"];
+
+/** Side talk (lib/live/addressee.ts): whether a sentence said to someone else
+ *  in the room is dropped, its model on the agent, and the judgment log
+ *  (opt-in, on this machine, deletable here) that trains the user's own head. */
+function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+  const qc = useQueryClient();
+  const { isError, data: engines } = useNativeEngines();
+  const model = variantStatus(engines, ADDRESSEE_ENGINE);
+  const on = cfg.sideTalk !== "off" && !isError;
+  const { data: status } = useQuery({ queryKey: addresseeKey, queryFn: addresseeStatus, enabled: on });
+  const forget = async () => { await deleteJudgmentLog(); void qc.invalidateQueries({ queryKey: addresseeKey }); toast("Judgment log deleted.", "info"); };
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-label text-foreground">Side talk</span>
+        <Experimental />
+      </div>
+      <p className="text-caption text-faint">Tries to tell when you&apos;re talking to someone else in the room. It catches only part of side talk today, about one in five English sentences in our tests. &ldquo;Judge only&rdquo; collects data and changes nothing.</p>
+      <fieldset disabled={isError} className="disabled:opacity-50">
+        <Segmented label="Side talk (experimental)" tone="soft" className="grid w-full" options={SIDE_TALK_UI} value={cfg.sideTalk}
+          onChange={(v) => update({ ...cfg, sideTalk: v })} />
+      </fieldset>
+      <p className="text-caption text-faint">
+        {isError ? "Needs OpenLive's local agent, which the desktop app runs." : SIDE_TALK_COPY[cfg.sideTalk]}
+      </p>
+      {on && <NativeEngineRow id={ADDRESSEE_ENGINE} fallback="no check, so everything is answered" />}
+      {on && model && <p className="text-caption text-faint">{model.name} · {model.license}{status?.head === "personal" && " · judging with your own trained head"}</p>}
+      {on && (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <label className="flex cursor-pointer select-none items-start gap-2.5">
+            <Switch on={cfg.sideTalkLog} onFlip={() => update({ ...cfg, sideTalkLog: !cfg.sideTalkLog })} className="mt-0.5" />
+            <span className="text-label leading-snug text-foreground">
+              Keep a judgment log to train on
+              <span className="block text-caption text-faint">Each judged sentence&apos;s words, the reply before it, and how it sounded (loudness, pitch, pace, timing; never the audio), kept on this computer for <code>pnpm addressee:train</code>. &quot;Send it&quot; and &quot;Not for you&quot; in the transcript mark what it got wrong. The newest {status?.log.cap ?? 5000} are kept.</span>
+            </span>
+          </label>
+          {!!status?.log.count && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-label text-muted-foreground">{status.log.count} judged, {status.log.labelled} marked by you.</span>
+              <button onClick={() => void forget()} className={cn(rowButton, "hover:text-danger")}><Trash2 className="size-3.5" /> Delete log and trained head</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const preset = activeTurnPreset(cfg);
   const applyPreset = (v: TurnPresetValues) => update({
@@ -554,6 +739,14 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
         fmt={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
       <p className="-mt-2 text-caption text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
+      <label className="flex cursor-pointer select-none items-start gap-2.5">
+        <Switch on={cfg.turn.backchannels} onFlip={() => update({ ...cfg, turn: { ...cfg.turn, backchannels: !cfg.turn.backchannels } })} className="mt-0.5" />
+        <span className="text-label leading-snug text-foreground">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">Listening sounds <Experimental /></span>
+          <span className="block text-caption text-faint">A quiet &ldquo;mm-hmm&rdquo; in the reply&apos;s voice at a pause while you talk at length. Never after a question or over your voice, and never in the transcript. Calls only, not Flow.</span>
+        </span>
+      </label>
+      <SideTalkPicker cfg={cfg} update={update} />
     </div>
   );
 }

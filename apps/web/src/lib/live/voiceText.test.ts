@@ -2,7 +2,8 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, isBackchannel, endsMidThought, stripMarkdown, toSpeech, speechPieces, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs, captionWindow } from "./voiceText.ts";
+import { isJunk, isBackchannel, endsMidThought, stripMarkdown, toSpeech, speechPieces, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs, captionWindow, LISTENING, asksQuestion } from "./voiceText.ts";
+import type { LanguageCode } from "@openlive/shared";
 import { captionWords } from "@openlive/shared/speech/timing";
 
 test("isJunk: silence artifacts dropped, real short answers kept", () => {
@@ -384,4 +385,16 @@ test("isBackchannel: laughs of any length and throat sounds are no words, real w
     ["es", "hija"], ["es", "jaja espera"], ["pt", "kkk para"], ["de", "haha, halt"], ["zh", "哈哈等一下"], ["ja", "ははは、ちょっと待って"], ["ko", "하하 잠깐만요"], ["hi", "हाहा रुको"],
   ];
   for (const [lang, t] of no) assert.equal(isBackchannel(t, lang as never), false, `${lang}: ${t}`);
+});
+
+test("the listening sounds are what the backchannel check itself takes for one, in every language", () => {
+  for (const [lang, words] of Object.entries(LISTENING)) for (const w of words) assert.ok(isBackchannel(w, lang as LanguageCode), `${lang}: ${w}`);
+});
+
+test("a question is heard by its mark, or in English by its first word", () => {
+  assert.ok(asksQuestion("what do you think about the", "en"));
+  assert.ok(asksQuestion("¿Qué piensas?", "es"));
+  assert.ok(asksQuestion("你觉得呢？", "zh"));
+  assert.ok(!asksQuestion("so I went to the store and", "en"));
+  assert.ok(!asksQuestion("Whatever you say", "en"));
 });

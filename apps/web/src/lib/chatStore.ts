@@ -23,6 +23,10 @@ export interface ChatMsg {
   role: "user" | "assistant";
   text: string;   // user turns only
   wordsAt?: number[]; // a spoken user turn: each captionWords(text) word's onset, ms into its audio
+  speaker?: string; // a spoken user turn with the voiceprint on: "you" or "other N"
+  aside?: boolean; // heard, judged side talk and not sent (voiceEngine onSideTalk); never saved
+  judged?: string; // a spoken user turn's side talk judgment id in the agent's log, when that is on
+  notForYou?: boolean; // the user marked this spoken turn "Not for you" (side talk); not saved
   parts: Part[];  // assistant turns only
   done: boolean;
 }
@@ -35,7 +39,7 @@ interface ChatState {
 let seq = 0;
 const nextId = () => `m${++seq}`;
 
-const useChatState = create<ChatState>((set) => ({
+export const useChatState = create<ChatState>((set) => ({
   byChat: {},
   _set: (chatId, fn) =>
     set((s) => {
@@ -61,13 +65,37 @@ function patch(chatId: string, id: string, fn: (m: ChatMsg) => ChatMsg) {
 }
 
 export const chatStore = {
+  // A sentence the side talk check dropped, shown so the user can send it anyway;
+  // said over a reply still coming in, it goes above that reply, which stays last.
+  aside(chatId: string, text: string, speaker?: string, judged?: string) {
+    const m: ChatMsg = { id: nextId(), role: "user", text, speaker, judged, aside: true, parts: [], done: true };
+    useChatState.getState()._set(chatId, (msgs) => {
+      const last = msgs[msgs.length - 1];
+      return last?.role === "assistant" && !last.done ? [...msgs.slice(0, -1), m, last] : [...msgs, m];
+    });
+  },
+  // Takes a dropped sentence back out, as it is sent after all. O(messages).
+  takeAside(chatId: string, id: string): ChatMsg | undefined {
+    const m = useChatState.getState().byChat[chatId]?.find((x) => x.id === id && x.aside);
+    if (m) useChatState.getState()._set(chatId, (msgs) => msgs.filter((x) => x !== m));
+    return m;
+  },
+  // A spoken turn the user says was not for the agent. Returns its judgment id,
+  // and whether it is the last user turn (the reply under way answers it). O(messages).
+  notForYou(chatId: string, id: string): { judged?: string; last: boolean } | undefined {
+    const msgs = useChatState.getState().byChat[chatId] ?? [];
+    const i = msgs.findIndex((x) => x.id === id && x.role === "user" && !x.aside);
+    if (i < 0) return undefined;
+    patch(chatId, id, (m) => (m.notForYou ? m : { ...m, notForYou: true }));
+    return { judged: msgs[i]!.judged, last: !msgs.slice(i + 1).some((x) => x.role === "user" && !x.aside) };
+  },
   // Commit a completed user turn and open a fresh assistant turn; returns its id.
-  liveUserTurn(chatId: string, text: string, wordsAt?: number[]): string {
+  liveUserTurn(chatId: string, text: string, wordsAt?: number[], speaker?: string, judged?: string): string {
     const userId = nextId();
     const asstId = nextId();
     useChatState.getState()._set(chatId, (msgs) => [
       ...msgs,
-      { id: userId, role: "user", text, wordsAt, parts: [], done: true },
+      { id: userId, role: "user", text, wordsAt, speaker, judged, parts: [], done: true },
       { id: asstId, role: "assistant", text: "", parts: [], done: false },
     ]);
     return asstId;
@@ -126,14 +154,14 @@ export const chatStore = {
   },
   // Seed the transcript from saved messages (resuming a conversation), preserving
   // the order text and tools appeared in.
-  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; wordsAt?: number[]; tool?: string; call?: ToolCallState }> }>) {
+  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; wordsAt?: number[]; speaker?: string; tool?: string; call?: ToolCallState }> }>) {
     const msgs: ChatMsg[] = [];
     for (const m of messages) {
       if (m.role !== "user" && m.role !== "assistant") continue;
       if (m.role === "user") {
         const blocks = m.content.filter((b) => b.type === "text");
         const text = blocks.map((b) => b.text ?? "").join("").trim();
-        if (text) msgs.push({ id: m.id, role: "user", text, wordsAt: blocks.length === 1 ? blocks[0]!.wordsAt : undefined, parts: [], done: true });
+        if (text) msgs.push({ id: m.id, role: "user", text, wordsAt: blocks.length === 1 ? blocks[0]!.wordsAt : undefined, speaker: blocks.length === 1 ? blocks[0]!.speaker : undefined, parts: [], done: true });
         continue;
       }
       const parts: Part[] = [];

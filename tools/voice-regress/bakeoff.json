@@ -1,0 +1,16 @@
+{
+  "normalized": [
+    "Your flight leaves on 3/14/2027 at 7:45 PM from gate 12. Boarding starts thirty minutes before.",
+    "It costs $1,299.99, which is about 15% off. The older model was $1,529.",
+    "The meeting moved to 10:30 am on 2026-10-02. I'll send the invite to all 4 of you.",
+    "Version 2.5 is 3x faster than v1. It shipped on Oct 3rd, the 1st release this year."
+  ],
+  "expressive": [
+    { "text": "Oh, that's hilarious!", "tag": "laugh" },
+    { "text": "Ha, I did not see that coming.", "tag": "chuckle" },
+    { "text": "Okay, we have to start over again.", "tag": "sigh" },
+    { "text": "Wait, the whole thing is gone?", "tag": "gasp" },
+    { "text": "Sorry, give me one second.", "tag": "cough" },
+    { "text": "You actually said that to him?", "tag": "laugh" }
+  ]
+}

@@ -15,10 +15,13 @@ import type { Accel } from "./accel.js";
 // `tts-models` and `vocoder-models` release assets; languages from each
 // model's card (the archive README where it has one).
 
-export type EngineKind = "asr" | "tts";
+/** speaker: the voiceprint's speaker
+ *  embedding model (voiceprint.ts). addressee: the side talk check's sentence
+ *  embedding model (addressee.ts). */
+export type EngineKind = "asr" | "tts" | "speaker" | "addressee";
 /** How sherpa builds and runs a variant: sherpaConfig below, native-worker.ts.
- *  "supertonic" runs on onnxruntime-node instead (onOrt). */
-export type ModelType = "online-transducer" | "nemo-transducer" | "moonshine" | "canary" | "pocket" | "kitten" | "kokoro" | "vits" | "matcha" | "supertonic";
+ *  "supertonic" and "addressee" run on onnxruntime-node instead (onOrt). */
+export type ModelType = "online-transducer" | "nemo-transducer" | "moonshine" | "canary" | "pocket" | "kitten" | "kokoro" | "vits" | "matcha" | "supertonic" | "speaker" | "addressee";
 export type Quality = "fastest" | "fast" | "balanced" | "best";
 /** `lang` is ISO 639-1; `espeak` is the phonemizer voice a kokoro speaker reads with. */
 export interface EngineVoice { id: string; name: string; lang?: string; gender?: "female" | "male"; sid?: number; wav?: string; espeak?: string }
@@ -29,11 +32,11 @@ export interface NativeEngine {
   kind: EngineKind;
   type: ModelType;
   name: string;
-  url: string; // a .tar.bz2 archive, or the base URL `files` are fetched from one by one
+  url: string; // a .tar.bz2 archive, a bare .onnx, or the base URL `files` are fetched from one by one
   vocoder?: string; // a second download that lands next to the archive's files
   sizeBytes: number; // download bytes (archive plus vocoder), the progress total
   quality: Quality;
-  languages: string[]; // ISO 639-1
+  languages: string[]; // ISO 639-1; empty for a model that works on any speech
   streaming?: boolean;
   latencyMs?: number; // streaming chunk size
   license: string;
@@ -48,6 +51,8 @@ export interface EngineFamily { id: string; kind: EngineKind; name: string; vari
 const RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download";
 const asr = (name: string) => `${RELEASES}/asr-models/${name}.tar.bz2`;
 const tts = (name: string) => `${RELEASES}/tts-models/${name}.tar.bz2`;
+// "recongition" is the release tag's own spelling.
+const speakerModel = (name: string) => `${RELEASES}/speaker-recongition-models/${name}.onnx`;
 const TRANSDUCER_INT8 = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"];
 const ESPEAK = "espeak-ng-data/phontab";
 const CHUNK_QUALITY: Record<number, Quality> = { 80: "fastest", 160: "fast", 320: "balanced", 560: "balanced", 1120: "best" };
@@ -279,6 +284,24 @@ export const NATIVE_FAMILIES: EngineFamily[] = [
       files: ["model-steps-3.onnx", "tokens.txt", ESPEAK, "vocos-22khz-univ.onnx"], voices: [{ id: "ljspeech", name: "Linda", lang: "en", gender: "female", sid: 0 }],
     },
   ]),
+  // The voiceprint's speaker embedding model (voiceprint.ts), chosen by tools/voiceprint.
+  family("voiceprint", "speaker", "Voiceprint", [
+    {
+      id: "speaker-campplus-zh-en", type: "speaker", name: "CAM++ (3D-Speaker)", url: speakerModel("3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced"),
+      sizeBytes: 28_281_164, quality: "balanced", languages: [], license: "Apache-2.0", files: ["3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"],
+    },
+  ]),
+  // The side talk check's sentence embedding model (addressee.ts), chosen by
+  // tools/addressee; its int8 ONNX export by Xenova, pinned to the revision the
+  // eval ran. Its 50+ languages cover all ten of the app's.
+  family("addressee", "addressee", "Side talk", [
+    {
+      id: "addressee-mpnet-multi-int8", type: "addressee", name: "Paraphrase Multilingual MPNet (int8)",
+      url: "https://huggingface.co/Xenova/paraphrase-multilingual-mpnet-base-v2/resolve/e5d116277351513fd260955ece953ecddde7046e",
+      sizeBytes: 278_647_663 + 17_082_913 + 418, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"],
+      license: "Apache-2.0", files: ["onnx/model_quantized.onnx", "tokenizer.json", "tokenizer_config.json"],
+    },
+  ]),
 ];
 
 export const NATIVE_ENGINES: NativeEngine[] = NATIVE_FAMILIES.flatMap((f) => f.variants);
@@ -313,7 +336,7 @@ for (const e of NATIVE_ENGINES) {
 }
 
 /** Runs on onnxruntime-node rather than sherpa-onnx (device.ts probes each runtime's providers). */
-export const onOrt = (e: NativeEngine) => e.type === "supertonic";
+export const onOrt = (e: NativeEngine) => e.type === "supertonic" || e.type === "addressee";
 
 export const engineInstalled = (e: NativeEngine) => e.files.every((f) => existsSync(join(engineDir(e.id), f)));
 
@@ -369,11 +392,12 @@ export function sherpaConfig(e: NativeEngine, { provider, numThreads }: Accel): 
     case "vits": return { model: { vits: { model: f(/\.onnx$/), tokens, dataDir, lexicon: f(/^lexicon\.txt$/) }, numThreads, provider }, ruleFsts: all(/\.fst$/), maxNumSentences: 1 };
     case "matcha": return { model: { matcha: { acousticModel: f(/^model/), vocoder: f(/^vocos/), tokens, dataDir }, numThreads, provider }, maxNumSentences: 1 };
     // Not sherpa's: native-worker.ts loads it on onnxruntime-node.
-    case "supertonic": return { dir, numThreads, provider };
+    case "supertonic": case "addressee": return { dir, numThreads, provider };
+    case "speaker": return { model: f(/\.onnx$/), numThreads, provider, debug: 0 };
   }
 }
 
-/** Stream the archive (and a vocoder, if any), or each file of a variant that
+/** Stream the archive or bare .onnx (and a vocoder, if any), or each file of a variant that
  *  has no archive, into <id>.part and rename it into place only once every
  *  expected file is there, so a failed, aborted, or killed download never
  *  leaves a half-installed engine (a stale .part is wiped by the next try). */
@@ -389,8 +413,10 @@ export async function downloadEngine(e: NativeEngine, onBytes: (n: number) => vo
     return Readable.fromWeb(res.body.pipeThrough(counted) as never);
   };
   try {
+    const file = async (url: string) => pipeline(await get(url), createWriteStream(join(part, url.split("/").pop()!)), { signal });
     // Some archives list their entries as "./<dir>/<file>", which strip: 1 alone would leave one level deep.
-    if (!e.url.endsWith(".tar.bz2")) {
+    if (e.url.endsWith(".onnx")) await file(e.url);
+    else if (!e.url.endsWith(".tar.bz2")) {
       for (const f of e.files) {
         mkdirSync(dirname(join(part, f)), { recursive: true });
         await pipeline(await get(`${e.url}/${f}`), createWriteStream(join(part, f)), { signal });

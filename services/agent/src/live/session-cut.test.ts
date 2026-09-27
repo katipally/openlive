@@ -276,3 +276,25 @@ test("a coding agent that takes no images sees the camera through the vision mod
   await setSetting("visionProviderId", "");
   c.ws.emit("close");
 }, 20_000);
+
+test("a spoken turn's speaker is saved, and neither the built-in brain nor a coding agent is told it", async () => {
+  const api = connect("speaker-api");
+  api.say({ t: "user_text", text: "Count to three.", speaker: "other 1" });
+  await api.started;
+  await api.done(1);
+  api.ws.emit("close");
+
+  const { prompts, bindAgent } = await stubAgent();
+  const acp = connect("speaker-acp");
+  bindAgent(acp.say);
+  await acp.started;
+  acp.say({ t: "user_text", text: "Count to three.", speaker: "other 1" });
+  await acp.done(1);
+  acp.ws.emit("close");
+
+  for (const chat of ["speaker-api", "speaker-acp"]) {
+    expect(listMessages(chat).find((m) => m.role === "user")!.content).toEqual([{ type: "text", text: "Count to three.", speaker: "other 1" }]);
+  }
+  expect(JSON.stringify(inputs.at(-1))).not.toContain("other 1");
+  expect(prompts().at(-1)).not.toContain("other 1");
+}, 20_000);

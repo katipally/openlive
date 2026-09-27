@@ -14,6 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { Worker } from "node:worker_threads";
 import { KEEP_S, trimSilence } from "../../../packages/shared/src/speech/trim";
 import { familyInfo } from "../../../apps/web/src/lib/live/pipelineConfig";
+import type { Accel } from "../../../services/agent/src/voice/accel";
 import type { WorkerEvent, WorkerRequest } from "../../../services/agent/src/voice/native-worker";
 
 export interface Synth { sampleRate: number; say(text: string, whole: boolean): Promise<Float32Array>; close(): Promise<void> }
@@ -27,7 +28,8 @@ export interface Synth { sampleRate: number; say(text: string, whole: boolean): 
  *  `drift` then sets a metric's allowance past its (itself noisy) baseline. */
 export interface Engine {
   id: string; license: string; tier: "pr" | "nightly" | "local"; slack: number; limits?: Record<string, number>; renders?: number; drift?: Record<string, number>;
-  open(cache: string): Promise<Synth>;
+  /** `accel`: where a native engine runs (bakeoff.ts); CPU on one thread by default. */
+  open(cache: string, accel?: Accel): Promise<Synth>;
 }
 
 /** VOICE_REGRESS_CACHE, else the OS cache dir: never the repo, never the app's data. */
@@ -46,7 +48,7 @@ const sha256 = (path: string) => new Promise<string>((resolve, reject) => {
 
 /** Every pinned file of `dir` matches its sum. A mismatch removes the dir, so
  *  the next run downloads it again. */
-async function verify(dir: string, sums: Record<string, string>): Promise<void> {
+export async function verify(dir: string, sums: Record<string, string>): Promise<void> {
   for (const [file, sum] of Object.entries(sums)) {
     const got = await sha256(join(dir, file));
     if (got !== sum) { rmSync(dir, { recursive: true, force: true }); throw new Error(`${join(dir, file)}: sha256 ${got}, expected ${sum}; removed, the next run downloads it again`); }
@@ -54,7 +56,7 @@ async function verify(dir: string, sums: Record<string, string>): Promise<void> 
 }
 
 /** `base`/<path> for each pinned file missing from `dir`, hashed as it streams in. */
-async function fetchPinned(base: string, dir: string, sums: Record<string, string>): Promise<void> {
+export async function fetchPinned(base: string, dir: string, sums: Record<string, string>): Promise<void> {
   for (const [file, sum] of Object.entries(sums)) {
     const dest = join(dir, file);
     if (existsSync(dest)) continue;
@@ -73,7 +75,7 @@ async function fetchPinned(base: string, dir: string, sums: Record<string, strin
 function native(id: string, variant: string, family: string, license: string, tier: Engine["tier"], slack: number, sums: Record<string, string>, limits?: Engine["limits"]): Engine {
   return {
     id, license, tier, slack, limits,
-    async open(cache) {
+    async open(cache, accel: Accel = { provider: "cpu", numThreads: 1 }) {
       // The agent's catalog places engines under DATA_DIR, read once when @openlive/db loads.
       process.env.OPENLIVE_DATA_DIR = join(cache, "sherpa");
       const m = await import("../../../services/agent/src/voice/native-models");
@@ -82,8 +84,8 @@ function native(id: string, variant: string, family: string, license: string, ti
       await verify(m.engineDir(e.id), sums);
       const named = familyInfo("tts", family)?.defaultVoice;
       const voice = e.voices!.find((v) => v.id === named) ?? e.voices!.find((v) => v.lang === "en")!; // routes.ts nativeTts
-      // One thread on every machine, so runs differ only by the model's own noise.
-      const config = m.sherpaConfig(e, { provider: "cpu", numThreads: 1 });
+      // One thread on every machine by default, so runs differ only by the model's own noise.
+      const config = m.sherpaConfig(e, accel);
       const worker = new Worker(new URL("../../../services/agent/src/voice/native-worker.ts", import.meta.url));
       let next = 0, sampleRate = 0;
       const run = (text: string, whole: boolean) => new Promise<Float32Array[]>((resolve, reject) => {
@@ -103,7 +105,7 @@ function native(id: string, variant: string, family: string, license: string, ti
         // Kitten ignores the setting and always splits, so its reference is
         // sherpa's own sentence split: it guards where the chunker cuts.
         worker.postMessage({
-          op: "tts", id, engine: whole ? `${e.id}#whole` : e.id, type: e.type, provider: "cpu",
+          op: "tts", id, engine: whole ? `${e.id}#whole` : e.id, type: e.type, provider: accel.provider,
           config: whole ? { ...config, maxNumSentences: 1000 } : config,
           text: m.speakable(text), speed: 1, sid: voice.sid, espeak: voice.espeak, voice: voice.id, lang: "en",
         } satisfies WorkerRequest);

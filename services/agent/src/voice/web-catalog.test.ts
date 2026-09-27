@@ -13,7 +13,7 @@ import { LANGUAGE_CODES } from "@openlive/shared";
 const dir = mkdtempSync(join(tmpdir(), "ol-webcat-"));
 process.env.OPENLIVE_DATA_DIR = dir;
 const { NATIVE_FAMILIES } = await import("./native-models.ts");
-const { STT_FAMILIES, TTS_FAMILIES } = await import("../../../../apps/web/src/lib/live/pipelineConfig.ts");
+const { STT_FAMILIES, TTS_FAMILIES, VOICEPRINT_ENGINE, ADDRESSEE_ENGINE } = await import("../../../../apps/web/src/lib/live/pipelineConfig.ts");
 const { licenseTag } = await import("../../../../apps/web/src/lib/live/engineMenu.ts");
 afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dir, { recursive: true, force: true }); });
 
@@ -27,8 +27,11 @@ const shape = (f: { id: string; variants: { id: string; languages: readonly stri
 
 test("the web's native engine families match the agent's, variant for variant", () => {
   const web = [...STT_FAMILIES, ...TTS_FAMILIES].filter((f) => f.native).map(shape);
-  const own = NATIVE_FAMILIES.filter((f) => !f.browser);
+  // The voiceprint and the side talk check are no stage of their own: the web names their variants in VOICEPRINT_ENGINE and ADDRESSEE_ENGINE.
+  const own = NATIVE_FAMILIES.filter((f) => !f.browser && f.kind !== "speaker" && f.kind !== "addressee");
   expect(web).toEqual(own.map(shape));
+  expect([VOICEPRINT_ENGINE]).toEqual(NATIVE_FAMILIES.find((f) => f.kind === "speaker")!.variants.map((v) => v.id));
+  expect([ADDRESSEE_ENGINE]).toEqual(NATIVE_FAMILIES.find((f) => f.kind === "addressee")!.variants.map((v) => v.id));
   for (const f of own) {
     const webFamily = [...STT_FAMILIES, ...TTS_FAMILIES].find((x) => x.id === f.id)!;
     expect(webFamily.stage).toBe(f.kind === "asr" ? "stt" : "tts");
@@ -41,7 +44,7 @@ test("the browser engines the agent can run are the ones the web offers to run t
 
 test("the web locks exactly the variants whose license here is not open", () => {
   const web = new Map([...STT_FAMILIES, ...TTS_FAMILIES].flatMap((f) => f.variants.map((v) => [v.id, !!v.restricted] as const)));
-  for (const f of NATIVE_FAMILIES) {
+  for (const f of NATIVE_FAMILIES.filter((x) => x.kind !== "speaker" && x.kind !== "addressee")) {
     for (const v of f.variants) expect([v.id, web.get(f.browser ?? v.id)]).toEqual([v.id, licenseTag(v.license).kind !== "open"]);
   }
 });

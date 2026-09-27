@@ -156,6 +156,20 @@ export function isBackchannel(text: string, lang: LanguageCode): boolean {
   return reach[s.length]!;
 }
 
+/** What the agent says to keep the user talking (turn.backchannels), from
+ *  BACKCHANNELS above: short, and said alike by every voice. */
+export const LISTENING: Record<LanguageCode, string[]> = {
+  en: ["Mm-hmm.", "Yeah."], es: ["Ajá.", "Sí."], fr: ["Oui.", "D'accord."], de: ["Ja.", "Genau."], it: ["Sì.", "Certo."],
+  pt: ["Uhum.", "Sim."], hi: ["हाँ।", "अच्छा।"], zh: ["嗯。", "对。"], ja: ["うん。", "なるほど。"], ko: ["네.", "음."],
+};
+
+const ASKS = /^(?:what|why|how|when|where|who|whose|which|can|could|would|will|should|shall|do|does|did|is|are|am|was|were|have|has)\b/i;
+/** The words so far ask something: they end on a question mark, or in English
+ *  begin with a question word (the streaming engines write no question mark). */
+export function asksQuestion(text: string, lang: LanguageCode): boolean {
+  return /[?？]\s*$/.test(text) || (lang === "en" && ASKS.test(text.trim()));
+}
+
 // Strip markdown so the voice never reads out "-", "*", "#", or "[p.18]" symbols,
 // and scrub photo-narration ("the image/photo/…") into natural spoken language as
 // a backstop to the prompt — with the camera on the agent should talk about

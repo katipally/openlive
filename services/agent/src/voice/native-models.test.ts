@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { HEAD } from "@openlive/shared/speech/addressee-head";
 import { dirname, join } from "node:path";
 
 // DATA_DIR is resolved when @openlive/db loads, so point it at a temp dir first.
@@ -28,7 +29,7 @@ describe("native engine catalog", () => {
   it("gives every variant a unique id, a pinned URL, a size, files, languages and a license", () => {
     const ids = m.NATIVE_ENGINES.flatMap((e) => [e.id, e.legacyId ?? []].flat());
     expect(new Set(ids).size).toBe(ids.length);
-    for (const e of m.NATIVE_ENGINES) {
+    for (const e of m.NATIVE_ENGINES.filter((x) => x.kind !== "speaker")) {
       expect(e.sizeBytes).toBeGreaterThan(1_000_000);
       expect(e.files.length).toBeGreaterThan(0);
       expect(e.languages.length).toBeGreaterThan(0);
@@ -42,8 +43,27 @@ describe("native engine catalog", () => {
     }
   });
 
+  it("gives the voiceprint one speaker embedding model, a bare .onnx under an open license, on any language", () => {
+    const [e, ...rest] = m.NATIVE_ENGINES.filter((x) => x.kind === "speaker");
+    expect(rest).toEqual([]);
+    expect(e!.url).toMatch(/^https:\/\/github\.com\/k2-fsa\/sherpa-onnx\/releases\/download\/speaker-recongition-models\/[\w.+-]+\.onnx$/);
+    expect(e!.files).toEqual([e!.url.split("/").pop()]);
+    expect(e!.languages).toEqual([]);
+    expect(["Apache-2.0", "CC-BY-4.0", "MIT"]).toContain(e!.license);
+  });
+
+  it("gives the side talk check one sentence embedding model on onnxruntime, its tokenizer, and every app language", () => {
+    const [e, ...rest] = m.NATIVE_ENGINES.filter((x) => x.kind === "addressee");
+    expect(rest).toEqual([]);
+    expect(m.onOrt(e!)).toBe(true);
+    expect(e!.files).toEqual(["onnx/model_quantized.onnx", "tokenizer.json", "tokenizer_config.json"]);
+    expect(e!.languages).toEqual(["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"]);
+    expect(["Apache-2.0", "MIT"]).toContain(e!.license);
+    expect(e!.id).toBe(HEAD.model); // the head was fitted on this model's embeddings
+  });
+
   it("groups variants into families of one kind", () => {
-    expect(m.NATIVE_FAMILIES.map((f) => f.id)).toEqual(["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "supertonic", "matcha"]);
+    expect(m.NATIVE_FAMILIES.map((f) => f.id)).toEqual(["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "supertonic", "matcha", "voiceprint", "addressee"]);
     // Supertonic is the browser's voice, run here; not a pick of its own.
     expect(m.NATIVE_FAMILIES.filter((f) => f.browser).map((f) => [f.id, f.browser])).toEqual([["supertonic", "supertonic"]]);
     for (const f of m.NATIVE_FAMILIES) {
@@ -143,12 +163,14 @@ describe("sherpaConfig", () => {
     expect(cfg("piper-zh_CN-xiao_ya-medium-int8").ruleFsts.split(",")).toHaveLength(3);
     expect(cfg("matcha-en-ljspeech").model.matcha.vocoder).toBe(join(dir("matcha-en-ljspeech"), "vocos-22khz-univ.onnx"));
     expect(cfg("supertonic-3")).toEqual({ dir: dir("supertonic-3"), provider: "cpu", numThreads: 2 });
+    expect(cfg("addressee-mpnet-multi-int8")).toEqual({ dir: dir("addressee-mpnet-multi-int8"), provider: "cpu", numThreads: 2 });
   });
 
   it("runs every model type where accel.ts chose, on its thread count", () => {
     for (const e of m.NATIVE_ENGINES) {
+      // A speaker embedding model's config is flat: its `model` is the file.
       const cfg = m.sherpaConfig(e, { provider: "coreml", numThreads: 3 }) as { modelConfig?: object; model?: object };
-      expect(cfg.modelConfig ?? cfg.model ?? cfg).toMatchObject({ provider: "coreml", numThreads: 3 });
+      expect(cfg.modelConfig ?? (e.kind === "speaker" ? cfg : cfg.model) ?? cfg).toMatchObject({ provider: "coreml", numThreads: 3 });
     }
   });
 });
@@ -202,6 +224,14 @@ describe("downloadEngine", () => {
     await expect(m.downloadEngine(e(), (n) => { bytes += n; }, new AbortController().signal)).rejects.toThrow();
     expect(bytes).toBe(4);
     expect(leftovers()).toEqual([]);
+  });
+
+  it("saves a bare .onnx as it is, without unpacking", async () => {
+    const f = m.nativeEngine("speaker-campplus-zh-en")!;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(url.split("/").pop())));
+    await m.downloadEngine(f, () => {}, new AbortController().signal);
+    expect(m.engineInstalled(f)).toBe(true);
+    expect(readFileSync(join(m.engineDir(f.id), f.files[0]!), "utf8")).toBe(f.files[0]);
   });
 });
 

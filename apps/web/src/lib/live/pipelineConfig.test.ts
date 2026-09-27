@@ -380,3 +380,25 @@ test("a config counts as cached when every part it downloads was loaded before, 
   assert.equal(tagCached("wasm:native:native", ["webgpu:base:kokoro"]), false);
   assert.equal(tagCached("webgpu:native:native", []), false);
 });
+
+test("voiceprint: off by default and for a config saved before it; a saved mode survives, a bad one falls back", () => {
+  assert.equal(DEFAULT_PIPELINE_CONFIG.voiceprint, "off");
+  assert.equal(mergePipelineConfig({ vad: { speechThreshold: 0.4 } }).voiceprint, "off");
+  assert.equal(mergePipelineConfig({ voiceprint: "gate" }).voiceprint, "gate");
+  assert.equal(mergePipelineConfig({ voiceprint: "everyone" }).voiceprint, "off");
+});
+
+test("side talk: off by default and for a config saved before it; a saved choice survives, a bad one falls back", () => {
+  assert.equal(DEFAULT_PIPELINE_CONFIG.sideTalk, "off");
+  assert.equal(mergePipelineConfig({ voiceprint: "gate" }).sideTalk, "off");
+  assert.equal(mergePipelineConfig({ sideTalk: "ignore" }).sideTalk, "ignore");
+  assert.equal(mergePipelineConfig({ sideTalk: "shadow" }).sideTalk, "shadow");
+  assert.equal(mergePipelineConfig({ sideTalk: "sometimes" }).sideTalk, "off");
+});
+
+test("side talk log: off by default and for anything but an explicit yes", () => {
+  assert.equal(DEFAULT_PIPELINE_CONFIG.sideTalkLog, false);
+  assert.equal(mergePipelineConfig({ sideTalk: "shadow" }).sideTalkLog, false);
+  assert.equal(mergePipelineConfig({ sideTalkLog: "yes" }).sideTalkLog, false);
+  assert.equal(mergePipelineConfig({ sideTalkLog: true }).sideTalkLog, true);
+});

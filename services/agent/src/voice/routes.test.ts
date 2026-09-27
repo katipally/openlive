@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -12,7 +12,9 @@ const speak = vi.fn((_e: unknown, _t: string, _v: unknown, _s: number, onChunk: 
   const done = started.then(() => { onChunk(new Float32Array([0.5, -0.5])); onChunk(new Float32Array([0.25])); });
   return { started, done, cancel };
 });
-vi.mock("./native.js", () => ({ transcribe, speak, unloadNative: vi.fn() }));
+// A sentence embedding pointing along the side talk head: it scores as side talk.
+const embed = vi.fn(async () => { const { HEAD } = await import("@openlive/shared/speech/addressee-head"); const n = Math.hypot(...HEAD.w); return Float32Array.from(HEAD.w, (w) => w / n); });
+vi.mock("./native.js", () => ({ transcribe, speak, embed, unloadNative: vi.fn() }));
 // Whether onnxruntime-node loads here (it ships no binary for Intel Macs).
 const ort = vi.hoisted(() => ({ loads: true }));
 vi.mock("./device.js", async (real) => ({ ...(await real<typeof import("./device.js")>()), ortProbe: () => (ort.loads ? { version: "1.30.0", built: ["cpu"] } : null) }));
@@ -106,6 +108,88 @@ describe("POST /stt", () => {
     install("parakeet");
     const res = await stt("parakeet", new Uint8Array(60 * 16_000 * 4));
     expect(await res.json()).toEqual({ text: `samples:${60 * 16_000}`, at: [0] });
+  });
+});
+
+describe("POST /addressee", () => {
+  const judge = (body: unknown) => app.request("/addressee", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+  it("answers 409 until the model is downloaded, then needs the sentence", async () => {
+    expect((await judge({ text: "hi" })).status).toBe(409);
+    install("addressee-mpnet-multi-int8");
+    expect((await judge({ reply: "hi" })).status).toBe(400);
+    expect((await judge({ text: "  " })).status).toBe(400);
+  });
+
+  it("judges the sentence in its scene: never side talk right after the agent asked", async () => {
+    install("addressee-mpnet-multi-int8");
+    expect(await (await judge({ text: "did you feed the dog", reply: "The build passed." })).json()).toMatchObject({ side: true });
+    expect(await (await judge({ text: "did you feed the dog", reply: "Should I push it?" })).json()).toMatchObject({ side: false });
+  });
+
+  it("keeps a judgment only when asked, labels it, and forgets it all on delete", async () => {
+    install("addressee-mpnet-multi-int8");
+    const status = async () => (await (await app.request("/addressee")).json()) as { head: string; log: { count: number; labelled: number } };
+    const label = (body: object) => app.request("/addressee/label", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+    await judge({ text: "not kept", reply: "" });
+    expect((await status()).log.count).toBe(0);
+    await judge({ text: "kept", reply: "Done.", id: "j1", mode: "shadow", feats: { relDb: -3, cut: 1, durS: 1.2, pitch: "x" } });
+    expect((await status()).log).toMatchObject({ count: 1, labelled: 0 });
+    expect((await label({ id: "j1", label: "side" })).status).toBe(200);
+    expect((await label({ id: "nope", label: "side" })).status).toBe(404);
+    expect((await label({ id: "j1", label: "maybe" })).status).toBe(400);
+    const lines = readFileSync(join(dir, "addressee-log.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    expect(lines[0]).toMatchObject({ id: "j1", text: "kept", mode: "shadow", side: true, feats: { relDb: -3, pitch: null, cut: 1 } });
+    expect(lines[1]).toEqual({ id: "j1", label: "side" });
+    expect((await status()).log.labelled).toBe(1);
+    await app.request("/addressee/log", { method: "DELETE" });
+    expect((await status()).log.count).toBe(0);
+  });
+
+  it("judges with the user's own head only once it passed its eval", async () => {
+    install("addressee-mpnet-multi-int8");
+    const { HEAD } = await import("@openlive/shared/speech/addressee-head");
+    const file = join(dir, "addressee-head.json");
+    // Turned around from the embedding: calls the sentence addressed.
+    const own = (pass: boolean, mtime: number) => {
+      writeFileSync(file, JSON.stringify({ model: HEAD.model, w: HEAD.w.map((w) => -w), b: 0, threshold: 0, eval: { pass } }));
+      utimesSync(file, mtime, mtime);
+    };
+    own(false, 1000);
+    expect((await (await app.request("/addressee")).json()).head).toBe("shipped");
+    own(true, 2000);
+    expect((await (await app.request("/addressee")).json()).head).toBe("personal");
+    expect(await (await judge({ text: "did you feed the dog", reply: "The build passed." })).json()).toMatchObject({ side: false });
+    rmSync(file);
+  });
+
+  it("keeps the newest LOG_CAP judgments, and rewrites the file before it doubles", async () => {
+    const a = await import("./addressee.js");
+    a.deleteLog();
+    for (let i = 0; i <= 2 * a.LOG_CAP; i++) await a.judge(`s${i}`, { reply: "" }, undefined, { id: `k${i}`, mode: "shadow" });
+    expect(a.readLog().size).toBe(a.LOG_CAP);
+    expect(a.readLog().has("k0")).toBe(false);
+    expect(a.readLog().has(`k${2 * a.LOG_CAP}`)).toBe(true);
+    expect(readFileSync(a.LOG_FILE, "utf8").trim().split("\n")).toHaveLength(a.LOG_CAP);
+    expect(a.labelJudgment("k0", "to")).toBe(false);
+    a.deleteLog();
+  });
+
+  it("bounds what a judgment keeps and what a label may send", async () => {
+    install("addressee-mpnet-multi-int8");
+    await judge({ text: "kept", reply: "", speaker: "x".repeat(5000), id: "b1", mode: "shadow" });
+    expect(JSON.parse(readFileSync(join(dir, "addressee-log.jsonl"), "utf8").trim().split("\n").at(-1)!).speaker).toHaveLength(40);
+    const big = await app.request("/addressee/label", { method: "POST", body: JSON.stringify({ id: "b1", label: "to", pad: "x".repeat(4096) }), headers: { "content-type": "application/json" } });
+    expect(big.status).toBe(413);
+    await app.request("/addressee/log", { method: "DELETE" });
+  });
+});
+
+describe("POST /voiceprint/verify", () => {
+  it("reads a negative voiced time as none, not as a failure", async () => {
+    install("speaker-campplus-zh-en");
+    const res = await app.request("/voiceprint/verify?mic=m&voiced=-500", { method: "POST", body: new Uint8Array(new Float32Array(8000).buffer), headers: { "content-type": "application/octet-stream" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ you: true, score: 0 });
   });
 });
 

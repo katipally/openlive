@@ -64,6 +64,11 @@ Releases before 0.1.9 predate this file — see the
 - **Flow shows a coding agent's own work.** When Claude Code reads, edits or
   runs something, the orb says so ("Reading src/app.ts"), and the session file
   keeps it next to Flow's own tools.
+- **Listening sounds (experimental, opt-in, Settings → Voice → Turn-taking).** While you
+  talk at length, a quiet "mm-hmm" or "yeah" (in the session language) in the
+  reply's voice at a pause the agent is waiting through, with the built-in
+  model or a coding agent. Never after a question, never over your voice, never
+  in the transcript. Calls only, not Flow.
 - **Replies read the way a person says them.** Every voice now reads numbers,
   ordinals, dates, times, prices, percentages, units, ranges, phone numbers,
   emails, web addresses, file names, version numbers, code names, initialisms
@@ -96,6 +101,16 @@ Releases before 0.1.9 predate this file — see the
   Kitten renders the corpus three times and gates on the pooled result, so its
   run-to-run noise never fails a pull request.
   Matcha runs nightly too, and the default Piper voice locally.
+- **Voice engine bake-off.** `pnpm voice:bakeoff` weighs a candidate voice
+  engine against the shipped ones on your own computer: first audio and
+  real-time factor on the execution provider the agent's benchmark picks,
+  the regression's join metrics, word error rate through Parakeet, a UTMOS
+  quality score, whether tags like `[laugh]` are performed (an AudioSet
+  tagger), languages, size and RAM. Its first run weighed Chatterbox-Turbo
+  (MIT, the one open expressive engine with an ONNX build) on an M4: it laughs
+  on cue and reads as clearly as Kokoro, but its first audio took 5.0 s against
+  Supertonic's 0.36 s and it renders slower than real time, so no engine was
+  added.
 - **Model licenses in Settings → Voice.** Every speech engine's card now names
   its model's license, and Supertonic's links to its OpenRAIL-M terms, which
   forbid some uses. Piper shows each voice's license in its Model menu.
@@ -129,6 +144,44 @@ Releases before 0.1.9 predate this file — see the
   run, the browser's Supertonic takes over for the call in the same voice.
   Every engine card now says where it runs: the browser (WebGPU or WASM) or
   this computer and on what.
+- **Voiceprint (experimental, off by default).** Settings → Voice → VAD →
+  Voiceprint can learn your voice from about 15 seconds of reading, on the
+  desktop app's local agent (CAM++ by 3D-Speaker, Apache-2.0, 28 MB). "Only
+  me" then lets only your voice start a turn or cut in while the agent talks:
+  other people in the room and the agent's own voice through the speakers are
+  ignored, and a reply they paused goes on. Soft speech over the agent that
+  used to be taken for its echo now cuts in once it is recognized as you.
+  "Label voices" instead marks each turn in the transcript as you or another
+  voice. The voiceprint stays on this computer and can be deleted in
+  Settings; push-to-talk always goes through (labelled too), and without the
+  agent or an enrollment everyone is heard as before. A busy page no longer
+  lets another voice through while the agent's answer is on its way, another
+  voice no longer raises the level your own must clear, and the enrollment bar
+  moves while you read.
+- **Side talk (experimental, off by default).** Settings → Voice →
+  Turn-taking → Side talk can have the agent skip what you say to someone else
+  in the room ("did you feed the dog?"), on the desktop app's local agent
+  (Paraphrase Multilingual MPNet, Apache-2.0, 296 MB, all ten languages). A
+  sentence it takes for side talk gets no answer, a reply it paused goes on,
+  and the transcript shows it with a button to send it anyway. When unsure, it
+  answers; push-to-talk, answers to the agent's questions and a sentence naming
+  OpenLive always go through, and if the agent can't be reached everything is
+  answered as before. It stays off by default because in our tests it caught
+  only about one in five English side talk sentences.
+  "Judge only" judges every sentence and still answers all of them. Flow shows
+  a dropped sentence on the orb with "Send it" too. An opt-in judgment log
+  (off by default) keeps each judged sentence's words, the reply before it and
+  how it sounded (loudness, pitch, pace and timing, never the audio) on this
+  computer only, the newest 5,000; Settings shows its size and deletes it.
+  "Send it" and a new "Not for you" under a spoken turn (which also stops the
+  reply to it) mark what the check got wrong, and `pnpm addressee:train` turns
+  the log into your own head, used only when it beats the shipped one on your
+  own sentences without ignoring more of what you say to the app.
+- **Experimental tags in Settings → Voice.** Voiceprint, Side talk and
+  Listening sounds each carry an "Experimental" tag, read with the control's
+  name, and a line on what it does and where it falls short. The transcript
+  calls other voices "Other voice 1" and a dropped sentence "Taken as side
+  talk", since both are the checks' best guess.
 - **Latency in the call.** The top bar of a call shows the median time from the
   end of your speech to the reply's first sound, and its popover the median and
   p95 of each stage: transcription and end of turn, the model, and the voice.

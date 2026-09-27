@@ -379,6 +379,20 @@ describe("FlowLiveSession", () => {
 });
 
 describe("a coding agent as the brain", () => {
+  it("writes a turn's speaker into the transcript, and not into what it reads, as the built-in brain does", async () => {
+    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+      fake.brain = brain;
+      fake.appended = [];
+      const ws = new FakeSocket();
+      new FlowLiveSession(ws as never);
+      fake.script = reply("Done.");
+      ws.client({ t: "flow_text", text: "open it", speaker: "other 1" });
+      await until(() => turnsDone(ws) === 1);
+      expect(fake.appended.find((e) => e.type === "message" && e.data.role === "user")!.data).toEqual({ role: "user", text: "open it", speaker: "other 1" });
+      expect(fake.seen.at(-1)!.at(-1)).toEqual({ role: "user", text: "open it" });
+    }
+  });
+
   it("is told what was heard of a reply the user cut, during it or after it", async () => {
     fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();

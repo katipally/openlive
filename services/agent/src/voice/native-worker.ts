@@ -17,7 +17,8 @@ import { tokenOnsets } from "@openlive/shared/speech/timing";
 // A benchmark runs this same file as a short-lived child process instead, so a
 // provider that crashes natively takes down only that child.
 // Supertonic runs here too, on onnxruntime-node rather than sherpa, through
-// the synthesis the browser runs (@openlive/shared/speech/supertonic).
+// the synthesis the browser runs (@openlive/shared/speech/supertonic), and so
+// does the side talk check's sentence embedding model (addressee.ts).
 // Every sherpa call that returns audio passes enableExternalBuffer false:
 // Electron's V8 memory cage rejects external buffers ("External buffers are
 // not allowed"), which only shows up in the packed app, not under plain Node.
@@ -30,10 +31,12 @@ type Result = { text: string; tokens: string[]; timestamps: number[]; start_time
 type Online = { createStream(): Stream; isReady(s: Stream): boolean; decode(s: Stream): void; isEndpoint(s: Stream): boolean; reset(s: Stream): void; getResult(s: Stream): Result };
 type Offline = { config: { modelConfig: { canary?: { srcLang: string; tgtLang: string } } }; setConfig(cfg: unknown): void; createStream(): Stream; decodeAsync(s: Stream): Promise<Result> };
 type Tts = { sampleRate: number; generateAsync(req: unknown): Promise<Wave> };
+type Extractor = { createStream(): Stream; compute(s: Stream, enableExternalBuffer: boolean): Float32Array };
 type Sherpa = {
   OnlineRecognizer: new (cfg: unknown) => Online;
   OfflineRecognizer: { createAsync(cfg: unknown): Promise<Offline> };
   OfflineTts: { createAsync(cfg: unknown): Promise<Tts> };
+  SpeakerEmbeddingExtractor: new (cfg: unknown) => Extractor;
   GenerationConfig: new (o: Record<string, unknown>) => unknown;
   readWave(path: string, enableExternalBuffer?: boolean): Wave;
 };
@@ -46,7 +49,9 @@ export type WorkerRequest =
   // `voice` and `lang` are what a Supertonic render is told; sherpa's take `sid` and `espeak`.
   | ({ op: "tts"; id: number; text: string; speed: number; sid?: number; wav?: string; espeak?: string; voice?: string; lang?: string } & ModelRef)
   | ({ op: "open"; id: number; lang?: string } & ModelRef)
-  // A fresh handle timed on a fixed input (accel.ts): `samples` for ASR, `text` for TTS.
+  // One speaker embedding of `samples` (voiceprint.ts), or one sentence embedding of `text` (addressee.ts).
+  | ({ op: "embed"; id: number; samples?: Float32Array; text?: string } & ModelRef)
+  // A fresh handle timed on a fixed input (accel.ts): `samples` for ASR, `text` for TTS and the addressee model.
   | ({ op: "bench"; id: number; samples?: Float32Array; text?: string; sid?: number; wav?: string; espeak?: string; voice?: string } & ModelRef)
   | { op: "audio"; id: number; samples: Float32Array }
   | { op: "end" | "reset" | "close"; id: number }
@@ -63,6 +68,7 @@ export type WorkerEvent =
   | { id: number; type: "ready" | "closed" }
   | { id: number; type: "partial" | "final"; text: string; at?: number[] }
   | { id: number; type: "bench"; loadMs: number; warmMs: number; firstMs: number; rtf: number }
+  | { id: number; type: "embedding"; embedding: Float32Array }
   | { id: number; type: "error"; message: string };
 
 const IDLE_UNLOAD_MS = 5 * 60_000; // a loaded engine holds hundreds of MB
@@ -120,8 +126,40 @@ function supertonic({ dir, provider, numThreads }: { dir: string; provider: Prov
     { executionProviders: [ORT_EP[provider] ?? provider], intraOpNumThreads: numThreads, interOpNumThreads: 1, logSeverityLevel: 3 });
 }
 
+// Longer sentences are cut here: their start says who they are for, and the
+// encoder's cost grows with the square of their length.
+const MAX_TOKENS = 128;
+type OrtTensor = { data: Float32Array };
+type OrtSession = { run(feeds: Record<string, unknown>): Promise<Record<string, OrtTensor>> };
+type Sentences = (text: string) => Promise<Float32Array>;
+
+/** The addressee model: the mean of its token states at unit length, the
+ *  pooling it was trained with. Loaded on first use, like Supertonic. O(tokens^2 x d). */
+async function sentences({ dir, provider, numThreads }: { dir: string; provider: Provider; numThreads: number }): Promise<Sentences> {
+  const ort = createRequire(import.meta.url)("onnxruntime-node") as {
+    Tensor: new (type: string, data: BigInt64Array, dims: number[]) => unknown;
+    InferenceSession: { create(path: string, opts: object): Promise<OrtSession> };
+  };
+  const { Tokenizer } = await import("@huggingface/tokenizers");
+  const json = async (f: string) => JSON.parse(await readFile(join(dir, f), "utf8")) as object;
+  const tok = new Tokenizer(await json("tokenizer.json"), await json("tokenizer_config.json"));
+  const session = await ort.InferenceSession.create(join(dir, "onnx/model_quantized.onnx"),
+    { executionProviders: [ORT_EP[provider] ?? provider], intraOpNumThreads: numThreads, interOpNumThreads: 1, logSeverityLevel: 3 });
+  return async (text) => {
+    const ids = tok.encode(text).ids.slice(0, MAX_TOKENS), n = ids.length;
+    const tensor = (a: number[]) => new ort.Tensor("int64", BigInt64Array.from(a, BigInt), [1, n]);
+    const h = (await session.run({ input_ids: tensor(ids), attention_mask: tensor(ids.map(() => 1)) })).last_hidden_state!.data;
+    const d = h.length / n, e = new Float32Array(d);
+    for (let t = 0; t < n; t++) for (let i = 0; i < d; i++) e[i]! += h[t * d + i]!;
+    const norm = Math.hypot(...e) || 1;
+    return e.map((x) => x / norm);
+  };
+}
+
 async function create(op: WorkerRequest["op"], m: ModelRef): Promise<unknown> {
   if (m.type === "supertonic") return supertonic(m.config as Parameters<typeof supertonic>[0]);
+  if (m.type === "addressee") return sentences(m.config as Parameters<typeof sentences>[0]);
+  if (m.type === "speaker") return new sherpa.SpeakerEmbeddingExtractor(m.config);
   if (op === "tts") return sherpa.OfflineTts.createAsync(m.config);
   return m.type === "online-transducer" ? new sherpa.OnlineRecognizer(m.config) : sherpa.OfflineRecognizer.createAsync(m.config);
 }
@@ -225,6 +263,18 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<H
 
 const cancelled = new Set<number>();
 
+const embedding = (x: Extractor, samples: Float32Array) => {
+  const s = x.createStream();
+  s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples });
+  s.inputFinished();
+  return x.compute(s, false);
+};
+
+async function embed(req: Extract<WorkerRequest, { op: "embed" }>): Promise<Float32Array> {
+  const l = await load(req.op, req);
+  return serialize(l, async () => req.type === "addressee" ? (l.handle as Sentences)(req.text!) : embedding(l.handle as Extractor, req.samples!));
+}
+
 type VoiceReq = { speed: number; sid?: number; wav?: string; espeak?: string };
 /** A pocket voice clones its reference clip, read once per handle; the others pick a speaker. */
 function generationConfig(v: VoiceReq, waves: Map<string, Wave>): Record<string, unknown> {
@@ -272,6 +322,7 @@ async function speak(req: Extract<WorkerRequest, { op: "tts" }>): Promise<void> 
 
 // ── benchmarks (accel.ts) ────────────────────────────────────────────────────
 const BENCH_RUNS = 3; // steady-state runs after the warm-up one; the median is kept
+const WORDS_PER_S = 2.5; // 150 words a minute, conversational speech
 
 /** Load time, the first (warm-up) run, then the median of BENCH_RUNS: first
  *  audio chunk or clip transcribed (firstMs), and wall time over audio length (rtf). */
@@ -283,7 +334,13 @@ async function bench(req: Extract<WorkerRequest, { op: "bench" }>): Promise<Extr
   const once = async () => {
     const t0 = performance.now();
     let first: number | undefined, audioSec: number;
-    if (req.type === "supertonic") {
+    if (req.type === "speaker") {
+      embedding(handle as Extractor, req.samples!);
+      audioSec = req.samples!.length / SAMPLE_RATE;
+    } else if (req.type === "addressee") {
+      await (handle as Sentences)(req.text!);
+      audioSec = req.text!.split(/\s+/).length / WORDS_PER_S; // how long the sentence takes to say
+    } else if (req.type === "supertonic") {
       const s = handle as Supertonic;
       audioSec = (await s.synthesize(req.text!, req.voice!)).length / s.sampleRate;
     } else if (req.text !== undefined) {
@@ -380,6 +437,7 @@ function sessionOp(req: Extract<WorkerRequest, { op: "audio" | "end" | "reset" |
       case "stt": transcribe(req).then((h) => { cancelled.delete(req.id); post({ id: req.id, type: "done", ...h }); }, (e) => { cancelled.delete(req.id); fail(e); }); break;
       case "tts": speak(req).then(() => { cancelled.delete(req.id); post({ id: req.id, type: "done" }); }, (e) => { cancelled.delete(req.id); fail(e); }); break;
       case "cancel": cancelled.add(req.id); break;
+      case "embed": embed(req).then((e) => post({ id: req.id, type: "embedding", embedding: e }, [e.buffer as ArrayBuffer]), fail); break;
       case "bench": bench(req).then((e) => post(e), fail); break;
       case "open": open(req).catch((e) => { closedEarly.delete(req.id); fail(e); }); break;
       case "unload":

@@ -34,8 +34,8 @@ export type PanelCmd =
   // goes back to listening, which is what someone watching it act wants.
   // `flowSpeaker` is the manual auto-quiet override, which wins in both
   // directions and is remembered for the session; `flowFix` is the one action a
-  // failure state offers.
-  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowSpeaker" } | { t: "flowFix"; code: FlowFailureCode };
+  // failure state offers; `flowSendAside` sends the sentence the side talk check dropped.
+  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowSpeaker" } | { t: "flowFix"; code: FlowFailureCode } | { t: "flowSendAside" };
 
 /** A live call as the orb shows it while the main window is out of sight. */
 export interface CallOrbState { muted: boolean; startedAt: number }

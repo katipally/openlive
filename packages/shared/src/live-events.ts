@@ -193,6 +193,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
     // Each captionWords(text) word's onset, ms into the utterance's audio (its
     // speech segments back to back), from the STT engine or placed on the audio.
     wordsAt: z.array(z.number()).optional(),
+    // Who said it, when the voiceprint is on: "you" (the enrolled user) or "other N".
+    speaker: z.string().max(40).optional(),
   }),
   // Barge-in: the user started talking over the agent — abort the in-flight LLM
   // stream. Audio is stopped locally; this only stops the server generating.
@@ -220,7 +222,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("set_option"), optionId: z.string(), valueId: z.string() }),
   // A completed Flow utterance, with the metadata the desktop captured as the
   // user spoke it. Approval answers reuse `permission_response`.
-  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional(), lang: languageSchema.optional(), turn: turnIdSchema.optional(), wordsAt: z.array(z.number()).optional() }),
+  z.object({ t: z.literal("flow_text"), text: z.string(), context: flowContextSchema.optional(), lang: languageSchema.optional(), turn: turnIdSchema.optional(), wordsAt: z.array(z.number()).optional(), speaker: z.string().max(40).optional() }),
   // Barge-in on a Flow turn. Separate from `cancel` so a Flow turn and a chat
   // turn on the same socket can never abort each other. `spoken` is what the
   // on-device TTS actually voiced before the cut, so only that is persisted.

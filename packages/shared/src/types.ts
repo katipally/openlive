@@ -62,8 +62,8 @@ export interface ChatMessage {
 import type { ToolCallState } from "./tool-call";
 
 export type MessageBlock =
-  // `wordsAt`: a spoken user turn's word onsets, as the user_text that sent it (live-events.ts).
-  | { type: "text"; text: string; wordsAt?: number[] }
+  // `wordsAt`: a spoken user turn's word onsets, and `speaker` who said it, as the user_text that sent it (live-events.ts).
+  | { type: "text"; text: string; wordsAt?: number[]; speaker?: string }
   | { type: "reasoning"; text: string }
   | { type: "tool"; id?: string; tool: string; summary?: string; detail?: string; status: "running" | "done" }
   // Rich ACP tool call (coding agents) — the final merged state, with terminal

@@ -4,7 +4,7 @@
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
-import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES } from "./pipelineConfig";
+import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES, ADDRESSEE_ENGINE } from "./pipelineConfig";
 import type { LanguageCode } from "@openlive/shared";
 import { normalizeAligned } from "@openlive/shared/speech/normalize";
 import { heardOnsets } from "@openlive/shared/speech/timing";
@@ -290,7 +290,12 @@ const warmDue = (engine: string) => {
 /** Loads the selected native engines on the agent (up to ~1 s each, cold) before
  *  the first turn needs them. Quiet: a failure here is reported by the first real call. */
 export function warmNativeEngines() {
-  const { stt: s, tts: t, language: lang } = loadPipelineConfig();
+  const { stt: s, tts: t, language: lang, sideTalk } = loadPipelineConfig();
+  // The side talk check's model has the same cold start, and a verdict that
+  // late would let the call's first side talk through.
+  if (sideTalk === "ignore" && warmDue(ADDRESSEE_ENGINE)) {
+    void fetch("/api/voice/addressee", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Hi.", reply: "" }) }).catch(() => {});
+  }
   if (isNativeVariant(s.variant) && s.variant !== sttFallback && warmDue(s.variant)) {
     void fetch(`/api/voice/stt?engine=${s.variant}&lang=${lang}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: new Float32Array(1600) }).catch(() => {});
   }
@@ -339,7 +344,7 @@ export interface NativeEngineStatus {
   voices?: { id: string; name: string; lang?: string; gender?: "female" | "male" }[];
 }
 /** `browser`: the in-browser engine this family runs on this computer, rather than a choice of its own. */
-export interface NativeFamilyStatus { family: string; kind: "asr" | "tts"; name: string; browser?: string; variants: NativeEngineStatus[] }
+export interface NativeFamilyStatus { family: string; kind: "asr" | "tts" | "speaker" | "addressee"; name: string; browser?: string; variants: NativeEngineStatus[] }
 
 /** The agent's engine families, each with its variants' sizes, languages,
  *  licenses, voices and install state. */

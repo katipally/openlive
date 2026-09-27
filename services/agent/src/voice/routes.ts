@@ -14,6 +14,9 @@ import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
 import { benchState, rebench, speak, transcribe, unloadNative } from "./native.js";
 import { accelStatus, currentDevice, providersFor, setOverride, type Override } from "./accel.js";
 import { ortProbe, threadsFor, tier } from "./device.js";
+import { enroll, forgetVoiceprint, SPEAKER_MODEL, verify, voiceprintStatus } from "./voiceprint.js";
+import { ADDRESSEE_MODEL, addresseeStatus, deleteLog, judge, labelJudgment } from "./addressee.js";
+import { FEATURES, type Feats } from "@openlive/shared/speech/addressee";
 import { log } from "../log.js";
 
 // Voice Studio REST surface, mounted at /voice (behind the same shared-secret
@@ -300,6 +303,56 @@ voiceRoutes.post("/stt", bodyLimit({ maxSize: STT_MAX_BYTES, onError: (c) => c.j
     return c.json(await transcribe(e, samples, c.req.raw.signal, lang));
   } catch (err) {
     log.error("voice", "stt:", err);
+    return c.json({ error: String((err as Error)?.message ?? err) }, 500);
+  }
+});
+
+// ── voiceprint (voiceprint.ts) ───────────────────────────────────────────────
+// Body: raw Float32 PCM, 16 kHz mono, as /stt. `mic`: the mic's label, which
+// keys its print. Only the enrolled user's own settings hold the result.
+const VOICEPRINT_MAX_BYTES = 30 * SAMPLE_RATE * 4;
+voiceRoutes.get("/voiceprint", (c) => c.json(voiceprintStatus()));
+voiceRoutes.delete("/voiceprint", async (c) => { await forgetVoiceprint(); return c.json(voiceprintStatus()); });
+for (const op of ["enroll", "verify"] as const) {
+  voiceRoutes.post(`/voiceprint/${op}`, bodyLimit({ maxSize: VOICEPRINT_MAX_BYTES, onError: (c) => c.json({ error: "audio is longer than 30 s" }, 413) }), async (c) => {
+    if (!engineInstalled(SPEAKER_MODEL)) return c.json(notInstalled(SPEAKER_MODEL.name), 409);
+    const samples = pcmFromBytes(new Uint8Array(await c.req.arrayBuffer()));
+    // Under 0.3 s a speaker embedding says little.
+    if (!samples || samples.length < 0.3 * SAMPLE_RATE) return c.json({ error: "body must be at least 0.3 s of raw Float32 PCM" }, 400);
+    const mic = (c.req.query("mic") ?? "").slice(0, 200);
+    try {
+      const r = op === "enroll" ? await enroll(samples, mic, c.req.query("fresh") === "1") : await verify(samples, mic, Math.max(0, Number(c.req.query("voiced")) || 0) / 1000);
+      return r ? c.json(r) : c.json({ error: "no voice to tell apart in this audio" }, 422);
+    } catch (err) {
+      log.error("voice", `voiceprint ${op}:`, err);
+      return c.json({ error: String((err as Error)?.message ?? err) }, 500);
+    }
+  });
+}
+
+// ── side talk (addressee.ts) ─────────────────────────────────────────────────
+// Body: { text, reply, speaker?, feats?, id?, mode? }: the sentence heard, the
+// agent's last reply as voiced, the voiceprint's label for it when that is on,
+// and how it sounded. With `id` (the judgment log is on) the judgment is kept.
+voiceRoutes.get("/addressee", (c) => c.json(addresseeStatus()));
+voiceRoutes.delete("/addressee/log", (c) => { deleteLog(); return c.json(addresseeStatus()); });
+voiceRoutes.post("/addressee/label", bodyLimit({ maxSize: 1024, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
+  const body = await c.req.json().catch(() => null) as { id?: unknown; label?: unknown } | null;
+  if (typeof body?.id !== "string" || (body.label !== "to" && body.label !== "side")) return c.json({ error: "id and label (to or side) required" }, 400);
+  return labelJudgment(body.id, body.label) ? c.json({ ok: true }) : c.json({ error: "no such judgment" }, 404);
+});
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+voiceRoutes.post("/addressee", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
+  if (!engineInstalled(ADDRESSEE_MODEL)) return c.json(notInstalled(ADDRESSEE_MODEL.name), 409);
+  const body = await c.req.json().catch(() => null) as { text?: unknown; reply?: unknown; speaker?: unknown; feats?: Record<string, unknown>; id?: unknown; mode?: unknown } | null;
+  if (typeof body?.text !== "string" || !body.text.trim()) return c.json({ error: "text required" }, 400);
+  const f = body.feats && typeof body.feats === "object" ? body.feats : null;
+  const feats = f ? { ...Object.fromEntries(FEATURES.map((k) => [k, num(f[k])])), cut: num(f.cut) ?? 0, durS: num(f.durS) ?? 0 } as Feats : undefined;
+  const keepAs = typeof body.id === "string" && body.id.length <= 64 && (body.mode === "shadow" || body.mode === "ignore") ? { id: body.id, mode: body.mode as "shadow" | "ignore" } : undefined;
+  try {
+    return c.json(await judge(body.text, { reply: typeof body.reply === "string" ? body.reply : "", speaker: typeof body.speaker === "string" ? body.speaker : undefined }, feats, keepAs));
+  } catch (err) {
+    log.error("voice", "addressee:", err);
     return c.json({ error: String((err as Error)?.message ?? err) }, 500);
   }
 });

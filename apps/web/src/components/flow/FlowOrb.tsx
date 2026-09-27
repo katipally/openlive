@@ -186,7 +186,7 @@ export function FlowOrb() {
   }, []);
   // A card or a strip can rise under a pointer that is not moving, and no move
   // arrives to make its buttons clickable.
-  useEffect(() => retest.current(), [cardUp, stripUp, call]);
+  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside]);
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (
@@ -263,6 +263,18 @@ export function FlowOrb() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* A sentence the side talk check dropped, dashed like the transcript's,
+          until the next turn. Sending it makes it that turn. */}
+      {shown && s.aside && !asking && !captioned && (
+        <div data-hit className={cn("flex max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] border-dashed py-1.5 pl-4 pr-1.5", PANEL)}>
+          <span role="status" className="line-clamp-2 min-w-0 flex-1 break-words text-label text-muted-strong" title={s.aside}>Taken as side talk, not sent: “{s.aside}”</span>
+          <button type="button" onClick={() => cmd({ t: "flowSendAside" })}
+            className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">
+            Send it
+          </button>
         </div>
       )}
 

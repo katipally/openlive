@@ -19,7 +19,7 @@ import { openliveBridge, setPanelCmdHandler } from "@/lib/live/panelBridge";
 // model pick, devices, model download) then the full-screen in-call view — both
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, pttDown, pttUp } = useLiveSession(chatId);
+  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp } = useLiveSession(chatId);
   // Narrow selector: this component must NOT subscribe to the hot per-chunk
   // fields (captions, toolStatus, todos, usage, terminals) — InCall and
   // TranscriptPanel own those. Whole-store destructuring made the entire call
@@ -87,7 +87,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
           setMic={(id) => void setMic(id)} setCam={setCam}
-          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} />
+          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} sendAside={sendAside} notForYou={notForYou} />
       )}
       {active && <PermissionPrompt answerPermission={answerPermission} />}
       {active && <ElicitationPrompt />}
