@@ -706,7 +706,7 @@ async function openSettings() {
 // ── menu-bar (tray) presence + notifications ─────────────────────────────────
 let tray = null;
 // Worded as the Flow window words it, from the same test.
-const TRAY_READINESS = { ready: "Flow: Ready", stopped: "Flow: Key listener stopped", off: "Flow: Off" };
+const TRAY_READINESS = { ready: "Flow: Ready", stopped: "Flow: Key listener stopped", access: "Flow: Needs Accessibility", off: "Flow: Off" };
 const TRAY_READINESS_POLL_MS = 3000;
 let trayReadiness = "off";
 const TRAY_PLACE = process.platform === "darwin" ? "menu bar" : "tray";
@@ -775,6 +775,7 @@ function refreshTray() {
     // Enabled only when a double tap would work, and says why not otherwise.
     { label: trayReadiness === "ready" ? "New Flow session" : `New Flow session (${TRAY_READINESS[trayReadiness].replace("Flow: ", "")})`,
       enabled: trayReadiness === "ready", click: startFlowFromTray },
+    ...(trayReadiness === "access" ? [{ label: "Allow Accessibility…", click: () => void flowInput.request("accessibility").catch((e) => console.error("[main] tray access:", e)) }] : []),
     { label: "Flow armed", type: "checkbox", checked: armed, click: () => setFlowArmed(!armed) },
     { type: "separator" },
     { label: "Settings…", click: () => openSettings() },

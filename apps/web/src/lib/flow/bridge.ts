@@ -59,8 +59,11 @@ export type HookEffect = { kind: string; bindingId?: string };
 export interface FlowBridge {
   init(): Promise<Guarded<FlowPermissions>>;
   permissions(): Promise<Guarded<FlowPermissions>>;
-  /** Shows the system prompt. macOS never calls back, so the caller polls. */
+  /** Shows the system prompt, even after an earlier refusal. macOS never calls
+   *  back, so the caller polls. */
   request(what: FlowPermissionName): Promise<Guarded<boolean | string>>;
+  /** Opens the system settings page for `what`. False where there is none. */
+  openSettings(what: FlowPermissionName): Promise<Guarded<boolean>>;
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): () => void;

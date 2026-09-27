@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld("openlive", {
     init: () => ipcRenderer.invoke("openlive:flow-init"),
     permissions: () => ipcRenderer.invoke("openlive:flow-permissions"),
     request: (what) => ipcRenderer.invoke("openlive:flow-request", what),
+    openSettings: (what) => ipcRenderer.invoke("openlive:flow-open-settings", what),
     register: (id, binding) => ipcRenderer.invoke("openlive:flow-register", id, binding),
     unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
     suspend: () => ipcRenderer.invoke("openlive:flow-suspend"),

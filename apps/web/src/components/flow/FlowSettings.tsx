@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FlowConfig, InsertionMethod } from "@openlive/flow-store";
-import { CONTROL, isDesktop, isMac } from "@/lib/platform";
+import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 import { Keycap } from "@/components/Keycap";
 import { Switch } from "@/components/Switch";
@@ -132,6 +132,9 @@ export function AccessRows({ config, save }: { config: FlowConfig | null; save: 
 
   const perms = caps?.permissions ?? null;
   const ask = (what: FlowPermissionName) => () => void flowBridge()?.request(what).then(refresh);
+  // Where the platform has a settings page for the grant: all three on macOS, the microphone on Windows.
+  const settings = (what: FlowPermissionName) =>
+    isMac || (desktopPlatform === "win32" && what === "microphone") ? () => void flowBridge()?.openSettings(what) : undefined;
   const consent = !!config?.consent.granted;
 
   return (
@@ -143,13 +146,13 @@ export function AccessRows({ config, save }: { config: FlowConfig | null; save: 
       )}
       <Status label="Microphone" ok={perms?.microphone === "granted"}
         state={perms?.microphone === "granted" ? "Allowed" : perms?.microphone === "denied" ? "Refused" : "Not asked"}
-        action={{ label: "Allow", run: ask("microphone") }} />
+        action={{ label: "Allow", run: ask("microphone") }} settings={settings("microphone")} />
       <Status label={isMac ? "Accessibility" : "Input access"} ok={!!perms?.accessibility && perms.postEvents !== false}
         state={perms?.accessibility && perms.postEvents !== false ? "Allowed" : "Not allowed"}
-        action={{ label: isMac ? "Open System Settings" : "Allow", run: () => void flowBridge()?.init().then(refresh) }} />
+        action={{ label: "Allow", run: ask("accessibility") }} settings={settings("accessibility")} />
       <Status label="Screen" ok={!!perms?.screenRecording && caps?.report?.capture !== false}
         state={!perms?.screenRecording ? "Not allowed" : caps?.report?.capture === false ? "Reopen OpenLive to use it" : "Allowed"}
-        action={perms?.screenRecording ? undefined : { label: "Allow", run: ask("screen") }} />
+        action={perms?.screenRecording ? undefined : { label: "Allow", run: ask("screen") }} settings={settings("screen")} />
       <Status label="Act on this machine" ok={consent} state={consent ? "Allowed" : "Asks first"}
         action={{
           label: consent ? "Take it back" : "Allow",
@@ -178,9 +181,10 @@ function Toggle({ label, on, onFlip }: { label: string; on: boolean; onFlip: (v:
 }
 
 /** A grant: a dot, a word, and the one thing to do about it. The action hides
- *  once granted, except where granting is also the way back out (`keep`). */
-function Status({ label, ok, state, action, keep }: {
-  label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean;
+ *  once granted, except where granting is also the way back out (`keep`).
+ *  `settings` is the way in by hand, for when the prompt is not wanted. */
+function Status({ label, ok, state, action, keep, settings }: {
+  label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void;
 }) {
   return (
     <Row label={label}>
@@ -188,6 +192,9 @@ function Status({ label, ok, state, action, keep }: {
         <span className={cn("size-1.5 rounded-full", ok ? "bg-success" : "bg-arc")} />
         {state}
       </span>
+      {settings && !ok && (
+        <button type="button" onClick={settings} className="shrink-0 text-caption font-medium text-link-foreground hover:underline">Settings</button>
+      )}
       {action && (keep || !ok) && <button type="button" onClick={action.run} className={pill}>{action.label}</button>}
     </Row>
   );

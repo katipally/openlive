@@ -12,10 +12,10 @@ import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import {
   deleteWithUndo, refreshFlowSessions, renameFlowSession, sessionLine, useFlowSessionPages, pendingSessionKey, type FlowSessionSummary,
 } from "@/lib/flow/sessions";
-import type { FlowCapabilities } from "@/lib/flow/bridge";
+import { flowBridge, type FlowCapabilities } from "@/lib/flow/bridge";
 import { usePendingDeletes } from "@/lib/deferredDelete";
 import { useMenuKeys } from "@/lib/useMenuKeys";
-import { CONTROL } from "@/lib/platform";
+import { CONTROL, isMac } from "@/lib/platform";
 import { useUi } from "@/lib/uiStore";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { FlowCanvas } from "./FlowCanvas";
@@ -65,6 +65,8 @@ export function FlowHome({ sessionId, onOpen, caps }: {
 
   const hookError = caps?.hookError;
   const armed = !!caps?.armed && !!caps.permissions?.accessibility && !hookError;
+  // The one missing piece that has a fix right here: the chip becomes the ask.
+  const needsAccess = !!caps?.armed && caps.permissions?.accessibility === false && !hookError;
   const all = deletable.length > 0 && deletable.every((s) => picked.has(s.id));
 
   const toggle = (id: string) => setPicked((prev) => {
@@ -90,7 +92,14 @@ export function FlowHome({ sessionId, onOpen, caps }: {
         </div>
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
-          {caps && (
+          {needsAccess ? (
+            <button type="button" onClick={() => void flowBridge()?.request("accessibility")}
+              title={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${CONTROL} ${CONTROL} in every app`}
+              className="flex shrink-0 items-center gap-2 rounded-full bg-surface-raised px-3 py-1 text-caption font-medium text-foreground transition hover:bg-foreground/10">
+              <span className="size-1.5 rounded-full bg-arc" aria-hidden />
+              {isMac ? "Allow Accessibility" : "Allow input access"}
+            </button>
+          ) : caps && (
             <span className="relative flex shrink-0 items-center gap-2 rounded-full bg-surface-raised px-3 py-1 text-caption text-muted-strong" title={hookError || undefined}>
               <span className={cn("size-1.5 rounded-full transition-colors duration-300", armed ? "bg-success" : hookError ? "bg-destructive-fill" : "bg-muted-foreground")} aria-hidden />
               <AnimatePresence mode="popLayout" initial={false}>

@@ -3,11 +3,24 @@
 // to the app's, and everything it emits is forwarded to the renderer over IPC.
 // Nothing here initialises the hook on its own: that call is what asks for
 // Accessibility, and onboarding decides when the user sees that prompt.
+const fs = require("node:fs");
 const path = require("node:path");
-const { app, ipcMain } = require("electron");
+const { execFile } = require("node:child_process");
+const { app, ipcMain, shell } = require("electron");
 
 // macOS never reports a secure-input change, so it has to be polled.
 const SECURE_INPUT_POLL_MS = 1000;
+
+// macOS shows each permission prompt once per app. After a refusal, or after a
+// rebuild whose signature no longer matches the stored grant, asking again is
+// silently ignored. Resetting the app's own entry back to "not asked" first is
+// what lets every "Allow" bring up the real system prompt.
+const TCC_SERVICES = { accessibility: ["Accessibility", "PostEvent"], microphone: ["Microphone"], screen: ["ScreenCapture"] };
+const PRIVACY = "x-apple.systempreferences:com.apple.preference.security?Privacy_";
+const SETTINGS_PANES = {
+  darwin: { accessibility: `${PRIVACY}Accessibility`, microphone: `${PRIVACY}Microphone`, screen: `${PRIVACY}ScreenCapture` },
+  win32: { microphone: "ms-settings:privacy-microphone" },
+};
 
 let addon = null;
 let hooked = false;
@@ -85,14 +98,59 @@ function setArmed(next) {
 const isArmed = () => armed;
 
 /** The one meaning of "Ready", shared with the Flow window: armed, granted, and
- *  a key listener that is still alive. "stopped" when that listener died. */
+ *  a key listener that is still alive. "stopped" when that listener died,
+ *  "access" when the grant is what is missing. */
 function readiness() {
   if (!armed) return "off";
   try {
     const api = load();
     if (api.hookError()) return "stopped";
-    return api.permissionStatus().accessibility ? "ready" : "off";
+    return api.permissionStatus().accessibility ? "ready" : "access";
   } catch { return "off"; }
+}
+
+function granted(what) {
+  const s = load().permissionStatus();
+  return what === "accessibility" ? s.accessibility : what === "microphone" ? s.microphone === "granted" : s.screenRecording;
+}
+
+/** The running bundle's id: OpenLive's when packaged, Electron's in dev, which
+ *  is the process macOS actually holds the grant against either way. */
+let bundleId = null;
+function ownBundleId() {
+  if (bundleId === null) {
+    try {
+      const plist = fs.readFileSync(path.join(path.dirname(process.execPath), "..", "Info.plist"), "utf8");
+      bundleId = /<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? "";
+    } catch { bundleId = ""; }
+  }
+  return bundleId;
+}
+
+// A failed reset is not fatal: the request still runs, and Settings is one click away.
+const resetGrant = (service) => new Promise((resolve) => {
+  execFile("/usr/bin/tccutil", ["reset", service, ownBundleId()], (e) => {
+    if (e) console.error(`[flow-input] tccutil reset ${service}:`, e.message);
+    resolve();
+  });
+});
+
+/** Asks for `what` with the system's own prompt, every time it is not held. */
+async function request(what) {
+  if (!TCC_SERVICES[what]) throw new Error(`unknown permission "${what}"`);
+  if (process.platform === "darwin" && ownBundleId() && !granted(what)) await Promise.all(TCC_SERVICES[what].map(resetGrant));
+  const api = load();
+  if (what === "accessibility") return api.requestAccessibility();
+  if (what === "microphone") return api.requestMicrophone();
+  return api.requestScreenRecording();
+}
+
+/** The system settings page for `what`. False where the platform has none. */
+async function openSettings(what) {
+  const url = SETTINGS_PANES[process.platform]?.[what];
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
 }
 
 function teardown() {
@@ -108,14 +166,8 @@ function install(getTarget) {
 
   ipcMain.handle("openlive:flow-init", guard(() => initialize()));
   ipcMain.handle("openlive:flow-permissions", guard(() => load().permissionStatus()));
-  ipcMain.handle("openlive:flow-request", guard((what) => {
-    const api = load();
-    if (what === "accessibility") return api.requestAccessibility();
-    if (what === "postEvents") return api.requestPostEvents();
-    if (what === "microphone") return api.requestMicrophone();
-    if (what === "screen") return api.requestScreenRecording();
-    throw new Error(`unknown permission "${what}"`);
-  }));
+  ipcMain.handle("openlive:flow-request", guard((what) => (what === "postEvents" ? load().requestPostEvents() : request(what))));
+  ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
   ipcMain.handle("openlive:flow-register", guard((id, binding) => load().registerBinding(id, binding)));
   ipcMain.handle("openlive:flow-unregister", guard((id) => load().unregisterBinding(id)));
@@ -139,4 +191,4 @@ function install(getTarget) {
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, readiness };
+module.exports = { install, teardown, load, setArmed, isArmed, readiness, request };
