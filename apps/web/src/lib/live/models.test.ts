@@ -316,6 +316,32 @@ describe("native STT fallback", () => {
     expect(posted.at(-1)).toMatchObject({ type: "stt", audio });
   });
 
+  it("waits out a slow native engine rather than falling back to a Whisper that is not loaded yet", async () => {
+    // Node's own timeout signal runs on a clock the fake timers do not move.
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(new DOMException("signal timed out", "TimeoutError")), ms);
+      return ac.signal;
+    });
+    /** Answers after `ms` (never, for null), or rejects when its request is aborted first. */
+    const slow = (ms: number | null) => vi.fn((_u: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+      const t = ms === null ? undefined : setTimeout(() => resolve(Response.json({ text: "from native" })), ms);
+      init.signal!.addEventListener("abort", () => { clearTimeout(t); reject(init.signal!.reason); });
+    }));
+    vi.stubGlobal("fetch", slow(20_000));
+    const heard = models.stt(new Float32Array(1600));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect((await heard).text).toBe("from native");
+    expect(posted.some((m) => m.type === "stt")).toBe(false);
+
+    // A native engine that never answers still gives way, so the utterance is heard.
+    vi.stubGlobal("fetch", slow(null));
+    const late = models.stt(new Float32Array(1600));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect((await late).text).toBe("from whisper");
+    timeout.mockRestore();
+  });
+
   it("keeps the engine's word onsets, each 50 s window's from its own start", async () => {
     const replies = [{ text: "one two", at: [100, 400] }, { text: "three", at: [50] }];
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(replies.shift())));

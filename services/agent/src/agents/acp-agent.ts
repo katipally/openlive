@@ -19,7 +19,7 @@ import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-confi
 import { log } from "../log.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames } from "../live/turn-runner.js";
-import { ONLY_DONE_WHEN_DONE, rememberedNotes } from "../prompt.js";
+import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -60,10 +60,6 @@ export function callPreamble(hosted: string[]): string {
   return `${preamble()}
 [OpenLive has attached tools of its own to this session over MCP, from a server called "${CALL_MCP_SERVER}": ${hosted.join(", ")}. Your harness lists them namespaced, like mcp__${CALL_MCP_SERVER}__${hosted[0]} or mcp.${CALL_MCP_SERVER}.${hosted[0]}, and may hold them back until something loads them: load them, then call them.]${hosted.includes("remember") ? SHARED_MEMORY : ""}${rememberedNotes()}`;
 }
-
-// An agent's own memory (Claude Code's files under ~/.claude) is invisible to
-// the built-in brain and to every other agent.
-const SHARED_MEMORY = "\n[When the user asks you to remember something, or tells you a lasting fact about themselves, save it with OpenLive's remember tool, never your own memory files or notes: OpenLive's memory is shared with every brain the user talks to, and yours is not.]";
 
 // Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on
 // session/new AND session/load. Two things ride on it:

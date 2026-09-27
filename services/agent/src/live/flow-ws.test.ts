@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Msg } from "../flow/types.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
+import type { Msg, Tool } from "../flow/types.js";
 
 // The session is driven exactly as the orb drives it: messages in over the
 // socket, messages out over the socket. Only the two things that would reach
@@ -14,6 +17,10 @@ const fake = vi.hoisted(() => ({
   script: [] as unknown[],
   /** What each turn handed the brain. */
   seen: [] as Msg[][],
+  /** The prompt and tools each turn handed the brain. */
+  reqs: [] as { systemPrompt: string; tools: { name: string }[] }[],
+  /** What the coding agent was told before its first turn. */
+  preamble: "",
   /** Whether this machine has already said Flow may act. */
   consented: true,
   /** Consent written back to the config, as `updateFlowConfig` would. */
@@ -21,7 +28,7 @@ const fake = vi.hoisted(() => ({
   /** The brain the config names; unset, the default. */
   brain: null as null | Record<string, unknown>,
   /** Flow's tools as served to a coding agent, and what that agent was told was cut. */
-  mcp: null as null | { onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void; ctx: () => { signal: AbortSignal } },
+  mcp: null as null | { tools: Tool[]; onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void; ctx: () => { signal: AbortSignal } },
   cuts: [] as string[],
   /** The cuts that also told the agent its request was cancelled. */
   cancelled: [] as string[],
@@ -52,8 +59,9 @@ vi.mock("@openlive/flow-store", async (importOriginal) => {
 });
 
 vi.mock("../flow/brain.js", () => {
-  async function* stream(req: { messages: Msg[] }) {
+  async function* stream(req: { messages: Msg[]; systemPrompt: string; tools: { name: string }[] }) {
     fake.seen.push(req.messages);
+    fake.reqs.push(req);
     // Drained, so a turn that ran a tool asks for nothing the second time round.
     for (const step of fake.script.splice(0)) {
       if (typeof step === "function") { await (step as () => Promise<void>)(); continue; }
@@ -70,13 +78,15 @@ vi.mock("../flow/brain.js", () => {
   };
 });
 
-vi.mock("../flow/mcp.js", () => ({
+vi.mock("../flow/mcp.js", async (importOriginal) => ({
+  ...await importOriginal<Record<string, unknown>>(),
   serveFlowMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {} }; },
 }));
 
 vi.mock("../agents/supervisor.js", () => ({
   AgentSupervisor: class {
     readonly id = "codex";
+    constructor(make: (ask: unknown) => unknown) { make(async () => ""); }
     async start() {}
     seed() {}
     cut(spoken: string, cancelled?: boolean) { fake.cuts.push(spoken); if (cancelled) fake.cancelled.push(spoken); }
@@ -84,12 +94,22 @@ vi.mock("../agents/supervisor.js", () => ({
   },
 }));
 
+vi.mock("../agents/acp-agent.js", async (importOriginal) => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  AcpAgent: class { constructor(_id: string, _ask: unknown, opts: { preamble: string }) { fake.preamble = opts.preamble; } },
+}));
+
 vi.mock("../agents/index.js", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   flowAgentCwd: () => "/tmp",
 }));
 
+// The db resolves its data dir at import time, so this has to be set first.
+const dataDir = mkdtempSync(join(tmpdir(), "ol-flow-ws-"));
+process.env.OPENLIVE_DATA_DIR = dataDir;
+afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dataDir, { recursive: true, force: true }); });
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
+const { getSetting, setSetting } = await import("@openlive/db");
 const { cancelledText, sentAside } = await import("../turn.js");
 
 /** Answers the bridge the way the desktop would, so no call sits out its timeout. */
@@ -127,6 +147,8 @@ beforeEach(() => {
   fake.appended = [];
   fake.script = [];
   fake.seen = [];
+  fake.reqs = [];
+  fake.preamble = "";
   fake.consented = true;
   fake.remembered = 0;
   fake.brain = null;
@@ -340,6 +362,7 @@ describe("FlowLiveSession", () => {
     expect(fake.remembered).toBe(0);
     await until(() => fake.appended.some((e) => e.type === "cancel"));
     expect(fake.appended.find((e) => e.type === "cancel")!.data).toEqual({ n: 1 }); // a resume marks the request stopped again
+    expect(fake.appended.find((e) => e.type === "tool_result")!.data).toEqual({ callId: "c1", name: "list_windows", isError: true, cancelled: true });
   });
 
   it("keeps what was only shown apart from what was spoken, and a refused tool apart from a broken one", async () => {
@@ -361,6 +384,24 @@ describe("FlowLiveSession", () => {
 
     expect(fake.appended.find((e) => e.type === "tool_result")!.data).toMatchObject({ isError: true, declined: true });
     expect(fake.appended.find((e) => e.type === "message" && e.data.role === "assistant")!.data).toEqual({ role: "assistant", text: "Alright, I won't.", quiet: true });
+  });
+
+  it("asks afresh for a new request that arrives after a no, even mid-run", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+    const listWindows = (id: string) => [
+      { type: "tool_start", id, name: "list_windows" },
+      { type: "tool_end", id, name: "list_windows", args: {} },
+      { type: "turn_done", stop: "tools" },
+    ];
+    fake.script = listWindows("c1");
+    ws.say("what is open?");
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    fake.script = listWindows("c2");
+    ws.client({ t: "permission_response", reqId: ws.sent.find((m) => m.t === "permission")!.reqId, optionId: "deny" });
+    ws.say("okay fine, go ahead");
+    await until(() => ws.sent.filter((m) => m.t === "permission").length === 2);
   });
 
   it("takes a sentence said over an unseen ask as a steer", async () => {
@@ -470,6 +511,25 @@ describe("a coding agent as the brain", () => {
     }
   });
 
+  it("keeps a call stopped over its ask as stopped, not failed, whichever tool it was", async () => {
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    const own = { id: "t1", title: "Run it", kind: "execute", status: "pending", content: [], locations: [] };
+    fake.script = [async () => {
+      fake.agentTool!(own, false);
+      ws.client({ t: "flow_cancel" });
+      fake.mcp!.onCall!({ type: "tool_call", id: "c1", name: "open_app", args: {} });
+      fake.mcp!.onCall!({ type: "tool_result", id: "c1", name: "open_app", content: [{ type: "text", text: "Blocked: cancelled" }], isError: true });
+      fake.agentTool!({ ...own, status: "failed" }, true);
+      await tick();
+    }];
+    ws.say("open Calculator");
+    await until(() => turnsDone(ws) === 1);
+    await until(() => fake.appended.filter((e) => e.type === "tool_result").length === 2);
+    expect(fake.appended.filter((e) => e.type === "tool_result").map((e) => e.data.cancelled)).toEqual([true, true]);
+  });
+
   it("refuses a tool call the agent makes between turns", async () => {
     fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
@@ -490,6 +550,40 @@ describe("a coding agent as the brain", () => {
     await until(() => turnsDone(ws) === 1);
     expect(ws.sent.find((m) => m.t === "flow" && m.event.type === "tool_start")).toEqual({ t: "flow", event: { type: "tool_start", id: "c1", name: "screenshot" }, turn: 3 });
     expect(fake.appended.some((e) => e.type === "tool_call" && e.data.name === "screenshot")).toBe(true);
+  });
+});
+
+describe("OpenLive's memory in Flow", () => {
+  it("is offered to either brain, through chat's own remember tool, with what it already holds", async () => {
+    await setSetting("agent_notes", JSON.stringify(["Their name is Ada."]));
+    // The built-in brain: the tool in its list, the notes in its prompt, and a call saves.
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [
+      { type: "tool_start", id: "r1", name: "remember" },
+      { type: "tool_end", id: "r1", name: "remember", args: { note: "They drink tea." } },
+      { type: "turn_done", stop: "tools" },
+    ];
+    ws.say("remember that I drink tea");
+    await until(() => turnsDone(ws) === 1);
+    expect(fake.reqs[0]!.tools.map((t) => t.name)).toContain("remember");
+    expect(fake.reqs[0]!.systemPrompt).toContain("Their name is Ada.");
+    expect(JSON.parse(getSetting("agent_notes")!)).toEqual(["Their name is Ada.", "They drink tea."]);
+    ws.emit("close");
+
+    // A coding agent: the same tool over MCP, the notes and the rule in its preamble.
+    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws2 = new FakeSocket();
+    new FlowLiveSession(ws2 as never);
+    fake.script = reply("Noted.");
+    ws2.say("hi");
+    await until(() => turnsDone(ws2) === 1);
+    expect(fake.preamble).toContain("They drink tea.");
+    expect(fake.preamble).toContain("save it with OpenLive's remember tool, never your own memory files");
+    const remember = fake.mcp!.tools.find((t) => t.name === "remember")!;
+    await remember.execute({ note: "They live in Oslo." }, {} as never);
+    expect(JSON.parse(getSetting("agent_notes")!)).toContain("They live in Oslo.");
+    ws2.emit("close");
   });
 });
 

@@ -270,14 +270,18 @@ export interface ApiMode {
  * the person did not choose and hides the thing they need to fix.
  */
 export function resolveApiMode(s: ApiModeSettings, stored: StoredProvider[], envKey: (p: ProviderInfo) => boolean = () => false): ApiMode {
-  const id = s.liveProviderId || stored.find((r) => r.isDefault)?.kind || stored[0]?.kind || BUILTIN_PROVIDERS[0]!.id
+  // A model is only ever picked together with its provider. One saved alone
+  // (by an older build) runs on the configured provider that offers it,
+  // when exactly one does; otherwise nobody can say whose it was.
+  const offering = s.liveProviderId || !s.liveModel ? [] : BUILTIN_PROVIDERS.filter((p) =>
+    (stored.some((r) => r.kind === p.id) || envKey(p)) && liveRecsFor(p.id).some((r) => r.model === s.liveModel))
+  const owner = s.liveProviderId || (offering.length === 1 ? offering[0]!.id : "")
+  const id = owner || stored.find((r) => r.isDefault)?.kind || stored[0]?.kind || BUILTIN_PROVIDERS[0]!.id
   const known = BUILTIN_PROVIDERS.find((p) => p.id === id)
   const provider = withSettings(known ?? BUILTIN_PROVIDERS[0]!, s)
   const recs = liveRecsFor(provider.id)
   const rec = recs.find((r) => r.default) ?? recs[0]
-  // A model is only ever picked together with its provider; one left without a
-  // provider belongs to whichever provider was chosen when it was picked.
-  const model = (s.liveProviderId && s.liveModel) || rec?.model || defaultModel(provider.id)
+  const model = (owner && s.liveModel) || rec?.model || defaultModel(provider.id)
   const effort = EFFORTS.find((e) => e === s.liveEffort)
   const ready = !!known && (!!provider.keyless || stored.some((r) => r.kind === provider.id && r.hasKey) || envKey(provider))
   return { provider, model, effort, ready }

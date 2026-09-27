@@ -229,6 +229,24 @@ Releases before 0.1.9 predate this file — see the
   before ever choosing a provider saved the model alone, so Chat and Flow
   kept running the provider's default while the picker showed your choice.
   The model is now saved with the provider it was picked from.
+- **A model already saved alone still ran as the default one.** Settings saved
+  that way before the fix above now run the model you picked, on the one
+  configured provider that offers it.
+- **Flow had no shared memory.** Neither brain in Flow could use OpenLive's
+  `remember`, so Claude Code in Flow wrote its own memory files. Flow now offers
+  chat's own `remember` to both brains, tells each what it already holds, and
+  tells a coding agent to save there and never in its own files.
+- **Flow history called a stopped ask a failure.** A tool stopped while its
+  permission ask was open read "It did not work"; it now reads "Stopped", for
+  either brain.
+- **A declined Flow action stayed refused in later turns.** The brain read an
+  earlier "no" as a tool that cannot work and refused a new request without
+  asking. The refusal now says the tool works and a new request is asked
+  afresh, and a request made mid-turn after a no is asked again too.
+- **A busy computer switched speech-to-text to a much slower Whisper.** A native
+  engine slower than 12 s fell back to an in-browser Whisper that was not even
+  loaded, and the turn took about a minute. Until Whisper is loaded, the native
+  engine now gets as long as that fallback would take.
 - **Nemotron streaming lost short answers and last words.** A lone word like
   "Sure" came back empty, and the 560 ms and 1120 ms variants dropped the last
   word of a sentence ("...ten minutes" for "...ten minutes, please"). The

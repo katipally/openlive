@@ -55,6 +55,10 @@ export const WORKER_PROMPT = `You are OpenLive's research assistant. You do NOT 
 - Return only the findings — a few plain sentences with the key facts, and any number, date, or name that matters (a source name if it helps). No preamble, no "I found", no markdown, no lists.
 - If the tools turned up nothing useful, say so plainly in one line.`;
 
+// An agent's own memory (Claude Code's files under ~/.claude) is invisible to
+// the built-in brain and to every other agent.
+export const SHARED_MEMORY = "\n[When the user asks you to remember something, or tells you a lasting fact about themselves, save it with OpenLive's remember tool, never your own memory files or notes: OpenLive's memory is shared with every brain the user talks to, and yours is not.]";
+
 /** The facts the `remember` tool saved, whichever brain saved them. */
 export function rememberedNotes(): string {
   try {

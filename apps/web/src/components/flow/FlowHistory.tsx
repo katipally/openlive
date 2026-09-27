@@ -271,7 +271,7 @@ export function lineOf(e: FlowSessionEntry): string {
   if (e.type === "tool_call") return `${toolLabel(e)}: ${JSON.stringify(e.args ?? {})}`;
   if (e.type === "tool_result") {
     const shots = Array.isArray(e.assets) ? e.assets.length : 0;
-    return `${toolLabel(e)} → ${e.declined ? "declined" : e.unanswered ? "no answer" : e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
+    return `${toolLabel(e)} → ${e.cancelled ? "stopped" : e.declined ? "declined" : e.unanswered ? "no answer" : e.isError ? "failed" : "ok"}${shots ? ` (${shots === 1 ? "1 capture" : `${shots} captures`})` : ""}`;
   }
   if (e.type === "context") return `In front: ${str((e.context as { app?: string })?.app)}`;
   if (e.type === "cancel") return "You stopped it";
@@ -320,7 +320,8 @@ function Body({ entry, sessionId, assets, onZoom }: EventProps) {
     const failed = entry.type === "tool_result" && entry.isError === true;
     const declined = failed && entry.declined === true;
     const unanswered = failed && entry.unanswered === true;
-    const refused = declined || unanswered; // not done, and not broken either
+    const stopped = failed && entry.cancelled === true;
+    const refused = declined || unanswered || stopped; // not done, and not broken either
     const shots = shotsFor(entry, assets);
     return (
       <div className="flex flex-col gap-2.5 rounded-lg bg-card p-3.5 shadow-[var(--shadow-card)]">
@@ -333,7 +334,7 @@ function Body({ entry, sessionId, assets, onZoom }: EventProps) {
             <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-caption",
               refused ? "bg-surface-raised text-muted-strong" : failed ? "bg-destructive/10 text-destructive-text" : "bg-success/15 text-success-text")}>
               {!failed && <Check className="size-3" strokeWidth={2.6} aria-hidden />}
-              {declined ? "You declined" : unanswered ? "No answer" : failed ? "It did not work" : "Done"}
+              {stopped ? "Stopped" : declined ? "You declined" : unanswered ? "No answer" : failed ? "It did not work" : "Done"}
             </span>
           )}
           <span className="flex-1" />

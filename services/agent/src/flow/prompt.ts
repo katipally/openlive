@@ -1,5 +1,5 @@
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
-import { ONLY_DONE_WHEN_DONE } from "../prompt.js";
+import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { MCP_SERVER_NAME, type FlowContext, type Tool } from "./types.js";
 
 // Flow's prompt is short on purpose. It is read once per turn by a model that
@@ -43,7 +43,7 @@ export function formatContext(c: FlowContext | null): string {
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
 export function buildFlowPrompt(p: { tools: Tool[]; lang?: LanguageCode }): string {
   const guidelines = p.tools.flatMap((t) => t.promptGuidelines ?? []);
-  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
+  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), rememberedNotes().trim(), replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -63,7 +63,7 @@ You are not limited to text here. OpenLive has attached its own tools to this se
 
 Those tools are: ${names}. Your harness namespaces them under that server name, so "screenshot" reaches your tool list as something like ${namespaced("screenshot").join(" or ")}; wherever these rules name a tool, they mean whichever of those forms your own list shows. If they are not immediately callable, that is your harness holding MCP tools back until something asks for them, not their absence: load them, then call them. They are there, on this machine, every turn. Never tell the user you cannot see their screen or cannot act on their machine, never say the tools are not wired up, and never ask them to share or paste something you could have gone and read yourself.
 
-${buildFlowPrompt({ tools: p.tools })}]`;
+${buildFlowPrompt({ tools: p.tools })}]${p.tools.some((t) => t.name === "remember") ? SHARED_MEMORY : ""}`;
 }
 
 /** The names the model actually sees. Every harness namespaces an MCP tool

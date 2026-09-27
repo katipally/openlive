@@ -83,6 +83,15 @@ describe("resolveApiMode", () => {
     expect(resolveApiMode({ liveModel: "stray" }, [row("groq", true)]).model).not.toBe("stray")
   })
 
+  it("runs a model saved without its provider on the one configured provider that offers it", () => {
+    const r = resolveApiMode({ liveModel: "MiniMax-M3" }, [row("openai", true, true), row("minimax", true)])
+    expect(r.provider.id).toBe("minimax")
+    expect(r.model).toBe("MiniMax-M3")
+    expect(resolveApiMode({ liveModel: "MiniMax-M3" }, [row("openai", true, true)]).provider.id).toBe("openai")
+    expect(resolveApiMode({ liveModel: "MiniMax-M3" }, [row("openai", true, true)]).model).not.toBe("MiniMax-M3")
+    expect(resolveApiMode({ liveProviderId: "openai", liveModel: "MiniMax-M3" }, [row("minimax", true)]).provider.id).toBe("openai")
+  })
+
   it("reads effort, with auto and junk as undefined", () => {
     expect(resolveApiMode({ liveEffort: "high" }, []).effort).toBe("high")
     expect(resolveApiMode({ liveEffort: "auto" }, []).effort).toBeUndefined()

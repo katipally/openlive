@@ -313,10 +313,14 @@ export function warmNativeEngines() {
 }
 
 const STT_WINDOW = 50 * 16000; // the agent refuses more than 60 s per request
+// Giving up on the native engine pays only when Whisper answers sooner. Cold
+// (weights, load, first run) it took about 60 s under the load that slowed
+// Nemotron past 12 s (QA, 2026-09-26), so until it is loaded the engine waits as long.
+const COLD_FALLBACK_MS = 60_000;
 
 /** O(samples); one request per 50 s window, so a long monologue still transcribes.
  *  Word onsets only when the engine timed every window. */
-async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array, signal?: AbortSignal): Promise<StreamedFinal> {
+async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array, timeoutMs: number, signal?: AbortSignal): Promise<StreamedFinal> {
   const texts: string[] = [];
   let at: number[] | undefined = [];
   for (let i = 0; i < audio.length; i += STT_WINDOW) {
@@ -325,7 +329,7 @@ async function nativeStt(engine: string, lang: LanguageCode, audio: Float32Array
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
       body: audio.subarray(i, i + STT_WINDOW) as Float32Array<ArrayBuffer>,
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]) : AbortSignal.timeout(CALL_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw await httpError(res);
     const window = (await res.json()) as StreamedFinal;
@@ -438,12 +442,12 @@ export const timedOn = (final: StreamedFinal, audio: Float32Array, lang: Languag
 export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<Heard> {
   const engine = activeSttEngine();
   const lang = loadPipelineConfig().language;
-  if (isNativeVariant(engine)) {
-    try { return timedOn(await nativeStt(engine, lang, audio, signal), audio, lang); }
-    catch (e) { signal?.throwIfAborted(); nativeSttFailed(engine, e); }
-  }
   // The checkpoint follows the language, so a switch mid-call swaps it on the next utterance.
   const model = whisperCheckpoint(loadPipelineConfig().stt.whisperSize, lang, deviceTier());
+  if (isNativeVariant(engine)) {
+    try { return timedOn(await nativeStt(engine, lang, audio, model === whisperLoaded ? CALL_TIMEOUT_MS : COLD_FALLBACK_MS, signal), audio, lang); }
+    catch (e) { signal?.throwIfAborted(); nativeSttFailed(engine, e); }
+  }
   const m = await call<{ text: string }>({ type: "stt", audio, lang, model });
   whisperLoaded = model;
   return timedOn(m, audio, lang);

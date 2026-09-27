@@ -44,6 +44,9 @@ describe("consent", () => {
     const refused = await approve(call, signal());
     expect(refused).toMatchObject({ block: true, reason: expect.stringContaining("declined") });
     expect(refused.reason).not.toMatch(/settings/i);
+    // Read back on a later turn, it must not pass for a tool that cannot work.
+    expect(refused.reason).toMatch(/the tool itself works/i);
+    expect(refused.reason).toMatch(/ask for it again.*call the tool again/i);
     expect(await approve(call, signal())).toEqual(refused);
     expect(a).toHaveBeenCalledOnce();
     await consentApprove(opts)(call, signal());
@@ -63,6 +66,7 @@ describe("consent", () => {
     const blocked = await approve(call, signal());
     expect(blocked).toMatchObject({ block: true, reason: expect.stringContaining("did not answer") });
     expect([isUnanswered(blocked.reason!), isDeclined(blocked.reason!)]).toEqual([true, false]);
+    expect(blocked.reason).toMatch(/ask for it again.*call the tool again/i);
     expect(asker.mock.calls[0]![1].aborted).toBe(true);
     expect(remember).not.toHaveBeenCalled();
   });

@@ -6,7 +6,8 @@ import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
-import { serveFlowMcp } from "../flow/mcp.js";
+import { serveFlowMcp, servedTool } from "../flow/mcp.js";
+import { makeRemember } from "../tools.js";
 import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type PermissionAskOption } from "../agents/index.js";
@@ -252,7 +253,8 @@ export class FlowLiveSession {
   };
 
   // Declared after `device`: a class field is initialized in source order.
-  private tools = flowTools({ device: this.device });
+  // `remember` is chat's own, so both modes share one memory; the loop reports its calls.
+  private tools = [...flowTools({ device: this.device }), servedTool(makeRemember(() => {}))];
 
   private context: ContextProvider = {
     capture: async (signal) => {
@@ -344,12 +346,7 @@ export class FlowLiveSession {
     this.ac = ac;
     const cfg = readFlowConfig();
     this.consented = cfg.consent.granted;
-    this.approve = consentApprove({
-      granted: () => this.consented,
-      timeoutMs: ASK_TIMEOUT_MS,
-      ask: (question, signal) => this.askPermission(question, signal),
-      remember: () => this.rememberConsent(),
-    });
+    this.approve = this.freshApprove();
     try {
       for await (const event of runFlow({
         brain: await this.brainFor(cfg, ac.signal),
@@ -362,12 +359,14 @@ export class FlowLiveSession {
         approve: (req, signal) => this.approve(req, signal),
         getSystemPrompt: () => buildFlowPrompt({ tools: this.tools, lang: this.lang }),
         pollSteering: () => {
-          if (this.steering.length) this.replyTurn = this.turn;
+          // A new request gets its own answer: a no to the last one is not a no to it.
+          if (this.steering.length) { this.replyTurn = this.turn; this.approve = this.freshApprove(); }
           return this.steering.splice(0);
         },
       })) {
         this.send({ t: "flow", event, turn: this.replyTurn });
-        this.write(() => this.record(event));
+        const stopped = ac.signal.aborted;
+        this.write(() => this.record(event, stopped));
       }
     } catch (e) {
       log.error("flow", "turn:", e);
@@ -409,6 +408,15 @@ export class FlowLiveSession {
     }
   }
 
+  private freshApprove(): Approve {
+    return consentApprove({
+      granted: () => this.consented,
+      timeoutMs: ASK_TIMEOUT_MS,
+      ask: (question, signal) => this.askPermission(question, signal),
+      remember: () => this.rememberConsent(),
+    });
+  }
+
   /** Every write to the session file, in the order the turn produced it. Saving
    *  a screenshot takes longer than appending a line, and a transcript whose
    *  lines overtook each other is not a transcript. */
@@ -416,16 +424,20 @@ export class FlowLiveSession {
     this.writing = this.writing.then(job, job);
   }
 
-  /** The session file mirrors the turn; the transcript in memory is the model's copy. */
-  private async record(event: { type: string } & Record<string, unknown>): Promise<void> {
+  /** The session file mirrors the turn; the transcript in memory is the model's copy.
+   *  `stopped`: the turn was already stopped when the event came, so a call that
+   *  did not complete was stopped, not broken. */
+  private async record(event: { type: string } & Record<string, unknown>, stopped: boolean): Promise<void> {
     if (event.type === "context") return this.persist("context", { context: event.context });
     if (event.type === "tool_call") return this.persist("tool_call", { callId: event.id, name: event.name, args: event.args });
     if (event.type === "tool_result") {
       const assets = await this.saveAssets(String(event.id), event.content as FlowContentWire[]);
       const said = (is: (text: string) => boolean) => (event.content as FlowContentWire[] | undefined)?.some((c) => c.type === "text" && is(c.text));
-      const declined = said(isDeclined), unanswered = said(isUnanswered);
+      const cancelled = !!event.isError && stopped;
+      const declined = !cancelled && said(isDeclined), unanswered = !cancelled && said(isUnanswered);
       return this.persist("tool_result", {
         callId: event.id, name: event.name, isError: event.isError,
+        ...(cancelled && { cancelled }),
         ...(declined && { declined }),
         ...(unanswered && { unanswered }),
         ...(assets.length ? { assets } : {}),
@@ -590,7 +602,8 @@ export class FlowLiveSession {
       // The orb shows a tool at work whichever brain called it.
       onCall: (event) => {
         if (event.type === "tool_call") this.send({ t: "flow", event: { type: "tool_start", id: String(event.id), name: String(event.name) }, turn: this.replyTurn });
-        this.write(() => this.record(event));
+        const stopped = !this.ac || this.ac.signal.aborted;
+        this.write(() => this.record(event, stopped));
       },
     });
     const wire = this.mcp.wire;
@@ -621,9 +634,10 @@ export class FlowLiveSession {
     const { kind, target, args } = agentToolEntry(call, flowAgentCwd());
     const shown = { kind, ...(target && { target }) };
     if (!settled) { this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn }); return; }
+    const cancelled = call.status === "canceled" || (call.status !== "completed" && !!this.ac?.signal.aborted);
     this.write(async () => {
       await this.persist("tool_call", { callId: call.id, name: kind, ...shown, args });
-      await this.persist("tool_result", { callId: call.id, name: kind, ...shown, isError: call.status !== "completed", ...(call.status === "rejected" && { declined: true }) });
+      await this.persist("tool_result", { callId: call.id, name: kind, ...shown, isError: call.status !== "completed", ...(cancelled ? { cancelled } : call.status === "rejected" && { declined: true }) });
     });
   }
 

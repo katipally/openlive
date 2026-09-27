@@ -26,10 +26,12 @@ export const CONSENT_QUESTION =
 
 // The model reads these as the tool's result, and a result that points at the
 // settings has it telling a person who just said no to go and say yes.
-const DECLINED = "the user declined this time, so it was not done. Do not retry it or ask them to allow it or turn anything on; carry on without it, unless they ask for it again.";
+// Read back on a later turn, "blocked" alone passes for a tool that cannot work,
+// and the model then refuses a fresh request without calling anything.
+const DECLINED = "the user declined this time, so it was not done. The tool itself works; the no was only for this request. Do not retry it or ask them to allow it or turn anything on; carry on without it. If they ask for it again later, call the tool again: they will be asked afresh.";
 /** A tool result the user refused, told apart from one that failed. */
 export const isDeclined = (result: string): boolean => result.includes(DECLINED);
-const UNANSWERED = "the user did not answer the permission question, so it was not done. Do not retry it unless they ask for it again.";
+const UNANSWERED = "the user did not answer the permission question, so it was not done. The tool itself works. Do not retry it now; if they ask for it again later, call the tool again: they will be asked afresh.";
 /** A tool result blocked because the ask timed out, told apart from a refusal. */
 export const isUnanswered = (result: string): boolean => result.includes(UNANSWERED);
 
@@ -37,7 +39,7 @@ export const isUnanswered = (result: string): boolean => result.includes(UNANSWE
  * The whole policy. Consent already given runs the call; consent missing takes
  * it once and then runs the call; consent refused blocks every call of this
  * turn and asks again next turn, because a no here is about this moment, not
- * forever. Built per turn.
+ * forever. Built per turn, and again for a request that arrives mid-run.
  */
 export function consentApprove(opts: ConsentOpts): Approve {
   const timeoutMs = opts.timeoutMs ?? 20_000;
