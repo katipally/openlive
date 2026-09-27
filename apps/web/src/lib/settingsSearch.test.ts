@@ -65,6 +65,15 @@ describe("settings search", () => {
   it("every anchor is a settings id", () => {
     for (const e of SETTINGS_INDEX) expect(e.anchor).toMatch(/^set-/);
   });
+
+  it("a row inside a speech engine stage has its own anchor and opens its stage first", () => {
+    const staged = SETTINGS_INDEX.filter((e) => e.reveal);
+    expect(staged.map((e) => e.label)).toEqual(expect.arrayContaining(["Voiceprint", "Listening sounds", "Side talk"]));
+    for (const e of staged) {
+      expect(e.reveal).toMatch(/^set-voice-stage-(mic|stt|turn|tts)$/);
+      expect(SETTINGS_INDEX.filter((o) => o.anchor === e.anchor)).toHaveLength(1);
+    }
+  });
 });
 
 describe("resolveSettingsTab", () => {

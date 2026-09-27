@@ -218,8 +218,10 @@ describe("ACP brain tool activity", () => {
     ];
     const agent = { id: "claude", runTurn: async (_: unknown, emit: (e: SseEvent) => void) => { for (const e of events) emit(e); } } as never;
     const seen: [string, string, string | undefined, boolean][] = [];
-    const brain = new AcpBrain(agent, () => undefined, (c, settled) => seen.push([c.id, c.status, c.locations[0]?.path, settled]));
+    const hosted: string[] = [];
+    const brain = new AcpBrain(agent, () => undefined, (c, settled) => seen.push([c.id, c.status, c.locations[0]?.path, settled]), (id) => hosted.push(id));
     for await (const _ of brain.stream({ systemPrompt: "", tools: [], messages: [{ role: "user", text: "go" }] }, new AbortController().signal)) { /* drain */ }
+    expect(hosted).toEqual(["m"]); // Flow's, by the agent's id, so a late one from a stopped turn is refused
     expect(seen).toEqual([
       ["r", "pending", undefined, false],
       ["r", "pending", "/p/src/app.ts", false],

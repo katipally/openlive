@@ -23,8 +23,11 @@ export interface FlowMcpOpts {
   /** What the agent sees the server called, and so namespaces every tool under. */
   name?: string;
   tools: Tool[];
-  /** The live turn's context, insertion sink and clipboard. Resolved per call. */
-  ctx: () => Omit<ToolCtx, "callId">;
+  /** The live turn's context, insertion sink and clipboard. Resolved per call,
+   *  with the agent's own id for the call when it sends one (Claude Code's
+   *  `claudecode/toolUseId`, its ACP toolCallId too): MCP carries no turn, so
+   *  that id is all that ties a late call to the prompt that made it. */
+  ctx: (agentCallId?: string) => Omit<ToolCtx, "callId">;
   approve?: Approve;
   /**
    * Every call the agent makes, for the session transcript.
@@ -47,7 +50,8 @@ export function flowMcpServer(opts: FlowMcpOpts): Server {
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const call = { id: randomUUID(), name: req.params.name, args: req.params.arguments ?? {} };
     opts.onCall?.({ type: "tool_call", id: call.id, name: call.name, args: call.args });
-    const running = dispatch([call], opts.tools, opts.ctx(), { approve: opts.approve ?? allowAll });
+    const agentCallId = req.params._meta?.["claudecode/toolUseId"];
+    const running = dispatch([call], opts.tools, opts.ctx(typeof agentCallId === "string" ? agentCallId : undefined), { approve: opts.approve ?? allowAll });
     let step = await running.next();
     while (!step.done) step = await running.next();
     const result = step.value[0]!;

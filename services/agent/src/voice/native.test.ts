@@ -192,9 +192,9 @@ describe("transcribe", () => {
 });
 
 describe("the streaming ASR socket", () => {
-  it("pins a multilingual engine to the asked language", async () => {
+  it("pins a multilingual engine to the asked language, and tells the worker its chunk to size the tail by", async () => {
     const { ws } = await openStream("?engine=nemotron-3.5-160ms-int8&lang=ja-JP");
-    expect(w.posted.find((m) => m.op === "open")).toMatchObject({ engine: "nemotron-3.5-160ms-int8", type: "online-transducer", lang: "ja" });
+    expect(w.posted.find((m) => m.op === "open")).toMatchObject({ engine: "nemotron-3.5-160ms-int8", type: "online-transducer", lang: "ja", chunkMs: 160 });
     ws.close();
   });
 

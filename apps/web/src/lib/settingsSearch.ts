@@ -23,6 +23,8 @@ export interface SettingsEntry {
   tab: SettingsTabId;
   /** DOM id of the row (or its section) to scroll to. */
   anchor: string;
+  /** DOM id of the speech engine stage tab that holds the row, clicked first. */
+  reveal?: string;
   /** Only rendered in the desktop app. */
   desktop?: boolean;
 }
@@ -59,11 +61,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
   { label: "Pronunciation", keywords: "dictionary lexicon respell pronounce say read aloud name brand word mispronounced numbers", tab: "voice", anchor: "set-voice-pronunciation" },
   { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
-  { label: "Voiceprint", keywords: "experimental speaker verification only me my voice enroll enrollment other people room voices ignore label speakers diarization who is speaking echo barge-in", tab: "voice", anchor: "set-voice-stage-mic" },
+  { label: "Voiceprint", keywords: "experimental speaker verification only me my voice enroll enrollment other people room voices ignore label speakers diarization who is speaking echo barge-in", tab: "voice", anchor: "set-voice-voiceprint", reveal: "set-voice-stage-mic" },
   { label: "Speech-to-text", keywords: `stt whisper model size transcription speech recognition engine streaming native download variant latency runs on cpu coreml cuda directml accelerator threads benchmark ${engineWords(STT_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-stt" },
   { label: "Turn-taking", keywords: "smart-turn end of turn detector mid-thought hold preset", tab: "voice", anchor: "set-voice-stage-turn" },
-  { label: "Listening sounds", keywords: "experimental backchannel backchannels mm-hmm uh-huh yeah listener active listening cue pause", tab: "voice", anchor: "set-voice-stage-turn" },
-  { label: "Side talk", keywords: "experimental addressee talking to someone else other people room ignore not for me not for you device directed family kids phone call aside shadow judge only judgment log train personal head", tab: "voice", anchor: "set-voice-stage-turn" },
+  { label: "Listening sounds", keywords: "experimental backchannel backchannels mm-hmm uh-huh yeah listener active listening cue pause", tab: "voice", anchor: "set-voice-listening-sounds", reveal: "set-voice-stage-turn" },
+  { label: "Side talk", keywords: "experimental addressee talking to someone else other people room ignore not for me not for you device directed family kids phone call aside shadow judge only judgment log train personal head", tab: "voice", anchor: "set-voice-side-talk", reveal: "set-voice-stage-turn" },
   { label: "Text-to-speech", keywords: `tts kokoro supertonic pocket kitten voice preview engine native download variant runs on cpu coreml cuda directml accelerator threads benchmark license restricted non-commercial allow locked ${engineWords(TTS_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-tts" },
   { label: "This device", keywords: "hardware cpu gpu cores ram memory tier performance accelerator coreml cuda directml", tab: "voice", anchor: "set-voice-device" },
   { label: "Reset speech engine", keywords: "defaults pipeline", tab: "voice", anchor: "set-voice-reset" },

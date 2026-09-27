@@ -2,6 +2,8 @@
 // nothing changed in it, and never in the coding agent's session preamble
 // (its turns carry the language instead, see brain.test.ts).
 import { expect, test } from "vitest";
+import { preamble } from "../agents/acp-agent.js";
+import { buildLivePrompt } from "../prompt.js";
 import { buildFlowAcpPreamble, buildFlowPrompt } from "./prompt.js";
 import type { Tool } from "./types.js";
 
@@ -15,8 +17,8 @@ test("English adds nothing; another language adds one line at the end", () => {
   expect(buildFlowPrompt({ tools: [], lang: "hi" })).toBe(`${buildFlowPrompt({ tools: [] })}\n\nAlways reply in Hindi.`);
 });
 
-test("both brains are told never to claim an action they did not take", () => {
-  for (const said of [buildFlowPrompt({ tools }), buildFlowAcpPreamble({ tools })]) expect(said).toContain("Never say something is done unless a tool of yours did it");
+test("both brains, in Flow and in calls, are told never to claim an action they did not take", () => {
+  for (const said of [buildFlowPrompt({ tools }), buildFlowAcpPreamble({ tools }), buildLivePrompt(), preamble()]) expect(said).toContain("Never say something is done unless a tool of yours did it");
 });
 
 test("the coding agent's preamble has no language line", () => {

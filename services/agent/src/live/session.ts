@@ -62,9 +62,9 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
 }
 
 /** The agent reports its use of the call's own tools as tool calls of its own.
- *  Dropped, so they show as the built-in brain's do and not twice. */
-function hideHosted(emit: Emit): Emit {
-  const hidden = new Set<string>();
+ *  Dropped, so they show as the built-in brain's do and not twice; their ids
+ *  are kept in `hidden`. */
+function hideHosted(emit: Emit, hidden: Set<string>): Emit {
   return (e) => {
     if (e.type === "acp_tool_call" && hostedBy(e.call.title, CALL_MCP_SERVER)) hidden.add(e.call.id);
     const id = e.type === "acp_tool_call" ? e.call.id : e.type === "acp_tool_update" ? e.delta.id : "";
@@ -93,6 +93,9 @@ export class LiveSession {
   private warmAc: AbortController | null = null; // aborts the cache-warm request on teardown
   private ac: AbortController | null = null;
   private turnActive = false;
+  // The agent's ids for its calls to the call's own tools in a stopped turn:
+  // refused should one land late, in the next turn.
+  private deadHosted = new Set<string>();
   // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
   // current turn settles. Frames are queued too so a barge-in with the camera on
   // doesn't lose what the user was showing.
@@ -331,6 +334,7 @@ export class LiveSession {
 
     const said = aside ? sentAside(text) : text;
     const blocks: MessageBlock[] = [];
+    const hosted = new Set<string>();
     const foldCtx = newFoldCtx();
     const emit = this.blockEmit(blocks, ac.signal, foldCtx);
 
@@ -353,7 +357,7 @@ export class LiveSession {
       await this.cutSaved;
       if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
       if (this.agent) {
-        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames }, hideHosted(gate.emit), ac.signal);
+        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames }, hideHosted(gate.emit, hosted), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -382,6 +386,7 @@ export class LiveSession {
       // one was actually pending.
       this.cancelPendingPermissions();
       this.toolEmit = () => {};
+      for (const id of ac.signal.aborted ? hosted : []) this.deadHosted.add(id);
       const byRunner = !this.agent && !this.boundId;
       // On barge-in, persist only what was actually SPOKEN.
       if (ac.signal.aborted && this.bargeSpoken != null) {
@@ -536,8 +541,9 @@ export class LiveSession {
     const mcp = await (this.mcp ??= serveFlowMcp({
       name: CALL_MCP_SERVER,
       tools: this.hosted.map(servedTool),
-      // A call arriving outside a turn is refused, as the built-in brain never makes one.
-      ctx: () => ({ signal: this.ac?.signal ?? AbortSignal.abort(), ...UNUSED_PORTS }),
+      // A call arriving outside a turn is refused, as the built-in brain never makes
+      // one, and so is one a stopped turn made that lands in the next.
+      ctx: (agentCallId) => ({ signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort(), ...UNUSED_PORTS }),
     }));
     if (epoch !== this.bindEpoch || this.closed) return;
     const agent = createBoundAgent(this.chatId, (q, o, toolCallId) => this.askPermission(q, o, toolCallId), {

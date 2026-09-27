@@ -14,7 +14,7 @@ import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
 import { buildFlowAcpPreamble, buildFlowPrompt } from "../flow/prompt.js";
-import { consentApprove, isDeclined } from "../flow/approval.js";
+import { consentApprove, isDeclined, isUnanswered } from "../flow/approval.js";
 import { ForwardOnlyInsertion, flowTools } from "../flow/tools.js";
 import type { DevicePort } from "../flow/device.js";
 import type { Approve, Brain, ClipboardPort, ContextProvider, FlowContext, Msg } from "../flow/types.js";
@@ -55,14 +55,16 @@ export function truncateToSpoken(messages: Msg[], spoken: string, from: number):
 }
 
 /** Every request of a stopped run, from the utterances that started it to the
- *  ones it drained, so neither brain carries one out on a later turn. */
-export function markCancelled(messages: Msg[], from: number): void {
-  let i = from;
+ *  ones it drained, so neither brain carries one out on a later turn. Returns
+ *  how many it marked. */
+export function markCancelled(messages: Msg[], from: number): number {
+  let i = from, n = 0;
   while (i > 0 && messages[i - 1]!.role === "user") i--;
   for (; i < messages.length; i++) {
     const m = messages[i]!;
-    if (m.role === "user") m.text = cancelledText(m.text);
+    if (m.role === "user") { m.text = cancelledText(m.text); n++; }
   }
+  return n;
 }
 
 const safeJson = (s: string): unknown => { try { return JSON.parse(s); } catch { return null; } };
@@ -72,6 +74,12 @@ const safeJson = (s: string): unknown => { try { return JSON.parse(s); } catch {
 export function transcriptOf(entries: { type: string; [k: string]: unknown }[]): Msg[] {
   const out: Msg[] = [];
   for (const e of entries) {
+    if (e.type === "cancel") {
+      let i = out.length;
+      while (i > 0 && out[i - 1]!.role === "user") i--;
+      for (const m of out.slice(i, i + Number(e.n))) if (m.role === "user") m.text = cancelledText(m.text);
+      continue;
+    }
     if (e.type !== "message") continue;
     const text = typeof e.text === "string" ? e.text : "";
     if (!text.trim()) continue;
@@ -159,6 +167,10 @@ export class FlowLiveSession {
   private closed = false;
   private ac: AbortController | null = null;
   private turnActive = false;
+  /** The coding agent's ids for its calls to Flow's tools: this turn's, and every
+   *  stopped turn's, whose calls are refused should they land late. */
+  private turnHosted = new Set<string>();
+  private deadHosted = new Set<string>();
   /** An idle expiry that landed mid-turn: the transcript is the running loop's until it ends. */
   private archived = false;
   private spoken: string | null = null;
@@ -370,7 +382,12 @@ export class FlowLiveSession {
       // An ask left hanging by a cancelled turn must be settled, or the client's
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
-      if (ac.signal.aborted) markCancelled(this.messages, startedAt);
+      for (const id of ac.signal.aborted ? this.turnHosted : []) this.deadHosted.add(id);
+      this.turnHosted.clear();
+      if (ac.signal.aborted) {
+        const n = markCancelled(this.messages, startedAt);
+        this.write(() => this.persist("cancel", { n }));
+      }
       if (ac.signal.aborted && this.spoken !== null) { truncateToSpoken(this.messages, this.spoken, startedAt); this.agent?.cut?.(this.spoken, true); }
       else if (!ac.signal.aborted) this.voicedFrom = startedAt;
       this.spoken = null;
@@ -405,10 +422,12 @@ export class FlowLiveSession {
     if (event.type === "tool_call") return this.persist("tool_call", { callId: event.id, name: event.name, args: event.args });
     if (event.type === "tool_result") {
       const assets = await this.saveAssets(String(event.id), event.content as FlowContentWire[]);
-      const declined = (event.content as FlowContentWire[] | undefined)?.some((c) => c.type === "text" && isDeclined(c.text));
+      const said = (is: (text: string) => boolean) => (event.content as FlowContentWire[] | undefined)?.some((c) => c.type === "text" && is(c.text));
+      const declined = said(isDeclined), unanswered = said(isUnanswered);
       return this.persist("tool_result", {
         callId: event.id, name: event.name, isError: event.isError,
         ...(declined && { declined }),
+        ...(unanswered && { unanswered }),
         ...(assets.length ? { assets } : {}),
       });
     }
@@ -437,7 +456,7 @@ export class FlowLiveSession {
     }
   }
 
-  private async persist(type: "message" | "context" | "tool_call" | "tool_result" | "cut", data: Record<string, unknown>): Promise<void> {
+  private async persist(type: "message" | "context" | "tool_call" | "tool_result" | "cut" | "cancel", data: Record<string, unknown>): Promise<void> {
     try { await (await this.session()).append(type, data); }
     catch (e) { log.error("flow", "persist:", e); }
   }
@@ -559,8 +578,12 @@ export class FlowLiveSession {
     void this.dropAgent();
     this.mcp ??= await serveFlowMcp({
       tools: this.tools,
-      // A call arriving outside a turn is refused, as the built-in brain never makes one.
-      ctx: () => ({ signal: this.ac?.signal ?? AbortSignal.abort(), context: this.lastContext, insert: this.insert, clipboard: this.clipboard }),
+      // A call arriving outside a turn is refused, as the built-in brain never makes
+      // one, and so is one a stopped turn made that lands in the next.
+      ctx: (agentCallId) => ({
+        signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort(),
+        context: this.lastContext, insert: this.insert, clipboard: this.clipboard,
+      }),
       approve: (req, s) => this.approve(req, s),
       // An agent brain drives these tools itself, so the session only learns
       // what it did if the server says so.
@@ -590,7 +613,7 @@ export class FlowLiveSession {
     await this.applyQuietMode();
     await this.applyAgentModel(cfg.brain.agentModel);
     await this.applyAgentEffort(cfg.brain.agentEffort);
-    return (this.brain = new AcpBrain(agent, () => this.lang, (call, settled) => this.onAgentTool(call, settled)));
+    return (this.brain = new AcpBrain(agent, () => this.lang, (call, settled) => this.onAgentTool(call, settled), (id) => this.turnHosted.add(id)));
   }
 
   /** The agent's own tools, shown and kept as Flow's are. */

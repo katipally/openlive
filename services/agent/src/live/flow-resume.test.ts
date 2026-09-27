@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 import { FlowSession, loadSession } from "@openlive/flow-store";
+import { cancelledText } from "../turn.ts";
 import { priorTurns, transcriptOf } from "./flow-ws.ts";
 
 test("only the said and spoken lines come back, in order", () => {
@@ -32,6 +33,25 @@ test("empty and malformed lines are dropped rather than sent as blanks", () => {
     { type: "message", role: "user" },
     { type: "message", role: "assistant", text: 7 as unknown as string },
   ]), []);
+});
+
+test("a stopped turn's requests come back marked, and a sentence said after them does not", () => {
+  assert.deepEqual(transcriptOf([
+    { type: "message", role: "user", text: "hi" },
+    { type: "message", role: "assistant", text: "Hello." },
+    { type: "message", role: "user", text: "delete my downloads" },
+    { type: "message", role: "user", text: "all of them" },
+    { type: "message", role: "user", text: "what time is it?" },
+    { type: "cancel", n: 2 },
+    { type: "message", role: "assistant", text: "Deleting" },
+  ]), [
+    { role: "user", text: "hi" },
+    { role: "assistant", text: "Hello." },
+    { role: "user", text: cancelledText("delete my downloads") },
+    { role: "user", text: cancelledText("all of them") },
+    { role: "user", text: "what time is it?" },
+    { role: "assistant", text: "Deleting" },
+  ]);
 });
 
 test("an unknown role is read as the user, never as the assistant", () => {

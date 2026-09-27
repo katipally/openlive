@@ -143,8 +143,10 @@ const mb = (n: number) => `${Math.round(n / 1e6)} MB`; // decimal, as the engine
 
 // Two stages read this; one cache. Polls only while the agent reports a
 // download this page did not start (one begun before a reload keeps going).
+// Rechecked whenever a view showing it opens or the window regains focus: a
+// model installed or removed from another window or the Flow bar changes it too.
 export const useNativeEngines = () => useQuery({
-  queryKey: ["native-engines"], queryFn: () => listNativeEngines(), retry: 1,
+  queryKey: ["native-engines"], queryFn: () => listNativeEngines(), retry: 1, refetchOnMount: "always", refetchOnWindowFocus: true,
   refetchInterval: (q) => (q.state.data?.some((f) => f.variants.some((e) => e.downloading)) ? 1000 : false),
 });
 export const variantStatus = (families: NativeFamilyStatus[] | undefined, id: string) => families?.flatMap((f) => f.variants).find((e) => e.id === id);
@@ -350,7 +352,7 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
         className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-label font-medium text-accent-foreground transition hover:opacity-90">
         <Download className="size-4" /> Download ({mb(e.sizeBytes)})
       </button>
-      <span className="text-caption text-faint">Not downloaded yet, so calls use {fallback} until it is. Removable anytime.</span>
+      <span className="text-caption text-faint">Not downloaded yet. Until it is, calls use {fallback}. Removable anytime.</span>
       {error}
     </div>
   );
@@ -542,7 +544,7 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
   const forget = async () => { await forgetVoiceprint(); void qc.invalidateQueries({ queryKey: voiceprintKey }); toast("Voiceprint deleted.", "info"); };
   const on = cfg.voiceprint !== "off" && !isError;
   return (
-    <div className="space-y-2">
+    <div id="set-voice-voiceprint" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Voiceprint</span>
         <Experimental />
@@ -555,7 +557,7 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
       <p className="text-caption text-faint">
         {isError ? "Needs OpenLive's local agent, which the desktop app runs." : VOICEPRINT_COPY[cfg.voiceprint]}
       </p>
-      {on && <NativeEngineRow id={VOICEPRINT_ENGINE} fallback="no voiceprint, so everyone is heard" />}
+      {on && <NativeEngineRow id={VOICEPRINT_ENGINE} fallback="no voiceprint and hear everyone" />}
       {on && model && <p className="text-caption text-faint">{model.name} · {model.license}</p>}
       {on && model?.installed && (
         <div className="space-y-2 rounded-lg border border-border p-3">
@@ -672,7 +674,7 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
   const { data: status } = useQuery({ queryKey: addresseeKey, queryFn: addresseeStatus, enabled: on });
   const forget = async () => { await deleteJudgmentLog(); void qc.invalidateQueries({ queryKey: addresseeKey }); toast("Judgment log deleted.", "info"); };
   return (
-    <div className="space-y-2">
+    <div id="set-voice-side-talk" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Side talk</span>
         <Experimental />
@@ -685,7 +687,7 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
       <p className="text-caption text-faint">
         {isError ? "Needs OpenLive's local agent, which the desktop app runs." : SIDE_TALK_COPY[cfg.sideTalk]}
       </p>
-      {on && <NativeEngineRow id={ADDRESSEE_ENGINE} fallback="no check, so everything is answered" />}
+      {on && <NativeEngineRow id={ADDRESSEE_ENGINE} fallback="no check and answer everything" />}
       {on && model && <p className="text-caption text-faint">{model.name} · {model.license}{status?.head === "personal" && " · judging with your own trained head"}</p>}
       {on && (
         <div className="space-y-2 rounded-lg border border-border p-3">
@@ -722,7 +724,7 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
         options={TURN_PRESETS.map((p) => ({ id: p.id, label: p.name, sub: p.desc, title: p.desc }))}
         onChange={(id) => { const p = TURN_PRESETS.find((t) => t.id === id); if (p) applyPreset(p.values); }} />
       {preset === "custom" && <p className="-mt-2 text-caption text-faint">Custom — the sliders below (and trailing silence in the VAD stage) are hand-tuned.</p>}
-      <EngineCard name="Smart-Turn v3" desc="Pipecat's semantic end-of-turn model — a Whisper-tiny encoder, ~12 ms on CPU." />
+      <EngineCard name="Smart-Turn v3" desc="Pipecat's semantic end-of-turn model, a Whisper-tiny encoder. Runs on the CPU in a WebAssembly worker, about 250 ms per check." />
       <label className="flex flex-col gap-1.5">
         <span className="text-label text-foreground">Detector</span>
         <select value={cfg.turn.engine} onChange={(e) => update({ ...cfg, turn: { ...cfg.turn, engine: e.target.value as PipelineConfig["turn"]["engine"] } })} className={selectClass}>
@@ -739,7 +741,7 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
         fmt={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
       <p className="-mt-2 text-caption text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
-      <label className="flex cursor-pointer select-none items-start gap-2.5">
+      <label id="set-voice-listening-sounds" className="flex cursor-pointer select-none items-start gap-2.5">
         <Switch on={cfg.turn.backchannels} onFlip={() => update({ ...cfg, turn: { ...cfg.turn, backchannels: !cfg.turn.backchannels } })} className="mt-0.5" />
         <span className="text-label leading-snug text-foreground">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">Listening sounds <Experimental /></span>

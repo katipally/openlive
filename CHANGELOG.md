@@ -225,6 +225,38 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Nemotron streaming lost short answers and last words.** A lone word like
+  "Sure" came back empty, and the 560 ms and 1120 ms variants dropped the last
+  word of a sentence ("...ten minutes" for "...ten minutes, please"). The
+  silence fed after speech is now sized from each variant's chunk, an empty
+  result gets up to 2 s more before it stands, and a word's time never lands
+  past the end of what was said. A lone "No" (and "Yeah" on the 80 ms one) the
+  English models still never return; Nemotron 3.5 does.
+- **Speed checks spent hours on accelerators that never finish.** CoreML ran
+  the full two minutes on every Piper voice and on Pocket before giving up. An
+  accelerator now gets CPU's own time twice over plus 20 s, and once it fails
+  or times out on one variant it is skipped for that model's other variants on
+  this device. It is still used only when it is 20% faster than CPU.
+- **Deleting a chat left its settings behind.** Its agent, folder, cut and
+  session keys now go with it.
+- **Settings search stopped short of Voiceprint, Listening sounds and Side
+  talk.** It opened their stage and left the row below the fold; it now
+  scrolls to the row itself.
+- **Settings showed stale model state.** A model installed or removed in
+  another window or from Flow now shows when Settings opens or regains focus.
+- **The Smart-Turn card claimed ~12 ms.** It runs on the CPU in a WebAssembly
+  worker at about 250 ms per check, and now says so.
+- **A late tool call from a stopped agent turn ran in the next one.** When
+  Claude Code calls an OpenLive tool after its turn was stopped, in a call or
+  in Flow, the call is now refused. Other agents send no call id, so theirs
+  still run under the current turn.
+- **Resuming a Flow session forgot a stopped last request.** The stop is now
+  written to the session, so the brain is told again that it was cancelled,
+  and history shows "You stopped it".
+- **Flow history said an unanswered permission ask "did not work".** It now
+  reads "No answer".
+- **Calls could claim actions no tool took.** The rule Flow follows, never say
+  something is done unless a tool did it, now reaches both brains in calls too.
 - **A stopped request came back on the next turn.** Stop, close, hang-up or a
   barge-in mid-turn left the request in the brain's history unanswered, so the
   next unrelated turn carried it out (Claude Code opened Calculator after the

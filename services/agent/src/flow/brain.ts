@@ -175,7 +175,9 @@ export type AgentToolSink = (call: ToolCallState, settled: boolean) => void;
 export class AcpBrain implements Brain {
   readonly id: string;
   /** `lang` is read per turn: the session language the last utterance carried. */
-  constructor(private readonly agent: Agent, private readonly lang: () => LanguageCode | undefined = () => undefined, private readonly onTool: AgentToolSink = () => {}) { this.id = agent.id; }
+  /** `onHosted`: the agent's id for each call it makes to Flow's own tools this turn. */
+  constructor(private readonly agent: Agent, private readonly lang: () => LanguageCode | undefined = () => undefined, private readonly onTool: AgentToolSink = () => {},
+    private readonly onHosted: (toolCallId: string) => void = () => {}) { this.id = agent.id; }
 
   async *stream(req: TurnRequest, signal: AbortSignal): AsyncIterable<BrainEvent> {
     const ch = channel<BrainEvent>();
@@ -188,7 +190,7 @@ export class AcpBrain implements Brain {
       const id = e.type === "acp_tool_call" ? e.call.id : e.delta.id;
       const prev = calls.get(id);
       if (prev === null) return;
-      if (e.type === "acp_tool_call" && hostedBy(e.call.title, MCP_SERVER_NAME)) { calls.set(id, null); return; }
+      if (e.type === "acp_tool_call" && hostedBy(e.call.title, MCP_SERVER_NAME)) { calls.set(id, null); this.onHosted(id); return; }
       const call = e.type === "acp_tool_call" ? e.call : mergeToolCall(prev, e.delta);
       const settled = SETTLED.has(call.status);
       calls.set(id, settled ? null : call);

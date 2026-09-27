@@ -91,9 +91,12 @@ describe("sqlite chat store + JSON migration", () => {
     await q.renameChat(chat.id, "Renamed");
     expect(q.listChats()[0]!.title).toBe("Renamed");
 
+    for (const k of ["bind", "agentCwd", "agentCut", "acpSession"]) await q.setSetting(`${k}:${chat.id}`, "x");
+    await q.setSetting("bind:other-chat", "codex");
     await q.deleteChat(chat.id);
     expect(q.listChats()).toHaveLength(0);
     expect(q.listMessages(chat.id)).toHaveLength(0); // cascade
+    expect(q.getAllSettings()).toEqual({ "bind:other-chat": "codex" }); // its per-chat settings go with it
   });
 
   it("createChat is idempotent for an existing id", async () => {

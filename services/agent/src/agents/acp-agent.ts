@@ -19,7 +19,7 @@ import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-confi
 import { log } from "../log.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames } from "../live/turn-runner.js";
-import { rememberedNotes } from "../prompt.js";
+import { ONLY_DONE_WHEN_DONE, rememberedNotes } from "../prompt.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -41,8 +41,11 @@ Go along with this naturally: you're still yourself, doing your normal work, but
 /** The session preamble: the fixed voice-call context plus the user's own
  *  instructions from Settings → General, read fresh per session so an edit
  *  applies to the next call. Shared by every agent (Claude via system-prompt
- *  append, the rest via the first user message). */
+ *  append, the rest via the first user message), and the rule every brain keeps. */
 export function preamble(): string {
+  return `${voiceCall()}\n[${ONLY_DONE_WHEN_DONE}]`;
+}
+function voiceCall(): string {
   const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
   if (!custom) return PREAMBLE;
   return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;

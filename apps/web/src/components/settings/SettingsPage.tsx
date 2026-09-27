@@ -47,7 +47,7 @@ export function SettingsPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [jump, setJump] = useState<{ anchor: string } | null>(null);
+  const [jump, setJump] = useState<Pick<SettingsEntry, "anchor" | "reveal"> | null>(null);
   const [searching, setSearching] = useState(false);
   // Narrow windows fold the nav to an icon rail; searching unfolds it, since a
   // result list needs the words.
@@ -85,9 +85,11 @@ export function SettingsPage() {
   // installed) just leaves the tab at its top.
   useEffect(() => {
     if (!jump) return;
-    let raf = 0, tries = 0;
+    let raf = 0, tries = 0, revealed = !jump.reveal;
     const find = () => {
-      const el = document.getElementById(jump.anchor);
+      const tab = revealed ? null : document.getElementById(jump.reveal!);
+      if (tab) { tab.click(); revealed = true; }
+      const el = revealed && document.getElementById(jump.anchor);
       if (!el) { if (++tries < 60) raf = requestAnimationFrame(find); return; }
       // Stage tabs inside the speech engine: open the one the result names.
       if (el.hasAttribute("data-reveal")) el.click();
@@ -101,7 +103,7 @@ export function SettingsPage() {
 
   const go = (e: SettingsEntry) => {
     setTab(e.tab);
-    setJump({ anchor: e.anchor });
+    setJump({ anchor: e.anchor, reveal: e.reveal });
     setQuery("");
     setActive(0);
   };

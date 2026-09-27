@@ -131,6 +131,42 @@ describe("the per-device cache", () => {
   });
 });
 
+describe("giving up on a slow or failing accelerator", () => {
+  it("allows an accelerator CPU's own time twice over plus its compile, never past the cap", () => {
+    expect(a.accelTimeoutMs(4_000, 120_000)).toBe(28_000);
+    expect(a.accelTimeoutMs(90_000, 120_000)).toBe(120_000);
+  });
+
+  it("skips an accelerator that failed or timed out on another variant of the family on this device", async () => {
+    const micro = install("kitten-micro-fp32"), nano = install("kitten-nano-int8"), piper = install("piper-en_US-amy-low-int8");
+    expect(a.skipReason(nano, "coreml", run("cpu", 0.15))).toBeUndefined();
+    a.finishBench(micro, [run("cpu", 0.14), { provider: "coreml", error: "RegisterModelInputOutput Unable to get shape" }]);
+    expect(a.skipReason(nano, "coreml", run("cpu", 0.15))).toMatch(/^skipped: failed on kitten-micro-fp32: RegisterModelInputOutput/);
+    expect(a.skipReason(piper, "coreml", run("cpu", 0.07))).toBeUndefined(); // another family
+    // The failure is remembered for this device only, even once the sibling is gone.
+    rmSync(m.engineDir(micro.id), { recursive: true, force: true });
+    expect(a.skipReason(nano, "coreml", run("cpu", 0.15))).toBeDefined();
+    await a.refreshDevice(async () => ({ ...mac, osVersion: "macOS 27.1" }));
+    expect(a.skipReason(nano, "coreml", run("cpu", 0.15))).toBeUndefined();
+  });
+
+  it("skips every accelerator when CPU, the run it must beat by 20%, did not finish", () => {
+    const e = install("kitten-nano-int8");
+    expect(a.skipReason(e, "coreml", { provider: "cpu", error: "x" })).toMatch(/^skipped: /);
+    expect(a.skipReason(e, "coreml", undefined)).toMatch(/^skipped: /);
+  });
+
+  it("keeps a skip's first reason as it passes from variant to variant", () => {
+    const micro = install("kitten-micro-fp32"), mini = install("kitten-mini-fp32"), nano = install("kitten-nano-int8");
+    a.finishBench(micro, [run("cpu", 0.14), { provider: "coreml", error: "benchmark timed out after 28 s" }]);
+    const why = a.skipReason(mini, "coreml", run("cpu", 0.3))!;
+    a.finishBench(mini, [run("cpu", 0.3), { provider: "coreml", error: why }]);
+    rmSync(m.engineDir(micro.id), { recursive: true, force: true });
+    a.finishBench(micro, null);
+    expect(a.skipReason(nano, "coreml", run("cpu", 0.15))).toBe(why);
+  });
+});
+
 describe("an onnxruntime-node engine (Supertonic)", () => {
   const withOrt = { ...mac, ortRuntime: "onnxruntime-node 1.30.0 (cpu, webgpu, coreml)", ortProviders: ["cpu", "webgpu", "coreml"] as DeviceProfile["providers"] };
 

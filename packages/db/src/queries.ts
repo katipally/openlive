@@ -159,6 +159,8 @@ export async function renameChat(id: string, title: string): Promise<void> {
 
 export async function deleteChat(id: string): Promise<void> {
   withBusyRetry(() => getDb().prepare("DELETE FROM chats WHERE id = ?").run(id)); // messages cascade
+  // Its settings too (bind:, agentCwd:, agentCut:, acpSession:), each keyed `<name>:<chat id>`. O(settings).
+  await updateJson<Record<string, string>>(SETTINGS, {}, (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !k.endsWith(`:${id}`))));
 }
 
 // ─── Voice profiles (cloned-voice metadata; wavs live in DATA_DIR/voices) ───

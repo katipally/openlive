@@ -30,6 +30,8 @@ const DECLINED = "the user declined this time, so it was not done. Do not retry 
 /** A tool result the user refused, told apart from one that failed. */
 export const isDeclined = (result: string): boolean => result.includes(DECLINED);
 const UNANSWERED = "the user did not answer the permission question, so it was not done. Do not retry it unless they ask for it again.";
+/** A tool result blocked because the ask timed out, told apart from a refusal. */
+export const isUnanswered = (result: string): boolean => result.includes(UNANSWERED);
 
 /**
  * The whole policy. Consent already given runs the call; consent missing takes

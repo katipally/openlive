@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "n
 import { join, resolve } from "node:path";
 import { DATA_DIR } from "@openlive/db";
 import { baseProfile, fingerprint, probeDevice, threadsFor, type DeviceProfile, type Provider } from "./device.js";
-import { engineDir, onOrt, type NativeEngine } from "./native-models.js";
+import { engineDir, nativeEngine, onOrt, type NativeEngine } from "./native-models.js";
 import { SAMPLE_RATE } from "./pcm.js";
 
 // Where each native engine runs (ONNX Runtime execution provider) and on how
@@ -50,8 +50,9 @@ export const providersFor = (e: NativeEngine, d: DeviceProfile): Provider[] => (
  *  runtime), the variant and its files on disk. O(files of the engine). */
 export function benchKey(e: NativeEngine, d: DeviceProfile): string {
   const bytes = e.files.reduce((n, f) => { try { return n + statSync(join(engineDir(e.id), f)).size; } catch { return n; } }, 0);
-  return `${e.id}|${bytes}|${fingerprint(d)}${onOrt(e) ? `|${d.ortRuntime}` : ""}`;
+  return `${e.id}|${bytes}|${deviceKey(e, d)}`;
 }
+const deviceKey = (e: NativeEngine, d: DeviceProfile) => `${fingerprint(d)}${onOrt(e) ? `|${d.ortRuntime}` : ""}`;
 
 const FILE = resolve(DATA_DIR, "voice-accel.json");
 let store: Store | null = null;
@@ -136,6 +137,30 @@ export function setOverride(e: NativeEngine, o: Override): void {
   if (o === "auto") delete get().overrides[e.id];
   else get().overrides[e.id] = o;
   save();
+}
+
+// An accelerator that can win (MIN_GAIN) runs its timed runs faster than CPU,
+// so only its model compile and first run may take longer: at most 8.4 s over
+// CPU's (Supertonic on CoreML, M4, 2026-09-25). One still going past CPU's
+// whole benchmark twice over plus this is hung or losing.
+const COMPILE_SLACK_MS = 20_000;
+/** How long an accelerator's benchmark may run, from CPU's wall time. */
+export const accelTimeoutMs = (cpuWallMs: number, capMs: number) => Math.min(capMs, COMPILE_SLACK_MS + 2 * cpuWallMs);
+
+/** Why `e` should not run `provider` at all: CPU, the run it must beat, did not
+ *  finish, or it already failed or timed out on another variant of the family
+ *  on this device (CoreML hung on every Piper voice it was given). The
+ *  first sibling's reason is kept as it passes on. O(engines). */
+export function skipReason(e: NativeEngine, provider: Provider, cpu: BenchResult | undefined): string | undefined {
+  if (!cpu || !("rtf" in cpu)) return "skipped: CPU did not finish, so nothing to beat";
+  const here = deviceKey(e, currentDevice());
+  for (const [id, entry] of Object.entries(get().engines)) {
+    const sib = id !== e.id && nativeEngine(id);
+    if (!sib || sib.family !== e.family || !entry.key.endsWith(`|${here}`)) continue;
+    const r = entry.results.find((x) => x.provider === provider && "error" in x);
+    if (r && "error" in r) return r.error.startsWith("skipped: ") ? r.error : `skipped: failed on ${id}: ${r.error}`;
+  }
+  return undefined;
 }
 
 /** What GET /voice/perf shows for one engine. */

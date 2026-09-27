@@ -6,7 +6,7 @@ import { Worker } from "node:worker_threads";
 import { WebSocketServer } from "ws";
 import { join } from "node:path";
 import { engineDir, engineInstalled, langCode, nativeEngine, sherpaConfig, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
-import { accelFor, benchAudio, BENCH_TEXT, currentDevice, finishBench, markFailed, needsBench, providersFor, startBench, type BenchResult } from "./accel.js";
+import { accelFor, accelTimeoutMs, benchAudio, BENCH_TEXT, currentDevice, finishBench, markFailed, needsBench, providersFor, skipReason, startBench, type BenchResult } from "./accel.js";
 import { threadsFor, type Provider } from "./device.js";
 import { pcmFromBytes } from "./pcm.js";
 import type { Heard, ModelRef, WorkerEvent, WorkerRequest } from "./native-worker.js";
@@ -47,7 +47,7 @@ function pool(kind: EngineKind): Pool {
 function model(e: NativeEngine): ModelRef {
   if (needsBench(e)) queueBench(e);
   const accel = accelFor(e);
-  return { engine: e.id, type: e.type, config: sherpaConfig(e, accel), provider: accel.provider };
+  return { engine: e.id, type: e.type, config: sherpaConfig(e, accel), provider: accel.provider, chunkMs: e.latencyMs };
 }
 
 function send(e: NativeEngine, req: WorkerRequest, listener?: Listener, transfer: ArrayBuffer[] = []): void {
@@ -123,6 +123,7 @@ export function unloadNative(e: NativeEngine): void {
 // ── benchmarks (accel.ts) ────────────────────────────────────────────────────
 // Generous: each provider of moonshine-tiny and kitten-nano finished in under
 // 2 s on an M4 (2026-09-25). One still going past this is hung or far too slow.
+// CPU gets all of it; an accelerator far less (accel.ts accelTimeoutMs).
 const BENCH_TIMEOUT_MS = 120_000;
 type BenchRequest = Extract<WorkerRequest, { op: "bench" }>;
 
@@ -170,8 +171,15 @@ export async function benchEngine(e: NativeEngine, providers: Provider[], numThr
   const input = e.kind === "tts"
     ? { text: BENCH_TEXT, sid: voice?.sid, wav: voice?.wav && join(engineDir(e.id), voice.wav), espeak: voice?.espeak, voice: voice?.id }
     : e.kind === "addressee" ? { text: BENCH_TEXT } : { samples: benchAudio() };
-  for (const provider of providers) {
-    results.push(await benchInChild({ op: "bench", id: ++nextId, engine: e.id, type: e.type, config: sherpaConfig(e, { provider, numThreads }), provider, ...input }, signal));
+  let cpu: BenchResult | undefined, cpuMs = 0;
+  for (const provider of providers) { // CPU first (device.ts), so every accelerator is held to its time
+    const skip = provider === "cpu" ? undefined : skipReason(e, provider, cpu);
+    if (skip) { results.push({ provider, error: skip }); continue; }
+    const t = performance.now();
+    const r = await benchInChild({ op: "bench", id: ++nextId, engine: e.id, type: e.type, config: sherpaConfig(e, { provider, numThreads }), provider, chunkMs: e.latencyMs, ...input },
+      signal, provider === "cpu" ? BENCH_TIMEOUT_MS : accelTimeoutMs(cpuMs, BENCH_TIMEOUT_MS));
+    if (provider === "cpu") { cpu = r; cpuMs = performance.now() - t; }
+    results.push(r);
   }
   return results;
 }

@@ -73,6 +73,21 @@ describe("Flow over MCP", () => {
     expect(r.isError).toBe(false);
   });
 
+  it("hands the host the agent's own id for a call, so a call from a stopped prompt can be refused", async () => {
+    const dead = new Set(["toolu_old"]);
+    const server = flowMcpServer({
+      tools: flowTools({ device, screenshotDelayMs: 0 }),
+      ctx: (agentCallId) => ({ signal: agentCallId && dead.has(agentCallId) ? AbortSignal.abort() : new AbortController().signal, context: null, insert, clipboard }),
+    });
+    const client = new Client({ name: "test", version: "1" });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    const late = await client.callTool({ name: "screenshot", arguments: {}, _meta: { "claudecode/toolUseId": "toolu_old" } });
+    expect(late.isError).toBe(true);
+    const live = await client.callTool({ name: "screenshot", arguments: {}, _meta: { "claudecode/toolUseId": "toolu_new" } });
+    expect(live.isError).toBe(false);
+  });
+
   it("applies the same approval hook, so a blocked tool is blocked for both brains", async () => {
     const client = await connect(flowTools({ device, screenshotDelayMs: 0 }), async () => ({ block: true, reason: "the user said no" }));
     const r = await client.callTool({ name: "shell", arguments: { command: "rm -rf /" } });

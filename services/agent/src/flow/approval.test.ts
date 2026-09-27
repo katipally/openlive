@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { consentApprove } from "./approval.js";
+import { consentApprove, isDeclined, isUnanswered } from "./approval.js";
 import { flowTools } from "./tools.js";
 
 const tools = flowTools();
@@ -60,7 +60,9 @@ describe("consent", () => {
     const asker = vi.fn(() => new Promise<boolean>(() => {}));
     const remember = vi.fn(async () => {});
     const approve = consentApprove({ granted: () => false, ask: asker, remember, timeoutMs: 10 });
-    expect(await approve(call, signal())).toMatchObject({ block: true, reason: expect.stringContaining("did not answer") });
+    const blocked = await approve(call, signal());
+    expect(blocked).toMatchObject({ block: true, reason: expect.stringContaining("did not answer") });
+    expect([isUnanswered(blocked.reason!), isDeclined(blocked.reason!)]).toEqual([true, false]);
     expect(asker.mock.calls[0]![1].aborted).toBe(true);
     expect(remember).not.toHaveBeenCalled();
   });

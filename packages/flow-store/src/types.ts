@@ -10,6 +10,9 @@ export type EntryType =
   // `{ target, text }`: the message `target` was cut off after `text` was heard.
   // Appended, since the log never rewrites a line; loadSession applies it.
   | "cut"
+  // `{ n }`: the user stopped the turn, and the first `n` user messages since the
+  // last reply were the requests it dropped (flow-ws.ts markCancelled).
+  | "cancel"
   | "custom";
 
 /** Line 1 of a session file. */

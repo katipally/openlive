@@ -42,8 +42,9 @@ type Sherpa = {
 };
 
 /** A variant to load: its id keys the loaded handle; config is native-models.ts
- *  sherpaConfig, and `provider` the execution provider it names (accel.ts). */
-export interface ModelRef { engine: string; type: ModelType; config: object; provider?: Provider }
+ *  sherpaConfig, and `provider` the execution provider it names (accel.ts).
+ *  `chunkMs`: a streaming model's chunk (native-models.ts latencyMs). */
+export interface ModelRef { engine: string; type: ModelType; config: object; provider?: Provider; chunkMs?: number }
 export type WorkerRequest =
   | ({ op: "stt"; id: number; samples: Float32Array; lang?: string } & ModelRef)
   // `voice` and `lang` are what a Supertonic render is told; sherpa's take `sid` and `espeak`.
@@ -90,17 +91,50 @@ const PEAK_LIMITED = new Set<ModelType>(["kitten", "vits", "matcha"]);
 // amy, ryan); fitted, they join 68-91 ms apart. Matcha: 107 ms vs 110 but
 // uneven, 87 ms off per join, now 68.
 const SENTENCE_EDGE_S: Partial<Record<ModelType, [lead: number, tail: number]>> = { vits: [0.01, 0.05], matcha: [0.01, 0.05] };
-// Upstream nemotron example pads 0.4 s so the last 160 ms chunk flushes; 0.5 s leaves margin.
-const TAIL_PADDING = new Float32Array(SAMPLE_RATE / 2);
+// sherpa decodes a nemotron chunk only once its whole window is buffered: the
+// chunk plus 90 ms of pre-encode cache (the encoder's window_size metadata,
+// e.g. 17 frames for 80 ms). So the audio's last partial chunk needs a chunk of
+// silence behind it, plus this margin for the model to emit its last word; with
+// the old fixed 0.5 s, 1120 ms variants dropped it ("...ten minutes" for "...ten
+// minutes, please"). Nemotron 3.5 80 ms still cut "Sure" to "Su" at 0.38 s past
+// the audio and not at 0.5 s (measured 2026-09-26), so the shortest chunk keeps
+// the 0.5 s it had.
+const TAIL_MARGIN_S = 0.42;
+// A lone short word ("Sure") is often held back until well after it ends: the
+// en models emitted it 1.3-1.8 s later, and an empty result gets that much more
+// silence before it stands (measured 2026-09-26). A lone "No" the en models
+// never emit, nor "Yeah" the 80 ms one; Nemotron 3.5 does.
+const TAIL_MAX_S = 2;
+const tailS = (chunkMs = 160) => chunkMs / 1000 + TAIL_MARGIN_S;
+const silence = (s: number) => new Float32Array(Math.round(SAMPLE_RATE * s));
 // Measured 2026-09-24: speech starting at sample 0 loses its first word on
 // nemotron ("Hello there" -> "There"); 0.3 s of leading silence recovers it.
 const LEAD_PADDING = new Float32Array(SAMPLE_RATE * 0.3);
 const LEAD_MS = (1000 * LEAD_PADDING.length) / SAMPLE_RATE;
 
-/** A streaming result's text and word onsets, from the start of the audio after LEAD_PADDING. */
-function streamed(res: Result): Heard {
+/** A streaming result's text and word onsets, from the start of the audio after
+ *  LEAD_PADDING. An onset lands where the model emitted the word, which for a
+ *  held-back word is in the tail padding and for the widest chunks can be
+ *  before the audio starts, so each is kept within the `endMs` of audio heard. */
+function streamed(res: Result, endMs = Infinity): Heard {
   const text = res.text.trim();
-  return { text, at: tokenOnsets(text, res.tokens, res.timestamps, 1000 * (res.start_time ?? 0) - LEAD_MS) };
+  const at = tokenOnsets(text, res.tokens, res.timestamps, 1000 * (res.start_time ?? 0) - LEAD_MS);
+  return { text, at: at?.map((t) => Math.min(Math.max(t, 0), Math.round(endMs))) };
+}
+
+/** Ends a stream's input: a chunk's worth of silence and the margin, then as
+ *  much again while `heard` is false, up to TAIL_MAX_S in all. Each step
+ *  decodes what is ready. O(tail chunks). */
+function finish(r: Online, s: Stream, chunkMs: number | undefined, heard: () => boolean) {
+  const step = tailS(chunkMs);
+  let fed = 0;
+  do {
+    s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: silence(step) });
+    fed += step;
+    while (r.isReady(s)) r.decode(s);
+  } while (!heard() && fed + step <= TAIL_MAX_S);
+  s.inputFinished();
+  while (r.isReady(s)) r.decode(s);
 }
 
 /** `lang` pins a multilingual Nemotron to one language; English-only models ignore it. */
@@ -234,10 +268,8 @@ async function transcribe(req: Extract<WorkerRequest, { op: "stt" }>): Promise<H
       const r = l.handle as Online;
       const s = freshStream(r, req.lang);
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples });
-      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
-      s.inputFinished();
-      while (r.isReady(s)) r.decode(s);
-      return streamed(r.getResult(s));
+      finish(r, s, req.chunkMs, () => !!r.getResult(s).text.trim());
+      return streamed(r.getResult(s), (1000 * req.samples.length) / SAMPLE_RATE);
     }
     const r = l.handle as Offline;
     const canary = r.config.modelConfig.canary;
@@ -354,7 +386,7 @@ async function bench(req: Extract<WorkerRequest, { op: "bench" }>): Promise<Extr
     } else if (req.type === "online-transducer") {
       const r = handle as Online, s = freshStream(r);
       s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples! });
-      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
+      s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: silence(tailS(req.chunkMs)) });
       s.inputFinished();
       while (r.isReady(s)) { r.decode(s); first ??= performance.now() - t0; }
       audioSec = req.samples!.length / SAMPLE_RATE;
@@ -377,8 +409,10 @@ async function bench(req: Extract<WorkerRequest, { op: "bench" }>): Promise<Extr
 }
 
 // ── streaming sessions (nemotron) ────────────────────────────────────────────
-// `committedAt`: the onsets of `committed`'s words, undefined if any went untimed.
-interface Session { engine: string; lang?: string; l: Loaded; r: Online; s: Stream; committed: string; committedAt?: number[]; last: string }
+// `committedAt`: the onsets of `committed`'s words, undefined if any went untimed;
+// `fed`: samples of audio since the stream was fresh.
+interface Session { engine: string; lang?: string; chunkMs?: number; l: Loaded; r: Online; s: Stream; committed: string; committedAt?: number[]; last: string; fed: number }
+const fresh = () => ({ committed: "", committedAt: [] as number[], last: "", fed: 0 });
 const sessions = new Map<number, Session>();
 // Sockets that closed while their engine was still loading.
 const closedEarly = new Set<number>();
@@ -391,7 +425,7 @@ function decodeSession(id: number, ss: Session) {
   const res = ss.r.getResult(ss.s);
   const text = joinText(ss.committed, res.text.trim());
   if (ss.r.isEndpoint(ss.s)) {
-    ss.committedAt = joinAt(ss.committedAt, streamed(res).at);
+    ss.committedAt = joinAt(ss.committedAt, streamed(res, (1000 * ss.fed) / SAMPLE_RATE).at);
     ss.committed = text;
     ss.r.reset(ss.s);
   }
@@ -403,7 +437,7 @@ async function open(req: Extract<WorkerRequest, { op: "open" }>) {
   const r = l.handle as Online;
   if (closedEarly.delete(req.id)) return post({ id: req.id, type: "closed" });
   l.users++;
-  sessions.set(req.id, { engine: req.engine, lang: req.lang, l, r, s: freshStream(r, req.lang), committed: "", committedAt: [], last: "" });
+  sessions.set(req.id, { engine: req.engine, lang: req.lang, chunkMs: req.chunkMs, l, r, s: freshStream(r, req.lang), ...fresh() });
   post({ id: req.id, type: "ready" });
 }
 
@@ -413,16 +447,15 @@ function sessionOp(req: Extract<WorkerRequest, { op: "audio" | "end" | "reset" |
   touch(ss.engine, ss.l);
   if (req.op === "audio") {
     ss.s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: req.samples });
+    ss.fed += req.samples.length;
     decodeSession(req.id, ss);
   } else if (req.op === "end") {
-    ss.s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: TAIL_PADDING });
-    ss.s.inputFinished();
-    while (ss.r.isReady(ss.s)) ss.r.decode(ss.s);
-    const tail = streamed(ss.r.getResult(ss.s));
+    finish(ss.r, ss.s, ss.chunkMs, () => !!(ss.committed || ss.r.getResult(ss.s).text.trim()));
+    const tail = streamed(ss.r.getResult(ss.s), (1000 * ss.fed) / SAMPLE_RATE);
     post({ id: req.id, type: "final", text: joinText(ss.committed, tail.text), at: joinAt(ss.committedAt, tail.at) });
-    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", committedAt: [], last: "" }); // a finished stream takes no more input
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), ...fresh() }); // a finished stream takes no more input
   } else if (req.op === "reset") {
-    Object.assign(ss, { s: freshStream(ss.r, ss.lang), committed: "", committedAt: [], last: "" });
+    Object.assign(ss, { s: freshStream(ss.r, ss.lang), ...fresh() });
   } else {
     sessions.delete(req.id);
     ss.l.users--;

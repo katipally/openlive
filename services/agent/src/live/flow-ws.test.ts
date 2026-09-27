@@ -338,6 +338,8 @@ describe("FlowLiveSession", () => {
     await until(() => turnsDone(ws) === 1);
     expect(ws.sent.some((m) => m.t === "permission_resolved" && m.reqId === reqId)).toBe(true);
     expect(fake.remembered).toBe(0);
+    await until(() => fake.appended.some((e) => e.type === "cancel"));
+    expect(fake.appended.find((e) => e.type === "cancel")!.data).toEqual({ n: 1 }); // a resume marks the request stopped again
   });
 
   it("keeps what was only shown apart from what was spoken, and a refused tool apart from a broken one", async () => {
