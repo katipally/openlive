@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFlowConfig, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { flowBrain, readFlowConfig, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { getAllSettings, listProviders } from "@openlive/db";
 import { envKeyFor, resolveApiMode } from "@openlive/harness";
 
@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
 // whether there is a brain to think with.
 
 function brainReady(config: FlowConfig): boolean {
-  return config.brain.kind === "acp"
-    ? !!config.brain.agentId
+  const brain = flowBrain(config);
+  return brain.kind === "acp"
+    ? !!brain.agentId
     : resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p)).ready;
 }
 
@@ -45,8 +46,12 @@ export async function PATCH(req: Request) {
   let patch: unknown;
   try { patch = await req.json(); } catch { patch = null; }
   if (!isPlain(patch)) return NextResponse.json({ error: "expected an object" }, { status: 400 });
+  // `settle` decides an override a migration left undecided, and only while it
+  // still is: a choice the person made in the meantime stands.
+  const settle = new URL(req.url).searchParams.has("settle");
   try {
-    const config = await updateFlowConfig((cur) => merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
+    const config = await updateFlowConfig((cur) => settle && cur.voice.turnOverride !== null ? cur
+      : merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
     return NextResponse.json({ config, brainReady: brainReady(config) });
   } catch (e) { return failed(e); }
 }

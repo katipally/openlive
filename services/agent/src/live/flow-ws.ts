@@ -3,7 +3,7 @@ import path from "node:path";
 import type { WebSocket } from "ws";
 import type { FlowContentWire, LanguageCode, LiveServerMsg, ToolCallState } from "@openlive/shared";
 import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
-import { FlowSession as FlowStoreSession, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
 import { serveFlowMcp, servedTool } from "../flow/mcp.js";
@@ -125,7 +125,8 @@ export function quietModeId(meta: AgentMeta | null): string {
  * months later, and effort is the other half of "why was that turn slow".
  */
 export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLive) => {
-  if (cfg.brain.kind === "acp") return { kind: "acp", id: cfg.brain.agentId, model: cfg.brain.agentModel, effort: cfg.brain.agentEffort };
+  const brain = flowBrain(cfg);
+  if (brain.kind === "acp") return { kind: "acp", id: brain.agentId, model: brain.agentModel, effort: brain.agentEffort };
   const { provider, model, effort } = live();
   return { kind: "api", id: provider.id, model, effort: effort ?? "" };
 };
@@ -577,14 +578,15 @@ export class FlowLiveSession {
    * swapping the brain cannot change what Flow can do or what it asks about.
    */
   private async brainFor(cfg: FlowConfig, signal: AbortSignal): Promise<Brain> {
-    const agentId = cfg.brain.kind === "acp" && isAgentId(cfg.brain.agentId) ? cfg.brain.agentId : null;
+    const brain = flowBrain(cfg);
+    const agentId = brain.kind === "acp" && isAgentId(brain.agentId) ? brain.agentId : null;
     if (!agentId) {
       if (this.agent) void this.dropAgent();
       return this.brain instanceof LocalBrain ? this.brain : (this.brain = new LocalBrain());
     }
     if (this.agent && this.brain.id === agentId) {
-      await this.applyAgentModel(cfg.brain.agentModel);
-      await this.applyAgentEffort(cfg.brain.agentEffort);
+      await this.applyAgentModel(brain.agentModel);
+      await this.applyAgentEffort(brain.agentEffort);
       return this.brain;
     }
     void this.dropAgent();
@@ -624,8 +626,8 @@ export class FlowLiveSession {
     this.agentModel = "";
     this.agentEffort = "";
     await this.applyQuietMode();
-    await this.applyAgentModel(cfg.brain.agentModel);
-    await this.applyAgentEffort(cfg.brain.agentEffort);
+    await this.applyAgentModel(brain.agentModel);
+    await this.applyAgentEffort(brain.agentEffort);
     return (this.brain = new AcpBrain(agent, () => this.lang, (call, settled) => this.onAgentTool(call, settled), (id) => this.turnHosted.add(id)));
   }
 

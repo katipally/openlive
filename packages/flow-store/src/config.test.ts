@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
+import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
+import { flowBrain, flowTurn } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -39,7 +41,7 @@ test("a v4 brain's own API-mode pick is dropped, because Flow now uses Chat's", 
     version: 4,
     brain: { kind: "api", providerId: "groq", model: "m", effort: "high", agentId: "codex", agentModel: "x", agentEffort: "low" },
   }).brain;
-  expect(brain).toEqual({ kind: "api", agentId: "codex", agentModel: "x", agentEffort: "low" });
+  expect(brain).toEqual({ override: false, kind: "api", agentId: "codex", agentModel: "x", agentEffort: "low" });
 });
 
 test("nothing fails the parse", () => {
@@ -111,9 +113,49 @@ test("consent survives a write, stamp and all", () => {
   expect(parseFlowConfig({ consent: { granted: true, at } }).consent).toEqual({ granted: true, at });
 });
 
-test("waits for the rest of a sentence by default, because hands-free has no send button", () => {
+test("Flow's own wait starts Patient, for when it is turned on, because hands-free has no send button", () => {
   const cfg = parseFlowConfig({});
   expect(cfg.voice.turn).toEqual({ threshold: 0.65, holdMs: 6000, redemptionMs: 800 });
+});
+
+test("a new Flow follows Chat: both overrides start off", () => {
+  const cfg = parseFlowConfig({});
+  expect(cfg.brain.override).toBe(false);
+  expect(cfg.voice.turnOverride).toBe(false);
+  expect(flowBrain(cfg)).toEqual({ kind: "api", agentId: "", agentModel: "", agentEffort: "" });
+  expect(flowTurn(cfg)).toBeNull();
+});
+
+test("the frozen v6 fixture keeps its coding agent and leaves the wait for the renderer to decide", () => {
+  const cfg = parseFlowConfig(CONFIG_V6_FIXTURE);
+  expect(cfg.version).toBe(FLOW_CONFIG_VERSION);
+  expect(cfg.brain).toEqual({ override: true, kind: "acp", agentId: "claude-code", agentModel: "haiku", agentEffort: "" });
+  expect(flowBrain(cfg)).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "haiku", agentEffort: "" });
+  expect(cfg.voice.turnOverride).toBeNull();
+  // Undecided counts as on, so the Flow it came from keeps waiting as it did.
+  expect(flowTurn(cfg)).toEqual({ threshold: 0.65, holdMs: 6000, redemptionMs: 800 });
+  expect(cfg.consent.granted).toBe(true);
+});
+
+test("a v6 API brain already was Chat's, so its override stays off", () => {
+  const cfg = parseFlowConfig({ version: 6, brain: { kind: "api", agentId: "codex", agentModel: "x", agentEffort: "" } });
+  expect(cfg.brain.override).toBe(false);
+  expect(flowBrain(cfg).kind).toBe("api");
+});
+
+test("an older file walks every migration into v7", () => {
+  const cfg = parseFlowConfig(CONFIG_V1_FIXTURE);
+  expect(cfg.brain.override).toBe(false);
+  expect(cfg.voice.turnOverride).toBeNull();
+});
+
+test("a decided override survives a write, and a v7 file is not migrated again", () => {
+  const on = parseFlowConfig({ version: 7, brain: { override: true, kind: "acp", agentId: "codex" }, voice: { turnOverride: true } });
+  expect(parseFlowConfig(on)).toEqual(on);
+  const off = parseFlowConfig({ version: 7, brain: { kind: "acp", agentId: "codex" }, voice: { turnOverride: false } });
+  expect(flowBrain(off).kind).toBe("api");
+  expect(flowTurn(off)).toBeNull();
+  expect(parseFlowConfig({ version: 7, voice: { turnOverride: "yes" } }).voice.turnOverride).toBe(false);
 });
 
 test("clamps turn-taking to what the voice pipeline will accept", () => {

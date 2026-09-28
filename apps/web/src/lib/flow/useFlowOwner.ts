@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { FlowContextWire, FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
-import { VoiceEngine, type EnginePhase, type TurnTuning } from "@/lib/live/voiceEngine";
+import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
 import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
@@ -16,6 +16,8 @@ import { FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { IDLE_FLOW, type FlowPhase, type FlowSnapshot } from "./types";
+import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
+import type { FlowConfig } from "@openlive/flow-store";
 
 // Flow's owner renderer. It holds the microphone, the voice cascade, the Flow
 // socket and every decision; the orb is a display and command surface fed from
@@ -51,9 +53,9 @@ function base64(buf: ArrayBuffer): string {
 
 interface FlowSettings {
   idleWindowMs: number;
-  brain: { kind: string };
+  brain: FlowConfig["brain"];
   insertion: { method: string };
-  voice: { speakReplies: boolean; autoQuiet: QuietRules; turn: TurnTuning };
+  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride">;
 }
 
 const asRules = (s: FlowSettings): QuietRules => ({ ...s.voice.autoQuiet, speakReplies: s.voice.speakReplies });
@@ -159,7 +161,7 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       stopAnswerWatchdog();
       // The orb draws a failure, never `reply`, so a reason has to become one.
-      patch(message ? { reply: message, failure: turnFailure(message, settings.current?.brain.kind === "acp") } : { reply: message });
+      patch(message ? { reply: message, failure: turnFailure(message, !!settings.current && flowBrain(settings.current).kind === "acp") } : { reply: message });
       setPhase("error");
       teardownMic();
       armIdleRetire();
@@ -261,11 +263,10 @@ export function useFlowOwner(): void {
           holdBargeIn: () => !!permission.current,
           answersAsk: (text) => !!permission.current && !!classifyYesNo(text),
           onMicLost: () => void recoverMic(eng),
-        // Flow's own turn-taking, not the one a call runs on: cut off in a call
-        // the person sees it and presses a key, and here the half-sentence is
-        // already answered and acted on.
+        // Flow's own wait when its override is on, else the shared one the
+        // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
-        }, undefined, { ...settings.current?.voice.turn, backchannels: false });
+        }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
         try { await eng.start(mic); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"

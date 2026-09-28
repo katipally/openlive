@@ -448,7 +448,7 @@ describe("FlowLiveSession", () => {
 
 describe("a coding agent as the brain", () => {
   it("writes a turn's speaker into the transcript, and not into what it reads, as the built-in brain does", async () => {
-    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+    for (const brain of [null, { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
       fake.brain = brain;
       fake.appended = [];
       const ws = new FakeSocket();
@@ -461,8 +461,21 @@ describe("a coding agent as the brain", () => {
     }
   });
 
+  it("answers with the built-in brain while Flow follows Chat, though the config still names an agent", async () => {
+    fake.brain = { override: false, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.cancelled = [];
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [async () => { ws.client({ t: "flow_cancel", close: true }); await tick(); }];
+    ws.say("open Calculator");
+    await until(() => turnsDone(ws) === 1);
+    // Only a coding agent is told a request was cancelled; the built-in brain is not.
+    expect(fake.cancelled).toEqual([]);
+    ws.emit("close");
+  });
+
   it("is told what was heard of a reply the user cut, during it or after it", async () => {
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
 
@@ -478,7 +491,7 @@ describe("a coding agent as the brain", () => {
   });
 
   it("tells either brain that a sentence sent on from side talk may be for someone else, and keeps it as said", async () => {
-    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+    for (const brain of [null, { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
       fake.brain = brain;
       fake.appended = [];
       const ws = new FakeSocket();
@@ -493,7 +506,7 @@ describe("a coding agent as the brain", () => {
   });
 
   it("never picks a stopped request back up, whichever brain answers", async () => {
-    for (const brain of [null, { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
+    for (const brain of [null, { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }]) {
       fake.brain = brain;
       fake.cancelled = [];
       const ws = new FakeSocket();
@@ -512,7 +525,7 @@ describe("a coding agent as the brain", () => {
   });
 
   it("keeps a call stopped over its ask as stopped, not failed, whichever tool it was", async () => {
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
     const own = { id: "t1", title: "Run it", kind: "execute", status: "pending", content: [], locations: [] };
@@ -531,7 +544,7 @@ describe("a coding agent as the brain", () => {
   });
 
   it("refuses a tool call the agent makes between turns", async () => {
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
     fake.script = reply("Done.");
@@ -541,7 +554,7 @@ describe("a coding agent as the brain", () => {
   });
 
   it("shows Flow's tool at work on the orb when the agent calls it", async () => {
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
 
@@ -572,7 +585,7 @@ describe("OpenLive's memory in Flow", () => {
     ws.emit("close");
 
     // A coding agent: the same tool over MCP, the notes and the rule in its preamble.
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws2 = new FakeSocket();
     new FlowLiveSession(ws2 as never);
     fake.script = reply("Noted.");
@@ -589,7 +602,7 @@ describe("OpenLive's memory in Flow", () => {
 
 describe("the coding agent's own tools", () => {
   it("show on the orb by what they do and the file they touch, and are kept without secrets", async () => {
-    fake.brain = { kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
     const read = { id: "t1", title: "Read src/app.ts", kind: "read", status: "pending", content: [], locations: [{ path: "/tmp/src/app.ts" }] };
@@ -638,12 +651,18 @@ describe("what the coding agent is set to", () => {
 });
 
 describe("what the header records", () => {
-  const cfg = (brain: Record<string, string>) =>
-    ({ brain: { kind: "api", agentId: "", agentModel: "", agentEffort: "", ...brain } }) as never;
+  const cfg = (brain: Record<string, string | boolean>) =>
+    ({ brain: { override: true, kind: "api", agentId: "", agentModel: "", agentEffort: "", ...brain } }) as never;
 
   it("names the coding agent, its model and its effort", () => {
     expect(brainMeta(cfg({ kind: "acp", agentId: "codex", agentModel: "gpt-5.6-luna", agentEffort: "low" })))
       .toEqual({ kind: "acp", id: "codex", model: "gpt-5.6-luna", effort: "low" });
+  });
+
+  it("names Chat's API mode while Flow's own brain is switched off, whatever it names", () => {
+    const live = () => ({ provider: { id: "anthropic" }, model: "opus", apiKey: "k", effort: "high" }) as never;
+    expect(brainMeta(cfg({ override: false, kind: "acp", agentId: "codex", agentModel: "gpt-5.6-luna" }), live))
+      .toEqual({ kind: "api", id: "anthropic", model: "opus", effort: "high" });
   });
 
   it("names what Chat resolved in API mode, without borrowing the agent's fields", () => {

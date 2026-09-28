@@ -1,0 +1,22 @@
+import type { FlowConfig } from "./config";
+
+// What Flow actually runs on where it can follow Chat. No node imports, so the
+// renderer can use it too ("@openlive/flow-store/shared").
+
+export type FlowBrain = Omit<FlowConfig["brain"], "override">;
+
+const CHAT_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
+
+/** The brain Flow thinks with: its own when the override is on, else Chat's
+ *  default, which is API mode as set in Settings > Models. */
+export const flowBrain = (cfg: Pick<FlowConfig, "brain">): FlowBrain => {
+  if (!cfg.brain.override) return CHAT_BRAIN;
+  const { override: _o, ...own } = cfg.brain;
+  return own;
+};
+
+/** Flow's own wait before answering, or null when it follows the shared one.
+ *  An undecided override (null, a config from before the two were shared)
+ *  counts as on, so an existing Flow keeps the wait it had. */
+export const flowTurn = (cfg: Pick<FlowConfig, "voice">): FlowConfig["voice"]["turn"] | null =>
+  cfg.voice.turnOverride === false ? null : cfg.voice.turn;

@@ -7,7 +7,7 @@ import { configPath, ensureDir, flowDir } from "./paths";
 // never fails the parse. Unknown keys survive a write untouched, so an older
 // build cannot silently destroy a newer build's settings.
 
-export const FLOW_CONFIG_VERSION = 6;
+export const FLOW_CONFIG_VERSION = 7;
 
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
@@ -24,11 +24,14 @@ export interface FlowConfig {
     clipboardQuietMs: number;
     clipboardTimeoutMs: number;
   };
-  /** API mode has no fields here: it uses the provider, model and effort Chat
-   *  does, set once in Settings > Models. `agentModel` is the coding agent's
-   *  own, which only that agent can name. `agentEffort` is how hard it thinks;
-   *  "" is the agent's own default, which is the lowest it offers. */
+  /** Flow's own brain, used only while `override` is on; off, Flow thinks as
+   *  Chat does (flowBrain in shared.ts). API mode has no fields here: it uses
+   *  the provider, model and effort Chat does, set once in Settings > Models.
+   *  `agentModel` is the coding agent's own, which only that agent can name.
+   *  `agentEffort` is how hard it thinks; "" is the agent's own default, which
+   *  is the lowest it offers. */
   brain: {
+    override: boolean;
     kind: BrainKind;
     agentId: string;
     agentModel: string;
@@ -37,14 +40,17 @@ export interface FlowConfig {
   voice: {
     speakReplies: boolean;
     autoQuiet: { meetingApps: boolean; micContention: boolean; systemDnd: boolean; apps: string[] };
-    /** How long Flow waits for the rest of a sentence before answering the half
-     *  it has. Its own, and patient by default: in a call a person who is cut
-     *  off can see it happen and press a key, and hands-free they cannot, so a
-     *  sentence sent early is answered and acted on before they finish saying
-     *  it. `threshold` is how sure the end-of-turn model must be, `holdMs` how
-     *  long a trailing-off sentence is held, `redemptionMs` the silence the VAD
-     *  waits through. */
+    /** Flow's own wait for the rest of a sentence before answering the half it
+     *  has, used only while `turnOverride` is on; off, Flow waits as Chat does
+     *  (flowTurn in shared.ts). Patient when first turned on: in a call a person
+     *  who is cut off can see it happen and press a key, and hands-free they
+     *  cannot. `threshold` is how sure the end-of-turn model must be, `holdMs`
+     *  how long a trailing-off sentence is held, `redemptionMs` the silence the
+     *  VAD waits through. */
     turn: { threshold: number; holdMs: number; redemptionMs: number };
+    /** null: not decided yet, for a config from before the wait was shared.
+     *  Only the renderer holds Chat's wait to compare with, so it decides. */
+    turnOverride: boolean | null;
   };
   /** The one permission Flow ever takes: the person said, once, that it may act
    *  on this machine. Nothing is asked per tool, per tier or per call. */
@@ -55,11 +61,12 @@ export interface FlowConfig {
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   version: FLOW_CONFIG_VERSION,
   insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 100, clipboardQuietMs: 200, clipboardTimeoutMs: 8000 },
-  brain: { kind: "api", agentId: "", agentModel: "", agentEffort: "" },
+  brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
   voice: {
     speakReplies: true,
     autoQuiet: { meetingApps: true, micContention: true, systemDnd: true, apps: [] },
     turn: { threshold: 0.65, holdMs: 6000, redemptionMs: 800 },
+    turnOverride: false,
   },
   consent: { granted: false, at: "" },
   idleWindowMs: 5 * 60_000,
@@ -103,6 +110,14 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
   // pipeline, so both are dropped rather than carried through as settings
   // nothing reads.
   5: ({ stt: _s, tts: _t, ...rest }) => rest,
+  // v6 always used Flow's own brain and wait. v7 shares Chat's unless an
+  // override is on, so a v6 Flow keeps what it ran on: a coding agent brain
+  // turns the brain override on (an API brain already was Chat's), and the
+  // wait override is left for the renderer to decide against Chat's wait.
+  6: (raw) => {
+    const brain = obj(raw.brain);
+    return { ...raw, brain: { ...brain, override: brain.kind === "acp" }, voice: { ...obj(raw.voice), turnOverride: null } };
+  },
 };
 
 /** Never throws. Anything unrecognised falls back to its default, and any key
@@ -133,6 +148,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
     },
     brain: {
       ...brain,
+      override: bool(brain.override, d.brain.override),
       kind: one(brain.kind, BRAIN_KINDS, d.brain.kind),
       agentId: str(brain.agentId, d.brain.agentId),
       agentModel: str(brain.agentModel, d.brain.agentModel),
@@ -156,6 +172,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         holdMs: clamp(num(turn.holdMs, d.voice.turn.holdMs), 1000, 8000),
         redemptionMs: clamp(num(turn.redemptionMs, d.voice.turn.redemptionMs), 200, 1500),
       },
+      turnOverride: voice.turnOverride === null ? null : bool(voice.turnOverride, d.voice.turnOverride as boolean),
     },
     // A grant with no date is still a grant, but a date with no grant is not:
     // the stamp is what the settings screen shows back to the person.
