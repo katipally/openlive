@@ -1,22 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FlowConfig, InsertionMethod } from "@openlive/flow-store";
+import { flowTurn } from "@openlive/flow-store/shared";
 import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { cn } from "@/lib/cn";
-import { Keycap } from "@/components/Keycap";
-import { Switch } from "@/components/Switch";
-import { Segmented } from "@/lib/seg";
+import { Keycap, Switch, Select, Slider, Button, linkClass, ListGroup, ListRow, Segmented, Advanced } from "@/components/ui";
 import { flowBridge, type FlowPermissionName } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { effectiveWait } from "@/lib/flow/wait";
+import { dndNote } from "@/lib/flow/quiet";
+import { keyListenerNote } from "@/lib/flow/failure";
+import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS, type PipelineConfig } from "@/lib/live/pipelineConfig";
+import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { Section } from "@/components/settings/Section";
+import { LinkRow, useSettingsNav } from "@/components/settings/nav";
 import { BrainPicker } from "./BrainPicker";
+import { AddonCard } from "./AddonCard";
 
-// The Flow tab of Settings. Every control writes straight through to the store,
-// and what comes back from the write is what the screen then shows: the parse is
-// the authority, so a clamped value is visible rather than silently different
-// from what was clicked.
+// The Flow tab of Settings: only what Flow does that Chat does not, plus rows
+// that show the shared settings Flow follows and go to them. Every control
+// writes straight through to the store, and what comes back from the write is
+// what the screen then shows: the parse is the authority, so a clamped value is
+// visible rather than silently different from what was clicked.
 
 const IDLE_CHOICES = [
   { ms: 90_000, label: "90 sec" },
@@ -24,103 +31,135 @@ const IDLE_CHOICES = [
   { ms: 1_800_000, label: "30 min" },
 ];
 
-/**
- * How long Flow waits before it decides a sentence is finished. Flow's own, not
- * shared with calls: being cut off mid-sentence costs a click in a call and a
- * whole wrong action here, so hands-free starts patient.
- */
-const WAIT_PACES = [
-  { id: "patient", label: "Patient", values: { threshold: 0.65, holdMs: 6000, redemptionMs: 800 } },
-  { id: "even", label: "Even", values: { threshold: 0.5, holdMs: 4000, redemptionMs: 550 } },
-  { id: "quick", label: "Quick", values: { threshold: 0.35, holdMs: 2500, redemptionMs: 350 } },
-] as const;
+const presetName = (v: Parameters<typeof turnPresetOf>[0]) => TURN_PRESETS.find((p) => p.id === turnPresetOf(v))?.name ?? "Custom";
 
-const paceOf = (t: { threshold: number; holdMs: number; redemptionMs: number }) =>
-  WAIT_PACES.find((p) => p.values.threshold === t.threshold && p.values.holdMs === t.holdMs && p.values.redemptionMs === t.redemptionMs)?.id ?? "";
-
-const card = "flex flex-col divide-y divide-border rounded-lg bg-card px-4 shadow-[var(--shadow-card)]";
-const row = "flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2 py-2.5";
-const pill = "shrink-0 rounded-full bg-surface-raised px-3 py-1.5 text-label font-medium transition hover:bg-foreground/10";
+/** The shared voice in words: its name and speed. */
+function voiceLine(c: PipelineConfig): string {
+  const family = familyInfo("tts", c.tts.family);
+  const name = family?.id === "clone" ? "Your voice" : family?.voices?.find((v) => v.id === c.tts.voice)?.name ?? (c.tts.voice || "Default");
+  return `${name} · ${c.tts.speed.toFixed(2)}×`;
+}
 
 export function FlowSettings() {
   const { config, save, error, saving } = useFlowConfig();
+  const choice = useApiModeChoice();
+  const go = useSettingsNav();
+  const [pipeline, setPipeline] = useState(() => loadPipelineConfig());
+  useEffect(() => onPipelineConfig(setPipeline), []);
+  const { caps, refresh } = useFlowCapabilities();
+  const keyNote = keyListenerNote(caps);
 
   if (!config) return <p className="text-body text-muted-foreground">{error || "Reading Flow's settings…"}</p>;
 
   const quiet = config.voice.autoQuiet;
+  const ownBrain = config.brain.override;
+  const ownWait = flowTurn(config) !== null;
+  const shared = effectiveWait("chat", pipeline, null);
+  const own = config.voice.turn;
+  const ownPace = turnPresetOf(own);
 
   return (
     <div className="flex flex-col gap-7">
       <p className="flex flex-wrap items-center gap-1.5 text-body text-foreground">
         Tap <Keycap className="text-label">{CONTROL}</Keycap> <Keycap className="text-label">{CONTROL}</Keycap> anywhere to talk. Again to close.
       </p>
+      {caps?.addonError
+        ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
+        : keyNote && <p className="text-label text-muted-foreground">{keyNote}</p>}
       {error && <p className="text-label text-destructive-text">{error}</p>}
 
       <Section id="set-flow-brain" title="Brain" desc="Who does the thinking. Swapping it keeps every other setting.">
-        <BrainPicker config={config} save={save} />
+        <div className="flex flex-col gap-3">
+          <ListGroup>
+            {!ownBrain && (
+              <LinkRow label="Who does the thinking" onGo={() => go("models")}
+                value={choice.loading ? "\u2026" : !choice.usable ? `${choice.providerName} has no key yet` : `API mode · ${choice.model}`} />
+            )}
+            <Toggle label="Use a different one for Flow" on={ownBrain} onFlip={(override) => save({ brain: { override } })}
+              detail={ownBrain ? "Flow thinks with the one picked below. Chat is unchanged." : "Off: Flow thinks as a new chat does, with API mode from Models."} />
+          </ListGroup>
+          {ownBrain && <BrainPicker config={config} save={save} />}
+        </div>
       </Section>
 
       <Section id="set-flow-voice" title="Voice" desc="How Flow talks back.">
-        <div className={card}>
+        <ListGroup>
           <Toggle label="Say replies out loud" on={config.voice.speakReplies} onFlip={(speakReplies) => save({ voice: { speakReplies } })} />
-          <Row label="Wait before answering">
-            <Segmented label="Wait before answering" value={paceOf(config.voice.turn)}
-              options={WAIT_PACES.map((p) => ({ id: p.id, label: p.label }))}
-              onChange={(id) => save({ voice: { turn: WAIT_PACES.find((p) => p.id === id)!.values } })} />
-          </Row>
-          <Row label="Stay open after the last reply">
-            <select aria-label="Stay open after the last reply"
-              className="ol-select h-9 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy"
+          <LinkRow label="Voice" detail="Language, voice, speed and pronunciation are shared." value={voiceLine(pipeline)} onGo={() => go("voice", "set-voice-voice")} />
+          {!ownWait && (
+            <LinkRow label="Wait before answering" value={presetName(shared)} onGo={() => go("voice", "set-voice-wait")} />
+          )}
+          <div id="set-flow-wait">
+            <Toggle label="Use a different pace for Flow" on={ownWait} onFlip={(turnOverride) => save({ voice: { turnOverride } })}
+              detail="Dictating is slower than chatting. Flow can wait longer." />
+          </div>
+          {ownWait && (
+            <div className="flex flex-col gap-2 py-3">
+              <Segmented label="Flow's wait before answering" className="grid w-full" value={ownPace === "custom" ? null : ownPace}
+                options={TURN_PRESETS.map((p) => ({ id: p.id, label: p.name, sub: `Up to ${p.values.holdMs / 1000} s`, title: p.desc }))}
+                onChange={(id) => save({ voice: { turn: TURN_PRESETS.find((p) => p.id === id)!.values } })} />
+              {ownPace === "custom" && <p className="text-caption text-faint">Custom: Flow keeps timings from an earlier version. Pick one to replace them.</p>}
+            </div>
+          )}
+          <ListRow label="Stay open after the last reply">
+            <Select aria-label="Stay open after the last reply"
               value={IDLE_CHOICES.some((c) => c.ms === config.idleWindowMs) ? String(config.idleWindowMs) : "custom"}
               onChange={(e) => e.target.value !== "custom" && save({ idleWindowMs: Number(e.target.value) })}>
               {!IDLE_CHOICES.some((c) => c.ms === config.idleWindowMs) && (
                 <option value="custom">{Math.round(config.idleWindowMs / 1000)} sec</option>
               )}
               {IDLE_CHOICES.map((c) => <option key={c.ms} value={c.ms}>{c.label}</option>)}
-            </select>
-          </Row>
-        </div>
+            </Select>
+          </ListRow>
+        </ListGroup>
       </Section>
 
       <Section id="set-flow-quiet" title="Go quiet when" desc="Replies switch to text for that turn.">
-        <div className={card}>
+        <ListGroup>
           <Toggle label="A meeting app is in front" on={quiet.meetingApps}
             onFlip={(meetingApps) => save({ voice: { autoQuiet: { ...quiet, meetingApps } } })} />
           <Toggle label="Another app is using the mic" on={quiet.micContention}
             onFlip={(micContention) => save({ voice: { autoQuiet: { ...quiet, micContention } } })} />
-          <Toggle label="Do Not Disturb is on" on={quiet.systemDnd}
+          <Toggle label="Do Not Disturb is on" on={quiet.systemDnd} detail={dndNote(desktopPlatform) || undefined}
             onFlip={(systemDnd) => save({ voice: { autoQuiet: { ...quiet, systemDnd } } })} />
-        </div>
+        </ListGroup>
       </Section>
 
       <Section id="set-flow-typing" title="Typing" desc="Paste is instant. Some apps prefer it typed out.">
-        <div className={card}>
-          <Row label="How text goes in">
+        <ListGroup>
+          <ListRow label="How text goes in">
             <Segmented label="How text goes in" value={config.insertion.method}
               options={[{ id: "paste" as InsertionMethod, label: "Paste" }, { id: "type" as InsertionMethod, label: "Type it out" }]}
               onChange={(method) => save({ insertion: { method } })} />
-          </Row>
-          <details className="group py-3">
-            <summary className="cursor-pointer list-none text-label text-muted-foreground transition hover:text-foreground [&::-webkit-details-marker]:hidden">
-              Advanced timing
-            </summary>
-            <div className={cn("mt-3 flex flex-col gap-3", config.insertion.method !== "paste" && "opacity-60")}>
-              <Range label="Hold the modifier for" min={0} max={300} step={10} value={config.insertion.modifierHoldMs} saving={saving}
+          </ListRow>
+          <Advanced id="flow:typing" label="Advanced timing" className="py-1">
+            <div className={cn("flex flex-col gap-3", config.insertion.method !== "paste" && "opacity-60")}>
+              <Slider label="Hold the modifier for" min={0} max={300} step={10} value={config.insertion.modifierHoldMs} commitOnRelease saving={saving}
                 format={(v) => `${v} ms`} onChange={(modifierHoldMs) => save({ insertion: { modifierHoldMs } })} />
-              <Range label="Wait before putting the clipboard back" min={0} max={1000} step={25} value={config.insertion.clipboardQuietMs} saving={saving}
+              <Slider label="Wait before putting the clipboard back" min={0} max={1000} step={25} value={config.insertion.clipboardQuietMs} commitOnRelease saving={saving}
                 format={(v) => `${v} ms`} onChange={(clipboardQuietMs) => save({ insertion: { clipboardQuietMs } })} />
-              <Range label="Give up waiting after" min={1000} max={20_000} step={500} value={config.insertion.clipboardTimeoutMs} saving={saving}
+              <Slider label="Give up waiting after" min={1000} max={20_000} step={500} value={config.insertion.clipboardTimeoutMs} commitOnRelease saving={saving}
                 format={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(clipboardTimeoutMs) => save({ insertion: { clipboardTimeoutMs } })} />
             </div>
-          </details>
-        </div>
+          </Advanced>
+        </ListGroup>
       </Section>
 
       <Section id="set-flow-access" title="Access" desc="What this machine lets Flow do.">
         <AccessRows config={config} save={save} />
       </Section>
+
+      <p className="text-label leading-relaxed text-muted-foreground">
+        Flow also uses the shared <SharedLink onGo={() => go("voice", "set-voice-language")}>Language</SharedLink>,{" "}
+        <SharedLink onGo={() => go("voice", "set-voice-pronunciation")}>Pronunciation</SharedLink> and{" "}
+        <SharedLink onGo={() => go("engine")}>Speech engine</SharedLink>. Change them once, both modes follow.
+      </p>
     </div>
   );
+}
+
+function SharedLink({ onGo, children }: { onGo: () => void; children: React.ReactNode }) {
+  return <button type="button" onClick={onGo} className={linkClass}>{children}</button>;
 }
 
 /** The four grants Flow runs on. Shared with the first run so both screens
@@ -138,11 +177,11 @@ export function AccessRows({ config, save }: { config: FlowConfig | null; save: 
   const consent = !!config?.consent.granted;
 
   return (
-    <div className={card}>
+    <ListGroup>
       {error && (
-        <Row label={error}>
-          <button type="button" onClick={refresh} className={pill}>Check now</button>
-        </Row>
+        <ListRow label={error}>
+          <Button size="sm" onClick={refresh}>Check now</Button>
+        </ListRow>
       )}
       <Status label="Microphone" ok={perms?.microphone === "granted"}
         state={perms?.microphone === "granted" ? "Allowed" : perms?.microphone === "denied" ? "Refused" : "Not asked"}
@@ -158,25 +197,15 @@ export function AccessRows({ config, save }: { config: FlowConfig | null; save: 
           label: consent ? "Take it back" : "Allow",
           run: () => save({ consent: consent ? { granted: false, at: "" } : { granted: true, at: new Date().toISOString() } }),
         }} keep />
-    </div>
+    </ListGroup>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Toggle({ label, detail, on, onFlip }: { label: string; detail?: string; on: boolean; onFlip: (v: boolean) => void }) {
   return (
-    <div className={row}>
-      <span className="min-w-[8rem] flex-1 break-words text-label text-foreground">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function Toggle({ label, on, onFlip }: { label: string; on: boolean; onFlip: (v: boolean) => void }) {
-  return (
-    <label className={cn(row, "cursor-pointer select-none")}>
-      <span className="min-w-0 flex-1 break-words text-label text-foreground">{label}</span>
+    <ListRow label={label} detail={detail} asLabel>
       <Switch on={on} onFlip={() => onFlip(!on)} />
-    </label>
+    </ListRow>
   );
 }
 
@@ -187,51 +216,15 @@ function Status({ label, ok, state, action, keep, settings }: {
   label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void;
 }) {
   return (
-    <Row label={label}>
+    <ListRow label={label}>
       <span className="flex shrink-0 items-center gap-2 text-caption text-muted-foreground">
         <span className={cn("size-1.5 rounded-full", ok ? "bg-success" : "bg-arc")} />
         {state}
       </span>
       {settings && !ok && (
-        <button type="button" onClick={settings} className="shrink-0 text-caption font-medium text-link-foreground hover:underline">Settings</button>
+        <button type="button" onClick={settings} className={cn("shrink-0 text-caption", linkClass)}>Settings</button>
       )}
-      {action && (keep || !ok) && <button type="button" onClick={action.run} className={pill}>{action.label}</button>}
-    </Row>
-  );
-}
-
-/** Moves locally and saves once, when the thumb is let go or a key has moved it.
- *  A write per tick lagged behind the thumb, and each reply snapped it back. */
-function Range({ label, min, max, step, value, saving, format, onChange }: {
-  label: string; min: number; max: number; step: number; value: number; saving: boolean; format: (v: number) => string; onChange: (v: number) => void;
-}) {
-  const [draft, setDraft] = useState<number | null>(null);
-  const input = useRef<HTMLInputElement>(null);
-  const latest = useRef({ value, onChange });
-  latest.current = { value, onChange };
-  // Held until the write settles, so the thumb never jumps back to the old value
-  // while the new one is on its way; a refused write lands on what was stored.
-  useEffect(() => { if (!saving) setDraft(null); }, [value, saving]);
-  // The native `change` is the release (or one key press); React's onChange is every tick.
-  useEffect(() => {
-    const el = input.current;
-    if (!el) return;
-    const commit = () => {
-      const v = Number(el.value);
-      if (v === latest.current.value) setDraft(null);
-      else latest.current.onChange(v);
-    };
-    el.addEventListener("change", commit);
-    return () => el.removeEventListener("change", commit);
-  }, []);
-  const shown = draft ?? value;
-  return (
-    <label className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span className="min-w-[12rem] flex-1 text-label text-muted-foreground">{label}</span>
-      <input ref={input} type="range" min={min} max={max} step={step} value={shown}
-        onChange={(e) => setDraft(Number(e.target.value))}
-        className="h-1.5 min-w-[8rem] flex-[2] cursor-pointer appearance-none rounded-full bg-border accent-[var(--accent)]" />
-      <span className="w-[4.5rem] shrink-0 text-right font-mono text-label tabular-nums">{format(shown)}</span>
-    </label>
+      {action && (keep || !ok) && <Button size="sm" onClick={action.run}>{action.label}</Button>}
+    </ListRow>
   );
 }
