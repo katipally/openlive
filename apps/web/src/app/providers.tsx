@@ -2,9 +2,17 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
+import { MotionConfig } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useUi } from "@/lib/uiStore";
 import { warmupOnLaunch } from "@/lib/live/warmup";
+import { useAppearanceSync } from "@/lib/look";
+
+// Inside the ThemeProvider, which it reads the theme from.
+function AppearanceSync() {
+  useAppearanceSync();
+  return null;
+}
 
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(
@@ -20,7 +28,11 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <AppearanceSync />
+      {/* Reduce Motion, app-wide: motion drops transforms and layout moves and keeps fades. */}
+      <MotionConfig reducedMotion="user">
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </MotionConfig>
     </ThemeProvider>
   );
 }

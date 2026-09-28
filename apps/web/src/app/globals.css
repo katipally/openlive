@@ -4,7 +4,11 @@
    Token *names* are mapped to CSS custom properties via @theme inline, so the
    Tailwind utilities (bg-card, text-accent, …) resolve to var() at runtime.
    The actual values live in :root (warm-paper light) and .dark (near-black),
-   and next-themes toggles the .dark class — flipping every surface at once. */
+   and next-themes toggles the .dark class — flipping every surface at once.
+   A second, independent axis is the LOOK: <html data-look="flat|glass">.
+   Flat is solid surfaces (the default when the attribute is absent); glass
+   swaps the same tokens for translucent ones meant to sit over a transparent
+   window. Components never branch on the look, they only read tokens. */
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
@@ -319,6 +323,78 @@
   --float: var(--elevated);
 }
 
+/* ─── Glass look ───────────────────────────────────────────────────────────
+   Only where the engine can blur and the person has not asked for less
+   transparency; anywhere else a glass-tagged window keeps the flat tokens
+   above, which are opaque, so nothing is ever unreadable. Cards are a light
+   wash (the window behind is already frosted by the OS); floating surfaces
+   blur what is under them and carry a specular hairline and a rim highlight.
+   The selectors are :root and .dark qualified by the attribute, so dark glass
+   (same specificity, declared later) wins over light glass. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (prefers-reduced-transparency: no-preference) {
+    :root[data-look="glass"] {
+      --background: rgba(250, 248, 244, 0.56);
+      --surface: rgba(255, 255, 255, 0.22);
+      --surface-raised: rgba(255, 255, 255, 0.5);
+      --card: rgba(255, 255, 255, 0.55);
+      --elevated: rgba(252, 250, 246, 0.86);
+      --popover: rgba(252, 250, 246, 0.86);
+      --float: rgba(252, 250, 246, 0.86);
+      --foreground: #141412;
+      --muted-foreground: #52524c;
+      --muted-strong: #44443e;
+      --faint: rgba(0, 0, 0, 0.62);
+      --border: rgba(0, 0, 0, 0.10);
+      --border-heavy: rgba(0, 0, 0, 0.22);
+      --track: rgba(0, 0, 0, 0.06);
+      --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+      --thumb: rgba(255, 255, 255, 0.95);
+      --control: rgba(255, 255, 255, 0.55);
+      --secondary: rgba(255, 255, 255, 0.5);
+      --chip: rgba(255, 255, 255, 0.5);
+      --hairline: rgba(255, 255, 255, 0.75);
+      --shadow-rim: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.07), 0 12px 30px -20px rgba(60, 40, 10, 0.3);
+      --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.03), 0 0 0 0.5px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(60, 45, 20, 0.12);
+      --surface-blur: blur(22px) saturate(180%);
+      --scrim-blur: blur(8px);
+    }
+    .dark[data-look="glass"] {
+      --background: rgba(16, 16, 20, 0.60);
+      --surface: rgba(255, 255, 255, 0.035);
+      --surface-raised: rgba(255, 255, 255, 0.07);
+      --card: rgba(255, 255, 255, 0.07);
+      /* 0.88: muted text keeps 4.5:1 even with white right behind the blur. */
+      --elevated: rgba(38, 38, 44, 0.88);
+      --popover: rgba(38, 38, 44, 0.88);
+      --float: rgba(38, 38, 44, 0.88);
+      --foreground: #fafafa;
+      --muted-foreground: #bdbdc6;
+      --muted-strong: #c9c9c4;
+      --faint: rgba(255, 255, 255, 0.60);
+      --border: rgba(255, 255, 255, 0.10);
+      --border-heavy: rgba(255, 255, 255, 0.18);
+      --track: rgba(0, 0, 0, 0.22);
+      --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      --thumb: rgba(255, 255, 255, 0.18);
+      --shadow-thumb: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.3);
+      --control: rgba(255, 255, 255, 0.07);
+      --secondary: rgba(255, 255, 255, 0.07);
+      --chip: rgba(255, 255, 255, 0.06);
+      --hairline: rgba(255, 255, 255, 0.13);
+      --shadow-rim: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 0.5px rgba(255, 255, 255, 0.07), 0 12px 30px -20px rgba(0, 0, 0, 0.55);
+      --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.05), inset 0 0 14px rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.45);
+      --surface-blur: blur(22px) saturate(180%);
+    }
+    /* The window itself is the glass: the page must not paint an opaque canvas
+       under the tinted body, and the paper grain would sit on the desktop. */
+    html[data-look="glass"] { background: transparent; }
+    html[data-look="glass"] body::before { content: none; }
+  }
+}
+
 html, body {
   height: 100%;
 }
@@ -402,6 +478,24 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
   background-color: var(--color-scrim);
   -webkit-backdrop-filter: var(--scrim-blur);
   backdrop-filter: var(--scrim-blur);
+}
+
+/* The Glass/Flat switch (lib/look.ts): the whole window cross-fades through a
+   short blur. Less motion keeps a plain, quicker cross-fade. */
+@keyframes look-out { to { opacity: 0; filter: blur(6px); } }
+@keyframes look-in { from { opacity: 0; filter: blur(6px); } }
+html.look-switching::view-transition-old(root),
+html.look-switching::view-transition-new(root) {
+  animation-duration: var(--dur-look);
+  animation-timing-function: var(--ease-standard);
+}
+html.look-switching::view-transition-old(root) { animation-name: look-out; }
+html.look-switching::view-transition-new(root) { animation-name: look-in; }
+@media (prefers-reduced-motion: reduce) {
+  html.look-switching::view-transition-old(root),
+  html.look-switching::view-transition-new(root) { animation-duration: var(--dur-fast); }
+  @keyframes look-out { to { opacity: 0; } }
+  @keyframes look-in { from { opacity: 0; } }
 }
 
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */

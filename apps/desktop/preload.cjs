@@ -34,6 +34,14 @@ contextBridge.exposeInMainWorld("openlive", {
   // Settings → Models: an Ollama address off this computer. Main asks in a native
   // dialog and writes it itself. Resolves to { settings } | { cancelled } | { error }.
   confirmOllamaUrl: (url) => ipcRenderer.invoke("openlive:confirm-ollama-url", url),
+  // The theme and the Glass/Flat look. `get` is synchronous so the page's boot
+  // script can tag <html> before its first paint. Resolves / delivers
+  // { saved, look, support: { supported, reason }, probe }.
+  appearance: {
+    get: () => ipcRenderer.sendSync("openlive:appearance"),
+    set: (patch) => ipcRenderer.invoke("openlive:appearance-set", patch),
+    onChange: (cb) => listen("openlive:appearance-changed", cb),
+  },
   // True when running inside the desktop app.
   isDesktop: true,
   // App version, passed from main via additionalArguments (set from the release tag).

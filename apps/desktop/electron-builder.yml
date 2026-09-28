@@ -24,6 +24,7 @@ files:
   - preload.cjs
   - flow-input.cjs
   - flow-runtime.cjs
+  - look.cjs
   - flow-cursor.cjs
   - flow-cursor-preload.cjs
   - flow-cursor.html

@@ -2,7 +2,7 @@
 // OpenLive desktop shell. Runs the web (Next) + agent (ws) servers locally and
 // shows the UI in a native window. Everything is on localhost — the voice models
 // run in the renderer (Chromium/WebGPU), the LLM call goes out from the agent.
-const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, utilityProcess } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, nativeTheme, session, shell, dialog, desktopCapturer, ipcMain, screen, clipboard, utilityProcess } = require("electron");
 const { execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -13,6 +13,7 @@ const os = require("node:os");
 const { powerMonitor } = require("electron");
 const flowInput = require("./flow-input.cjs");
 const flowRuntime = require("./flow-runtime.cjs");
+const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 // The app keeps running after one, so the heads-up is a silent notification,
@@ -49,7 +50,6 @@ const WEB_PORT = Number(process.env.WEB_PORT) || (DEV ? 47834 : 47824);
 // socket blocks hydration → the UI renders but nothing is clickable.
 const WEB_HOST = "localhost";
 const WEB_URL = `http://${WEB_HOST}:${WEB_PORT}`;
-const DARK_BG = "#0b0b0c";
 
 // Per-launch auth token for the local agent. Loopback binding keeps remote
 // attackers out, but any LOCAL process could otherwise open the agent's socket
@@ -343,11 +343,143 @@ function firstTime(name) {
   return true;
 }
 
+// ── appearance: the theme and the look, known here before any page loads ─────
+// The renderer owns the choices (Settings, the palette) and reports them; this
+// process keeps them so the splash and the window's first frame already match,
+// and owns the OS material, which only it can switch.
+const LOOK_MS = 400;          // --dur-look in globals.css: the page's cross-fade
+const VIBRANCY = "under-window";
+const CLEAR = "#00000000";
+const PAGE_BG = { dark: "#0b0b0c", light: "#efede8" }; // --background in .dark / :root
+const THEMES = new Set(["system", "light", "dark"]);
+const appearanceFile = () => path.join(app.getPath("userData"), "appearance.json");
+let appearance = {};          // { theme, look, probe: { version, slow } }
+let look = "flat";            // what the main window wears right now
+let lookTimer = null;
+let winTransparencyOff = false;
+
+function loadAppearance() {
+  try { appearance = JSON.parse(fs.readFileSync(appearanceFile(), "utf8")) || {}; } catch { appearance = {}; }
+  // Native surfaces (the material's tint, the title bar) follow the app's theme, not the OS's.
+  nativeTheme.themeSource = THEMES.has(appearance.theme) ? appearance.theme : "system";
+  readWinTransparency();
+  look = effectiveLook(appearance.look, glassSupportNow());
+}
+function saveAppearance() {
+  try { fs.writeFileSync(appearanceFile(), JSON.stringify(appearance)); } catch { /* best-effort */ }
+}
+
+// Windows' "Transparency effects" switch, read directly as well: Chromium's
+// reduced-transparency signal is not documented to follow it there.
+function readWinTransparency() {
+  if (process.platform !== "win32" || !osHasGlass("win32", os.release())) return;
+  const out = sh('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v EnableTransparency');
+  winTransparencyOff = /EnableTransparency\s+REG_DWORD\s+0x0\b/i.test(out);
+}
+
+function glassSupportNow() {
+  return glassSupport({
+    platform: process.platform,
+    release: os.release(),
+    gpuCompositing: app.getGPUFeatureStatus().gpu_compositing,
+    reducedTransparency: nativeTheme.prefersReducedTransparency || winTransparencyOff,
+    // The renderer's frame-time probe, trusted for the version that measured it.
+    slow: appearance.probe?.version === app.getVersion() && !!appearance.probe.slow,
+  });
+}
+
+const pageBg = () => (nativeTheme.shouldUseDarkColors ? PAGE_BG.dark : PAGE_BG.light);
+const isMainWc = (wc) => !!mainWin && !mainWin.isDestroyed() && wc === mainWin.webContents;
+
+/** What a page needs to draw itself. Only the main window wears the look: the
+ *  owner is never shown and the orb keeps its own. `probe` asks the renderer to
+ *  time glass once per app version. */
+function appearanceFor(wc) {
+  const main = isMainWc(wc);
+  return {
+    saved: appearance.look ?? null,
+    look: main ? look : "flat",
+    support: glassSupportNow(),
+    probe: main && look === "glass" && appearance.probe?.version !== app.getVersion(),
+  };
+}
+
+/** Constructor options for a window's first frame in the look. Never
+ *  `transparent: true`: that loses resizing and maximize on Windows and costs
+ *  the voice models GPU time on macOS. The OS material draws behind a clear
+ *  background instead, and can be switched on a live window. */
+function materialOptions(l) {
+  const glass = l === "glass";
+  return {
+    backgroundColor: glass ? CLEAR : pageBg(),
+    // The material would otherwise go grey whenever another app has focus.
+    visualEffectState: "active",
+    ...(glass && process.platform === "darwin" ? { vibrancy: VIBRANCY } : {}),
+    ...(glass && process.platform === "win32" ? { backgroundMaterial: "acrylic" } : {}),
+  };
+}
+
+function setMaterial(win, l) {
+  if (!win || win.isDestroyed()) return;
+  const glass = l === "glass";
+  if (process.platform === "darwin") win.setVibrancy(glass ? VIBRANCY : null);
+  if (process.platform === "win32" && osHasGlass("win32", os.release())) win.setBackgroundMaterial(glass ? "acrylic" : "none");
+  win.setBackgroundColor(glass ? CLEAR : pageBg());
+}
+
+function sendAppearance() {
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:appearance-changed", appearanceFor(mainWin.webContents));
+}
+
+/** Re-decide the look (a choice, a probe, or the OS changed) and switch it
+ *  without a hard cut: glass goes on under the still-opaque page before the
+ *  page fades to show it; flat fades the page opaque first and only then takes
+ *  the glass away. */
+function refreshLook() {
+  const next = effectiveLook(appearance.look, glassSupportNow());
+  if (next === look) { sendAppearance(); return; }
+  look = next;
+  clearTimeout(lookTimer);
+  if (look === "glass") { setMaterial(mainWin, look); sendAppearance(); return; }
+  sendAppearance();
+  lookTimer = setTimeout(() => setMaterial(mainWin, look), LOOK_MS);
+}
+
+function wireAppearance() {
+  ipcMain.on("openlive:appearance", (e) => { e.returnValue = appearanceFor(e.sender); });
+  ipcMain.handle("openlive:appearance-set", (e, patch) => {
+    let changed = false;
+    if (THEMES.has(patch?.theme) && patch.theme !== appearance.theme) {
+      appearance.theme = patch.theme;
+      nativeTheme.themeSource = patch.theme;
+      changed = true;
+    }
+    if ((patch?.look === "glass" || patch?.look === "flat") && patch.look !== appearance.look) {
+      appearance.look = patch.look;
+      changed = true;
+    }
+    if (typeof patch?.slow === "boolean" && isMainWc(e.sender)) {
+      appearance.probe = { version: app.getVersion(), slow: patch.slow };
+      changed = true;
+    }
+    if (changed) { saveAppearance(); refreshLook(); }
+    return appearanceFor(e.sender);
+  });
+  // The OS theme, reduce transparency (both OSes watch it) and GPU state can all
+  // change under a running app.
+  nativeTheme.on("updated", () => {
+    readWinTransparency();
+    if (look === "flat" && mainWin && !mainWin.isDestroyed()) mainWin.setBackgroundColor(pageBg());
+    refreshLook();
+  });
+  app.on("gpu-info-update", refreshLook);
+}
+
 // ── windows ──────────────────────────────────────────────────────────────────
 function createSplash() {
   splashWin = new BrowserWindow({
     width: 420, height: 300, frame: false, resizable: false, movable: true,
-    backgroundColor: DARK_BG, show: true, center: true, hasShadow: true,
+    ...materialOptions(look), show: true, center: true, hasShadow: true,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
   splashWin.loadFile(path.join(__dirname, "splash.html"), { query: { v: app.getVersion() } });
@@ -360,9 +492,10 @@ function createMainWindow() {
     width: saved?.width || 1180, height: saved?.height || 800, minWidth: 940, minHeight: 640,
     ...(saved && saved.x != null ? { x: saved.x, y: saved.y } : {}),
     show: false,
-    // OPAQUE (never transparent): transparent windows take a slower macOS compositing
-    // path that competes with the on-device WebGPU voice models (adds turn latency) and
-    // render as a black wall on some GPUs.
+    // Never `transparent: true`: transparent windows take a slower macOS compositing
+    // path that competes with the on-device WebGPU voice models (adds turn latency),
+    // render as a black wall on some GPUs, and lose maximize on Windows. Glass is the
+    // OS material behind a clear background instead (materialOptions).
     // macOS: titleBarStyle "hidden" keeps the NATIVE traffic lights (positioned to match
     // the old custom dots) AND real OS fullscreen — a fully frameless window degrades the
     // green button to a maximize. Win/Linux stay frameless with our own controls.
@@ -370,7 +503,7 @@ function createMainWindow() {
       ? { titleBarStyle: "hidden", trafficLightPosition: { x: 12, y: 14 } }
       : { frame: false }),
     roundedCorners: true,
-    backgroundColor: DARK_BG,
+    ...materialOptions(look),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -395,6 +528,8 @@ function createMainWindow() {
     },
   });
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
+  // A backstop for OS settings that change without telling nativeTheme.
+  mainWin.on("focus", refreshLook);
 
   // Open external http(s) links (docs, etc.) in the real browser; DENY every other
   // popup (file:, data:, etc.) rather than letting it open an in-app window.
@@ -1060,6 +1195,8 @@ async function boot() {
   if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, "build", "icon.png"));
   buildMenu();
   createTray();
+  loadAppearance();
+  wireAppearance();
   wirePermissions();
   wirePanelIpc();
   wireNotifyIpc();
