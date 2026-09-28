@@ -4,14 +4,13 @@ import { useRef, useSyncExternalStore } from "react";
 import { Settings2, PanelLeft, Timer } from "lucide-react";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { AgentSelect } from "./AgentControls";
-import { AgentBar, WorkspacePill } from "./AgentBar";
+import { AgentBar, ApiBar, WorkspacePill } from "./AgentBar";
+import { pill, Tooltip, menuPanel, useMenu, Button } from "@/components/ui";
 import { useUi } from "@/lib/uiStore";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { cn } from "@/lib/cn";
-import { isDesktop, isMacDesktop, isWinDesktop } from "@/lib/platform";
+import { isDesktop, isMacDesktop, isNonMacDesktop, SETTINGS_KEYS } from "@/lib/platform";
 import { perf } from "@/lib/live/perf";
-import { useMenuPresence } from "@/lib/usePopIn";
-import { useMenuKeys } from "@/lib/useMenuKeys";
 
 // Compact context/cost readout from the latest turn (ACP usage_update or the
 // built-in brain's accounting). Hidden until the first turn reports. When the
@@ -22,17 +21,24 @@ function UsageChip() {
   const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
   const pct = usage.contextSize ? Math.min(100, Math.round((usage.contextTokens / usage.contextSize) * 100)) : null;
   return (
-    <span title={pct != null ? `Context: ${k(usage.contextTokens)} of ${k(usage.contextSize!)} tokens used · cost so far` : "Context used this session · cost so far"}
-      className="flex items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-caption tabular-nums text-muted-foreground">
-      {pct != null && (
-        <span className="relative h-1 w-8 overflow-hidden rounded-full bg-foreground/10">
-          <span className={cn("absolute inset-y-0 left-0 rounded-full", pct >= 90 ? "bg-destructive" : "bg-accent")} style={{ width: `${pct}%` }} />
-        </span>
-      )}
-      {pct != null ? `${pct}%` : `${k(usage.contextTokens)} ctx`}{usage.costUsd > 0 && ` · $${usage.costUsd.toFixed(2)}`}
-    </span>
+    <Tooltip label={pct != null ? `Context: ${k(usage.contextTokens)} of ${k(usage.contextSize!)} tokens used · cost so far` : "Context used this session · cost so far"} className="shrink-0">
+      <span className={cn(pill, "font-mono text-caption font-normal tabular-nums text-muted-strong")}>
+        {pct != null && (
+          <span className="relative h-1 w-8 overflow-hidden rounded-full bg-foreground/10">
+            <span className={cn("absolute inset-0 origin-left rounded-full transition-transform duration-slow ease-out-quart", pct >= 90 ? "bg-destructive" : "bg-accent")}
+              style={{ transform: `scaleX(${pct / 100})` }} />
+          </span>
+        )}
+        {/* Each figure rolls in when it changes, the rest of the line holds still. */}
+        <Tick value={pct != null ? `${pct}%` : `${k(usage.contextTokens)} ctx`} />
+        {usage.costUsd > 0 && <> · <Tick value={`$${usage.costUsd.toFixed(2)}`} /></>}
+      </span>
+    </Tooltip>
   );
 }
+
+/** A figure that rolls up into place when it changes (keyed, so the CSS replays). */
+const Tick = ({ value }: { value: string }) => <span key={value} className="ol-tick">{value}</span>;
 
 const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)} s` : `${n} ms`);
 const STAGES = [
@@ -46,18 +52,19 @@ function LatencyChip() {
   const stats = useSyncExternalStore(perf.subscribe, perf.stats, () => null);
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { open, mounted, requestClose, toggle } = useMenuPresence(panelRef);
-  useMenuKeys(ref, open, requestClose);
+  const { open, mounted, toggle } = useMenu(ref, panelRef);
   if (!stats) return null;
   return (
     <div ref={ref} className="relative">
-      <button onClick={toggle} aria-haspopup="dialog" aria-expanded={open} title="Latency this session"
-        className="flex items-center gap-1 rounded-md bg-foreground/5 px-2 py-1 text-caption tabular-nums text-muted-foreground transition hover:text-foreground">
-        <Timer className="size-3" /> {ms(stats.voiceToVoice.p50)}
-      </button>
+      <Tooltip label="Latency this session">
+        <button onClick={toggle} aria-haspopup="dialog" aria-expanded={open} aria-label={`Voice to voice ${ms(stats.voiceToVoice.p50)}, latency this session`}
+          className={cn(pill, "shrink-0 font-mono text-caption font-normal tabular-nums text-muted-strong hover:text-foreground")}>
+          <Timer aria-hidden className="size-3 text-muted-foreground" /> <Tick value={ms(stats.voiceToVoice.p50)} />
+        </button>
+      </Tooltip>
       {mounted && (
         <div ref={panelRef} role="dialog" aria-label="Latency this session"
-          className="absolute right-0 z-50 mt-1.5 w-max max-w-[calc(100vw-2rem)] overflow-x-auto rounded-xl border border-border bg-popover p-3 shadow-xl">
+          className={cn("absolute right-0 z-overlay mt-1.5 w-max max-w-[calc(100vw-2rem)] overflow-x-auto p-3", menuPanel)}>
           <table className="text-caption tabular-nums">
             <thead className="text-faint">
               <tr><th className="pb-1 pr-4 text-left font-medium">Stage</th><th className="pb-1 pl-2 text-right font-medium">Median</th><th className="pb-1 pl-2 text-right font-medium">p95</th></tr>
@@ -93,30 +100,31 @@ export function TopBar() {
     // [settings]. The 1fr side columns keep the middle cluster centered
     // (it expands symmetrically as more selectors appear); the empty side space is
     // the window drag handle.
-    <header className={cn("grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center",
-      isMacDesktop ? "pl-[84px]" : "pl-3",
-      isWinDesktop ? "pr-[140px]" : "pr-3",
+    <header className={cn("grid h-12 shrink-0 grid-cols-[minmax(min-content,1fr)_minmax(0,auto)_minmax(min-content,1fr)] items-center gap-2",
+      isMacDesktop ? "pl-traffic-lights" : "pl-3",
+      isNonMacDesktop ? "pr-window-controls" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
-      <div className="flex items-center gap-1 justify-self-start">
-        <button onClick={toggleHistory} title="Sessions (H)" aria-label="Toggle sessions"
-          className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", noDrag)}>
-          <PanelLeft className="size-4" />
-        </button>
-        <div className="flex items-center gap-2 px-2">
+      <div className="flex min-w-0 items-center gap-1">
+        <Tooltip label="Sessions" keys="H" className={noDrag}>
+          <Button variant="ghost" icon size="sm" onClick={toggleHistory} aria-label="Toggle sessions">
+            <PanelLeft />
+          </Button>
+        </Tooltip>
+        <div className="flex min-w-0 items-center gap-2 px-2">
           <OpenLiveOrb size={26} />
-          <span className="text-callout font-semibold tracking-tight">OpenLive</span>
+          <span className="truncate text-callout font-semibold tracking-tight">OpenLive</span>
         </div>
       </div>
-      <div className={cn("flex items-center gap-1 justify-self-center", noDrag)}>
+      <div className={cn("flex min-w-0 items-center justify-center gap-1.5", noDrag)}>
         <WorkspacePill />
-        <AgentSelect />
+        <div className="min-w-0"><AgentSelect /></div>
         <AgentBar />
+        <ApiBar />
         <UsageChip />
         <LatencyChip />
       </div>
       <div className={cn("flex items-center gap-1 justify-self-end", noDrag)}>
-        <button onClick={openSettings} title="Settings" aria-label="Settings"
-          className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
+        <Tooltip label="Settings" keys={SETTINGS_KEYS}><Button variant="ghost" icon size="sm" onClick={openSettings} aria-label="Settings"><Settings2 /></Button></Tooltip>
       </div>
     </header>
   );
