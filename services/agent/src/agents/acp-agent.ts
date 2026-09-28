@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-import type { Client, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, SessionUpdate, SessionModeState, SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { AgentCapabilities, AvailableCommand, Client, RequestPermissionRequest, RequestPermissionResponse, SessionConfigOption, SessionInfo, SessionModeState, SessionNotification, SessionUpdate } from "@agentclientprotocol/sdk";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import {
@@ -11,14 +11,14 @@ import {
 } from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
 import type { Emit } from "../tools.js";
-import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage, TurnInput } from "./types.js";
+import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
 import { killTree, track } from "./proc.js";
 import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
 import { resolveVision } from "../providers.js";
-import { describeFrames } from "../live/turn-runner.js";
+import { describeFrames, frameSources } from "../live/turn-runner.js";
 import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
@@ -95,6 +95,11 @@ export interface AcpOpts {
   /** Replaces the session preamble. Flow's rules differ from a call's, and an
    *  ACP agent keeps its own system prompt, so this is the only way in. */
   preamble?: string;
+  /** The caller will persist session/load's replay, so resume must replay: the
+   *  chat is empty. Otherwise session/resume, which skips the replay, is enough. */
+  replay?: boolean;
+  /** Initialize only, no session: enough to ask the agent for its session list. */
+  connectOnly?: boolean;
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -118,8 +123,10 @@ export class AcpAgent implements Agent {
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
   private sentPreamble = false;   // the voice+vision context is sent once per session
-  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], resumeAcrossRestart: true };
+  private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], commands: [], resumeAcrossRestart: true };
   private modelConfigId: string | null = null; // the ACP config option id for model selection
+  private booleanIds = new Set<string>(); // config options set with a typed boolean, not a value id
+  private caps: AgentCapabilities = {};
   // A message chunk the agent does not attribute to any message is a session
   // notice, not the reply. Codex announces its skill budget that way before
   // every turn, and it was being spoken aloud and saved as if it had said it.
@@ -180,7 +187,7 @@ export class AcpAgent implements Agent {
         // sessions stamped with an SDK entrypoint, and "claude-vscode" is the
         // "IDE front-end sharing sessions with the CLI" contract, so OpenLive
         // sessions show in /resume and are genuinely shared both ways
-        // (verified 2026-07-15 against claude 2.1.198 / adapter 0.59.0).
+        // (verified 2026-09-27 against claude 2.1.283 / adapter 0.81.2).
         ...(AGENT_REGISTRY[this.id].acp.env ?? {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -228,7 +235,7 @@ export class AcpAgent implements Agent {
       throw dead || !this.alive ? new Error(startError(this.id, exitCode, stderr)) : e;
     }
     ready = true;
-    this.opts.onSession?.(this.sessionId);
+    if (this.sessionId) this.opts.onSession?.(this.sessionId);
   }
 
   /** ACP handshake: initialize → resume (session/load) or new session, capturing
@@ -248,10 +255,16 @@ export class AcpAgent implements Agent {
         // Elicitations: login/OAuth URLs open the user's browser (narrated); form
         // requests render a proper modal. Both fully handled in clientHandler().
         elicitation: { url: {}, form: {} },
+        // Boolean config options (fast mode and the like) render as a switch.
+        session: { configOptions: { boolean: {} } },
       },
+      clientInfo: { name: "openlive", title: "OpenLive", version: CLIENT_VERSION },
     });
-    this.supportsImages = !!init.agentCapabilities?.promptCapabilities?.image;
-    const canLoad = !!init.agentCapabilities?.loadSession;
+    this.caps = init.agentCapabilities ?? {};
+    if (this.opts.connectOnly) return;
+    this.supportsImages = !!this.caps.promptCapabilities?.image;
+    const canLoad = !!this.caps.loadSession;
+    const canResume = !!this.caps.sessionCapabilities?.resume;
     const quirks = AGENT_REGISTRY[this.id].acp;
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
@@ -268,13 +281,26 @@ export class AcpAgent implements Agent {
     ];
 
     let resumed = false;
+    // session/resume restores the session without replaying it, so it is the
+    // cheap path whenever nobody needs the transcript back. A failure falls
+    // through to session/load, and that to a fresh session, as before.
+    if (this.opts.resumeSessionId && canResume && !(this.opts.replay && canLoad)) {
+      try {
+        this.sessionId = this.opts.resumeSessionId;
+        this.reportMeta(await this.conn!.resumeSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
+        resumed = true;
+        this.seedText = "";
+      } catch (e) {
+        log.debug(`agent:${this.id}`, `session/resume failed (${extractAcpError(e)})`);
+      }
+    }
     // Resume the chat's own prior session when the agent can. A failure here is
     // EXPECTED and benign — an empty/never-persisted session (e.g. a lobby prewarm
     // that made a session but never took a turn), a stale id, or a mid-call
     // reconnect — so we fall back to a fresh session SILENTLY. The original session
     // stays on disk and is still resumable from History. (Surfacing this as a spoken
     // notice made every normal reopen blurt out "couldn't reopen…".)
-    if (this.opts.resumeSessionId && canLoad) {
+    if (this.opts.resumeSessionId && canLoad && !resumed) {
       // Match replay updates (which stream DURING the load, before this.sessionId
       // would otherwise be set) by stamping the id up front.
       this.sessionId = this.opts.resumeSessionId;
@@ -329,16 +355,15 @@ export class AcpAgent implements Agent {
    *  a `category:"mode"` config option. Surfacing both renders "Mode" twice, so we
    *  keep only the dedicated picker and drop the duplicate config option. */
   private applyConfig(configOptions?: SessionConfigOption[] | null): void {
-    const selects = (configOptions ?? []).filter((o): o is Extract<SessionConfigOption, { type: "select" }> => o.type === "select");
-    const modelOpt = selects.find((o) => o.category === "model");
+    const all = configOptions ?? [];
+    const modelOpt = all.find((o): o is Extract<SessionConfigOption, { type: "select" }> => o.type === "select" && o.category === "model");
     this.modelConfigId = modelOpt?.id ?? null;
+    this.booleanIds = new Set(all.filter((o) => o.type === "boolean").map((o) => o.id));
     this.meta = {
       ...this.meta,
       models: modelOpt ? flattenSelect(modelOpt.options) : this.meta.models,
       currentModelId: modelOpt ? (modelOpt.currentValue ?? null) : this.meta.currentModelId,
-      options: selects.filter((o) => o.category !== "model" && o.category !== "mode").map((o) => ({
-        id: o.id, label: o.name, category: o.category ?? "", values: flattenSelect(o.options), currentId: o.currentValue ?? null,
-      })),
+      options: all.filter((o) => o.category !== "model" && o.category !== "mode").flatMap(optionFromAcp),
     };
   }
 
@@ -369,7 +394,9 @@ export class AcpAgent implements Agent {
   async setOption(optionId: string, valueId: string): Promise<void> {
     if (!this.conn || !this.sessionId) return;
     try {
-      const res = await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: optionId, value: valueId });
+      const res = await this.conn.setSessionConfigOption(this.booleanIds.has(optionId)
+        ? { sessionId: this.sessionId, configId: optionId, type: "boolean", value: valueId === BOOL_ON }
+        : { sessionId: this.sessionId, configId: optionId, value: valueId });
       if (res?.configOptions) this.applyConfig(res.configOptions);
       else this.meta = { ...this.meta, options: this.meta.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) };
       this.opts.onMeta?.(this.meta);
@@ -391,6 +418,7 @@ export class AcpAgent implements Agent {
         if (this.replaying) {
           if (u.sessionUpdate === "current_mode_update") { this.meta = { ...this.meta, currentModeId: u.currentModeId }; return; }
           if (u.sessionUpdate === "config_option_update") { this.applyConfig(u.configOptions); return; }
+          if (u.sessionUpdate === "available_commands_update") { this.meta = { ...this.meta, commands: commandsFromAcp(u.availableCommands) }; return; }
           this.bufferReplay(u); return;
         }
 
@@ -407,8 +435,10 @@ export class AcpAgent implements Agent {
             this.opts.onMeta?.(this.meta);
             return;
           case "available_commands_update":
-            // Slash commands proved unusable for a voice UI (tried twice, removed) —
-            // the agent still interprets a spoken "/review" fine on its own.
+            // Typed in the composer's slash menu; a spoken "/review" still reaches
+            // the agent as plain words.
+            this.meta = { ...this.meta, commands: commandsFromAcp(u.availableCommands) };
+            this.opts.onMeta?.(this.meta);
             return;
         }
 
@@ -646,12 +676,15 @@ export class AcpAgent implements Agent {
   /** Flow's rules where it set them, the call preamble everywhere else. */
   private preambleText(): string { return this.opts.preamble?.trim() || preamble(); }
 
-  async runTurn({ text, frames }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
+  async runTurn({ text, frames, command }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
     if (!this.conn || !this.alive) throw new Error(`${labelFor(this.id)} is not running`);
     if (signal.aborted) return;
+    // An advertised command goes alone, "/name args" as the first text block, as
+    // ACP specifies. The preamble and notes wait for the next spoken turn.
+    if (command && isAdvertised(command, this.meta.commands)) return this.prompt([{ type: "text", text: command.trim() }], emit, signal);
 
     // Note any live camera/screen the user is sharing (frames attached below when supported).
-    const sources = frames.length ? [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ") : "";
+    const sources = frames.length ? frameSources(frames) : "";
     // An agent that takes no images sees through the vision model, as the built-in brain does.
     const vision = sources && !this.supportsImages ? resolveVision() : null;
     const seen = vision ? await describeFrames(vision, text, frames, sources, signal).catch(() => "") : "";
@@ -671,9 +704,13 @@ export class AcpAgent implements Agent {
     this.cutNote = "";
 
     // Interleave the frames as image blocks so the agent sees the camera/screen.
-    const prompt: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{ type: "text", text: body }];
+    const prompt: PromptBlock[] = [{ type: "text", text: body }];
     if (this.supportsImages) for (const f of frames) prompt.push({ type: "image", data: f.data, mimeType: f.mime });
+    return this.prompt(prompt, emit, signal);
+  }
 
+  private async prompt(prompt: PromptBlock[], emit: Emit, signal: AbortSignal): Promise<void> {
+    if (!this.conn) return;
     this.turnEmit = emit;
     const onAbort = () => {
       void this.conn?.cancel({ sessionId: this.sessionId }).catch(() => {});
@@ -714,6 +751,24 @@ export class AcpAgent implements Agent {
       if (this.turnEmit === emit) this.turnEmit = null;
       this.turnTools.clear(); // per-turn state — never accumulates across turns
     }
+  }
+
+  /** The agent's own sessions via session/list, newest first, capped at `max`.
+   *  Null when the agent does not advertise list. Needs a started agent. */
+  async listSessions(max: number, cwd?: string): Promise<AgentSession[] | null> {
+    if (!this.conn || !this.caps.sessionCapabilities?.list) return null;
+    const out: AgentSession[] = [];
+    let cursor: string | null | undefined;
+    // Pages until `max` or the end, and at most MAX_LIST_PAGES: an agent may hand
+    // out empty pages, and a cursor seen twice would loop forever.
+    const seen = new Set<string>();
+    do {
+      const r = await this.conn.listSessions({ ...(cwd ? { cwd } : {}), ...(cursor ? { cursor } : {}) });
+      out.push(...sessionsFromAcp(r.sessions));
+      cursor = r.nextCursor;
+      if (cursor) { if (seen.has(cursor)) break; seen.add(cursor); }
+    } while (cursor && out.length < max && seen.size < MAX_LIST_PAGES);
+    return out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0)).slice(0, max);
   }
 
   async dispose(): Promise<void> {
@@ -783,6 +838,52 @@ function deltaFromAcp(u: {
   if (u.rawInput != null) delta.rawInputJson = rawJson(u.rawInput);
   if (u.rawOutput != null) delta.rawOutputJson = rawJson(u.rawOutput);
   return delta;
+}
+
+const MAX_LIST_PAGES = 10;
+
+type PromptBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+/** Package version reported as clientInfo on initialize. */
+const CLIENT_VERSION = process.env.npm_package_version || "0";
+
+/** A boolean config option rides the select-shaped wire as this on/off pair,
+ *  which every surface already renders as a switch. */
+const BOOL_ON = "true";
+const BOOL_VALUES = [{ id: BOOL_ON, name: "On" }, { id: "false", name: "Off" }];
+
+/** One ACP config option as the UI's generic option; unknown future types are skipped. */
+export function optionFromAcp(o: SessionConfigOption): AgentMeta["options"] {
+  const base = { id: o.id, label: o.name, category: o.category ?? "" };
+  if (o.type === "select") return [{ ...base, values: flattenSelect(o.options), currentId: o.currentValue ?? null }];
+  if (o.type === "boolean") return [{ ...base, values: BOOL_VALUES, currentId: String(o.currentValue === true) }];
+  return [];
+}
+
+/** available_commands_update into the wire shape, names without a leading slash. */
+export function commandsFromAcp(list: AvailableCommand[] | null | undefined): AgentCommand[] {
+  return (list ?? []).filter((c) => typeof c?.name === "string" && c.name.trim()).map((c) => ({
+    name: c.name.trim().replace(/^\//, ""),
+    description: c.description ?? "",
+    ...(c.input?.hint ? { hint: c.input.hint } : {}),
+  }));
+}
+
+/** "/name args" names a command this session advertised. */
+export function isAdvertised(text: string, commands: AgentCommand[]): boolean {
+  const name = /^\/(\S+)/.exec(text.trim())?.[1];
+  return !!name && commands.some((c) => c.name === name);
+}
+
+/** session/list entries into History rows. The title is the agent's own; one
+ *  it didn't give stays empty so the caller can fall back to its disk title. */
+export function sessionsFromAcp(list: SessionInfo[]): AgentSession[] {
+  return list.filter((s) => s.sessionId && s.cwd).map((s) => ({
+    id: s.sessionId,
+    cwd: s.cwd,
+    title: s.title?.trim() ?? "",
+    updatedAt: s.updatedAt && !Number.isNaN(Date.parse(s.updatedAt)) ? new Date(s.updatedAt).toISOString() : "",
+  }));
 }
 
 /** Flatten ACP select options (which may be flat or grouped) into {id,name}. */

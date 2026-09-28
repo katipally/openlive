@@ -11,8 +11,10 @@ import type { Emit } from "../tools.js";
 import type { AgentId } from "@openlive/shared";
 export type { AgentId };
 
-export type TurnFrame = { data: string; mime: string; source?: "camera" | "screen" };
-export type TurnInput = { text: string; frames: TurnFrame[] };
+export type TurnFrame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
+/** `command`: the user's raw "/name args" when the turn is a typed slash
+ *  command, sent as-is if the agent advertised it, else `text` is used. */
+export type TurnInput = { text: string; frames: TurnFrame[]; command?: string };
 
 export interface Agent {
   readonly id: AgentId;
@@ -64,10 +66,18 @@ export interface AgentMeta {
   modes: { id: string; name: string }[];
   currentModeId: string | null;
   options: AgentOption[];
+  /** Slash commands the session advertised (available_commands_update). */
+  commands: AgentCommand[];
   /** Whether resuming this session in the agent's own CLI works across process
    *  restarts. Claude: yes. Cursor: no (upstream limitation). Codex: best-effort. */
   resumeAcrossRestart: boolean;
 }
+
+/** One advertised slash command. Sent back as prompt text "/<name> <args>". */
+export interface AgentCommand { name: string; description: string; hint?: string }
+
+/** One of the agent's own sessions from session/list. */
+export interface AgentSession { id: string; cwd: string; title: string; updatedAt: string }
 
 /** A prior turn recovered from `session/load` replay, ready to persist + render. */
 export interface ReplayMessage { role: "user" | "assistant"; content: MessageBlock[] }

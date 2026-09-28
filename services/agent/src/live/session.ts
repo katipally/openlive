@@ -553,6 +553,7 @@ export class LiveSession {
       askElicitation: (req) => this.askElicitation(req),
       completeElicitation: (elicitationId) => this.elicitById.get(elicitationId)?.({ action: "accept" }),
       mcp: { wire: mcp.wire, tools: this.hosted.map((t) => t.name) },
+      replay: this.expectReplay,
     });
     if (!agent) return;
     this.agent = agent;

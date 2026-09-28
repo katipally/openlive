@@ -60,9 +60,20 @@ over stdio ("LSP for agents"). Design points:
   system-prompt append carrying the voice-call context. `CLAUDE_CODE_ENTRYPOINT=
   claude-vscode` keeps them visible in the CLI's `/resume` picker. Other agents get
   a first-turn preamble instead.
-- **Resume.** Reopening a conversation calls `session/load`; the replayed updates
-  rebuild the transcript. Resume failures fall back to a fresh session silently
-  (the original stays on disk and in History).
+- **Resume.** Reopening a conversation whose transcript OpenLive already holds
+  calls `session/resume` when the agent advertises it (no replay). An empty chat
+  (an agent's own session opened from History) calls `session/load`, whose
+  replayed updates rebuild the transcript. Each failure falls through to the
+  next, then to a fresh session, silently (the original stays on disk and in
+  History).
+- **The agent's own sessions.** History scans each agent's session store on
+  disk and, for agents advertising `sessionCapabilities.list`, lays the agent's
+  own `session/list` over it (`GET /agents/sessions`: initialize only, cached a
+  minute, never spawned when the CLI is not on PATH).
+- **Slash commands.** `available_commands_update` rides `agent_meta` as
+  `commands` for the composer's slash menu. A typed "/name args" that names an
+  advertised command is sent alone as the prompt's first text block, per ACP;
+  anything else is ordinary speech. API mode has none, so the menu hides.
 - **The call's own tools.** A call serves the tools a coding agent lacks (`look`,
   `clipboard_read`, `clipboard_write`, `open_url`, `remember`) to it over a
   loopback MCP server named `openlive`, built by Flow's `serveFlowMcp` from the
@@ -77,7 +88,8 @@ over stdio ("LSP for agents"). Design points:
   asks for the rest, which the ask names as "OpenLive's <tool>" since the card
   it points at is hidden. Replay drops those calls as live does.
 - **Models / modes / options.** The agent reports its models, modes, and other
-  config options over ACP; the UI renders pickers generically and switches them
+  config options over ACP (a boolean option arrives as an On/Off pair, so it
+  renders as a switch); the UI renders pickers generically and switches them
   mid-session (`set_model` / `set_mode` / `set_option`).
 - **Supervision.** Every agent runs inside `AgentSupervisor`: per-turn watchdogs
   (start / first-output / stall), restart-once-then-fail, and every failure ends as

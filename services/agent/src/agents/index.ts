@@ -7,7 +7,7 @@ import type { McpServerWire } from "./mcp-config.js";
 import { AgentSupervisor } from "./supervisor.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
 
-export type { Agent, AgentId, AgentMeta, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
+export type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
 export { PERMISSION_CANCELLED } from "./types.js";
 export { CALL_MCP_SERVER } from "./acp-agent.js";
 
@@ -25,6 +25,8 @@ export interface BoundHooks {
   completeElicitation?: (elicitationId: string) => void;
   /** The call's own tools, served to the agent, and their names for its preamble. */
   mcp?: { wire: McpServerWire; tools: string[] };
+  /** A resumed session's transcript is wanted back (the chat is empty). */
+  replay?: boolean;
 }
 export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean };
 export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
@@ -74,6 +76,7 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     onReplay: hooks.onReplay,
     askElicitation: hooks.askElicitation,
     completeElicitation: hooks.completeElicitation,
+    replay: hooks.replay,
     ...(hooks.mcp && { mcpServers: [hooks.mcp.wire], preamble: callPreamble(hooks.mcp.tools) }),
   }), askPermission, { startMs: 60_000 });
 }
