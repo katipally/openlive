@@ -31,6 +31,3 @@ export function usePersistedOpen(key: string, dflt = false): readonly [boolean, 
   const set = useStore((s) => s.set);
   return [open ?? dflt, (v: boolean) => set(key, v)] as const;
 }
-
-/** Imperative write (e.g. "Collapse all" acting on every section at once). */
-export const setDisclosure = (key: string, v: boolean): void => useStore.getState().set(key, v);

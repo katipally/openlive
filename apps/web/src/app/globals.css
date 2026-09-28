@@ -514,13 +514,16 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
   details[open]::details-content { height: auto; }
 }
 @media (prefers-reduced-motion: reduce) { details::details-content { transition: none; } }
+/* The content fades as the fold opens, so it does not arrive before its room does. */
+details:not([open]) > :not(summary) { opacity: 0; }
+details > :not(summary) { transition: opacity var(--dur-fast) var(--ease-out-quart); }
 
 /* Every button gives under the finger. The `scale` property, not `transform`,
    so it composes with motion's transforms; in the base layer, so any button's
    own active:scale-* wins. The floating windows (html.chromeless) keep their own tuning. */
 @layer base {
   @media (prefers-reduced-motion: no-preference) {
-    html:not(.chromeless) button:not(:disabled):active { scale: 0.97; }
+    html:not(.chromeless) button:not(:disabled):active { scale: 0.97; transition-duration: var(--dur-press); }
   }
 }
 
