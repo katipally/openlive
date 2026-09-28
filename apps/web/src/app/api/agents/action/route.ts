@@ -28,7 +28,7 @@ ${process.platform === "darwin"
   ? "macOS may be blocking automation: System Settings → Privacy & Security → Automation → allow OpenLive to control Terminal."
   : process.platform === "win32"
     ? "Your system blocked launching a terminal window from OpenLive."
-    : "No terminal emulator was found — install one (e.g. gnome-terminal, konsole, xterm) or just run the command below."}
+    : "No terminal emulator was found. Install one (e.g. gnome-terminal, konsole, xterm) or just run the command below."}
 ${display ? `Run this yourself in any terminal, then hit Re-check:\n  ${display}\n` : ""}`;
 
 export async function POST(req: Request) {
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
         if (spec.terminal && code !== 0) push(terminalHelp(spec.display));
         push(
           spec.terminal && code === 0
-            ? "\n✓ Continues in the terminal window that opened — finish there; the status updates by itself.\n"
+            ? "\n✓ Continues in the terminal window that opened. Finish there; the status updates by itself.\n"
             : `\n[exit ${code ?? 0}]\n`,
         );
         controller.close();

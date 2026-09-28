@@ -82,7 +82,7 @@ function AgentRow({ a }: { a: AgentStatus }) {
 
   const copyLogin = () => {
     void navigator.clipboard.writeText(a.loginCommand)
-      .then(() => toast("Command copied — paste it into any terminal."))
+      .then(() => toast("Command copied. Paste it into any terminal."))
       .catch(() => toast(a.loginCommand)); // clipboard blocked: at least show it
   };
 

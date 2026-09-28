@@ -215,7 +215,7 @@ export function useLiveSession(chatId: string) {
       if (state !== "suspend") return;
       if (!useLiveStore.getState().active) return;
       teardownRef.current();
-      set({ error: "Call paused while your machine slept — press Start to pick it back up." });
+      set({ error: "Call paused while your machine slept. Press Start to pick it back up." });
     });
     // replace-on-subscribe in the preload: no unsubscribe needed
   }, [set]);
@@ -287,7 +287,7 @@ export function useLiveSession(chatId: string) {
         if (permReminder.current) clearTimeout(permReminder.current);
         const remindIn = (expiresAt ?? 0) - Date.now() - 30_000;
         if (remindIn > 0) permReminder.current = setTimeout(() => {
-          if (useLiveStore.getState().permission?.reqId === reqId) engine.current?.say("Still waiting on that permission — I'll take it as a no in thirty seconds.");
+          if (useLiveStore.getState().permission?.reqId === reqId) engine.current?.say("Still waiting on that permission. I'll take it as a no in thirty seconds.");
         }, remindIn);
       },
       // The server settled the ask (answered elsewhere, auto-denied, or the turn was
@@ -346,7 +346,7 @@ export function useLiveSession(chatId: string) {
         // re-push once, then surface instead of looping.
         if (agentId && st.boundCwd && !cwd) {
           if (!cwdHealTried.current) { cwdHealTried.current = true; client.current?.bind(agentId, st.boundCwd); return; }
-          set({ error: `${agentLabel(agentId)} didn't get the project folder — pick it again from the top bar.`, agentConnecting: false });
+          set({ error: `${agentLabel(agentId)} didn't get the project folder. Pick it again from the top bar.`, agentConnecting: false });
         }
       },
       onSse: (e) => {
@@ -378,7 +378,7 @@ export function useLiveSession(chatId: string) {
           // A long-running turn finished while you were in another app; quick
           // answers don't notify. Main shows it only if unfocused.
           if (turnStartedAt.current && Date.now() - turnStartedAt.current > 5000) {
-            notifyDesktop(agentLabel(useLiveStore.getState().boundAgent), "Finished — ready when you are.");
+            notifyDesktop(agentLabel(useLiveStore.getState().boundAgent), "Finished and ready when you are.");
           }
           turnStartedAt.current = 0;
           // Finish the spoken turn but KEEP assistantId pointing at it, so any
@@ -407,7 +407,7 @@ export function useLiveSession(chatId: string) {
         if (e.type === "acp_tool_call") {
           engine.current?.endAgentStep();
           closeSpokenSegment();
-          set({ toolStatus: `${kindMeta(e.call.kind).active} — ${e.call.title}` });
+          set({ toolStatus: `${kindMeta(e.call.kind).active}: ${e.call.title}` });
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
           return;
         }
@@ -767,7 +767,7 @@ export function useLiveSession(chatId: string) {
       try {
         const devs = await md.enumerateDevices();
         if (!devs.some((d) => d.kind === "audioinput" && d.deviceId === st.micId)) {
-          toast("Microphone disconnected — switched to the default mic.", "info");
+          toast("Microphone disconnected. Switched to the default mic.", "info");
           await setMic("");
         }
       } catch { /* enumerate unavailable */ }

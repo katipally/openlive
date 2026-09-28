@@ -40,7 +40,7 @@ export const effortName = (effort: string): string =>
 export function ThinkNote() {
   return (
     <p className="pt-1.5 text-caption leading-relaxed text-muted-foreground">
-      You&apos;re on a call — every thinking token is silence before the first word. Keep this as low as the work allows.
+      You&apos;re on a call, so every thinking token is silence before the first word. Keep this as low as the work allows.
     </p>
   );
 }

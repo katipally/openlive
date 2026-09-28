@@ -29,7 +29,7 @@ const MIN_SEC = 5, MAX_SEC = 30;
 
 const SCRIPTS = [
   { id: "everyday", label: "Everyday", text: "Hey, it's me. I'm recording a short sample so my computer can speak in my voice. I talk to it about work, plans for the weekend, and whatever else comes up during the day." },
-  { id: "expressive", label: "Expressive", text: "Okay, this is exciting! The quick brown fox jumps over the lazy dog — but honestly? I never understood why foxes get all the credit. Anyway, let's see how this sounds." },
+  { id: "expressive", label: "Expressive", text: "Okay, this is exciting! The quick brown fox jumps over the lazy dog. But honestly? I never understood why foxes get all the credit. Anyway, let's see how this sounds." },
   { id: "calm", label: "Calm", text: "The evening settles in slowly. I like reading a few pages before bed, with some quiet music in the background. Everything stays on this machine, which is exactly how I want it." },
 ] as const;
 
@@ -85,7 +85,7 @@ export function VoicesSettings() {
       </Section>
 
       {model?.installed && (
-        <Section title="Create a voice" desc={`Record ${MIN_SEC}–${MAX_SEC} seconds — read a script or just talk — or upload an existing clip. You'll hear it back before anything is saved.`}>
+        <Section title="Create a voice" desc={`Record ${MIN_SEC}–${MAX_SEC} seconds (read a script or just talk), or upload an existing clip. You'll hear it back before anything is saved.`}>
           <Recorder onSaved={refresh} />
         </Section>
       )}
@@ -200,7 +200,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   // A captured OR uploaded clip: enforce the length window, then auto-transcribe
   // with the on-device Whisper (editable afterwards). Shared by record + upload.
   const acceptTake = (samples: Float32Array, sampleRate: number) => {
-    if (samples.length / sampleRate < MIN_SEC) { setBusy(null); toast(`Too short — need at least ${MIN_SEC} seconds.`); return; }
+    if (samples.length / sampleRate < MIN_SEC) { setBusy(null); toast(`Too short. It needs at least ${MIN_SEC} seconds.`); return; }
     const capped = samples.length / sampleRate > MAX_SEC ? samples.subarray(0, Math.floor(MAX_SEC * sampleRate)) : samples;
     setTake({ samples: capped, sampleRate });
     void (async () => {
@@ -231,7 +231,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
       for (let i = 0; i < n; i++) { let sum = 0; for (let c = 0; c < ch; c++) sum += data[c]![i]!; mono[i] = sum / ch; }
       setTranscript(""); setName("");
       acceptTake(mono, audio.sampleRate); // hands the busy state off to "transcribe"
-    } catch (e) { log.error("voice", "decode:", e); toast("Couldn't read that audio — try a WAV, MP3, or M4A file."); setBusy(null); }
+    } catch (e) { log.error("voice", "decode:", e); toast("Couldn't read that audio. Try a WAV, MP3, or M4A file."); setBusy(null); }
   };
 
   const start = async () => {
@@ -382,7 +382,7 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
     const clone = chooseVariant(cfg, "tts", "clone");
     setCfg(savePipelineConfig({ ...clone, tts: { ...clone.tts, voice: id } }));
     onChange();
-    toast("Cloned voice active — it speaks from your next call.");
+    toast("Cloned voice active. It speaks from your next call.");
   };
 
   const preview = async (p: VoiceProfile) => {

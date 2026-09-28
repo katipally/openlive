@@ -21,7 +21,7 @@ export function ModalVoiceInput({ hint = "Say your answer…" }: { hint?: string
       <Mic className={cn("size-3.5 shrink-0", live ? "text-accent" : "text-faint")} />
       <span className={cn("min-w-0 flex-1 truncate", heard ? "text-foreground" : "text-faint",
         live && "arc-shimmer")}>
-        {heard || (pttActive ? "Listening — release to answer" : hint)}
+        {heard || (pttActive ? "Listening. Release to answer" : hint)}
       </span>
     </div>
   );

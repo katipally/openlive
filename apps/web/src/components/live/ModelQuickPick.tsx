@@ -71,7 +71,7 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
         )}
         {blind && (
           <p className="flex items-center gap-1 pt-1 text-micro text-arc-text">
-            <AlertCircle className="size-3 shrink-0" /> This model can&apos;t see — set a vision model in Settings.
+            <AlertCircle className="size-3 shrink-0" /> This model can&apos;t see. Set a vision model in Settings.
           </p>
         )}
       </Field>
