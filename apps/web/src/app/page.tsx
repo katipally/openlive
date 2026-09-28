@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
 import { restoreMode, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
@@ -11,7 +11,9 @@ import { HistorySidebar } from "@/components/HistorySidebar";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
+import { Button, Tooltip } from "@/components/ui";
 import { useAppVersion } from "@/lib/useAppVersion";
+import { SETTINGS_KEYS } from "@/lib/platform";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
@@ -25,21 +27,20 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 
 // One home for the mode switch: top centre of the window, clear of the traffic
 // lights on the left and the window controls on the right, in every mode.
-const MODE_SWITCH_AT = "fixed left-1/2 top-2 z-[var(--z-nav)] -translate-x-1/2";
+const MODE_SWITCH_AT = "fixed left-1/2 top-2 z-nav -translate-x-1/2";
 
 // Views slide the way the switch reads: Flow sits right of Chat. `custom` is the
 // direction (1 toward Flow, -1 toward Chat, 0 to only cross-fade).
-type Bezier = [number, number, number, number];
 const VIEW = {
   variants: {
     enter: (d: number) => ({ x: `${d * 6}%`, opacity: 0 }),
     // The leaving view clears out before the arriving one is half in: at equal
     // speeds both heroes sat on screen at half strength, a double-exposed orb.
-    shown: { x: "0%", opacity: 1, transition: { duration: DUR.base, delay: 0.08, ease: [0.23, 1, 0.32, 1] as Bezier } },
-    exit: (d: number) => ({ x: `${d * -6}%`, opacity: 0, transition: { duration: 0.12, ease: [0, 0, 0.2, 1] as Bezier } }),
+    shown: { x: "0%", opacity: 1, transition: { ...SHEET, delay: 0.08 } },
+    exit: (d: number) => ({ x: `${d * -6}%`, opacity: 0, transition: EXIT }),
   },
   initial: "enter", animate: "shown", exit: "exit",
-  transition: { duration: DUR.base, ease: [0.23, 1, 0.32, 1] },
+  transition: SHEET,
 } as const;
 
 export default function Home() {
@@ -51,6 +52,7 @@ export default function Home() {
   const activeChatId = useUi((s) => s.activeChatId);
   const newConversation = useUi((s) => s.newConversation);
   const mode = useUi((s) => s.mode);
+  const settingsOpen = useUi((s) => s.settingsOpen);
   const reduce = useReducedMotion();
 
   // The saved mode, applied after mount: this store is evaluated during SSR too,
@@ -79,18 +81,22 @@ export default function Home() {
 
   const heroRef = useRef<HTMLDivElement>(null);
 
-  // Launch reveal — the one orchestrated hero moment: mark settles in, headline
-  // and tagline rise, CTAs stagger up, the talk-to line and footer fade last.
-  // Runs once per mount of the hero (not during calls; LiveDock covers it).
-  useGSAP(() => {
-    if (!heroRef.current || prefersReduced()) return;
-    gsap.timeline()
-      .fromTo(".ol-hero-mark", { autoAlpha: 0, scale: 0.86, y: 6 }, { autoAlpha: 1, scale: 1, y: 0, duration: DUR.enter, ease: EASE.emphasized })
-      .fromTo(".ol-hero-title", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: DUR.slow, ease: EASE.emphasized }, "-=0.28")
-      .fromTo(".ol-hero-tag", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: DUR.slow, ease: EASE.out }, "-=0.24")
-      .fromTo(".ol-hero-cta > *", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out, stagger: 0.06 }, "-=0.2")
-      .fromTo(".ol-hero-sub", { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft }, "-=0.1");
-  }, { scope: heroRef });
+  // Launch reveal, the one orchestrated hero moment: the mark settles in, headline
+  // and tagline rise, the CTAs stagger up, the talk-to line fades last. Runs once
+  // per mount of the hero (not during calls; LiveDock covers it).
+  useLayoutEffect(() => {
+    const el = heroRef.current;
+    if (!el || reduce) return;
+    const runs = [
+      animateAll(el, ".ol-hero-mark", { opacity: [0, 1], scale: [0.86, 1], y: [6, 0] }, GENTLE),
+      animateAll(el, ".ol-hero-title", { opacity: [0, 1], y: [14, 0] }, { ...GENTLE, delay: 0.2 }),
+      animateAll(el, ".ol-hero-tag", { opacity: [0, 1], y: [10, 0] }, { ...GENTLE, delay: 0.34 }),
+      animateAll(el, ".ol-hero-cta > *", { opacity: [0, 1], y: [12, 0] }, { ...SMOOTH, delay: stagger(0.06, { startDelay: 0.5 }) }),
+      animateAll(el, ".ol-hero-sub", { opacity: [0, 1] }, { ...FADE, delay: 0.78 }),
+    ];
+    return () => runs.forEach((r) => r?.stop());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the reveal plays on mount only
+  }, []);
 
   const startNew = () => {
     newConversation();
@@ -113,6 +119,9 @@ export default function Home() {
     // so Settings, tours and the switch layer exactly as before. x-clip stops the
     // slide from flashing a horizontal scrollbar.
     <div className="relative z-10 overflow-x-clip">
+      {/* Layers (globals.css "Layers under glass"): under the glass look the window
+          is see-through, so a full-window surface hides the layers it covers. */}
+      <div data-layer="view" className="relative">
       {!liveOpen && <ModeSwitch className={MODE_SWITCH_AT} />}
       <AnimatePresence initial={false} mode="popLayout" custom={dir}>
         {flow ? (
@@ -128,31 +137,28 @@ export default function Home() {
             <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10"><SwitchHole /></div>
 
 
-            <div ref={heroRef} className="flex flex-col items-center gap-6">
-              <div className="ol-hero-mark"><OpenLiveMark /></div>
+            <div ref={heroRef} className="flex max-w-full flex-col items-center gap-7">
+              <div className="ol-hero-mark"><OpenLiveMark paused={liveOpen || settingsOpen} /></div>
               <div className="space-y-2">
                 <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
                 <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
                   Ears, eyes, and a voice for your AI.
                 </p>
               </div>
-              <div className="ol-hero-cta flex items-center gap-3">
-                <button onClick={startNew} data-tour="new"
-                  className="flex items-center gap-2 rounded-full bg-accent px-7 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
-                  <Plus className="size-5" /> New
-                </button>
-                <button onClick={() => setHistoryOpen(true)} title="Browse & resume past conversations" data-tour="resume"
-                  className="flex items-center gap-2 rounded-full border border-border px-5 py-3 text-callout text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-                  <MessageSquare className="size-4" /> Resume
-                </button>
-                <button onClick={openSettings} title="Settings" aria-label="Settings" data-tour="settings"
-                  className="grid size-[46px] place-items-center rounded-full border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-                  <Settings2 className="size-[18px]" />
-                </button>
+              <div className="ol-hero-cta flex flex-wrap items-center justify-center gap-3">
+                <Button variant="primary" size="lg" onClick={startNew} data-tour="new"><Plus /> New</Button>
+                <Tooltip label="Browse & resume past conversations">
+                  <Button size="lg" onClick={() => setHistoryOpen(true)} data-tour="resume">
+                    <MessageSquare /> Resume
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Settings" keys={SETTINGS_KEYS}>
+                  <Button size="lg" icon onClick={openSettings} aria-label="Settings" data-tour="settings"><Settings2 /></Button>
+                </Tooltip>
               </div>
               {/* Choose what a new conversation talks to — the built-in assistant or a
                   coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-              <div className="ol-hero-sub flex items-center gap-1.5 text-label text-faint" data-tour="talk-to">
+              <div className="ol-hero-sub flex max-w-full items-center gap-2 text-label text-faint" data-tour="talk-to">
                 Talk to <AgentSelect />
               </div>
             </div>
@@ -163,17 +169,18 @@ export default function Home() {
               </a>
             </footer>
 
-            {liveOpen && <LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} />}
-            <HistorySidebar />
             <SpotlightTour id="home" active={!liveOpen} steps={[
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
-              { target: "new", title: "Start a conversation", body: "New opens the call setup — pick a project folder, check your mic, then just talk. Interrupt any time." },
-              { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder — including sessions from the agent's own CLI." },
+              { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
+              { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
               { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },
             ]} />
           </motion.main>
         )}
       </AnimatePresence>
+      </div>
+      {liveOpen && <div data-layer="stage"><LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} /></div>}
+      {!flow && <div data-layer="drawer"><HistorySidebar /></div>}
       <SettingsPage />
       <CommandPalette onNewChat={startNew} />
       <ShortcutsSheet />

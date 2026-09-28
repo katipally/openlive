@@ -480,6 +480,32 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
   backdrop-filter: var(--scrim-blur);
 }
 
+/* ─── Layers under glass ───────────────────────────────────────────────────
+   The page's layers, bottom to top: the view (Chat home or Flow), the stage
+   (the call setup and the call), the Sessions drawer, Settings (app/page.tsx).
+   Under glass the window is see-through and every fill is translucent, so a
+   full-window surface tagged [data-covering] cannot hide what it covers by
+   painting over it: the layers under it fade out as it fades in, then stop
+   painting. A stage covers the view; Settings covers them all. A modal that must
+   stay above Settings (.ol-over-settings) keeps its layer painting, unfaded,
+   around it. Flat is opaque and needs none of this. */
+/* Coming back waits out the first half of the cover's own fade-out. */
+[data-layer] { transition: opacity var(--dur-base) var(--ease-standard) calc(var(--dur-base) / 2); }
+html[data-look="glass"]:has([data-covering]) [data-layer="view"],
+html[data-look="glass"]:has([data-covering="settings"]) :is([data-layer="stage"], [data-layer="drawer"]) {
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-base);
+}
+html[data-look="glass"]:has([data-covering]) [data-layer="view"]:not(:has(.ol-over-settings)),
+html[data-look="glass"]:has([data-covering="settings"]) :is([data-layer="stage"], [data-layer="drawer"]):not(:has(.ol-over-settings)) {
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard), visibility 0s linear var(--dur-base);
+}
+html[data-look="glass"]:has([data-covering]) .ol-over-settings { visibility: visible; }
+/* The look switch snapshots the page right after the look changes: a covered
+   layer must already be gone by then, not partway through its fade. */
+html.look-switching [data-layer] { transition: none !important; }
+
 /* The Glass/Flat switch (lib/look.ts): the whole window cross-fades through a
    short blur. Less motion keeps a plain, quicker cross-fade. */
 @keyframes look-out { to { opacity: 0; filter: blur(6px); } }
