@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { holdFloor, releaseWhenFree } from "@/lib/keepScroll";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
-import { Mic, Languages, Gauge, AudioWaveform, Play, Loader2, RotateCcw, Star, Download, Check, Trash2, X, Cpu, ExternalLink, Lock } from "lucide-react";
+import { Mic, Languages, Gauge, AudioWaveform, Loader2, RotateCcw, Download, Check, Trash2, X, Cpu, ExternalLink, Lock } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, WHISPER_SIZES, VAD_MODELS, VOICEPRINT_ENGINE, type VoiceprintMode, ADDRESSEE_ENGINE, type SideTalk, TURN_ENGINES, TTS_FAMILIES, STT_FAMILIES, isNativeVariant,
-  TURN_PRESETS, activeTurnPreset, type TurnPresetValues, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
+  TURN_PRESETS, activeTurnPreset, chooseFamily, chooseVariant, familyInfo, browserTtsFallback,
   DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, CURATED_LANGUAGES, languageSupport, pickCompatible,
   familyVariant, isRestricted, permitted,
 } from "@/lib/live/pipelineConfig";
-import { languageLabel, languagesNote, licenseTag, variantGroups, voiceMenu, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
+import { languageLabel, languagesNote, licenseTag, variantGroups, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
@@ -20,16 +21,14 @@ import {
 import { toSpeech } from "@/lib/live/voiceText";
 import { enrollVoice, forgetVoiceprint, voiceprintStatus } from "@/lib/live/voiceprint";
 import { addresseeStatus, deleteJudgmentLog } from "@/lib/live/addressee";
-import { Switch } from "@/components/Switch";
+import { Switch, Select, Slider, Button, Tooltip, Badge, Segmented, type SegOption, Advanced, notice, Notice } from "@/components/ui";
 import { MicVAD } from "@ricky0123/vad-web";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { compileLexicon } from "@openlive/shared/speech/lexicon";
 import { cn } from "@/lib/cn";
-import { Segmented, type SegOption } from "@/lib/seg";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
-import { usePendingDeletes } from "@/lib/deferredDelete";
-import { prefersReduced } from "@/lib/gsap";
+import { LinkRow, useSettingsNav } from "./nav";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel.
 const STAGES = [
@@ -41,34 +40,6 @@ const STAGES = [
 type StageId = (typeof STAGES)[number]["id"];
 
 type Update = (next: PipelineConfig) => void;
-
-function Slider({ label, value, min, max, step, fmt, onChange }: {
-  label: string; value: number; min: number; max: number; step: number; fmt: (v: number) => string; onChange: (v: number) => void;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="flex items-center justify-between text-label text-foreground">{label}<span className="tabular-nums text-muted-foreground">{fmt(value)}</span></span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-foreground" />
-    </label>
-  );
-}
-
-const selectClass = "ol-select h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy";
-
-// The built-in engine for a stage: named, described, badged "Default" (can't be
-// removed). Additional swappable engines slot in beside this later.
-function EngineCard({ name, desc }: { name: string; desc: string }) {
-  return (
-    <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-      <div className="flex items-center gap-2 text-body font-semibold text-foreground">
-        {name}
-        <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Default</span>
-      </div>
-      <p className="mt-1 text-label leading-relaxed text-muted-foreground">{desc}</p>
-    </div>
-  );
-}
 
 function StageHead({ title, desc }: { title: string; desc: string }) {
   return (
@@ -91,31 +62,29 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
   const cached = typeof window !== "undefined" && modelsCached();
   const download = async () => {
     setBusy(true);
-    try { await loadModels((p) => setPct(p.pct)); } catch (e) { log.error("models", e); toast("Model download failed — check your connection and try again."); } finally { setBusy(false); }
+    try { await loadModels((p) => setPct(p.pct)); } catch (e) { log.error("models", e); toast("Model download failed. Check your connection and try again."); } finally { setBusy(false); }
   };
   const remove = async () => {
     if (!removeKind) return;
     setRemoving(true);
-    try { const n = await removeModel(removeKind); toast(n ? "Removed — freed the disk it used. It re-downloads when next needed." : "Nothing to remove — not downloaded yet."); }
+    try { const n = await removeModel(removeKind); toast(n ? "Removed, and the disk it used is free. It re-downloads when next needed." : "Nothing to remove. It isn't downloaded yet."); }
     catch { toast("Couldn't remove that model."); }
     finally { setRemoving(false); }
   };
   return cached ? (
-    <div className="flex items-center gap-2.5">
-      <p className="flex items-center gap-1.5 text-caption text-success"><Check className="size-3.5" /> Downloaded on this device.</p>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Downloaded on this device</span>
       {removeKind && (
-        <button onClick={remove} disabled={removing}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-caption text-muted-foreground transition hover:border-border-heavy hover:text-danger disabled:opacity-50">
-          {removing ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />} Remove
-        </button>
+        <Button size="sm" onClick={remove} disabled={removing} className="enabled:hover:text-danger">
+          {removing ? <Loader2 className="animate-spin" /> : <Trash2 />} Remove
+        </Button>
       )}
     </div>
   ) : (
-    <button onClick={download} disabled={busy}
-      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-60">
-      {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+    <Button size="sm" onClick={download} disabled={busy}>
+      {busy ? <Loader2 className="animate-spin" /> : <Download />}
       {busy ? `Downloading… ${Math.round(pct * 100)}%` : "Download models now"}
-    </button>
+    </Button>
   );
 }
 
@@ -129,7 +98,7 @@ const ENGINE_COPY: Record<string, { title: string; desc: string }> = {
   moonshine: { title: "Moonshine", desc: "Useful Sensors' small English models: the fastest and lightest native downloads, less accurate on long speech." },
   kokoro: { title: "Kokoro", desc: "82M StyleTTS2: natural, 28 English voices (~82 MB)." },
   supertonic: { title: "Supertonic", desc: "Supertone's 66M flow-matching TTS: quick first word, 10 voices (~400 MB)." },
-  clone: { title: "Your voice", desc: "Cloned from a short recording. Record and manage them under Your voices below (runs locally)." },
+  clone: { title: "Your voice", desc: "Cloned from a short recording. Record and manage them in Voice, under Your voices (runs locally)." },
   pocket: { title: "Pocket TTS", desc: "Streams speech as it is generated, the quickest to start talking. 2 voices." },
   kitten: { title: "Kitten TTS", desc: "KittenML's tiny models, streamed as they are generated. 8 voices." },
   "nemotron-3.5": { title: "Nemotron 3.5 Streaming", desc: "NVIDIA's multilingual streaming model: 28 languages, transcribed while you talk." },
@@ -137,6 +106,10 @@ const ENGINE_COPY: Record<string, { title: string; desc: string }> = {
   piper: { title: "Piper", desc: "Small, clear voices, one language each." },
   "kokoro-native": { title: "Kokoro (CPU)", desc: "Kokoro on this machine's CPU, with voices in seven languages." },
   matcha: { title: "Matcha", desc: "A fast English voice from icefall." },
+  v6: { title: "Silero VAD v6.2", desc: "Recommended. Better at quiet voices, noisy rooms and phone-quality audio." },
+  v5: { title: "Silero VAD v5", desc: "The previous model, for hardware where v6.2 misbehaves." },
+  "smart-turn": { title: "Smart-Turn v3", desc: "Listens for a finished thought, not just silence. About 250 ms a check, on the CPU." },
+  silence: { title: "Silence timeout", desc: "Replies after a fixed pause. No model at all." },
 };
 
 const mb = (n: number) => `${Math.round(n / 1e6)} MB`; // decimal, as the engine names in pipelineConfig.ts
@@ -181,24 +154,24 @@ function AccelRow({ id }: { id: string }) {
     "cpu-only": "No accelerator on this device that OpenLive's speech runtime supports.",
     done: a.results.map(resultLine).join(" · "),
   }[a.bench];
+  const errors = a.results.map((r) => ("error" in r ? `${r.provider}: ${r.error}` : "")).filter(Boolean).join("\n");
   return (
     <div className="flex basis-full flex-wrap items-center gap-x-3 gap-y-2">
       <label className="flex min-w-0 items-center gap-1.5 text-label text-muted-foreground">
         <Cpu className="size-3.5 shrink-0" /> Runs on
-        <select value={a.override} disabled={busy || providers.length < 2} onChange={(ev) => void act(() => setEngineAccel(id, ev.target.value as AccelProvider | "auto"))}
-          className={cn(selectClass, "w-auto")}>
+        <Select value={a.override} disabled={busy || providers.length < 2} onChange={(ev) => void act(() => setEngineAccel(id, ev.target.value as AccelProvider | "auto"))}>
           <option value="auto">Auto{a.override === "auto" ? ` (${PROVIDER_LABEL[a.provider]})` : ""}</option>
           {providers.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>)}
-        </select>
+        </Select>
       </label>
       {providers.length > 1 && (
-        <button onClick={() => void act(() => rebenchEngine(id))} disabled={busy || a.bench === "running"} className={rowButton}>
-          {a.bench === "running" ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Re-run benchmark
-        </button>
+        <Button size="sm" onClick={() => void act(() => rebenchEngine(id))} disabled={busy || a.bench === "running"}>
+          {a.bench === "running" ? <Loader2 className="animate-spin" /> : <RotateCcw />} Re-run benchmark
+        </Button>
       )}
-      <p className="basis-full text-caption text-faint" title={a.results.map((r) => ("error" in r ? `${r.provider}: ${r.error}` : "")).filter(Boolean).join("\n") || undefined}>
-        {a.numThreads} {a.numThreads === 1 ? "thread" : "threads"} · {status}
-      </p>
+      <Tooltip label={errors && <span className="whitespace-pre-line">{errors}</span>} className="basis-full">
+        <p className="text-caption text-faint">{a.numThreads} {a.numThreads === 1 ? "thread" : "threads"} · {status}</p>
+      </Tooltip>
     </div>
   );
 }
@@ -212,7 +185,11 @@ function DeviceSummary() {
   const accelerators = [...new Set([...d.providers, ...(d.ortProviders ?? [])])].filter((p) => p !== "cpu");
   const facts = [d.cpu, `${d.physicalCores ?? d.cores} cores`, `${Math.round(d.ramBytes / 2 ** 30)} GB`, gpu, d.osVersion,
     `${d.tier} tier`, accelerators.length > 0 && `${accelerators.map((p) => PROVIDER_LABEL[p]).join(", ")} available`].filter(Boolean);
-  return <p className="mt-2 text-caption leading-relaxed text-faint">This device: {facts.join(" · ")}.</p>;
+  return (
+    <p className="flex items-start gap-2 text-caption leading-relaxed text-faint">
+      <Cpu aria-hidden className="mt-0.5 size-3.5 shrink-0" /> <span className="min-w-0 break-words">This device: {facts.join(" · ")}.</span>
+    </p>
+  );
 }
 
 // A download outlives the stage panel that started it (switching stages
@@ -268,27 +245,26 @@ function EngineChoice({ id, active, streaming, note, where, status, unsupported,
   return (
     <button onClick={onPick} aria-pressed={active} disabled={!!unsupported && !active}
       className={cn("flex min-w-0 flex-col rounded-xl border p-3 text-left transition",
-        active ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-pop)]",
-        unsupported && "opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[var(--shadow-card)]")}>
+        active ? "border-accent/50 bg-accent/[0.07]" : "border-transparent bg-card shadow-card hover:shadow-pop",
+        unsupported && "opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-card")}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-semibold text-foreground">
         <span className="min-w-0 break-words">{copy.title}</span>
-        {active && !missing && <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent"><Star className="size-2.5" /> Active</span>}
-        {active && missing && <span className="flex min-w-0 items-center gap-1 break-words rounded-full bg-arc/10 px-2 py-0.5 text-micro font-medium text-arc-text"><Download className="size-2.5 shrink-0" aria-hidden /> {missing}</span>}
-        {streaming && <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground">Streaming</span>}
-        {locked && <span className="flex items-center gap-1 rounded-full bg-arc/10 px-2 py-0.5 text-micro font-medium text-arc-text"><Lock className="size-2.5" aria-hidden /> Restricted license</span>}
+        {active && !missing && <Badge tone="accent"><Check aria-hidden /> Active</Badge>}
+        {active && missing && <Badge tone="arc" className="min-w-0"><Download aria-hidden /> {missing}</Badge>}
+        {streaming && <Badge>Streaming</Badge>}
+        {locked && <Badge tone="arc"><Lock aria-hidden /> Restricted license</Badge>}
       </div>
       <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{copy.desc}</p>
       {unsupported && <p className="mt-1.5 text-caption font-medium text-foreground">{unsupported}</p>}
-      {meta && <p className="mt-1.5 text-micro leading-relaxed text-faint">{meta}</p>}
+      {/* At the foot, so cards in one row (stretched to one height) line it up. */}
+      {meta && <p className="mt-auto pt-1.5 text-micro leading-relaxed text-faint">{meta}</p>}
     </button>
   );
 }
 
-const rowButton = "flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50";
-
 /** Download, progress, cancel and remove for the selected native engine. Until
  *  it is installed the runtime uses `fallback`, and this says so. */
-function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
+function NativeEngineRow({ id, fallback, accel = true }: { id: string; fallback: string; accel?: boolean }) {
   const qc = useQueryClient();
   const { data, isError, refetch, isFetching } = useNativeEngines();
   const job = useEngineJobs((s) => s[id]);
@@ -311,9 +287,9 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
   if (!e) return data || isError ? (
     <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span className="text-label text-muted-foreground">Couldn&apos;t reach the voice engine, so calls use {fallback} for now. Is OpenLive&apos;s agent running?</span>
-      <button onClick={() => void refetch()} disabled={isFetching} className={rowButton}>
-        {isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Retry
-      </button>
+      <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
+        {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry
+      </Button>
     </div>
   ) : <p className="text-label text-muted-foreground">Checking…</p>;
 
@@ -331,37 +307,34 @@ function NativeEngineRow({ id, fallback }: { id: string; fallback: string }) {
             {pct === undefined ? `Downloading ${mb(e.sizeBytes)} in the background…` : `Downloading… ${Math.round(pct * 100)}% of ${mb(e.sizeBytes)}`}
           </p>
         </div>
-        <button onClick={remove} disabled={removing} className={rowButton}>
-          {removing ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />} Cancel
-        </button>
+        <Button size="sm" onClick={remove} disabled={removing}>
+          {removing ? <Loader2 className="animate-spin" /> : <X />} Cancel
+        </Button>
       </div>
     );
   }
   return e.installed ? (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Installed · {mb(e.bytes)} on disk</span>
-      <button onClick={remove} disabled={removing} className={cn(rowButton, "hover:text-danger")}>
-        {removing ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} Remove
-      </button>
+      <Button size="sm" onClick={remove} disabled={removing} className="enabled:hover:text-danger">
+        {removing ? <Loader2 className="animate-spin" /> : <Trash2 />} Remove
+      </Button>
       {error}
-      <AccelRow id={e.id} />
+      {accel && <AccelRow id={e.id} />}
     </div>
   ) : (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <button onClick={() => void downloadEngine(e, qc)}
-        className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-label font-medium text-accent-foreground transition hover:opacity-90">
-        <Download className="size-4" /> Download ({mb(e.sizeBytes)})
-      </button>
+      <Button variant="primary" onClick={() => void downloadEngine(e, qc)}>
+        <Download /> Download ({mb(e.sizeBytes)})
+      </Button>
       <span className="text-caption text-faint">Not downloaded yet. Until it is, calls use {fallback}. Removable anytime.</span>
       {error}
     </div>
   );
 }
 
-const chip = "max-w-full break-words rounded-full bg-foreground/10 px-2 py-0.5 text-micro font-medium text-muted-foreground";
-
 /** A feature still being tuned. Inside its control's label, so it is read with it. */
-const Experimental = () => <span className={cn(chip, "bg-arc/10 text-arc-text")}>Experimental</span>;
+export const Experimental = () => <Badge tone="arc">Experimental</Badge>;
 
 /** The active family's Model menu: every variant with its size, quality,
  *  latency and install state, grouped by language for Piper. One that cannot
@@ -386,25 +359,25 @@ function VariantPicker({ cfg, stage, update, onAsk }: { cfg: PipelineConfig; sta
     <div className="flex flex-col gap-2">
       <label className="flex flex-col gap-1.5">
         <span className="text-label text-foreground">Model</span>
-        <select value={cfg[stage].variant} onChange={(e) => update(chooseVariant(cfg, stage, e.target.value))} className={selectClass}>
+        <Select value={cfg[stage].variant} onChange={(e) => update(chooseVariant(cfg, stage, e.target.value))} className="w-full">
           {variantGroups(rows, cfg.language).map((g) => (g.lang
             ? <optgroup key={g.lang} label={languageLabel(g.lang)}>{options(g.variants)}</optgroup>
             : options(g.variants)))}
-        </select>
+        </Select>
       </label>
       {cur && license && (
         <div className="flex flex-wrap gap-1.5">
           {[cur.quality[0]!.toUpperCase() + cur.quality.slice(1), cur.latencyMs && `${cur.latencyMs} ms chunks`, languagesNote(cur.languages)]
-            .filter(Boolean).map((f) => <span key={String(f)} className={chip}>{f}</span>)}
-          <span title={cur.license} className={cn(chip, license.kind === "restricted" && "bg-danger/10 text-danger", license.kind === "unknown" && "bg-arc/10 text-arc-text")}>
-            {license.label}
-          </span>
+            .filter(Boolean).map((f) => <Badge key={String(f)}>{f}</Badge>)}
+          <Tooltip label={cur.license}>
+            <Badge tone={license.kind === "restricted" ? "danger" : license.kind === "unknown" ? "arc" : "neutral"}>{license.label}</Badge>
+          </Tooltip>
         </div>
       )}
       {!cfg.allowRestricted && rows.some((v) => v.restricted) && (
         <p className="text-caption text-faint">
           Models with a restricted license are locked.{" "}
-          <button onClick={onAsk} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Allow them</button>
+          <button onClick={onAsk} className="hit text-muted-foreground underline underline-offset-2 hover:text-foreground">Allow them</button>
         </p>
       )}
     </div>
@@ -431,7 +404,7 @@ function LicenseNote({ family, variant }: { family: EngineFamilyInfo; variant: s
  *  the pipeline config; OpenLive still never picks a restricted model itself. */
 export function AllowRestricted({ family, onAllow, onCancel }: { family: EngineFamilyInfo; onAllow: () => void; onCancel?: () => void }) {
   return (
-    <div role="group" aria-label={`Allow ${family.name}`} className="flex flex-col gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2.5 text-label text-arc-text">
+    <div role="group" aria-label={`Allow ${family.name}`} className={cn(notice(), "flex-col")}>
       <p className="min-w-0 break-words">
         <span className="font-medium">{family.name} has a restricted license.</span> {family.restriction}.{" "}
         {family.licenseUrl && (
@@ -442,8 +415,8 @@ export function AllowRestricted({ family, onAllow, onCancel }: { family: EngineF
       </p>
       <p className="text-caption">Allowing restricted models unlocks them here, for you to pick. OpenLive never switches to one on its own.</p>
       <div className="flex flex-wrap gap-2">
-        <button onClick={onAllow} className="rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition hover:opacity-90">Allow restricted models</button>
-        {onCancel && <button onClick={onCancel} className={rowButton}>Not now</button>}
+        <Button variant="primary" size="sm" onClick={onAllow}>Allow restricted models</Button>
+        {onCancel && <Button size="sm" onClick={onCancel}>Not now</Button>}
       </div>
     </div>
   );
@@ -544,14 +517,14 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
   const forget = async () => { await forgetVoiceprint(); void qc.invalidateQueries({ queryKey: voiceprintKey }); toast("Voiceprint deleted.", "info"); };
   const on = cfg.voiceprint !== "off" && !isError;
   return (
-    <div id="set-voice-voiceprint" className="space-y-2">
+    <div id="set-engine-voiceprint" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Voiceprint</span>
         <Experimental />
       </div>
       <p className="text-caption text-faint">Tells your voice from others once you enroll. Phrases under about a second can&apos;t be checked, and in &ldquo;Only me&rdquo; a cut waits about 2 s to confirm it&apos;s you.</p>
       <fieldset disabled={isError} className="disabled:opacity-50">
-        <Segmented label="Voiceprint (experimental)" tone="soft" className="grid w-full" options={VOICEPRINT_MODES_UI} value={cfg.voiceprint}
+        <Segmented label="Voiceprint (experimental)" className="grid w-full" options={VOICEPRINT_MODES_UI} value={cfg.voiceprint}
           onChange={(v) => update({ ...cfg, voiceprint: v })} />
       </fieldset>
       <p className="text-caption text-faint">
@@ -560,7 +533,7 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
       {on && <NativeEngineRow id={VOICEPRINT_ENGINE} fallback="no voiceprint and hear everyone" />}
       {on && model && <p className="text-caption text-faint">{model.name} · {model.license}</p>}
       {on && model?.installed && (
-        <div className="space-y-2 rounded-lg border border-border p-3">
+        <div className="space-y-2 rounded-lg bg-card px-card-x py-3 shadow-card">
           {enrollment.recording ? (
             <>
               <p className="text-label text-foreground">Read this aloud at your normal pace:</p>
@@ -568,15 +541,15 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
               <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
                 <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.min(100, (100 * (enrollment.state?.seconds ?? 0)) / ENROLL_S)}%` }} />
               </div>
-              <button onClick={enrollment.stop} className={rowButton}><X className="size-3.5" /> Stop</button>
+              <Button size="sm" onClick={enrollment.stop}><X /> Stop</Button>
             </>
           ) : (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="text-label text-muted-foreground">
                 {status?.enrolled ? `Enrolled on ${status.prints.map((p) => p.mic || "the default mic").join(", ")}.` : "Not enrolled yet: until you are, everyone is heard."}
               </span>
-              <button onClick={enrollment.start} className={rowButton}><Mic className="size-3.5" /> {status?.enrolled ? "Enroll again on this mic" : "Enroll my voice"}</button>
-              {!!status?.prints.length && <button onClick={() => void forget()} className={cn(rowButton, "hover:text-danger")}><Trash2 className="size-3.5" /> Delete voiceprint</button>}
+              <Button size="sm" onClick={enrollment.start}><Mic /> {status?.enrolled ? "Enroll again on this mic" : "Enroll my voice"}</Button>
+              {!!status?.prints.length && <Button size="sm" onClick={() => void forget()} className="enabled:hover:text-danger"><Trash2 /> Delete voiceprint</Button>}
             </div>
           )}
           {enrollment.state?.error && <p role="alert" className="text-caption text-danger">{enrollment.state.error}</p>}
@@ -590,21 +563,22 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
 function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   return (
     <div className="space-y-4">
-      <StageHead title="Voice activity detection" desc="Silero VAD segments your speech — it decides when you start and stop talking. Applies when you next start a conversation." />
-      <EngineCard name="Silero VAD" desc="Tiny on-device voice detector — decides when you're speaking and enables instant barge-in." />
-      <label className="flex flex-col gap-1.5">
-        <span className="text-label text-foreground">Model</span>
-        <select value={cfg.vad.model} onChange={(e) => update({ ...cfg, vad: { ...cfg.vad, model: e.target.value as PipelineConfig["vad"]["model"] } })} className={selectClass}>
-          {VAD_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-      </label>
-      <Slider label="Speech sensitivity" value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
-        fmt={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, speechThreshold: v } })} />
-      <p className="-mt-2 text-caption text-faint">Lower picks up softer speech and barges in faster.</p>
-      <Slider label="Trailing silence" value={cfg.vad.redemptionMs} min={200} max={1500} step={50}
-        fmt={(v) => `${v} ms`} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, redemptionMs: v } })} />
-      <p className="-mt-2 text-caption text-faint">How long a pause runs before your turn ends.</p>
-      <VoiceprintPicker cfg={cfg} update={update} />
+      <StageHead title="Voice detection" desc="Hears when you start and stop talking, and lets you cut in. Runs in the app; a change applies from the next conversation." />
+      <div className={ENGINE_GRID}>
+        {VAD_MODELS.map((m) => (
+          <EngineChoice key={m.id} id={m.id} active={cfg.vad.model === m.id} note="MIT" where="In the app"
+            onPick={() => update({ ...cfg, vad: { ...cfg.vad, model: m.id } })} />
+        ))}
+      </div>
+      <Advanced id="engine:mic">
+        <Slider label="Speech sensitivity" value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
+          format={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, speechThreshold: v } })} />
+        <p className="-mt-2 text-caption text-faint">Lower picks up softer speech and barges in faster.</p>
+        <Slider label="Trailing silence" value={cfg.vad.redemptionMs} min={200} max={1500} step={50}
+          format={(v) => `${v} ms`} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, redemptionMs: v } })} />
+        <p className="-mt-2 text-caption text-faint">How long a pause runs before your turn ends. Wait before answering in Voice sets it too.</p>
+        <VoiceprintPicker cfg={cfg} update={update} />
+      </Advanced>
     </div>
   );
 }
@@ -627,7 +601,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const missing = missingNote(cfg, "stt", engines);
   return (
     <div className="space-y-4">
-      <StageHead title="Speech-to-text" desc="Transcribes your voice on this device: Whisper in the browser, or a native engine on this machine's CPU, downloaded once. Applies on the next call." />
+      <StageHead title="Speech-to-text" desc="Turns what you say into text, on this device. Pick one; the rest stay off your disk until you download them. Applies on the next call." />
       <div className={ENGINE_GRID}>
         {STT_FAMILIES.map((e) => {
           const variant = familyVariant(cfg, "stt", e);
@@ -640,17 +614,20 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </div>
       {gate}
       {active && <LicenseNote family={active} variant={cfg.stt.variant} />}
-      {whisper && <label className="flex flex-col gap-1.5">
-        <span className="text-label text-foreground">Model size</span>
-        <select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className={selectClass}>
-          {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </label>}
-      {whisper && <p className="-mt-2 text-caption text-faint">English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
-      {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} onAsk={ask} />}
-      {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
-      {whisper && cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint: expect the best transcription, but drop back to Small if your machine struggles.</p>}
-      {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" />}
+      {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
+      <Advanced id="engine:stt">
+        {whisper && <label className="flex flex-col gap-1.5">
+          <span className="text-label text-foreground">Whisper model size</span>
+          <Select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className="w-full">
+            {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+        </label>}
+        {whisper && <p className="-mt-2 text-caption text-faint">Bigger hears better and takes longer to answer. English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
+        {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} onAsk={ask} />}
+        {!whisper && <AccelRow id={cfg.stt.variant} />}
+        {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
+        {whisper && cfg.stt.whisperSize === "large-v3-turbo" && <p className="-mt-2 text-caption text-faint">A big download and a real GPU-memory footprint: expect the best transcription, but drop back to Small if your machine struggles.</p>}
+      </Advanced>
     </div>
   );
 }
@@ -674,14 +651,14 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
   const { data: status } = useQuery({ queryKey: addresseeKey, queryFn: addresseeStatus, enabled: on });
   const forget = async () => { await deleteJudgmentLog(); void qc.invalidateQueries({ queryKey: addresseeKey }); toast("Judgment log deleted.", "info"); };
   return (
-    <div id="set-voice-side-talk" className="space-y-2">
+    <div id="set-engine-side-talk" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Side talk</span>
         <Experimental />
       </div>
       <p className="text-caption text-faint">Tries to tell when you&apos;re talking to someone else in the room. It catches only part of side talk today, about one in five English sentences in our tests. &ldquo;Judge only&rdquo; collects data and changes nothing.</p>
       <fieldset disabled={isError} className="disabled:opacity-50">
-        <Segmented label="Side talk (experimental)" tone="soft" className="grid w-full" options={SIDE_TALK_UI} value={cfg.sideTalk}
+        <Segmented label="Side talk (experimental)" className="grid w-full" options={SIDE_TALK_UI} value={cfg.sideTalk}
           onChange={(v) => update({ ...cfg, sideTalk: v })} />
       </fieldset>
       <p className="text-caption text-faint">
@@ -690,7 +667,7 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
       {on && <NativeEngineRow id={ADDRESSEE_ENGINE} fallback="no check and answer everything" />}
       {on && model && <p className="text-caption text-faint">{model.name} · {model.license}{status?.head === "personal" && " · judging with your own trained head"}</p>}
       {on && (
-        <div className="space-y-2 rounded-lg border border-border p-3">
+        <div className="space-y-2 rounded-lg bg-card px-card-x py-3 shadow-card">
           <label className="flex cursor-pointer select-none items-start gap-2.5">
             <Switch on={cfg.sideTalkLog} onFlip={() => update({ ...cfg, sideTalkLog: !cfg.sideTalkLog })} className="mt-0.5" />
             <span className="text-label leading-snug text-foreground">
@@ -701,7 +678,7 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
           {!!status?.log.count && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="text-label text-muted-foreground">{status.log.count} judged, {status.log.labelled} marked by you.</span>
-              <button onClick={() => void forget()} className={cn(rowButton, "hover:text-danger")}><Trash2 className="size-3.5" /> Delete log and trained head</button>
+              <Button size="sm" onClick={() => void forget()} className="enabled:hover:text-danger"><Trash2 /> Delete log and trained head</Button>
             </div>
           )}
         </div>
@@ -711,49 +688,39 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
 }
 
 function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+  const go = useSettingsNav();
   const preset = activeTurnPreset(cfg);
-  const applyPreset = (v: TurnPresetValues) => update({
-    ...cfg,
-    vad: { ...cfg.vad, redemptionMs: v.redemptionMs },
-    turn: { ...cfg.turn, threshold: v.threshold, holdMs: v.holdMs },
-  });
   return (
     <div className="space-y-4">
-      <StageHead title="Turn-taking" desc="Decides when you've actually finished speaking. Smart-Turn reads the semantics of your last words; silence timeout just waits out the trailing pause." />
-      <Segmented label="Turn-taking preset" tone="soft" className="grid w-full" value={preset}
-        options={TURN_PRESETS.map((p) => ({ id: p.id, label: p.name, sub: p.desc, title: p.desc }))}
-        onChange={(id) => { const p = TURN_PRESETS.find((t) => t.id === id); if (p) applyPreset(p.values); }} />
-      {preset === "custom" && <p className="-mt-2 text-caption text-faint">Custom — the sliders below (and trailing silence in the VAD stage) are hand-tuned.</p>}
-      <EngineCard name="Smart-Turn v3" desc="Pipecat's semantic end-of-turn model, a Whisper-tiny encoder. Runs on the CPU in a WebAssembly worker, about 250 ms per check." />
-      <label className="flex flex-col gap-1.5">
-        <span className="text-label text-foreground">Detector</span>
-        <select value={cfg.turn.engine} onChange={(e) => update({ ...cfg, turn: { ...cfg.turn, engine: e.target.value as PipelineConfig["turn"]["engine"] } })} className={selectClass}>
-          {TURN_ENGINES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-      </label>
-      {cfg.turn.engine === "smart-turn" && (
-        <>
-          <Slider label="End-of-turn threshold" value={cfg.turn.threshold} min={0} max={1} step={0.05}
-            fmt={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, threshold: v } })} />
-          <p className="-mt-2 text-caption text-faint">Higher waits longer (fewer interruptions); lower replies sooner.</p>
-        </>
-      )}
-      <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
-        fmt={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
-      <p className="-mt-2 text-caption text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
-      <label id="set-voice-listening-sounds" className="flex cursor-pointer select-none items-start gap-2.5">
-        <Switch on={cfg.turn.backchannels} onFlip={() => update({ ...cfg, turn: { ...cfg.turn, backchannels: !cfg.turn.backchannels } })} className="mt-0.5" />
-        <span className="text-label leading-snug text-foreground">
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">Listening sounds <Experimental /></span>
-          <span className="block text-caption text-faint">A quiet &ldquo;mm-hmm&rdquo; in the reply&apos;s voice at a pause while you talk at length. Never after a question or over your voice, and never in the transcript. Calls only, not Flow.</span>
-        </span>
-      </label>
-      <SideTalkPicker cfg={cfg} update={update} />
+      <StageHead title="Turn-taking" desc="Decides when you have finished talking. Smart-Turn reads the sense of your last words; a silence timeout just waits out the pause." />
+      <div className="rounded-lg bg-card px-card-x shadow-card">
+        <LinkRow label="Wait before answering" detail="Patient, Even and Quick move the timings below together."
+          value={`${TURN_PRESETS.find((p) => p.id === preset)?.name ?? "Custom"} · set in Voice`} onGo={() => go("voice", "set-voice-wait")} />
+      </div>
+      <div className={ENGINE_GRID}>
+        {TURN_ENGINES.map((t) => (
+          <EngineChoice key={t.id} id={t.id} active={cfg.turn.engine === t.id} where={t.id === "silence" ? "Built in" : "In the app"}
+            onPick={() => update({ ...cfg, turn: { ...cfg.turn, engine: t.id } })} />
+        ))}
+      </div>
+      <Advanced id="engine:turn">
+        {cfg.turn.engine === "smart-turn" && (
+          <>
+            <Slider label="End-of-turn threshold" value={cfg.turn.threshold} min={0} max={1} step={0.05}
+              format={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, threshold: v } })} />
+            <p className="-mt-2 text-caption text-faint">Higher waits longer (fewer interruptions); lower replies sooner.</p>
+          </>
+        )}
+        <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
+          format={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
+        <p className="-mt-2 text-caption text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
+        <SideTalkPicker cfg={cfg} update={update} />
+      </Advanced>
     </div>
   );
 }
 
-const SAMPLE = "Hi! This is how I sound in a live conversation.";
+export const SAMPLE = "Hi! This is how I sound in a live conversation.";
 
 /** Play `text` as a live reply would sound with `cfg`: normalized, respelled
  *  by the dictionary, in the chosen voice. Loads the browser models first when
@@ -771,34 +738,20 @@ export async function playPreview(text: string, cfg: PipelineConfig) {
 }
 
 function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
-  const [busy, setBusy] = useState(false);
   const { data: engines } = useNativeEngines();
   const where = useWhereItRuns();
   const native = isNativeVariant(cfg.tts.variant);
-  const status = variantStatus(engines, cfg.tts.variant);
   const missing = missingNote(cfg, "tts", engines);
   // This browser voice's copy on the agent, when the agent has one that runs here.
   const copy = native ? undefined : engines?.find((f) => f.browser === cfg.tts.family)?.variants.find((v) => v.runnable);
-  // Preview always enabled: it downloads the models itself if needed (spinner
-  // shows). A disabled-until-cached gate went stale — modelsCached() isn't
-  // reactive, so the button stayed dead right after a download finished.
-  const preview = async () => {
-    setBusy(true);
-    try {
-      await playPreview(SAMPLE, cfg);
-    } catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed — try downloading the models first."); } finally { setBusy(false); }
-  };
   const engine = familyInfo("tts", cfg.tts.family) ?? TTS_FAMILIES[0]!;
   // Switching engines swaps the voice list too: chooseFamily snaps the voice to
-  // the new engine's default. A native engine without a static list names its
-  // voices in the agent's catalog, cut to the session language.
+  // the new engine's default, which Voice then shows.
   const { pick, ask, gate } = useFamilyPick(cfg, "tts", update);
-  const voices = engine.voices?.map((v) => ({ id: v.id, name: v.name, group: v.accent, gender: v.gender })) ?? voiceMenu(status?.voices ?? [], cfg.language);
-  const groups = [...new Set(voices.map((v) => v.group))];
   const standIn = familyInfo("tts", browserTtsFallback(cfg.language) ?? "")?.name ?? "no voice";
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="Speaks replies back to you on this device. Engine and voice apply to the next reply. Kokoro and Supertonic download their weights on first use; native engines, and Supertonic on this computer, are a one-time download below. Speaking speed is at the top of this tab." />
+      <StageHead title="Text-to-speech" desc="The engine that speaks replies, on this device. The voice itself and its speed are chosen in Voice. Applies to the next reply." />
       <div className={ENGINE_GRID}>
         {TTS_FAMILIES.map((e) => {
           const variant = familyVariant(cfg, "tts", e);
@@ -810,78 +763,23 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </div>
       {gate}
       <LicenseNote family={engine} variant={cfg.tts.variant} />
-      <VariantPicker cfg={cfg} stage="tts" update={update} onAsk={ask} />
-      {cfg.tts.family === "clone" ? (
-        <CloneVoicePicker cfg={cfg} update={update} />
-      ) : (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-label text-foreground">Voice</span>
-          <div className="flex items-center gap-2">
-            <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
-              {!engine.voices && <option value="">Default for the language</option>}
-              {cfg.tts.voice && !voices.some((v) => v.id === cfg.tts.voice) && <option value={cfg.tts.voice}>{cfg.tts.voice}</option>}
-              {groups.map((group) => (
-                <optgroup key={group} label={group}>
-                  {voices.filter((v) => v.group === group).map((v) => <option key={v.id} value={v.id}>{v.gender ? `${v.name} · ${v.gender}` : v.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
-            <button onClick={preview} disabled={busy || (native && !status?.installed)}
-              title={native && !status?.installed ? "Download this engine first" : "Play a sample (downloads the voice models first if needed)"}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-label font-medium text-background transition hover:opacity-90 disabled:opacity-40">
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Preview
-            </button>
-          </div>
-        </label>
-      )}
-      {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} />
+      {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} accel={false} />
         : <ModelStatus removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
-      {copy && (
-        <div className="space-y-2">
-          <p className="text-label text-foreground">On this computer</p>
-          <p className="text-caption text-faint">
-            {engine.name} can also run in OpenLive&apos;s agent, on this computer&apos;s CPU or GPU, whichever it measures faster here. Same voice; the browser copy above stays the fallback. {mb(copy.sizeBytes)}, {copy.license}.
-          </p>
-          <NativeEngineRow id={copy.id} fallback={`${engine.name} in the browser`} />
-        </div>
-      )}
+      <Advanced id="engine:tts">
+        <VariantPicker cfg={cfg} stage="tts" update={update} onAsk={ask} />
+        {native && <AccelRow id={cfg.tts.variant} />}
+        {copy && (
+          <div className="space-y-2">
+            <p className="text-label text-foreground">On this computer</p>
+            <p className="text-caption text-faint">
+              {engine.name} can also run in OpenLive&apos;s agent, on this computer&apos;s CPU or GPU, whichever it measures faster here. Same voice; the browser copy above stays the fallback. {mb(copy.sizeBytes)}, {copy.license}.
+            </p>
+            <NativeEngineRow id={copy.id} fallback={`${engine.name} in the browser`} />
+          </div>
+        )}
+        {!native && !copy && engine.variants.length < 2 && <p className="text-caption text-faint">{engine.name} has nothing to tune.</p>}
+      </Advanced>
     </div>
-  );
-}
-
-/** Voice picker for the clone engine: just your saved profiles. Recording,
- *  previewing, and managing them lives under Your voices, further down this tab. */
-function CloneVoicePicker({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
-  const { data: allProfiles = [], isLoading } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["voice-profiles"], queryFn: async () => {
-      const r = await fetch("/api/voice/profiles");
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    },
-  });
-  const pending = usePendingDeletes((s) => s.keys);
-  const profiles = allProfiles.filter((p) => !pending.has(`voice:${p.id}`));
-  const openVoices = () => document.getElementById("set-voice-yours")?.scrollIntoView({ behavior: prefersReduced() ? "auto" : "smooth", block: "start" });
-  if (!isLoading && profiles.length === 0) return (
-    <div className="flex items-center gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-label text-arc-text">
-      No cloned voices yet.
-      <button onClick={openVoices} className="font-medium underline underline-offset-2">Record one under Your voices</button>
-    </div>
-  );
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-label text-foreground">Voice</span>
-      <div className="flex items-center gap-2">
-        <select value={cfg.tts.voice} onChange={(e) => update({ ...cfg, tts: { ...cfg.tts, voice: e.target.value } })} className={selectClass}>
-          {!profiles.some((p) => p.id === cfg.tts.voice) && <option value={cfg.tts.voice}>Pick a voice…</option>}
-          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <button onClick={openVoices}
-          className="h-9 shrink-0 rounded-lg border border-border px-3 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-          Manage your voices
-        </button>
-      </div>
-    </label>
   );
 }
 
@@ -898,10 +796,9 @@ export function NoticeDownload({ id }: { id: string }) {
   }
   return (
     <>
-      <button onClick={() => void downloadEngine(e, qc)}
-        className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
-        <Download className="size-3.5" /> Download ({mb(e.sizeBytes)})
-      </button>
+      <Button variant="primary" size="sm" onClick={() => void downloadEngine(e, qc)}>
+        <Download /> Download ({mb(e.sizeBytes)})
+      </Button>
       {job?.error && <span role="alert" className="basis-full text-caption text-danger">{job.error}</span>}
     </>
   );
@@ -932,14 +829,16 @@ export function LanguagePicker() {
   };
   return (
     <div className="flex flex-col gap-3">
-      <select aria-label="Language" value={cfg.language} onChange={(e) => choose(e.target.value as LanguageCode)} className={cn(selectClass, "max-w-md")}>
+      <Select aria-label="Language" value={cfg.language} onChange={(e) => choose(e.target.value as LanguageCode)} className="w-full max-w-md">
         {CURATED_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{languageLabel(l.code)}</option>)}
-      </select>
+      </Select>
       {notice && (
-        <div role="status" className="flex max-w-xl flex-col gap-2 rounded-lg border border-arc/40 bg-arc/10 px-3 py-2 text-label text-arc-text">
+        <Notice role="status" className="max-w-xl flex-col">
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 font-medium">Switched to {languageLabel(notice.lang)}, so some engines changed:</p>
-            <button onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 rounded p-0.5 transition hover:bg-arc/15"><X className="size-3.5" /></button>
+            <Tooltip label="Dismiss" className="-my-1 -mr-1.5">
+              <Button variant="ghost" size="sm" icon onClick={() => setNotice(null)} aria-label="Dismiss" className="text-arc-text"><X /></Button>
+            </Tooltip>
           </div>
           {notice.lines.map((n) => (
             <div key={n.text} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -947,7 +846,7 @@ export function LanguagePicker() {
               {n.download && <NoticeDownload id={n.download} />}
             </div>
           ))}
-        </div>
+        </Notice>
       )}
     </div>
   );
@@ -956,6 +855,16 @@ export function LanguagePicker() {
 export function PipelineSettings() {
   const [cfg, setCfg] = useState<PipelineConfig>(() => loadPipelineConfig());
   const [stage, setStage] = useState<StageId>("mic");
+  // A shorter stage must not scroll the page: the new one starts at the old one's
+  // height (keepScroll), and the floor goes once it would move nothing.
+  const stageBox = useRef<HTMLDivElement>(null);
+  const floor = useRef(0);
+  const pickStage = (s: StageId) => { if (s !== stage) floor.current = holdFloor(stageBox.current); setStage(s); };
+  useLayoutEffect(() => {
+    const box = stageBox.current;
+    if (!box || !floor.current) return;
+    return releaseWhenFree(box, floor.current);
+  }, [stage]);
   const update: Update = (next) => setCfg(savePipelineConfig(next));
   const { data: engines } = useNativeEngines();
   const onDisk = engines?.flatMap((f) => f.variants).filter((v) => v.installed) ?? [];
@@ -972,16 +881,13 @@ export function PipelineSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div id="set-voice-device">
-        <p className="text-label leading-relaxed text-muted-foreground">
-          Your whole voice pipeline runs on-device — tune each stage below. Nothing here leaves your machine.
-        </p>
+      <div id="set-engine-device" className="flex flex-col gap-3">
         <DeviceSummary />
-        <Segmented label="Pipeline stage" tone="soft" anchor="set-voice-stage" className="mt-3 grid w-full"
-          options={STAGES} value={stage} onChange={setStage} />
+        <Segmented label="Pipeline stage" anchor="set-engine-stage" className="grid w-full"
+          options={STAGES} value={stage} onChange={pickStage} />
       </div>
 
-      <div className="min-h-[240px]">
+      <div ref={stageBox}>
         {stage === "mic" && <MicStage cfg={cfg} update={update} />}
         {stage === "stt" && <SttStage cfg={cfg} update={update} />}
         {stage === "turn" && <TurnStage cfg={cfg} update={update} />}
@@ -996,14 +902,13 @@ export function PipelineSettings() {
       {cfg.allowRestricted && (
         <p className="-mb-3 text-caption text-faint">
           Models with a restricted license are allowed.{" "}
-          <button onClick={() => update({ ...cfg, allowRestricted: false })} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Lock them again</button>
+          <button onClick={() => update({ ...cfg, allowRestricted: false })} className="hit text-muted-foreground underline underline-offset-2 hover:text-foreground">Lock them again</button>
           {" "}(the engines in use keep working).
         </p>
       )}
-      <button id="set-voice-reset" onClick={reset}
-        className="flex items-center gap-1.5 self-start rounded-lg border border-border px-3 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-        <RotateCcw className="size-3.5" /> Reset to defaults
-      </button>
+      <Button id="set-engine-reset" size="sm" onClick={reset} className="self-start">
+        <RotateCcw /> Reset to defaults
+      </Button>
     </div>
   );
 }

@@ -270,7 +270,7 @@ export function nativeSttFailed(engine: string, err: unknown, lasting = failureI
   (notDownloaded(err) ? log.warn : log.error)("stt", `${engine} failed, using Whisper:`, err);
   if (!lasting || sttFallback === engine) return;
   sttFallback = engine;
-  toast(`${familyName(engine)} ${notDownloaded(err) ? "isn't downloaded" : "unavailable"}, using Whisper. Check Settings > Voice pipeline.`);
+  toast(`${familyName(engine)} ${notDownloaded(err) ? "isn't downloaded" : "unavailable"}, using Whisper. Check Settings > Speech engine.`);
 }
 
 // Call start, model load, every Flow open and a running call's keep-warm tick
@@ -498,7 +498,7 @@ function browserStandIn(opts: TtsOpts | undefined): TtsOpts | null {
   if (engine) return { engine, speed: opts?.speed, lang }; // the worker's default voice
   if (!noVoiceToasted) {
     noVoiceToasted = true;
-    toast(`No voice for ${languageName(lang)} is ready. Download one in Settings > Voice pipeline.`);
+    toast(`No voice for ${languageName(lang)} is ready. Download one in Settings > Speech engine.`);
   }
   return null;
 }
@@ -578,7 +578,7 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
         (notDownloaded(e) ? log.warn : log.error)("tts", `${engine} failed, using ${standIn ?? "no voice"} in the browser for this call:`, e);
         if (ttsFallback !== engine) {
           ttsFallback = engine;
-          if (standIn && !copy) toast(`${familyName(engine)} ${notDownloaded(e) ? "isn't downloaded" : "unavailable"}, using ${familyName(standIn)}. Check Settings > Voice pipeline.`);
+          if (standIn && !copy) toast(`${familyName(engine)} ${notDownloaded(e) ? "isn't downloaded" : "unavailable"}, using ${familyName(standIn)}. Check Settings > Speech engine.`);
         }
         break;
       } finally { clearTimeout(timer); }

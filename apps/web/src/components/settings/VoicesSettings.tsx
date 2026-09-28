@@ -10,7 +10,7 @@ import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { cn } from "@/lib/cn";
-import { Segmented } from "@/lib/seg";
+import { Segmented, Checkbox, Button, Tooltip, Input, Badge, Textarea } from "@/components/ui";
 import { Section } from "./Section";
 import { AudioBar } from "./AudioBar";
 
@@ -123,9 +123,7 @@ function ModelCard({ model, failed, onRetry, onChange }: { model?: ModelState; f
   if (!model && failed) return (
     <div className="flex items-center gap-3" role="alert">
       <span className="text-label text-muted-foreground">Couldn&apos;t reach the voice engine. Is OpenLive&apos;s agent running?</span>
-      <button onClick={onRetry} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-        <RotateCcw className="size-3.5" /> Retry
-      </button>
+      <Button size="sm" onClick={onRetry}><RotateCcw /> Retry</Button>
     </div>
   );
   if (!model) return <p className="text-label text-muted-foreground">Checking…</p>;
@@ -140,15 +138,11 @@ function ModelCard({ model, failed, onRetry, onChange }: { model?: ModelState; f
   return model.installed ? (
     <div className="flex items-center gap-3">
       <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Installed · {mb(model.diskBytes)} on disk</span>
-      <button onClick={remove} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-        <Trash2 className="size-3.5" /> Remove
-      </button>
+      <Button size="sm" onClick={remove}><Trash2 /> Remove</Button>
     </div>
   ) : (
     <div className="flex items-center gap-3">
-      <button onClick={download} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-label font-medium text-accent-foreground transition hover:opacity-90">
-        <Download className="size-4" /> Download ({mb(model.downloadBytes)})
-      </button>
+      <Button variant="primary" onClick={download}><Download /> Download ({mb(model.downloadBytes)})</Button>
       <span className="text-caption text-faint">Removable anytime; profiles are tiny and kept separately.</span>
     </div>
   );
@@ -161,7 +155,7 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   const [scriptId, setScriptId] = useState<(typeof SCRIPTS)[number]["id"]>("everyday");
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
-  const [level, setLevel] = useState(0);
+  const meter = useRef<HTMLDivElement>(null);
   const [take, setTake] = useState<Take | null>(null);
   const [takeUrl, setTakeUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -247,9 +241,11 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
       const tick = () => {
         if (!rec.current) return;
         const sec = (Date.now() - startedAt) / 1000;
-        setSeconds(sec);
+        // Whole seconds only: a render a second, not a frame. The level goes straight to the DOM.
+        setSeconds(Math.floor(sec));
         const last = chunks[chunks.length - 1];
-        setLevel(last ? Math.min(1, Math.sqrt(last.reduce((s, x) => s + x * x, 0) / last.length) * 8) : 0);
+        const level = last ? Math.min(1, Math.sqrt(last.reduce((s, x) => s + x * x, 0) / last.length) * 8) : 0;
+        if (meter.current) meter.current.style.transform = `scaleX(${level})`;
         if (sec >= MAX_SEC) { stop(); return; }
         rec.current.raf = requestAnimationFrame(tick);
       };
@@ -278,35 +274,37 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   };
 
   const script = SCRIPTS.find((s) => s.id === scriptId)!;
-  const progressPct = Math.min(100, (seconds / MAX_SEC) * 100);
+  // A second ahead: the bar spends each second gliding to where the next tick lands.
+  const progressPct = Math.min(100, ((seconds + 1) / MAX_SEC) * 100);
   const minPct = (MIN_SEC / MAX_SEC) * 100;
 
   // Step 1 — record
   if (!take) return (
-    <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+    <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-card">
       <div className="flex items-center gap-1.5">
-        <Segmented label="Script to read" size="sm" className="bg-transparent shadow-none" options={SCRIPTS} value={scriptId} onChange={setScriptId} />
+        <Segmented label="Script to read" size="sm" options={SCRIPTS} value={scriptId} onChange={setScriptId} />
         <span className="ml-auto text-caption text-faint">or just talk naturally</span>
       </div>
       <p className="rounded-lg bg-surface p-3 text-body leading-relaxed text-foreground">{script.text}</p>
       <div className="flex items-center gap-3">
-        <button onClick={recording ? stop : start}
-          className={cn("flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-label font-medium transition",
-            recording ? "bg-destructive-fill text-white" : "bg-accent text-accent-foreground hover:opacity-90")}>
-          {recording ? <Square className="size-4" /> : <Mic className="size-4" />}
+        <Button variant={recording ? "destructive" : "primary"} onClick={recording ? stop : start}>
+          {recording ? <Square /> : <Mic />}
           {recording ? "Stop" : "Start recording"}
-        </button>
+        </Button>
         {recording ? (
           <div className="flex flex-1 items-center gap-2.5">
             {/* elapsed bar with the minimum-length marker */}
             <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
-              <div className={cn("h-full rounded-full transition-[width] duration-200", seconds >= MIN_SEC ? "bg-success" : "bg-arc")} style={{ width: `${progressPct}%` }} />
-              <div className="absolute inset-y-0 w-px bg-foreground/40" style={{ left: `${minPct}%` }} title={`${MIN_SEC}s minimum`} />
+              <div className={cn("h-full origin-left rounded-full transition-transform duration-1000 ease-linear", seconds >= MIN_SEC ? "bg-success" : "bg-arc")}
+                style={{ transform: `scaleX(${progressPct / 100})` }} />
+              <Tooltip label={`${MIN_SEC}s minimum`}><div className="absolute inset-y-0 w-px bg-foreground/40" style={{ left: `${minPct}%` }} /></Tooltip>
             </div>
             <span className="w-16 text-right font-mono text-caption tabular-nums text-muted-foreground">{seconds.toFixed(0)}s / {MAX_SEC}s</span>
-            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/10" title="Input level">
-              <div className="h-full rounded-full bg-accent transition-[width] duration-100" style={{ width: `${Math.round(level * 100)}%` }} />
-            </div>
+            <Tooltip label="Input level">
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/10">
+                <div ref={meter} className="h-full origin-left scale-x-0 rounded-full bg-accent transition-transform duration-meter" />
+              </div>
+            </Tooltip>
           </div>
         ) : (
           <span className="text-caption text-faint">{MIN_SEC}–{MAX_SEC} seconds · quiet room, normal speaking distance</span>
@@ -316,11 +314,10 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
       <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2.5">
         <input ref={fileInput} type="file" accept="audio/*" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ""; }} />
-        <button onClick={() => fileInput.current?.click()} disabled={recording || busy !== null}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">
-          {busy === "decode" ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+        <Button size="sm" onClick={() => fileInput.current?.click()} disabled={recording || busy !== null}>
+          {busy === "decode" ? <Loader2 className="animate-spin" /> : <Upload />}
           {busy === "decode" ? "Reading…" : "Upload an audio file"}
-        </button>
+        </Button>
         <span className="text-caption text-faint">Have a clean {MIN_SEC}–{MAX_SEC}s clip already? WAV, MP3, or M4A.</span>
       </div>
     </div>
@@ -328,30 +325,27 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
 
   // Step 2 — listen back + details + save
   return (
-    <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+    <div className="flex max-w-xl flex-col gap-3 rounded-xl bg-card p-4 shadow-card">
       <div className="flex items-center gap-2.5">
-        <span className="text-label text-muted-foreground">Listen back — {(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
-        <button onClick={() => { setTake(null); setTranscript(""); }}
-          className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-          <RotateCcw className="size-3.5" /> Re-record
-        </button>
+        <span className="text-label text-muted-foreground">Listen back: {(take.samples.length / take.sampleRate).toFixed(0)}s recorded</span>
+        <Button size="sm" onClick={() => { setTake(null); setTranscript(""); }} className="ml-auto">
+          <RotateCcw /> Re-record
+        </Button>
       </div>
       {takeUrl && <AudioBar src={takeUrl} />}
       <label className="flex flex-col gap-1">
-        <span className="text-caption text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript — fix anything Whisper misheard; cloning quality depends on it."}</span>
-        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} placeholder="What you said, word for word"
-          className="w-full resize-y rounded-lg bg-surface p-2.5 text-label leading-relaxed text-foreground outline-none placeholder:text-faint" />
+        <span className="text-caption text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript: fix anything Whisper misheard, since cloning quality depends on it."}</span>
+        <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} placeholder="What you said, word for word" />
       </label>
       <div className="flex items-center gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value.slice(0, 60))} placeholder="Voice name (e.g. Me)"
-          className="h-9 flex-1 rounded-lg bg-surface px-2.5 text-label text-foreground outline-none placeholder:text-faint" />
-        <button onClick={save} disabled={!consent || !transcript.trim() || busy !== null}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-label font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-40">
-          {busy === "save" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Save voice
-        </button>
+        <Input size="md" value={name} onChange={(e) => setName(e.target.value.slice(0, 60))} placeholder="Voice name (e.g. Me)" aria-label="Voice name"
+          className="flex-1" />
+        <Button variant="primary" onClick={save} disabled={!consent || !transcript.trim() || busy !== null}>
+          {busy === "save" ? <Loader2 className="animate-spin" /> : <Check />} Save voice
+        </Button>
       </div>
       <label className="flex cursor-pointer items-start gap-2 text-caption leading-snug text-muted-foreground">
-        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5" />
+        <Checkbox checked={consent} onChange={(e) => setConsent(e.target.checked)} />
         This is my own voice, or I have this person&apos;s permission. Cloned speech is generated on this device only.
       </label>
     </div>
@@ -453,44 +447,41 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
   return (
     <div className="flex max-w-xl flex-col gap-3">
       {profiles.length > 0 && (
-        <input value={previewText} onChange={(e) => setPreviewText(e.target.value.slice(0, 200))}
-          placeholder={`Preview text — try anything (default: “${DEFAULT_PREVIEW}”)`}
-          className="h-9 w-full rounded-lg bg-card px-3 text-label text-foreground shadow-[var(--shadow-card)] outline-none placeholder:text-faint" />
+        <Input size="md" value={previewText} onChange={(e) => setPreviewText(e.target.value.slice(0, 200))}
+          placeholder={`Preview text: try anything (default: “${DEFAULT_PREVIEW}”)`} aria-label="Preview text" />
       )}
 
-      {profiles.length === 0 && <p className="text-label text-faint">No voices yet — record one above, or import a profile.</p>}
+      {profiles.length === 0 && <p className="text-label text-faint">No voices yet. Record one above, or import a profile.</p>}
 
       {profiles.map((p) => (
-        <div key={p.id} className={cn("flex flex-col gap-2 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition", p.id === activeId && "shadow-[inset_0_0_0_1.5px_var(--accent)]")}>
+        <div key={p.id} className={cn("flex flex-col gap-2 rounded-xl bg-card p-3 shadow-card transition", p.id === activeId && "ring-2 ring-inset ring-accent")}>
           <div className="flex items-center gap-2">
             {renaming === p.id ? (
-              <input autoFocus value={renameTo} onChange={(e) => setRenameTo(e.target.value.slice(0, 60))}
+              <Input size="sm" autoFocus value={renameTo} onChange={(e) => setRenameTo(e.target.value.slice(0, 60))} aria-label="Voice name"
                 onBlur={() => void rename(p)} onKeyDown={(e) => { if (e.key === "Enter") void rename(p); if (e.key === "Escape") setRenaming(null); }}
-                className="h-7 flex-1 rounded-md bg-surface px-2 text-body font-medium text-foreground outline-none" />
+                className="flex-1 font-medium" />
             ) : (
               <span className="min-w-0 flex-1 truncate text-body font-medium text-foreground">
                 {p.name}
-                {p.id === activeId && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-micro font-medium text-accent">Speaking voice</span>}
+                {p.id === activeId && <Badge tone="accent" className="ml-2">Speaking voice</Badge>}
               </span>
             )}
             <span className="shrink-0 text-caption text-faint">{p.seconds ? `${p.seconds.toFixed(0)}s · ` : ""}{new Date(p.createdAt).toLocaleDateString()}</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <button onClick={() => preview(p)} disabled={busy !== null}
-              className="flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-label font-medium text-background transition hover:opacity-90 disabled:opacity-40">
-              {busy === `preview:${p.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Preview
-            </button>
+            <Button size="sm" onClick={() => preview(p)} disabled={busy !== null}>
+              {busy === `preview:${p.id}` ? <Loader2 className="animate-spin" /> : <Play />} Preview
+            </Button>
             {p.id !== activeId && (
-              <button onClick={() => useVoice(p.id)}
-                className="flex h-8 items-center gap-1.5 rounded-lg border border-transparent bg-accent px-2.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
-                <Volume2 className="size-3.5" /> Use this voice
-              </button>
+              <Button variant="primary" size="sm" onClick={() => useVoice(p.id)}>
+                <Volume2 /> Use this voice
+              </Button>
             )}
             <span className="mx-0.5 h-4 w-px bg-border" />
-            <IconAction title="Play the original recording" onClick={() => listen(p)} busy={busy === `listen:${p.id}`} icon={Volume2} />
-            <IconAction title="Rename" onClick={() => { setRenaming(p.id); setRenameTo(p.name); }} icon={Pencil} />
-            <IconAction title="Export to a file" onClick={() => exportProfile(p)} icon={Download} />
-            <IconAction title="Delete" onClick={() => remove(p)} icon={Trash2} danger />
+            <IconAction label="Play the original recording" onClick={() => listen(p)} busy={busy === `listen:${p.id}`} icon={Volume2} />
+            <IconAction label="Rename" onClick={() => { setRenaming(p.id); setRenameTo(p.name); }} icon={Pencil} />
+            <IconAction label="Export to a file" onClick={() => exportProfile(p)} icon={Download} />
+            <IconAction label="Delete" onClick={() => remove(p)} icon={Trash2} danger />
           </div>
           {clip?.id === p.id && (
             <div className="flex items-center gap-2">
@@ -504,20 +495,20 @@ function ProfileManager({ profiles, onChange }: { profiles: VoiceProfile[]; onCh
       <div>
         <input ref={fileInput} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProfile(f); e.target.value = ""; }} />
-        <button onClick={() => fileInput.current?.click()}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-label text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-          <Upload className="size-3.5" /> Import a voice file
-        </button>
+        <Button size="sm" onClick={() => fileInput.current?.click()}>
+          <Upload /> Import a voice file
+        </Button>
       </div>
     </div>
   );
 }
 
-function IconAction({ title, onClick, icon: Icon, busy, danger }: { title: string; onClick: () => void; icon: typeof Play; busy?: boolean; danger?: boolean }) {
+function IconAction({ label, onClick, icon: Icon, busy, danger }: { label: string; onClick: () => void; icon: typeof Play; busy?: boolean; danger?: boolean }) {
   return (
-    <button onClick={onClick} title={title} aria-label={title}
-      className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10", danger ? "hover:text-danger" : "hover:text-foreground")}>
-      {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
-    </button>
+    <Tooltip label={label}>
+      <Button variant="ghost" size="sm" icon onClick={onClick} aria-label={label} className={cn(danger && "enabled:hover:text-danger")}>
+        {busy ? <Loader2 className="animate-spin" /> : <Icon />}
+      </Button>
+    </Tooltip>
   );
 }

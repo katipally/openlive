@@ -193,7 +193,7 @@ The renderer models run on **WebGPU via transformers.js**. They download once
 (roughly 200 MB with Kokoro, more with Supertonic or a bigger Whisper; cached)
 and the worker stays warm for the tab's life.
 
-**Model licenses.** Settings → Voice shows each engine's on its card, and Piper's
+**Model licenses.** Settings → Speech engine shows each engine's on its card, and Piper's
 per voice in its Model menu. Silero VAD and Moonshine: MIT. Smart-Turn:
 BSD-2-Clause. Whisper, Kokoro (browser and CPU), Kitten TTS and Matcha: Apache 2.0
 (Matcha's LJSpeech data is public domain). Supertonic, the default voice:
@@ -229,7 +229,7 @@ itself, on onnxruntime-node, with the synthesis the browser runs
 (`packages/shared/src/speech/supertonic.ts`: the same text preprocessing, the
 same seeded noise, the same trim), so both render the same voice. It is a
 native engine of its own family (`supertonic-3`, marked `browser: "supertonic"`
-in `native-models.ts`), downloaded from Settings → Voice into
+in `native-models.ts`), downloaded from Settings → Speech engine into
 `data/models/supertonic-3` file by file from the Hugging Face revision the
 regression check pins. It is not a choice of its own: with Supertonic picked,
 each call asks the agent once whether its copy is downloaded and can run here
@@ -247,7 +247,7 @@ way, and kokoro-js cannot be given a thread count.
 
 The **native engines** (`services/agent/src/voice/native*.ts`) are optional
 sherpa-onnx models that the agent service downloads into `data/models/<id>` from
-Settings → Voice. The catalog groups them in families of variants (size,
+Settings → Speech engine. The catalog groups them in families of variants (size,
 precision, chunk latency, voice): Nemotron and Nemotron 3.5 (streaming),
 Parakeet, Moonshine and Canary for speech to text, Pocket TTS, Kitten TTS, Piper,
 Kokoro and Matcha for speech. Each variant lists the languages it speaks; a call

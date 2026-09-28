@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Button, Range, Tooltip } from "@/components/ui";
 
 // Compact seekable player — the one way Clone Voice plays anything back
 // (recorded take, synthesized preview, original profile recording).
@@ -68,14 +69,13 @@ export function AudioBar({ src, autoPlay, className }: { src: string; autoPlay?:
   };
 
   return (
-    <div className={cn("flex h-9 items-center gap-2.5 rounded-lg bg-surface px-2.5", className)}>
-      <button onClick={toggle} title={playing ? "Pause" : "Play"} aria-label={playing ? "Pause" : "Play"}
-        className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground text-background transition hover:opacity-90">
-        {playing ? <Pause className="size-3 fill-current" /> : <Play className="size-3 translate-x-px fill-current" />}
-      </button>
-      <input type="range" aria-label="Seek" min={0} max={dur || 0} step={0.01} value={Math.min(time, dur || 0)}
-        onChange={(e) => seek(Number(e.target.value))}
-        className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-foreground" />
+    <div className={cn("flex min-h-control-md items-center gap-2.5 rounded-lg bg-surface px-1.5", className)}>
+      <Tooltip label={playing ? "Pause" : "Play"} className="shrink-0">
+        <Button variant="primary" size="sm" icon onClick={toggle} aria-label={playing ? "Pause" : "Play"}>
+          {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+        </Button>
+      </Tooltip>
+      <Range small aria-label="Seek" max={dur || 0} step={0.01} value={time} onChange={(e) => seek(Number(e.target.value))} className="min-w-0 flex-1" />
       <span className="shrink-0 font-mono text-micro tabular-nums text-muted-foreground">{fmt(time)} / {fmt(dur)}</span>
     </div>
   );
