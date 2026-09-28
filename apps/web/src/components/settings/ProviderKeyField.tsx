@@ -7,6 +7,8 @@ import { KeyRound, Check, Trash2, Server, RotateCcw } from "lucide-react";
 // bundle into a client component.
 import { BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, normalizeOllamaUrl } from "@openlive/harness/registry";
 import { api, type AppSettings } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { Button, Tooltip, Input, fieldTrigger } from "@/components/ui";
 import { cancelDelete, deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
 // API-key entry bound to one provider, by registry id. The same row serves the
@@ -41,22 +43,22 @@ export function ProviderKeyField({ kind }: { kind: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex h-9 min-w-[9rem] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-label text-muted-foreground">
+        <div className={cn(fieldTrigger, "flex h-control-md min-w-[9rem] flex-1 items-center gap-2 text-label text-muted-foreground")}>
           {hasKey ? <><Check className="size-3.5 text-success" /> Key set · ••••{row!.keyLast4}</> : "No key set"}
         </div>
-        <input value={key} onChange={(e) => setKey(e.target.value)} type="password" name={`${kind}-api-key`}
+        <Input size="md" value={key} onChange={(e) => setKey(e.target.value)} type="password" name={`${kind}-api-key`}
           placeholder={`Paste ${info?.name ?? kind} key`} aria-label={`${info?.name ?? kind} API key`}
           onKeyDown={(e) => { if (e.key === "Enter" && key.trim()) save.mutate(); }}
-          className="h-9 min-w-[9rem] flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy" />
-        <button onClick={() => save.mutate()} disabled={!key.trim() || save.isPending}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-body font-medium text-background transition hover:opacity-90 disabled:opacity-30">
-          {save.isSuccess ? <Check className="size-4" /> : <KeyRound className="size-4" />} Save
-        </button>
+          className="min-w-[9rem] flex-1" />
+        <Button variant="primary" onClick={() => save.mutate()} disabled={!key.trim() || save.isPending}>
+          {save.isSuccess ? <Check /> : <KeyRound />} Save
+        </Button>
         {hasKey && (
-          <button onClick={remove} title="Remove the stored key" aria-label="Remove key"
-            className="grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-            <Trash2 className="size-4" />
-          </button>
+          <Tooltip label="Remove the stored key">
+            <Button icon onClick={remove} aria-label="Remove key">
+              <Trash2 />
+            </Button>
+          </Tooltip>
         )}
       </div>
       {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
@@ -105,22 +107,22 @@ function OllamaAddressField({ name }: { name: string }) {
     <div className="flex flex-col gap-2">
       <p className="text-label text-muted-foreground">No key needed. {name} runs on a server you point it at.</p>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex h-9 min-w-[9rem] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 text-label text-muted-foreground">
-          <Server className="size-3.5 shrink-0" /> <span className="truncate" title={current}>{current}</span>
+        <div className={cn(fieldTrigger, "flex h-control-md min-w-[9rem] flex-1 items-center gap-2 text-label text-muted-foreground")}>
+          <Server className="size-3.5 shrink-0" /> <Tooltip label={current} truncated className="min-w-0"><span className="truncate">{current}</span></Tooltip>
         </div>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} type="url" name="ollama-base-url" inputMode="url"
-          placeholder={DEFAULT_OLLAMA_URL} aria-label={`${name} server address`} aria-invalid={invalid}
+        <Input size="md" value={url} onChange={(e) => setUrl(e.target.value)} type="url" name="ollama-base-url" inputMode="url"
+          placeholder={DEFAULT_OLLAMA_URL} aria-label={`${name} server address`} invalid={invalid}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-          className="h-9 min-w-[9rem] flex-1 rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy" />
-        <button onClick={submit} disabled={!typed || invalid || save.isPending}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 text-body font-medium text-background transition hover:opacity-90 disabled:opacity-30">
-          {save.data ? <Check className="size-4" /> : <Server className="size-4" />} Save
-        </button>
+          className="min-w-[9rem] flex-1" />
+        <Button variant="primary" onClick={submit} disabled={!typed || invalid || save.isPending}>
+          {save.data ? <Check /> : <Server />} Save
+        </Button>
         {!!settings?.ollamaBaseUrl && (
-          <button onClick={() => save.mutate("")} title={`Go back to ${DEFAULT_OLLAMA_URL}`} aria-label="Reset the address"
-            className="grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition hover:border-border-heavy hover:text-foreground">
-            <RotateCcw className="size-4" />
-          </button>
+          <Tooltip label={`Go back to ${DEFAULT_OLLAMA_URL}`}>
+            <Button icon onClick={() => save.mutate("")} aria-label="Reset the address">
+              <RotateCcw />
+            </Button>
+          </Tooltip>
         )}
       </div>
       {offMachine && <p className="break-words text-label text-muted-foreground">{current} is not on this computer. Flow and Chat send it what you say and type, and screen content.</p>}

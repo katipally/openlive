@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy } from "lucide-react";
+import { RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { useAgentActions } from "@/lib/agentActions";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
-import { Switch } from "@/components/Switch";
+import { Switch, Button, Tooltip, Chip, ListGroup } from "@/components/ui";
 import { Section } from "./Section";
 
 export function AgentsSettings() {
@@ -20,16 +20,13 @@ export function AgentsSettings() {
   return (
     <div className="flex flex-col gap-7">
       <Section id="set-agents-list" title="Coding agents"
-        desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span> — OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History — its sessions stay on disk.</>}>
+        desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span>. OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History. Its sessions stay on disk.</>}>
         <div className="flex flex-col gap-2.5">
           {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
-          {agents.map((a) => (
-            <AgentRow key={a.id} a={a} />
-          ))}
-          <button onClick={() => refetch()} disabled={isFetching}
-            className="flex items-center gap-1.5 self-start text-label text-muted-foreground transition hover:text-foreground disabled:opacity-50">
-            <RefreshCw className={isFetching ? "size-3.5 animate-spin" : "size-3.5"} /> Re-check
-          </button>
+          {agents.length > 0 && <ListGroup>{agents.map((a) => <AgentRow key={a.id} a={a} />)}</ListGroup>}
+          <Button variant="ghost" size="sm" className="self-start" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={isFetching ? "animate-spin" : undefined} /> Re-check
+          </Button>
         </div>
       </Section>
     </div>
@@ -38,12 +35,12 @@ export function AgentsSettings() {
 
 /** The row's single readiness verdict, derived from install + credential probes. */
 function statusChip(a: AgentStatus) {
-  if (!a.installed) return { text: "Not installed", cls: "text-muted-foreground" };
-  if (a.credState === "ready") return { text: "Ready", cls: "text-success" };
+  if (!a.installed) return { text: "Not installed", dot: "muted" } as const;
+  if (a.credState === "ready") return { text: "Ready", dot: "success" } as const;
   // Wizard agents (hermes) aren't "signed out" in this state — their setup was
   // started but never finished (no provider picked). Say that.
-  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", cls: "text-arc-text" };
-  return { text: "Installed", cls: "text-success" }; // creds unknowable — don't cry wolf
+  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", dot: "arc" } as const;
+  return { text: "Installed", dot: "success" } as const; // creds unknowable — don't cry wolf
 }
 
 // One agent: status (probed, never asked of the agent), install / sign-in /
@@ -96,19 +93,15 @@ function AgentRow({ a }: { a: AgentStatus }) {
   const busy = !!run?.running;
   const running = run?.running ? run.action : null;
   const chip = statusChip(a);
-  const btn = "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-label font-medium transition disabled:opacity-40";
 
   return (
-    <div className={cn("rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition", a.hidden && "opacity-60")}>
+    <div className={cn("py-3 transition", a.hidden && "opacity-60")}>
       <div className="flex items-start gap-3">
         <AgentIcon id={a.id as AgentId} className="mt-0.5 size-5 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-body font-medium text-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-body font-medium text-foreground">
             {a.label}
-            <span className={cn("flex items-center gap-1 text-caption font-normal", chip.cls)}>
-              {a.installed && a.credState === "ready" && <Check className="size-3.5" />}
-              {chip.text}
-            </span>
+            <Chip dot={chip.dot}>{chip.text}</Chip>
           </div>
           <p className="mt-0.5 truncate font-mono text-caption text-faint">
             {a.version ? <>{a.version} · </> : null}
@@ -116,62 +109,60 @@ function AgentRow({ a }: { a: AgentStatus }) {
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {!a.installed && a.canInstall && (
-              <button onClick={() => start(a.id, "install")} disabled={busy}
-                className={cn(btn, "border-transparent bg-accent text-accent-foreground hover:opacity-90")}>
+              <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>
                 {running === "install" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} Install
-              </button>
+              </Button>
             )}
             {a.installed && a.credState !== "ready" && (
               <>
-                <button onClick={() => start(a.id, "login")} disabled={busy}
-                  className={cn(btn, a.credState === "login_required"
-                    ? "border-transparent bg-accent text-accent-foreground hover:opacity-90"
-                    : "border-border text-foreground hover:border-border-heavy")}>
+                <Button variant={a.credState === "login_required" ? "primary" : "secondary"} size="sm" onClick={() => start(a.id, "login")} disabled={busy}>
                   {running === "login" ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />} {a.wizard ? "Finish setup" : "Sign in"}
-                </button>
-                <button onClick={copyLogin} title={`Copy the command to run yourself: ${a.loginCommand}`}
-                  className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
-                  <Copy className="size-3.5" /> Copy command
-                </button>
+                </Button>
+                <Tooltip label={`Copy the command to run yourself: ${a.loginCommand}`}>
+                  <Button size="sm" onClick={copyLogin}>
+                    <Copy className="size-3.5" /> Copy command
+                  </Button>
+                </Tooltip>
               </>
             )}
             {a.installed && a.credState === "ready" && a.canLogout && (
-              <button onClick={() => start(a.id, "logout")} disabled={busy}
-                className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
+              <Button size="sm" onClick={() => start(a.id, "logout")} disabled={busy}>
                 {running === "logout" ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />} Sign out
-              </button>
+              </Button>
             )}
             {a.installed && a.canUpdate && (
-              <button onClick={() => start(a.id, "update")} disabled={busy}
-                title="Reinstall the latest CLI release"
-                className={cn(btn, "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
-                {running === "update" ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUpCircle className="size-3.5" />} Update
-              </button>
+              <Tooltip label="Reinstall the latest CLI release">
+                <Button size="sm" onClick={() => { if (!busy) start(a.id, "update"); }} aria-disabled={busy || undefined}>
+                  {running === "update" ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUpCircle className="size-3.5" />} Update
+                </Button>
+              </Tooltip>
             )}
             {a.installed && a.canUninstall && (
-              <button
-                onClick={() => (confirmUn ? (setConfirmUn(false), start(a.id, "uninstall")) : setConfirmUn(true))}
-                disabled={busy} onBlur={() => setConfirmUn(false)}
-                title={a.wizard ? `Removes ${a.sessions} — including its chat history and credentials` : undefined}
-                className={cn(btn, confirmUn ? "border-danger/50 bg-danger/10 text-danger" : "border-border text-muted-foreground hover:border-border-heavy hover:text-foreground")}>
-                {running === "uninstall" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} {confirmUn ? "Confirm?" : "Uninstall"}
-              </button>
+              <Tooltip label={a.wizard && `Removes ${a.sessions}, including its chat history and credentials`}>
+                <Button variant={confirmUn ? "destructive" : "secondary"} size="sm" aria-disabled={busy || undefined}
+                  onClick={() => { if (busy) return; if (confirmUn) { setConfirmUn(false); start(a.id, "uninstall"); } else setConfirmUn(true); }}
+                  onBlur={() => setConfirmUn(false)}>
+                  {running === "uninstall" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} {confirmUn ? "Confirm?" : "Uninstall"}
+                </Button>
+              </Tooltip>
             )}
-            <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-caption text-muted-foreground" title={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"}>
-              {a.hidden ? "Hidden" : "Shown"}
-              <Switch on={!a.hidden} onFlip={() => setHidden(!a.hidden)} />
-            </label>
+            <Tooltip label={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"} className="ml-auto">
+              <label className="flex cursor-pointer select-none items-center gap-2 text-caption text-muted-foreground">
+                {a.hidden ? "Hidden" : "Shown"}
+                <Switch on={!a.hidden} onFlip={() => setHidden(!a.hidden)} />
+              </label>
+            </Tooltip>
           </div>
         </div>
       </div>
 
       {confirmUn && a.wizard && (
-        <p className="mt-2 text-caption text-danger">This deletes {a.sessions} — Hermes chat history and credentials included. There is no undo.</p>
+        <p className="mt-2 text-caption text-danger">This deletes {a.sessions}, Hermes chat history and credentials included. There is no undo.</p>
       )}
 
       {waiting && a.credState !== "ready" && (
         <p className="mt-2 flex items-center gap-1.5 text-caption text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" /> Waiting for you to finish in the terminal — this updates by itself.
+          <Loader2 className="size-3 animate-spin" /> Waiting for you to finish in the terminal. This updates by itself.
         </p>
       )}
 

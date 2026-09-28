@@ -10,14 +10,13 @@ import { effortName } from "@/components/live/SetupControls";
 import { modelVision } from "@openlive/shared";
 import { api, type ModelInfo } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { SearchSelect, type SearchOption } from "./SearchSelect";
 import { ProviderKeyField } from "./ProviderKeyField";
 import { usePersistedOpen } from "@/lib/disclosure";
-import { Segmented } from "@/lib/seg";
+import { Segmented, Select, Badge, Button, Notice, SearchSelect, type SearchOption } from "@/components/ui";
 import { Section } from "./Section";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 
-const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`) : "—");
+const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`) : "unknown");
 
 // Real image-input capability when the API reports it (models.dev / provider
 // payload); fall back to the name heuristic when it doesn't.
@@ -68,16 +67,15 @@ function VisionModelPicker() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <select value={vProvider} aria-label="Vision provider"
-        onChange={(e) => save.mutate({ visionProviderId: e.target.value, visionModel: "" })}
-        className="ol-select h-9 w-full rounded-lg border border-border bg-card px-3 text-label text-foreground outline-none focus:border-border-heavy">
+      <Select value={vProvider} aria-label="Vision provider"
+        onChange={(e) => save.mutate({ visionProviderId: e.target.value, visionModel: "" })} className="w-full">
         {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      </Select>
       <SearchSelect value={settings?.visionModel ?? ""} onChange={(id) => save.mutate({ visionModel: id })}
-        options={options} placeholder={models.length ? "None — use the live model to see" : modelsError?.message ?? "Add a key to load models…"}
+        options={options} placeholder={models.length ? "None, so the live model sees" : modelsError?.message ?? "Add a key to load models…"}
         disabled={!models.length} emptyText="No vision models here" />
       {settings?.visionModel
-        ? <button onClick={() => save.mutate({ visionModel: "" })} className="self-start text-caption text-muted-foreground hover:text-foreground">Clear — let the live model see</button>
+        ? <Button variant="ghost" size="sm" onClick={() => save.mutate({ visionModel: "" })} className="self-start">Clear, so the live model sees</Button>
         : null}
     </div>
   );
@@ -145,13 +143,13 @@ export function ModelsSettings() {
           disabled={!models.length} emptyText="No models match" />
         <ModelBadges providerId={providerId} m={model} />
         {liveBlind && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-arc/40 bg-arc-soft px-3 py-2.5 text-label leading-relaxed text-foreground">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-arc" />
+          <Notice className="mt-3">
+            <AlertTriangle aria-hidden />
             <span>
-              <b>{model?.display_name}</b> can’t see images — camera & screen won’t work with it.
+              <b>{model?.display_name}</b> can’t see images, so camera and screen won’t work with it.
               {hasVisionModel ? " A vision model is set below, so frames route through that." : " Pick a vision-capable model, or set a dedicated vision model below."}
             </span>
-          </div>
+          </Notice>
         )}
       </Section>
 
@@ -160,7 +158,7 @@ export function ModelsSettings() {
           <div>
             <h2 className="flex items-center gap-1.5 text-callout font-semibold text-foreground">
               <EyeOff className="size-3.5 text-muted-foreground" /> Vision model
-              <span className="rounded bg-surface px-1.5 py-0.5 text-micro font-normal text-muted-foreground">optional · advanced</span>
+              <Badge>Optional</Badge>
             </h2>
             <p className="mt-1 max-w-xl text-label leading-relaxed text-muted-foreground">
               Routes camera and screen through a separate model. Leave off and the live model sees for itself.
