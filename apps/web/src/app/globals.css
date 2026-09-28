@@ -561,6 +561,54 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
   cursor: default;
 }
 
+/* The kit's slider (components/Slider.tsx) on a native range: keyboard, a11y
+   and pointer capture stay the browser's. --p (0..1) is set inline; the fill
+   ends under the thumb's centre, so the thumb width is taken out of the run. */
+.ol-range {
+  --thumb-size: 1.25rem;
+  appearance: none;
+  -webkit-appearance: none;
+  height: var(--thumb-size);
+  background: transparent;
+  cursor: pointer;
+}
+.ol-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) calc(var(--p) * (100% - var(--thumb-size)) + var(--thumb-size) / 2), var(--track) 0);
+  box-shadow: var(--shadow-track);
+}
+.ol-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--track); box-shadow: var(--shadow-track); }
+.ol-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.ol-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  margin-top: calc((4px - var(--thumb-size)) / 2);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  transition: scale var(--dur-spring) var(--ease-spring);
+}
+.ol-range::-moz-range-thumb {
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.ol-range::-moz-range-thumb { transition: scale var(--dur-spring) var(--ease-spring); }
+.ol-range:enabled:hover::-webkit-slider-thumb { scale: 1.06; }
+.ol-range:enabled:hover::-moz-range-thumb { scale: 1.06; }
+.ol-range:enabled:active::-webkit-slider-thumb { scale: 1.18; }
+.ol-range:enabled:active::-moz-range-thumb { scale: 1.18; }
+.ol-range:focus-visible { outline: none; }
+.ol-range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ol-range:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ol-range:disabled { cursor: not-allowed; opacity: 0.4; }
+
 /* Keyboard focus — accessible ring on interactive CONTROLS only. Text fields
    (composer, inputs) manage their own focus styling, so they're excluded to
    avoid a hard outline box around the input. Mouse clicks don't trigger it. */
