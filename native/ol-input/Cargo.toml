@@ -12,7 +12,7 @@ napi = { version = "3", default-features = false, features = ["napi4"] }
 napi-derive = "3"
 handy-keys = "0.3"
 arboard = { version = "3", features = ["image-data"] }
-png = "0.17"
+png = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -23,7 +23,7 @@ objc2-core-foundation = { version = "0.3", default-features = false, features = 
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGEvent", "CGEventTypes", "CGEventSource", "CGWindow", "CGRemoteOperation", "CGImage", "CGDataProvider", "CGDirectDisplay", "CGDisplayConfiguration", "CGColorSpace", "CGGeometry"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_System_DataExchange",
   "Win32_System_Memory",

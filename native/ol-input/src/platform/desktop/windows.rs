@@ -9,7 +9,8 @@
 use std::ffi::c_void;
 
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::core::BOOL;
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
     EnumDisplayMonitors, GetDC, GetDIBits, GetMonitorInfoW, MonitorFromWindow,
@@ -146,20 +147,20 @@ fn grab(origin: ScreenPoint, width: i32, height: i32, window: Option<HWND>) -> R
         return Err("nothing to capture: the region is empty".into());
     }
     unsafe {
-        let source = GetDC(window.unwrap_or_default());
+        let source = GetDC(window);
         if source.is_invalid() {
             return Err("could not open a device context for the screen".into());
         }
-        let memory = CreateCompatibleDC(source);
+        let memory = CreateCompatibleDC(Some(source));
         let bitmap = CreateCompatibleBitmap(source, width, height);
-        let previous = SelectObject(memory, bitmap);
+        let previous = SelectObject(memory, bitmap.into());
 
         let (blit_x, blit_y) = match window {
             Some(_) => (0, 0),
             None => (origin.x as i32, origin.y as i32),
         };
         let blitted =
-            BitBlt(memory, 0, 0, width, height, source, blit_x, blit_y, SRCCOPY).is_ok();
+            BitBlt(memory, 0, 0, width, height, Some(source), blit_x, blit_y, SRCCOPY).is_ok();
 
         let mut header = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -187,9 +188,9 @@ fn grab(origin: ScreenPoint, width: i32, height: i32, window: Option<HWND>) -> R
         );
 
         SelectObject(memory, previous);
-        let _ = DeleteObject(bitmap);
+        let _ = DeleteObject(bitmap.into());
         let _ = DeleteDC(memory);
-        ReleaseDC(window.unwrap_or_default(), source);
+        ReleaseDC(window, source);
 
         if !blitted || rows == 0 {
             return Err("the screen capture was refused, which usually means a \
@@ -386,7 +387,7 @@ pub fn minimize_window(id: u32) -> Result<(), String> {
 }
 
 pub fn close_window(id: u32) -> Result<(), String> {
-    unsafe { PostMessageW(hwnd(id), WM_CLOSE, WPARAM(0), LPARAM(0)).map_err(|e| e.message()) }
+    unsafe { PostMessageW(Some(hwnd(id)), WM_CLOSE, WPARAM(0), LPARAM(0)).map_err(|e| e.message()) }
 }
 
 fn shell_execute(verb: &str, target: &str) -> Result<(), String> {
@@ -674,18 +675,18 @@ pub fn ocr(png: &[u8], _width: f64, _height: f64) -> Result<Vec<ShotBox>, String
     let stream = InMemoryRandomAccessStream::new().map_err(|e| e.message())?;
     let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| e.message())?;
     writer.WriteBytes(png).map_err(|e| e.message())?;
-    writer.StoreAsync().map_err(|e| e.message())?.get().map_err(|e| e.message())?;
-    writer.FlushAsync().map_err(|e| e.message())?.get().map_err(|e| e.message())?;
+    writer.StoreAsync().map_err(|e| e.message())?.join().map_err(|e| e.message())?;
+    writer.FlushAsync().map_err(|e| e.message())?.join().map_err(|e| e.message())?;
     stream.Seek(0).map_err(|e| e.message())?;
 
     let decoder = BitmapDecoder::CreateAsync(&stream)
         .map_err(|e| e.message())?
-        .get()
+        .join()
         .map_err(|e| e.message())?;
     let bitmap = decoder
         .GetSoftwareBitmapAsync()
         .map_err(|e| e.message())?
-        .get()
+        .join()
         .map_err(|e| e.message())?;
     let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|_| {
         "Windows has no OCR language pack installed for the current user".to_string()
@@ -693,7 +694,7 @@ pub fn ocr(png: &[u8], _width: f64, _height: f64) -> Result<Vec<ShotBox>, String
     let result = engine
         .RecognizeAsync(&bitmap)
         .map_err(|e| e.message())?
-        .get()
+        .join()
         .map_err(|e| e.message())?;
 
     let mut found = Vec::new();

@@ -538,8 +538,8 @@ export class AcpAgent implements Agent {
         this.terminals.release(p.terminalId);
       },
 
-      // ── elicitations (unstable): login URLs + input forms ────────────────
-      unstable_createElicitation: async (req) => {
+      // ── elicitations: login URLs + input forms ────────────────────────────
+      createElicitation: async (req) => {
         const ask = this.opts.askElicitation;
         if (!ask) return { action: "decline" };
         // The union's custom-mode arm ({mode: string}) defeats TS narrowing —
@@ -554,7 +554,7 @@ export class AcpAgent implements Agent {
         }
         return { action: "decline" }; // unknown future mode — refuse cleanly, never hang
       },
-      unstable_completeElicitation: async (n) => {
+      completeElicitation: async (n) => {
         // The agent noticed the URL flow finished (OAuth landed) — settle our card.
         this.opts.completeElicitation?.(String(n.elicitationId));
       },

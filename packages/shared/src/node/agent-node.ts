@@ -26,7 +26,8 @@ function loginShellPath(): string[] {
   try {
     const shell = process.env.SHELL || "/bin/sh";
     // The marker survives whatever banners an interactive rc file prints.
-    const out = execFileSync(shell, ["-lic", 'printf "__OL__%s" "$PATH"'], {
+    // turbopackIgnore: the shell is the user's, never a file of ours to trace.
+    const out = execFileSync(/*turbopackIgnore: true*/ shell, ["-lic", 'printf "__OL__%s" "$PATH"'], {
       encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"],
     });
     loginPath = (out.split("__OL__").pop() ?? "").trim().split(delimiter).filter(Boolean);

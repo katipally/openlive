@@ -74,8 +74,8 @@ export const flowEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool_start"), id: z.string(), name: z.string(), kind: toolKindSchema.optional(), target: z.string().optional() }),
   // Best-effort parse of the arguments streamed so far: strings may be cut
   // mid-word and arrays may be short. Speculate on it, never act on it.
-  z.object({ type: z.literal("tool_args_delta"), id: z.string(), argsPartial: z.record(z.unknown()) }),
-  z.object({ type: z.literal("tool_call"), id: z.string(), name: z.string(), args: z.record(z.unknown()) }),
+  z.object({ type: z.literal("tool_args_delta"), id: z.string(), argsPartial: z.record(z.string(), z.unknown()) }),
+  z.object({ type: z.literal("tool_call"), id: z.string(), name: z.string(), args: z.record(z.string(), z.unknown()) }),
   z.object({
     type: z.literal("tool_result"), id: z.string(), name: z.string(),
     content: z.array(flowContentSchema), isError: z.boolean(), details: z.unknown().optional(),
@@ -216,7 +216,7 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // The user's answer to a permission request (chip tap or a spoken yes/no).
   z.object({ t: z.literal("permission_response"), reqId: z.string(), optionId: z.string() }),
   // The user's answer to an elicitation (form submit / "done" / cancel).
-  z.object({ t: z.literal("elicitation_response"), reqId: z.string(), action: z.enum(["accept", "decline", "cancel"]), content: z.record(z.unknown()).optional() }),
+  z.object({ t: z.literal("elicitation_response"), reqId: z.string(), action: z.enum(["accept", "decline", "cancel"]), content: z.record(z.string(), z.unknown()).optional() }),
   // Switch the bound agent's model / mode mid-session (ACP set_model / set_mode).
   z.object({ t: z.literal("set_model"), modelId: z.string() }),
   z.object({ t: z.literal("set_mode"), modeId: z.string() }),

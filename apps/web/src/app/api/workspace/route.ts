@@ -11,7 +11,9 @@ export async function GET(req: Request) {
   const path = new URL(req.url).searchParams.get("path") ?? "";
   if (!path) return NextResponse.json({ ok: false, reason: "empty" });
   try {
-    const s = statSync(path);
+    // The path is the user's project folder, not ours: keep Turbopack from
+    // tracing the whole repo into the server bundle for it.
+    const s = statSync(/*turbopackIgnore: true*/ path);
     return NextResponse.json(s.isDirectory() ? { ok: true } : { ok: false, reason: "not-a-folder" });
   } catch {
     return NextResponse.json({ ok: false, reason: "missing" });

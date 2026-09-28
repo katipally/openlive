@@ -83,9 +83,10 @@ fn shoot(tool: &str, region: Option<(i64, i64, i64, i64)>) -> Result<Vec<u8>, St
 }
 
 fn decode(png: &[u8], origin: ScreenPoint, logical_width: f64) -> Result<Bitmap, String> {
-    let decoder = png::Decoder::new(png);
+    let decoder = png::Decoder::new(std::io::Cursor::new(png));
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buffer = vec![0; reader.output_buffer_size()];
+    let size = reader.output_buffer_size().ok_or("the screenshot is too large to decode")?;
+    let mut buffer = vec![0; size];
     let frame = reader.next_frame(&mut buffer).map_err(|e| e.to_string())?;
     let width = frame.width;
     let height = frame.height;

@@ -3,7 +3,6 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Agent } from "undici";
 import { z, type ZodRawShape } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SseEvent } from "@openlive/shared";
 import { getSetting, setSetting } from "@openlive/db";
 import { exaSearch } from "./exa.js";
@@ -55,7 +54,7 @@ export function htmlToText(html: string): string {
 // Zod shape → JSON Schema for the model. Inline refs and drop $schema so every
 // provider adapter accepts it.
 function params(shape: ZodRawShape): Record<string, unknown> {
-  const js = zodToJsonSchema(z.object(shape), { $refStrategy: "none" }) as Record<string, unknown>;
+  const js = z.toJSONSchema(z.object(shape), { target: "draft-07" }) as Record<string, unknown>;
   delete js.$schema;
   return js;
 }

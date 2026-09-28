@@ -30,7 +30,7 @@ jobs:
       # Reads the pnpm version from package.json "packageManager" — no pin to drift.
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Need the repo checked out to read CHANGELOG.md for the release highlights.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Give users a clean release: this version's CHANGELOG highlights, a download
       # table pointing at the two installers, and strip the *.blockmap noise. The

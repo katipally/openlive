@@ -51,7 +51,7 @@ fn render() -> Option<()> {
         }
         std::ptr::copy_nonoverlapping(promise.text.as_ptr(), target.cast::<u16>(), promise.text.len());
         let _ = GlobalUnlock(handle);
-        SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(handle.0)).ok()?;
+        SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(handle.0))).ok()?;
     }
     promise.receipt.mark_read(promise.started.elapsed());
     Some(())
@@ -66,7 +66,7 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_RENDERFORMAT | WM_RENDERALLFORMATS => {
             // WM_RENDERALLFORMATS arrives with the clipboard closed.
-            let opened = msg == WM_RENDERALLFORMATS && OpenClipboard(hwnd).is_ok();
+            let opened = msg == WM_RENDERALLFORMATS && OpenClipboard(Some(hwnd)).is_ok();
             render();
             if opened {
                 let _ = CloseClipboard();
@@ -114,9 +114,9 @@ fn owner_window() -> Result<HWND, String> {
                 0,
                 0,
                 0,
-                HWND_MESSAGE,
+                Some(HWND_MESSAGE),
                 None,
-                HINSTANCE::from(instance),
+                Some(HINSTANCE::from(instance)),
                 None,
             );
             match hwnd {
@@ -150,12 +150,12 @@ pub fn publish(text: &str, receipt: Arc<Receipt>, started: Instant) -> Result<()
         started,
     });
     unsafe {
-        OpenClipboard(hwnd).map_err(|e| format!("could not open the clipboard: {e}"))?;
+        OpenClipboard(Some(hwnd)).map_err(|e| format!("could not open the clipboard: {e}"))?;
         let result = EmptyClipboard()
             .map_err(|e| format!("could not empty the clipboard: {e}"))
             // A null handle is what makes this a promise rather than a value.
             .and_then(|()| {
-                SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(std::ptr::null_mut()))
+                SetClipboardData(CF_UNICODETEXT.0 as u32, None)
                     .map(|_| ())
                     .map_err(|e| format!("could not publish the clipboard promise: {e}"))
             });

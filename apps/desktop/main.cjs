@@ -948,8 +948,8 @@ function wireBridgeIpc() {
   ipcMain.on("openlive:workspace", (_e, dir) => { workspaceDir = String(dir ?? ""); });
   ipcMain.handle("openlive:bridge", async (_e, { op, arg }) => {
     try {
-      if (op === "clipboard_read") { const t = clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
-      if (op === "clipboard_write") { clipboard.writeText(String(arg ?? "")); return "Copied it to the clipboard."; }
+      if (op === "clipboard_read") { const t = await clipboard.readText(); return t ? `The clipboard contains: ${t}` : "The clipboard is empty."; }
+      if (op === "clipboard_write") { await clipboard.writeText(String(arg ?? "")); return "Copied it to the clipboard."; }
       if (op === "pick_folder") {
         const opts = { title: "Choose a project folder", properties: ["openDirectory", "createDirectory"] };
         const r = await (mainWin ? dialog.showOpenDialog(mainWin, opts) : dialog.showOpenDialog(opts));

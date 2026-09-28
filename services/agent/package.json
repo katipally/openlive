@@ -10,30 +10,29 @@
     "bench:voice": "tsx src/voice/bench.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.2.1",
+    "@agentclientprotocol/sdk": "^1.5.0",
+    "@hono/node-server": "^2.1.1",
     "@huggingface/tokenizers": "0.2.0",
-    "@hono/node-server": "^1.13.8",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@openlive/db": "workspace:*",
     "@openlive/flow-store": "workspace:*",
     "@openlive/harness": "workspace:*",
     "@openlive/shared": "workspace:*",
-    "hono": "^4.12.27",
+    "hono": "^4.13.9",
     "onnxruntime-node": "1.30.0",
     "sherpa-onnx-node": "^1.13.8",
-    "tar": "^7.5.20",
+    "tar": "^7.5.22",
     "unbzip2-stream": "^1.4.3",
-    "undici": "^8.7.0",
-    "ws": "^8.18.0",
-    "zod": "^3.24.1",
-    "zod-to-json-schema": "^3.24.1"
+    "undici": "^8.11.2",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
+    "@types/node": "^22.20.4",
     "@types/tar": "^7.0.87",
     "@types/unbzip2-stream": "^1.4.3",
-    "@types/ws": "^8.5.13",
-    "tsx": "^4.22.4",
-    "typescript": "^5.7.3"
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
