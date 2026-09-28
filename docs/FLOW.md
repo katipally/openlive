@@ -50,7 +50,9 @@ ends it. A login launch can start as just the tray with Flow ready.
 
 Flow shows one thing on screen: the Wave Orb, in a small always-on-top window
 above the dock. It is click-through, so it never blocks the app underneath, except
-for the orb itself and anything it is showing. What was said lives in the session
+for the orb itself and anything it is showing. On Wayland no app can see the
+pointer outside its own windows, so there the whole orb window takes clicks while
+it is up. Clicking the orb never takes focus from the app you are typing into. What was said lives in the session
 transcript, not on the orb.
 
 ![Orb states](../assets/flow-orb-states.png)
@@ -272,8 +274,9 @@ process, two hidden or floating renderers, and the agent service.
   Flow socket, derives failures (`lib/flow/failure.ts`) and auto-quiet
   (`lib/flow/quiet.ts`), and publishes a small snapshot to the orb.
 - **Orb window** (`apps/web/src/components/flow/FlowOrb.tsx`). Display and command
-  surface only. The main process forwards pointer moves, and the orb hit-tests its
-  own `data-hit` elements so the air around it stays click-through. The same
+  surface only. The main process forwards pointer moves (on X11 it polls the
+  cursor while the orb is shown, `apps/desktop/orb-pointer.cjs`), and the orb
+  hit-tests its own `data-hit` elements so the air around it stays click-through. The same
   window carries a live call's controls while the main window is hidden.
 - **Main process** (`apps/desktop/main.cjs`, `flow-input.cjs`,
   `flow-runtime.cjs`, `flow-cursor.cjs`). Loads the addon, owns the tray and the

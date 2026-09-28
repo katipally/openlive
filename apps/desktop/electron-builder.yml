@@ -25,6 +25,7 @@ files:
   - flow-input.cjs
   - flow-runtime.cjs
   - look.cjs
+  - orb-pointer.cjs
   - flow-cursor.cjs
   - flow-cursor-preload.cjs
   - flow-cursor.html

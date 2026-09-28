@@ -14,6 +14,7 @@ const { powerMonitor } = require("electron");
 const flowInput = require("./flow-input.cjs");
 const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
+const orbPointer = require("./orb-pointer.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 // The app keeps running after one, so the heads-up is a silent notification,
@@ -576,7 +577,8 @@ function createMainWindow() {
 }
 
 /** The floating orb window: chromeless, transparent, always on top, on every
- *  Space, and never taking focus from the app underneath. */
+ *  Space, and never taking focus from the app underneath. Nothing in it takes
+ *  typing, so no platform needs it focusable. */
 function makePanelWindow(route, bounds) {
   const win = new BrowserWindow({
     ...bounds,
@@ -585,9 +587,11 @@ function makePanelWindow(route, bounds) {
     // shadow + gaps around it) instead of an opaque rectangle. hasShadow off — the
     // OS shadow would trace the rectangular window; the orb casts its own via CSS.
     transparent: true, backgroundColor: "#00000000", hasShadow: false,
-    // macOS: a "panel"-type window is non-activating — clicks land on its buttons
-    // without pulling focus away from whatever app the user is working in.
-    ...(process.platform === "darwin" ? { type: "panel", focusable: false } : {}),
+    // Clicks land on its buttons without pulling focus from the app the user
+    // is typing into: a non-activating "panel" on macOS, a no-activate window
+    // on Windows, and one the window manager never focuses on Linux.
+    focusable: false,
+    ...(process.platform === "darwin" ? { type: "panel" } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.setAlwaysOnTop(true, "floating", 1);
@@ -621,6 +625,37 @@ let flowWin = null;
 let flowHiding = null;
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+const ORB_POINTER = orbPointer.pointerMode(process.platform, process.env);
+let pointerTimer = null;
+let lastPointer;
+
+/** Clicks through the empty air, or onto the orb. Wayland cannot hand back the
+ *  moves that decide which, so there the window takes clicks while it is up. */
+function setClickThrough(win, through) {
+  if (!win || win.isDestroyed()) return;
+  win.setIgnoreMouseEvents(through && ORB_POINTER !== "solid", { forward: true });
+}
+
+/** X11 forwards no moves to a click-through window, so while the orb is shown
+ *  its cursor is polled and handed to the renderer's hit test as a move, only
+ *  when it changes. One cursor query per tick, nothing while hidden. */
+function watchPointer(win) {
+  if (ORB_POINTER !== "poll") return;
+  const stop = () => { clearInterval(pointerTimer); pointerTimer = null; lastPointer = undefined; };
+  win.on("show", () => {
+    stop();
+    pointerTimer = setInterval(() => {
+      if (win.isDestroyed()) { stop(); return; }
+      const p = orbPointer.pointInWindow(screen.getCursorScreenPoint(), win.getBounds());
+      if (orbPointer.samePoint(p, lastPointer)) return;
+      lastPointer = p;
+      win.webContents.send("openlive:flow-pointer", p);
+    }, orbPointer.POLL_MS);
+  });
+  win.on("hide", stop);
+  win.on("closed", stop);
+}
 
 function createOwnerWindow() {
   if (ownerWin && !ownerWin.isDestroyed()) return ownerWin;
@@ -656,7 +691,8 @@ function createFlowWindow() {
   // dock where real things live. Clicks pass straight through it; `forward`
   // keeps delivering mouse MOVES to the renderer, which is how it still knows
   // the pointer has reached the orb and asks for the clicks back.
-  flowWin.setIgnoreMouseEvents(true, { forward: true });
+  setClickThrough(flowWin, true);
+  watchPointer(flowWin);
   // Showing the window resets it to click-through, so the renderer has to be
   // told: it tracks whether the pointer is on the orb, and a stale "yes" from
   // before it was hidden would stop it ever asking for the clicks back.
@@ -673,13 +709,13 @@ function summonFlow() {
   // The window may be up showing a call; Flow's own orb takes over from it.
   win.webContents.send("openlive:call-orb", null);
   // A gesture that closed Flow mid-hover would otherwise leave it clickable.
-  win.setIgnoreMouseEvents(true, { forward: true });
+  setClickThrough(win, true);
   // `showInactive` on an already-visible window emits no "show", and a summon
   // of an open Flow is an ordinary thing (a resumed session, a new turn).
   // A summon mid-exit cancels the hide; that "shown" brings the orb back.
   clearTimeout(flowHiding);
   flowHiding = null;
-  if (win.isVisible()) win.webContents.send("openlive:flow-shown");
+  if (win.isVisible()) { win.webContents.send("openlive:flow-shown"); lastPointer = undefined; }
   win.setBounds(flowBounds());
   // The orb goes over everything: other always-on-top windows, the Dock, and
   // fullscreen apps. "floating" sits below the Dock, and macOS can drop a
@@ -694,7 +730,7 @@ function summonFlow() {
 function dismissFlow() {
   if (!flowWin || flowWin.isDestroyed() || !flowSummoned || flowHiding) return;
   if (!flowWin.isVisible()) { flowSummoned = false; syncCallOrb(); return; }
-  flowWin.setIgnoreMouseEvents(true, { forward: true });
+  setClickThrough(flowWin, true);
   flowWin.webContents.send("openlive:flow-hiding");
   flowHiding = setTimeout(finishDismissFlow, FLOW_EXIT_MS);
 }
@@ -753,10 +789,7 @@ function wireFlowIpc() {
   ipcMain.on("openlive:flow-dismiss", dismissFlow);
   // The renderer owns the hit test: the orb and its controls take clicks, the
   // empty air around them does not.
-  ipcMain.on("openlive:flow-interactive", (_e, on) => {
-    if (!flowWin || flowWin.isDestroyed()) return;
-    flowWin.setIgnoreMouseEvents(!on, { forward: true });
-  });
+  ipcMain.on("openlive:flow-interactive", (_e, on) => setClickThrough(flowWin, !on));
   // A reply after a summon cancelled the exit finds no pending hide and is dropped.
   ipcMain.on("openlive:flow-hidden", () => { if (flowHiding) finishDismissFlow(); });
   ipcMain.handle("openlive:flow-visible", () => !!flowWin && !flowWin.isDestroyed() && flowWin.isVisible());
@@ -801,7 +834,7 @@ function syncCallOrb() {
   flowWin.webContents.send("openlive:call-orb", want ? callState : null);
   if (!want) { if (flowWin.isVisible()) flowWin.hide(); return; }
   if (flowWin.isVisible()) return;
-  flowWin.setIgnoreMouseEvents(true, { forward: true });
+  setClickThrough(flowWin, true);
   // Over the dock of the screen the call's window was on, not the cursor's.
   flowWin.setBounds(flowBounds(mainWin ? screen.getDisplayMatching(mainWin.getBounds()) : undefined));
   flowWin.setAlwaysOnTop(true, "screen-saver", 1);

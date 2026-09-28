@@ -107,6 +107,9 @@ export interface FlowBridge {
   interactive(on: boolean): void;
   /** The orb window was shown, which reset it to click-through. */
   onShown?(cb: () => void): void;
+  /** X11 only: the pointer in window coordinates, null once it leaves, since
+   *  a click-through window is sent no moves there. */
+  onPointer?(cb: (p: { x: number; y: number } | null) => void): () => void;
   /** Whether the orb window is on screen now, for a renderer that may have
    *  missed the `onShown` that put it there. */
   visible?(): Promise<boolean>;

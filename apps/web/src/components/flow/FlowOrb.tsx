@@ -10,6 +10,7 @@ import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
 import { pauseWaveOrbs, WAVE_ORB_RADIUS } from "@/lib/waveOrb";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "@/components/ui";
 import { isMac } from "@/lib/platform";
 
 // Flow's orb, in its own always-on-top window over the dock. It is voice, so it
@@ -44,7 +45,7 @@ const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
 const CONTROL_GAP = 10;
 
 /** One solid surface for every panel in the window. */
-const PANEL = "border border-border bg-surface shadow-[var(--shadow-card)]";
+const PANEL = "border border-border bg-surface shadow-card";
 /** The one button shape here; the focus ring follows it (html.chromeless in globals.css). */
 const PILL_BTN = "rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
 
@@ -121,9 +122,10 @@ export function FlowOrb() {
   }, { dependencies: [caption] });
 
   // The window is click-through, so hover cannot come from the DOM: the pointer
-  // never enters anything. It comes from the moves the main process forwards,
-  // tested against every `data-hit` element and nothing else, so the empty air
-  // around them never blocks the dock or the app underneath.
+  // never enters anything. It comes from the moves the main process forwards
+  // (on X11, the cursor it polls), tested against every `data-hit` element and
+  // nothing else, so the empty air around them never blocks the dock or the
+  // app underneath.
   const retest = useRef(() => {});
   useEffect(() => {
     const api = flowBridge();
@@ -177,9 +179,11 @@ export function FlowOrb() {
     void api.visible?.().then((v) => { if (v) { pauseWaveOrbs(false); setShown(true); } });
     window.addEventListener("mousemove", onMove);
     document.addEventListener("mouseleave", onLeave);
+    const offPointer = api.onPointer?.((p) => { at = p; test(); });
     return () => {
       window.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseleave", onLeave);
+      offPointer?.();
       clearTimeout(linger);
       api.interactive(false);
     };
@@ -190,7 +194,7 @@ export function FlowOrb() {
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (
-    <button type="button" onClick={() => cmd({ t: "flowStop" })} title="Stop" aria-label="Stop what Flow is doing"
+    <button type="button" onClick={() => cmd({ t: "flowStop" })} aria-label="Stop what Flow is doing"
       className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
       <Square className="size-3 fill-current" aria-hidden /> Stop
     </button>
@@ -270,7 +274,9 @@ export function FlowOrb() {
           until the next turn. Sending it makes it that turn. */}
       {shown && s.aside && !asking && !captioned && (
         <div data-hit className={cn("flex max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] border-dashed py-1.5 pl-4 pr-1.5", PANEL)}>
-          <span role="status" className="line-clamp-2 min-w-0 flex-1 break-words text-label text-muted-strong" title={s.aside}>Taken as side talk, not sent: “{s.aside}”</span>
+          <Tooltip label={s.aside} truncated className="min-w-0 flex-1">
+            <span role="status" className="line-clamp-2 break-words text-label text-muted-strong">Taken as side talk, not sent: “{s.aside}”</span>
+          </Tooltip>
           <button type="button" onClick={() => cmd({ t: "flowSendAside" })}
             className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-foreground transition hover:bg-foreground/10 [-webkit-app-region:no-drag]">
             Send it
@@ -286,7 +292,7 @@ export function FlowOrb() {
       {stripUp && (
         <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
           <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
-          <span ref={captionRef} role="status" className="min-w-0 flex-1 break-words py-1 text-label font-medium" title={caption}>{caption}</span>
+          <span ref={captionRef} role="status" className="min-w-0 flex-1 break-words py-1 text-label font-medium">{caption}</span>
           {s.phase !== "listening" && stop}
         </div>
       )}
@@ -295,13 +301,11 @@ export function FlowOrb() {
           out from under the pointer that asked for them. Each is a hit only while
           drawn, so the air beside the orb stays click-through. */}
       <div className="relative shrink-0">
-        <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })}
-          className="right-full origin-right" style={{ marginRight: CONTROL_GAP }}><X className="size-4" /></Control>
+        <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })} side="left"><X className="size-4" /></Control>
         <div data-hit>
           <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
         </div>
-        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()}
-          className="left-full origin-left" style={{ marginLeft: CONTROL_GAP }}><Maximize2 className="size-[15px]" /></Control>
+        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right"><Maximize2 className="size-[15px]" /></Control>
       </div>
     </div>
   );
@@ -340,30 +344,40 @@ function CallOrb({ call }: { call: CallOrbState }) {
       <span className={cn("size-2 shrink-0 rounded-full", call.muted ? "bg-faint" : "bg-success motion-safe:animate-pulse")} aria-hidden />
       <span className="min-w-0 truncate text-label font-medium">{call.muted ? "Muted" : "In call"}</span>
       <span className="shrink-0 text-label tabular-nums text-muted-strong" aria-label={`Call time ${elapsed}`}>{elapsed}</span>
-      <button type="button" onClick={() => cmd("mute")} aria-pressed={call.muted} aria-label="Mute" title="Mute (M)"
-        className={cn(btn, "ml-1", call.muted ? "bg-foreground/10 text-foreground" : "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
-        {call.muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-      </button>
-      <button type="button" onClick={() => cmd("expand")} aria-label="Open OpenLive" title="Open OpenLive"
-        className={cn(btn, "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
-        <Maximize2 className="size-[15px]" />
-      </button>
-      <button type="button" onClick={() => cmd("end")} aria-label="End call" title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`}
-        className={cn(btn, "bg-destructive-fill text-white hover:opacity-90")}>
-        <PhoneOff className="size-4" />
-      </button>
+      <Tooltip label="Mute" keys="M" className="ml-1 shrink-0">
+        <button type="button" onClick={() => cmd("mute")} aria-pressed={call.muted} aria-label="Mute"
+          className={cn(btn, call.muted ? "bg-foreground/10 text-foreground" : "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
+          {call.muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+        </button>
+      </Tooltip>
+      <Tooltip label="Open OpenLive" className="shrink-0">
+        <button type="button" onClick={() => cmd("expand")} aria-label="Open OpenLive"
+          className={cn(btn, "bg-card text-muted-strong hover:bg-foreground/10 hover:text-foreground")}>
+          <Maximize2 className="size-[15px]" />
+        </button>
+      </Tooltip>
+      <Tooltip label="End call" keys={isMac ? "⌘E" : "Ctrl+E"} className="shrink-0">
+        <button type="button" onClick={() => cmd("end")} aria-label="End call"
+          className={cn(btn, "bg-destructive-fill text-white hover:opacity-90")}>
+          <PhoneOff className="size-4" />
+        </button>
+      </Tooltip>
     </div>
   );
 }
 
-function Control({ label, shown, onClick, className, style, children }: {
-  label: string; shown: boolean; onClick: () => void; className: string; style: React.CSSProperties; children: React.ReactNode;
+/** A button beside the orb, on its `side`, growing out of the orb's edge. */
+function Control({ label, shown, onClick, side, children }: {
+  label: string; shown: boolean; onClick: () => void; side: "left" | "right"; children: React.ReactNode;
 }) {
   return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} data-hit={shown || undefined} style={style}
-      className={cn("absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-[var(--shadow-card)] transition duration-200 ease-out hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]",
-        shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0", className)}>
-      {children}
-    </button>
+    <Tooltip label={label} className={cn("absolute top-1/2 -translate-y-1/2", side === "left" ? "right-full" : "left-full", !shown && "pointer-events-none")}>
+      <button type="button" onClick={onClick} aria-label={label} data-hit={shown || undefined}
+        style={side === "left" ? { marginRight: CONTROL_GAP } : { marginLeft: CONTROL_GAP }}
+        className={cn("grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-card transition duration-200 ease-out hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]",
+          side === "left" ? "origin-right" : "origin-left", shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0")}>
+        {children}
+      </button>
+    </Tooltip>
   );
 }
