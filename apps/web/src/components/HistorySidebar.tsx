@@ -1,58 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, ChevronRight, ChevronsDownUp, Folder, Plus, Pencil, Trash2, AlertTriangle, Search } from "lucide-react";
+import { X, MessagesSquare, Plus, MoreHorizontal, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { setConversationBind, setConversationFolder, setConversationResume } from "@/lib/live/useLiveSession";
 import { AgentIcon } from "./live/AgentIcon";
 import { OpenLiveOrb } from "./OpenLiveOrb";
-import { usePersistedOpen, setDisclosure } from "@/lib/disclosure";
 import { useHistoryOverrides } from "@/lib/historyOverrides";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
-import { usePresence } from "@/lib/usePopIn";
+import { STAGGER_MAX, useMotionTokens } from "@/lib/motion";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { Disclosure } from "@/components/Disclosure";
+import { Button, Tooltip, Input, SidePanelHeader, sidePanel, Segmented, type SegOption, menuItem, menuPanel, useMenu, groupLabel, ConfirmButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { Segmented, type SegOption } from "@/lib/seg";
 import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
-import { AGENT_REGISTRY, agentLabel, isAgentId } from "@openlive/shared";
-import type { HistoryChat, HistoryWorkspace } from "@openlive/shared";
+import { agentLabel, isAgentId } from "@openlive/shared";
+import type { HistoryChat } from "@openlive/shared";
+import { canDelete, flattenHistory, folderSessions, groupHistory, relativeTime, spanLabel } from "@/lib/historyList";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { log } from "@/lib/log";
-import { toast } from "@/lib/toast";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
 type ResumeFn = (c: HistoryChat, cwd: string) => void;
-// A pending destructive action → the confirm modal. `run` performs it.
-interface PendingDelete { title: string; body: string; run: () => Promise<void> }
-type RequestDelete = (r: PendingDelete) => void;
 
 const SESSION_FILTERS: SegOption<"all" | "openlive">[] = [
   { id: "all", label: "All", title: "Every session for these folders, including ones created in the agents' own CLIs" },
-  { id: "openlive", label: "OpenLive", title: "Only sessions started from OpenLive. Hides agent-CLI sessions and folders with none" },
+  { id: "openlive", label: "OpenLive", title: "Only sessions started from OpenLive. Hides agent-CLI sessions" },
 ];
 
-// External sessions we can delete are plain files/dirs; opencode/hermes keep theirs
-// inside live sqlite databases we won't write into — no delete affordance for those.
-const canDeleteExternal = (id: string | null) => !!id && isAgentId(id) && AGENT_REGISTRY[id].externalDeletable;
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!t) return "";
-  const s = Math.floor((Date.now() - t) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
+// Rows rendered at first and per "Show more": a long agent history stays quick to open.
+const PAGE = 120;
+const ROW = "[data-hist-row]";
+// A drag left past this, or a flick faster than this, puts the drawer away.
+const CLOSE_PX = 96;
+const FLICK_PX_S = 500;
+// How long the first reveal's stagger owns the rows; past it they are plain rows.
+const REVEAL_MS = 700;
+// Rows that glide to their new place when the order changes. Only the top of the
+// list: it is what is on screen when the drawer opens and where a reorder lands
+// (an updated session moves to the top), and it keeps the cost of measuring for
+// the animation O(LAYOUT_ROWS) per render however long the history is.
+const LAYOUT_ROWS = 40;
 
-// Left History sidebar: workspace → chats (all agents' chats for a project
-// together, each row wearing its agent's mark). New Chat pinned on top, search
-// across titles + workspace names, rename/delete on hover. One chat deletes behind
-// an Undo toast; a whole workspace, many at once and possibly from an agent's own
-// disk, still asks first. Collapse state persists per workspace.
+// Left Sessions drawer: every conversation, newest first under date headings,
+// each row wearing its agent's mark with its folder, when and how long. Search
+// matches titles and folder names; rename and delete sit on the row (hover,
+// focus or the open one). A delete waits behind an Undo toast.
 export function HistorySidebar() {
   const open = useUi((s) => s.historyOpen);
   const setOpen = useUi((s) => s.setHistoryOpen);
@@ -60,62 +54,51 @@ export function HistorySidebar() {
   const setLiveOpen = useUi((s) => s.setLiveOpen);
   const activeChatId = useUi((s) => s.activeChatId);
   const root = useRef<HTMLElement>(null);
-  const backdrop = useRef<HTMLDivElement>(null); // sibling of root — animate via ref, not a scoped selector
-  const [visible, setVisible] = useState(false);
-  const [pending, setPending] = useState<PendingDelete | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const drag = useDragControls();
+  const dragged = useRef(false);
+  const { smooth, gentle, fade, exit: leave, reduce } = useMotionTokens();
+  const layoutKey = useId();
+  const [settled, setSettled] = useState(false);
   const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
   // "all" = every session, including ones the agents' own CLIs created;
-  // "openlive" = only sessions started from OpenLive — hides external sessions
-  // AND any workspace left with nothing (folders that were never connected here).
+  // "openlive" = only sessions started from OpenLive.
   const [filter, setFilter] = useState<"all" | "openlive">(() =>
     typeof window !== "undefined" && localStorage.getItem("ol-sessions-filter") === "openlive" ? "openlive" : "all");
   useEffect(() => { localStorage.setItem("ol-sessions-filter", filter); }, [filter]);
-  const qc = useQueryClient();
-  const { data: allWorkspaces = [], isLoading } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
-  // Apply the filter BEFORE anything renders or searches, so counts, search
-  // results, and collapse-all all agree on what exists.
-  // Chats waiting out their Undo are gone from here too, and a folder they emptied goes with them.
+  const { data: workspaces = [], isLoading, error } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
   const pendingDeletes = usePendingDeletes((st) => st.keys);
-  const workspaces = useMemo(() => {
-    const shown = pendingDeletes.size
-      ? allWorkspaces
-        .map((ws) => ({ ...ws, chats: ws.chats.filter((c) => !pendingDeletes.has(`chat:${c.id}`)) }))
-        .filter((ws, i) => ws.chats.length > 0 || allWorkspaces[i]!.chats.length === 0)
-      : allWorkspaces;
-    if (filter === "all") return shown;
-    return shown
-      .map((ws) => ({ ...ws, chats: ws.chats.filter((c) => c.source !== "external") }))
-      .filter((ws) => ws.chats.length > 0);
-  }, [allWorkspaces, filter, pendingDeletes]);
-  const collapseAll = () => { for (const ws of workspaces) setDisclosure(`hist:ws:${ws.cwd || "none"}`, false); };
   const overrides = useHistoryOverrides((st) => st.titles);
+  const all = useMemo(() => flattenHistory(workspaces), [workspaces]);
 
-  // Closed from outside (the H shortcut, New chat): drop the drawer with it.
-  useEffect(() => { if (open) setVisible(true); else { setVisible(false); setQuery(""); setSearching(false); } }, [open]);
+  // Filter and Undo-pending deletes, then search, before anything counts or groups. O(n).
+  // A folder's "Delete all" counts what the filter shows, not what the search does.
+  const listed = useMemo(() => all.filter(({ chat }) =>
+    !pendingDeletes.has(`chat:${chat.id}`) && (filter === "all" || chat.source !== "external"),
+  ), [all, pendingDeletes, filter]);
+  const folders = useMemo(() => folderSessions(listed), [listed]);
+  const q = query.trim().toLowerCase();
+  const rows = useMemo(() => q ? listed.filter(({ chat, cwd }) =>
+    (overrides[chat.id] ?? chat.title).toLowerCase().includes(q) || cwd.toLowerCase().includes(q),
+  ) : listed, [listed, q, overrides]);
+  const groups = useMemo(() => groupHistory(rows.slice(0, limit)), [rows, limit]);
+  useEffect(() => setLimit(PAGE), [q, filter]);
 
-  const { contextSafe } = useGSAP(() => {
-    if (!visible || prefersReduced()) return;
-    gsap.fromTo(root.current, { xPercent: -100, autoAlpha: 0.6 }, { xPercent: 0, autoAlpha: 1, duration: DUR.slow, ease: EASE.out });
-    gsap.fromTo(backdrop.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft });
-  }, { scope: root, dependencies: [visible] });
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
 
-  // Workspace groups cascade in once the list is on screen — keyed on the data
-  // arriving (react-query), not just on open, so rows never pop in unanimated.
-  useGSAP(() => {
-    if (!visible || isLoading || prefersReduced()) return;
-    gsap.fromTo(".ol-hist-node", { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out, stagger: 0.025, overwrite: "auto", clearProps: "all" });
-  }, { scope: root, dependencies: [visible, isLoading] });
+  // The first rows on screen after opening cascade in (CSS, the first
+  // STAGGER_MAX only), once the data is there, so rows never pop in unanimated.
+  // A refetch or a search later changes rows without replaying it.
+  useEffect(() => {
+    if (!open) { setSettled(false); return; }
+    if (isLoading) return;
+    const t = setTimeout(() => setSettled(true), REVEAL_MS);
+    return () => clearTimeout(t);
+  }, [open, isLoading]);
 
-  const close = contextSafe(() => {
-    const done = () => { setVisible(false); setOpen(false); };
-    if (!root.current || prefersReduced()) { done(); return; }
-    gsap.to(backdrop.current, { autoAlpha: 0, duration: DUR.fast, ease: EASE.soft });
-    gsap.to(root.current, { xPercent: -100, autoAlpha: 0.6, duration: DUR.base, ease: EASE.out, onComplete: done });
-  });
-
-  // Off while the delete confirm owns focus, so Esc there cancels it, not the drawer.
-  useFocusTrap(root, visible && !pending, close);
+  const close = () => setOpen(false);
+  useFocusTrap(root, open, close);
 
   const resume: ResumeFn = (c, cwd) => {
     // OpenLive chat → reopen it. External agent session → a fresh OpenLive
@@ -137,168 +120,129 @@ export function HistorySidebar() {
 
   const newChat = () => { setOpen(false); useUi.getState().newConversation(); useUi.getState().setLiveOpen(true); };
 
-  const requestDelete: RequestDelete = (r) => setPending(r);
-  const runDelete = async () => {
-    if (!pending) return;
-    try { await pending.run(); } catch (e) { log.error("history", "delete:", e); toast("Couldn’t delete that conversation — try again."); }
-    setPending(null);
-    qc.invalidateQueries({ queryKey: ["history", "v2"] });
+  // Up/Down walk the rows (from the search field too), Home/End jump to the ends.
+  const walk = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    const inField = target.matches('input[type="search"]');
+    if (!inField && !target.matches(ROW)) return;
+    const items = Array.from(list.current?.querySelectorAll<HTMLElement>(ROW) ?? []);
+    if (!items.length) return;
+    const at = items.indexOf(target);
+    const next = e.key === "ArrowDown" ? (inField ? 0 : Math.min(at + 1, items.length - 1))
+      : e.key === "ArrowUp" && !inField ? Math.max(at - 1, 0)
+      : e.key === "Home" && !inField ? 0 : e.key === "End" && !inField ? items.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    items[next]!.focus();
   };
 
-  // Search: match chat titles (incl. local rename overrides) and workspace names.
-  const q = query.trim().toLowerCase();
-  const results = useMemo(() => {
-    if (!q) return null;
-    const out: { chat: HistoryChat; cwd: string }[] = [];
-    for (const ws of workspaces) {
-      const wsHit = basename(ws.cwd).toLowerCase().includes(q) || ws.cwd.toLowerCase().includes(q);
-      for (const chat of ws.chats) {
-        const title = (overrides[chat.id] ?? chat.title).toLowerCase();
-        if (wsHit || title.includes(q)) out.push({ chat, cwd: ws.cwd });
-      }
-    }
-    return out.sort((a, b) => (a.chat.updatedAt < b.chat.updatedAt ? 1 : -1)).slice(0, 60);
-  }, [q, workspaces, overrides]);
-
-  if (!visible) return null;
+  const now = new Date();
+  // Headings and rows in paint order, for the reveal's stagger.
+  let node = 0;
+  const rise = (): CSSProperties | undefined => {
+    const i = node++;
+    return !settled && i < STAGGER_MAX ? ({ "--i": i } as CSSProperties) : undefined;
+  };
+  let at = 0;
   return (
     <>
-      <div ref={backdrop} className="fixed inset-0 z-[calc(var(--z-drawer)-1)] bg-black/30" onClick={close} />
-      <aside ref={root} role="dialog" aria-modal="true" aria-label="Sessions" className="fixed bottom-3 left-3 top-3 z-[var(--z-drawer)] flex w-[min(300px,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
-        <header className={cn("flex h-14 shrink-0 items-center justify-between pr-3", isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-callout font-semibold">Sessions</span>
-          <button onClick={close} aria-label="Close sessions" className={cn("grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground", isDesktop && "[-webkit-app-region:no-drag]")}><X className="size-4" /></button>
-        </header>
+    <AnimatePresence>
+      {open && (
+        <motion.div key="scrim" className="fixed inset-0 z-drawer-scrim scrim" onClick={close}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: leave }} transition={fade} />
+      )}
+      {open && (
+      // Drags left to put away, from anywhere but a field (where a drag selects
+      // text). A drag that ends over a row is not a click on it.
+      <motion.aside key="drawer" ref={root} role="dialog" aria-modal="true" aria-label="Sessions" onKeyDown={walk}
+        initial={{ x: "-105%", opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: "-105%", opacity: 0.6, transition: reduce ? leave : { ...smooth, opacity: leave } }}
+        transition={{ ...smooth, opacity: fade }}
+        drag="x" dragListener={false} dragControls={drag} dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 1, right: 0 }} dragMomentum={false}
+        onPointerDown={(e) => { dragged.current = false; if (!(e.target as HTMLElement).closest("input, textarea, [role=menu]")) drag.start(e); }}
+        onDragStart={() => { dragged.current = true; }}
+        onDragEnd={(_, i) => { if (i.offset.x < -CLOSE_PX || i.velocity.x < -FLICK_PX_S) close(); }}
+        onClickCapture={(e) => { if (dragged.current) { e.preventDefault(); e.stopPropagation(); } }}
+        style={{ touchAction: "pan-y" }}
+        className={cn(sidePanel(true), "fixed bottom-3 left-3 top-3 z-drawer w-[min(22.5rem,calc(100%-1.5rem))] overflow-hidden")}>
+        {/* Clear of the macOS traffic lights, which sit over this corner. */}
+        <SidePanelHeader title="Sessions" className={cn(isMacDesktop && "pt-8", isDesktop && "[-webkit-app-region:drag]")}>
+          <Tooltip label="Close sessions" className={cn(isDesktop && "[-webkit-app-region:no-drag]")}>
+            <Button variant="ghost" size="sm" icon onClick={close} aria-label="Close sessions"><X /></Button>
+          </Tooltip>
+        </SidePanelHeader>
 
-        {/* New Chat + search share one row — tapping the magnifier expands the
-            field over the button (width-animated), Escape/empty-blur collapses. */}
-        <div className="flex shrink-0 items-center gap-2 p-2 pb-1" data-tour="history-actions">
-          <button onClick={newChat} tabIndex={searching ? -1 : 0}
-            className={cn("flex h-9 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-accent text-label font-medium text-accent-foreground transition-[width,padding,opacity] duration-300 hover:opacity-90",
-              searching ? "w-0 px-0 opacity-0" : "flex-1 px-3")}>
-            <Plus className="size-4 shrink-0" /> New chat
-          </button>
-          <div className={cn("flex h-9 items-center gap-2 overflow-hidden rounded-lg bg-surface transition-[width,padding] duration-300", searching ? "flex-1 px-2.5" : "w-9 shrink-0 justify-center")}>
-            {searching ? (
-              <>
-                <Search className="size-3.5 shrink-0 text-faint" />
-                <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders…" spellCheck={false}
-                  onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setQuery(""); setSearching(false); } }}
-                  onBlur={() => { if (!query.trim()) setSearching(false); }}
-                  className="h-8 min-w-0 flex-1 bg-transparent text-label text-foreground outline-none placeholder:text-faint" />
-                <button onClick={() => { setQuery(""); setSearching(false); }} aria-label="Close search"
-                  className="grid size-5 shrink-0 place-items-center rounded text-faint transition hover:text-foreground"><X className="size-3" /></button>
-              </>
-            ) : (
-              <button onClick={() => setSearching(true)} aria-label="Search chats & folders" title="Search"
-                className="grid size-9 place-items-center text-muted-foreground transition hover:text-foreground">
-                <Search className="size-4" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Filter row: what's listed (All ↔ OpenLive-only) + collapse-all. The
-            segmented control shows WHERE you are; tooltips explain each choice. */}
-        <div className="flex shrink-0 items-center gap-2 px-2 pb-1.5">
-          <Segmented label="Which sessions to show" size="sm" tone="soft" className="grid flex-1 bg-surface shadow-none"
+        <div className="flex shrink-0 flex-col gap-2.5 px-3 pb-2" data-tour="history-actions">
+          <Input type="search" icon={<Search />} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders" spellCheck={false}
+            aria-label="Search sessions" onKeyDown={(e) => { if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); } }} />
+          <Segmented label="Which sessions to show" size="sm" className="grid w-full"
             value={filter} onChange={setFilter} options={SESSION_FILTERS} />
-          <button onClick={collapseAll} title="Collapse all folders" aria-label="Collapse all folders"
-            className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-            <ChevronsDownUp className="size-3.5" />
-          </button>
         </div>
 
-        <div className="openlive-scroll min-h-0 flex-1 overflow-y-auto p-2 pt-1">
-          {isLoading && <p className="px-2 py-4 text-label text-faint">Loading…</p>}
-          {!isLoading && workspaces.length === 0 && (
-            <div className="px-2 py-6 text-center">
-              <p className="text-label text-muted-foreground">{filter === "openlive" ? "No OpenLive sessions yet." : "No sessions yet."}</p>
-              <p className="mt-1 text-caption text-faint">{filter === "openlive" ? "Sessions you start here will appear — switch to All to see agent-CLI ones." : "Start one and it'll be filed here by project folder."}</p>
+        {/* layoutScroll: the gliding rows are measured inside this scroller. */}
+        <motion.div ref={list} layoutScroll className="openlive-scroll min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+          {isLoading && <SkeletonRows />}
+          {error && <p className="px-3 py-6 text-label text-muted-foreground">Sessions could not be read.</p>}
+          {!isLoading && !error && rows.length === 0 && (
+            <div className="animate-fade-in flex flex-col items-center gap-1.5 px-6 py-12 text-center">
+              <MessagesSquare className="mb-1 size-5 text-faint" aria-hidden />
+              <p className="break-words text-body text-muted-strong">
+                {q ? <>Nothing matches &ldquo;{query.trim()}&rdquo;.</> : filter === "openlive" ? "No OpenLive sessions yet." : "No sessions yet."}
+              </p>
+              {!q && (
+                <p className="text-caption text-muted-foreground">
+                  {filter === "openlive" ? "Switch to All to see sessions from the agents' own CLIs." : "Start a conversation and it will be here."}
+                </p>
+              )}
             </div>
           )}
-
-          {results ? (
-            <>
-              {results.length === 0 && <p className="px-2 py-4 text-label text-faint">Nothing matches “{query.trim()}”.</p>}
-              {results.map(({ chat, cwd }) => (
-                <ChatRow key={chat.id} c={chat} cwd={cwd} showWorkspace activeChatId={activeChatId} resume={resume} />
-              ))}
-            </>
-          ) : (
-            workspaces.map((ws) => (
-              <WorkspaceNode key={ws.cwd || "none"} ws={ws} activeChatId={activeChatId} resume={resume} requestDelete={requestDelete} />
-            ))
+          {groups.map((g) => {
+            const head = rise();
+            return (
+              <section key={g.label} aria-label={g.label}>
+                <motion.h3 layout={at < LAYOUT_ROWS ? "position" : false} transition={gentle} style={head}
+                  className={cn("px-3 pb-1.5 pt-5", groupLabel, head && "ol-rise")}>{g.label}</motion.h3>
+                {g.rows.map(({ chat, cwd }) => {
+                  const row = <ChatRow c={chat} cwd={cwd} folder={folders.get(cwd)} now={now} selected={chat.id === activeChatId} resume={resume} rise={rise()} />;
+                  // A row can change heading as well as place, so it glides by layoutId.
+                  return at++ < LAYOUT_ROWS
+                    ? <motion.div key={chat.id} layoutId={`${layoutKey}-${chat.id}`} layout="position" transition={gentle}>{row}</motion.div>
+                    : <div key={chat.id}>{row}</div>;
+                })}
+              </section>
+            );
+          })}
+          {rows.length > limit && (
+            <Button variant="ghost" size="sm" className="mx-1.5 mt-2" onClick={() => setLimit((n) => n + PAGE)}>
+              Show more
+            </Button>
           )}
-        </div>
-      </aside>
+        </motion.div>
 
-      <ConfirmModal pending={pending} onCancel={() => setPending(null)} onConfirm={runDelete} />
+        <footer className="shrink-0 border-t border-border px-3 pb-3 pt-2">
+          <Button className="w-full" onClick={newChat}><Plus /> New conversation</Button>
+        </footer>
+      </motion.aside>
+      )}
+    </AnimatePresence>
 
-      <SpotlightTour id="history" steps={[
-        { target: "history-actions", title: "All your conversations", body: "Chats are filed by project folder — every agent's work on a project in one place. Start fresh here, or tap the magnifier to search chats and folders." },
-      ]} />
+      {open && <SpotlightTour id="history" steps={[
+        { target: "history-actions", title: "All your conversations", body: "Every agent's sessions, newest first, including ones from the agents' own CLIs. Search by title or folder, or show only the ones started here." },
+      ]} />}
     </>
   );
 }
 
-// One workspace (project folder): all agents' chats for it, newest first.
-// Open/closed state persists per folder across restarts.
-function WorkspaceNode({ ws, activeChatId, resume, requestDelete }: { ws: HistoryWorkspace; activeChatId: string; resume: ResumeFn; requestDelete: RequestDelete }) {
-  const [open, setOpen] = usePersistedOpen(`hist:ws:${ws.cwd || "none"}`);
-  // ponytail: the history feed can list the same session id more than once — dedupe.
-  const chats = [...new Map(ws.chats.map((s) => [s.id, s])).values()];
-  const label = ws.cwd ? basename(ws.cwd) : "No folder";
-
-  // opencode/hermes external sessions can't be deleted from here (live sqlite) —
-  // they're skipped; the agent's own tooling manages them.
-  const deletable = chats.filter((s) => s.source !== "external" || canDeleteExternal(s.agentId));
-  const hasExternal = deletable.some((s) => s.source === "external");
-  const deleteWorkspace = () => requestDelete({
-    title: "Delete this workspace’s sessions?",
-    body: `Removes ${deletable.length} conversation${deletable.length === 1 ? "" : "s"} under “${label}”.${hasExternal ? " External agent sessions are deleted from disk — that can’t be undone." : ""}${deletable.length < chats.length ? ` ${chats.length - deletable.length} agent-managed session${chats.length - deletable.length === 1 ? "" : "s"} stay (manage those in the agent).` : ""}`,
-    run: async () => {
-      for (const s of deletable) {
-        if (s.source === "external") await api.deleteExternalSession(s.agentId ?? "", s.resumeSessionId ?? s.id);
-        else await api.deleteChat(s.id);
-      }
-    },
-  });
-
-  return (
-    <div className="group/ws ol-hist-node">
-      <div role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
-        className="group/wsrow flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-label font-medium text-foreground transition hover:bg-foreground/[0.05]">
-        <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-90")} />
-        <Folder className="size-3.5 shrink-0 text-accent/80" />
-        <span className="min-w-0 flex-1 truncate" title={ws.cwd || "No folder"}>{label}</span>
-        <span className="text-micro font-normal text-faint">{chats.length}</span>
-        <button onClick={(e) => { e.stopPropagation(); deleteWorkspace(); }} title="Delete this workspace’s sessions"
-          className="grid size-6 shrink-0 place-items-center rounded text-faint opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover/wsrow:opacity-100">
-          <Trash2 className="size-3" />
-        </button>
-      </div>
-      <Disclosure open={open}>
-        <div className="mb-1 ml-[13px] flex flex-col gap-0.5 pl-2">
-          {chats.map((c) => (
-            <ChatRow key={c.id} c={c} cwd={ws.cwd} activeChatId={activeChatId} resume={resume} />
-          ))}
-        </div>
-      </Disclosure>
-    </div>
-  );
-}
-
-// One chat row: the agent's mark + title (+ workspace subtitle in search results).
-// Rename + delete surface on hover. Title = an OpenLive-side override (external
-// sessions) or the real title (OpenLive sessions).
-function ChatRow({ c, cwd, showWorkspace, activeChatId, resume }: { c: HistoryChat; cwd: string; showWorkspace?: boolean; activeChatId: string; resume: ResumeFn }) {
+// One conversation: the agent's mark, title, folder and agent; when and how long
+// on the right, swapped for its options on hover, focus, or while it is the
+// open one. Title = an OpenLive-side override (external sessions) or the
+// real title (OpenLive sessions).
+function ChatRow({ c, cwd, folder, now, selected, resume, rise }: { c: HistoryChat; cwd: string; folder?: HistoryChat[]; now: Date; selected: boolean; resume: ResumeFn; rise?: CSSProperties }) {
   const qc = useQueryClient();
   const override = useHistoryOverrides((st) => st.titles[c.id]);
   const setOverride = useHistoryOverrides((st) => st.setTitle);
   const [editing, setEditing] = useState(false);
   const title = override ?? c.title;
+  const span = spanLabel(c.createdAt, c.updatedAt);
 
   const commit = (val: string) => {
     setEditing(false);
@@ -316,72 +260,123 @@ function ChatRow({ c, cwd, showWorkspace, activeChatId, resume }: { c: HistoryCh
     await qc.invalidateQueries({ queryKey: ["history", "v2"] });
   }, "Couldn’t delete that conversation. It’s back in the list.");
 
+  const mark = (
+    <span aria-hidden className="grid size-[1.625rem] shrink-0 place-items-center rounded-md bg-foreground/[0.06]">
+      {c.agentId && isAgentId(c.agentId) ? <AgentIcon id={c.agentId} className="size-3.5" /> : <OpenLiveOrb size={15} />}
+    </span>
+  );
+  const where = `${cwd ? basename(cwd) : "No folder"} · ${agentLabel(c.agentId)}${c.source === "external" ? " · CLI" : ""}`;
+
   if (editing) {
     return (
-      <input autoFocus defaultValue={title} spellCheck={false}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") commit((e.target as HTMLInputElement).value); if (e.key === "Escape") setEditing(false); }}
-        className="my-0.5 w-full rounded-lg border border-border-heavy bg-surface px-2 py-1.5 text-label text-foreground outline-none focus:border-accent" />
+      <div className="flex min-h-14 items-center gap-2.5 px-2.5">
+        {mark}
+        <Input autoFocus defaultValue={title} spellCheck={false} aria-label="Session title"
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit((e.target as HTMLInputElement).value);
+            if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+          }}
+          className="flex-1" />
+      </div>
     );
   }
 
   return (
-    <div className={cn("group/s relative flex items-center rounded-lg transition hover:bg-foreground/[0.05]", c.id === activeChatId && "bg-foreground/[0.07]")}>
-      <button onClick={() => resume(c, cwd)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left" title={agentLabel(c.agentId)}>
-        <span className="grid size-4 shrink-0 place-items-center">
-          {c.agentId && isAgentId(c.agentId) ? <AgentIcon id={c.agentId} className="size-4" /> : <OpenLiveOrb size={15} />}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-label text-foreground">{title}</span>
-          <span className="block truncate text-micro text-faint">
-            {showWorkspace ? <>{cwd ? basename(cwd) : "No folder"} · </> : null}
-            {relTime(c.updatedAt)}{c.source === "external" && " · external"}
-          </span>
+    <div style={rise} className={cn("group/s flex min-h-14 items-center gap-1 rounded-lg pr-1.5 transition", rise && "ol-rise",
+      selected ? "bg-accent-soft" : "hover:bg-foreground/[0.06] focus-within:bg-foreground/[0.06]")}>
+      <button type="button" data-hist-row onClick={() => resume(c, cwd)} aria-current={selected || undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 self-stretch rounded-lg py-1.5 pl-2.5 text-left">
+        {mark}
+        <span className="flex min-w-0 flex-1 flex-col gap-px">
+          <Tooltip label={title} truncated><span className="truncate text-body font-medium text-foreground">{title}</span></Tooltip>
+          <Tooltip label={cwd}><span className="truncate text-caption text-muted-foreground">{where}</span></Tooltip>
         </span>
       </button>
-      <span className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-card/90 opacity-0 shadow-sm backdrop-blur-sm transition group-focus-within/s:opacity-100 group-hover/s:opacity-100">
-        <button onClick={() => setEditing(true)} title="Rename" aria-label={`Rename ${title}`} className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-foreground"><Pencil className="size-3" /></button>
-        {(c.source !== "external" || canDeleteExternal(c.agentId)) && (
-          <button onClick={del} title="Delete" aria-label={`Delete ${title}`} className="grid size-6 place-items-center rounded text-muted-foreground transition hover:text-danger"><Trash2 className="size-3" /></button>
-        )}
+      {/* When and how long, swapped for the options in the same cell, so the
+          title never reflows under the pointer. */}
+      <span className="grid shrink-0 items-center justify-items-end [&>*]:[grid-area:1/1]">
+        <span aria-hidden={selected || undefined} className={cn("flex flex-col items-end text-caption tabular-nums text-muted-foreground transition-opacity",
+          selected ? "opacity-0" : "group-hover/s:opacity-0 group-focus-within/s:opacity-0")}>
+          <span>{relativeTime(c.updatedAt, now)}</span>
+          {span && <span className="text-faint">{span}</span>}
+        </span>
+        <RowMenu title={title} selected={selected} onRename={() => setEditing(true)} onDelete={canDelete(c) ? del : undefined}
+          folder={cwd && folder?.length ? { name: basename(cwd), chats: folder } : undefined} />
       </span>
     </div>
   );
 }
 
-// Permission-gated confirm before any delete. Danger-styled; Escape / backdrop
-// cancels. Real presence so it fades in/out instead of popping; z-modal so it sits
-// above the History drawer (and Settings, if that's somehow up).
-function ConfirmModal({ pending, onCancel, onConfirm }: { pending: PendingDelete | null; onCancel: () => void; onConfirm: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const open = !!pending;
-  // Retain the last pending through the exit fade (it's null once cancelled/run).
-  const last = useRef(pending);
-  if (pending) last.current = pending;
-  const p = pending ?? last.current;
-  const mounted = usePresence(rootRef, open);
-  useEffect(() => { if (open) setBusy(false); }, [open]);
-  useFocusTrap(rootRef, mounted, onCancel);
-  if (!mounted || !p) return null;
+/** Row-shaped placeholders while the list loads. They wait a beat before
+ *  fading in, so a quick load never flashes them, and they hold the rows' own
+ *  height, so the list does not jump when it arrives. */
+function SkeletonRows() {
   return (
-    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-6" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="animate-modal-in relative w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-pop)]">
-        <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/10 text-danger"><AlertTriangle className="size-5" /></span>
-          <div className="min-w-0">
-            <h3 className="text-callout font-semibold text-foreground">{p.title}</h3>
-            <p className="mt-1 text-label leading-relaxed text-muted-foreground">{p.body}</p>
-          </div>
+    <div role="status" className="ol-skeleton pt-9">
+      <span className="sr-only">Loading sessions</span>
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} aria-hidden className="flex min-h-14 items-center gap-2.5 px-2.5">
+          <span className="size-[1.625rem] shrink-0 rounded-md bg-foreground/[0.06]" />
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="h-2.5 w-3/4 rounded-full bg-foreground/[0.07]" />
+            <span className="h-2 w-1/2 rounded-full bg-foreground/[0.05]" />
+          </span>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} disabled={busy}
-            className="rounded-lg border border-border px-3.5 py-2 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground disabled:opacity-50">Cancel</button>
-          <button onClick={() => { setBusy(true); onConfirm(); }} disabled={busy}
-            className="rounded-lg bg-destructive-fill px-3.5 py-2 text-label font-medium text-white transition hover:opacity-90 disabled:opacity-50">Delete</button>
+      ))}
+    </div>
+  );
+}
+
+// Hides every chat of one folder behind a single Undo toast, then deletes them.
+function useDeleteFolder() {
+  const qc = useQueryClient();
+  return (name: string, chats: HistoryChat[]) => deferDelete(chats.map((c) => `chat:${c.id}`),
+    `Deleted ${chats.length} from ${name}`, async () => {
+      const ok = await Promise.all(chats.map((c) => (c.source === "external"
+        ? api.deleteExternalSession(c.agentId ?? "", c.resumeSessionId ?? c.id)
+        : api.deleteChat(c.id)).then(() => true, () => false)));
+      await qc.invalidateQueries({ queryKey: ["history", "v2"] });
+      return !ok.includes(false);
+    }, "Some could not be deleted. They're back in the list.");
+}
+
+/** Rename and Delete for one row, then Delete all for its folder, which asks first. */
+function RowMenu({ title, selected, onRename, onDelete, folder }: {
+  title: string; selected: boolean; onRename: () => void; onDelete?: () => void; folder?: { name: string; chats: HistoryChat[] };
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const { open, mounted, requestClose, toggle } = useMenu(root, panel);
+  const deleteFolder = useDeleteFolder();
+  return (
+    <div ref={root} className={cn("relative shrink-0 transition-opacity", !selected && !open && "opacity-0 group-hover/s:opacity-100 group-focus-within/s:opacity-100")}>
+      <Tooltip label="Options">
+        <Button variant="ghost" size="sm" icon onClick={toggle} aria-label={`Options for ${title}`} aria-haspopup="menu" aria-expanded={open}>
+          <MoreHorizontal />
+        </Button>
+      </Tooltip>
+      {mounted && (
+        <div ref={panel} role="menu" aria-label="Session options"
+          className={cn("absolute right-0 top-full z-overlay mt-1 flex w-max min-w-[9rem] max-w-[min(18rem,80vw)] origin-top-right flex-col", menuPanel)}>
+          <button type="button" role="menuitem" onClick={() => { requestClose(); onRename(); }} className={cn(menuItem, "text-label font-medium")}>
+            Rename
+          </button>
+          {onDelete && (
+            <button type="button" role="menuitem" onClick={() => { requestClose(); onDelete(); }} className={cn(menuItem, "text-label font-medium text-destructive-text")}>
+              Delete
+            </button>
+          )}
+          {folder && (
+            <>
+              <div role="separator" className="-mx-1.5 my-1.5 border-t border-hairline" />
+              <ConfirmButton role="menuitem" label={`Delete all from ${folder.name} (${folder.chats.length})`}
+                confirm={`Delete ${folder.chats.length}?`} className="text-left [&>span]:max-w-full [&>span]:truncate"
+                onConfirm={() => { requestClose(); deleteFolder(folder.name, folder.chats); }} />
+            </>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

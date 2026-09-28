@@ -9,7 +9,17 @@ import { create } from "zustand";
 const KEY = "openlive:disclosure";
 const load = (): Record<string, boolean> => {
   if (typeof window === "undefined") return {};
-  try { return JSON.parse(localStorage.getItem(KEY) ?? "{}"); } catch { return {}; }
+  try {
+    const open: Record<string, boolean> = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // The sessions drawer's removed folder tree left one "hist:ws:<cwd>" per folder.
+    // Dropped here, where the map is read, so the store never writes them back.
+    const stale = Object.keys(open).filter((k) => k.startsWith("hist:ws:"));
+    if (stale.length) {
+      for (const k of stale) delete open[k];
+      localStorage.setItem(KEY, JSON.stringify(open));
+    }
+    return open;
+  } catch { return {}; }
 };
 
 interface DiscState {
