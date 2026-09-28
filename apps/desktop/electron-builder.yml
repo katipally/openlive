@@ -14,6 +14,9 @@ publish:
   owner: katipally
   repo: openlive
 
+# Fails the build when the ol-input addon for the platform and arch being packed is missing.
+beforePack: scripts/check-native.cjs
+
 # Only the shell code goes in the asar; the servers ride along as unpacked
 # resources (they're spawned as child Node processes).
 files:

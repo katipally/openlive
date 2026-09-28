@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, turnFailure, type FlowHealth } from "./failure";
+import { deriveFailure, keyListenerNote, turnFailure, type FlowHealth } from "./failure";
 
 const HEALTHY: FlowHealth = {
-  platform: "darwin", wayland: false, accessibility: true, secureInput: false,
-  hookError: null, brainReady: true, online: true, modelsCached: true, voiceModels: ["speech", "voice", "turn-taking"],
+  platform: "darwin", accessibility: true, secureInput: false,
+  hookError: null, addonError: null, packaged: false, brainReady: true, online: true, modelsCached: true, voiceModels: ["speech", "voice", "turn-taking"],
 };
 
 describe("deriveFailure", () => {
@@ -19,12 +19,21 @@ describe("deriveFailure", () => {
     const broken = { ...HEALTHY, hookError: "tap died", accessibility: false, brainReady: false, online: false };
     expect(deriveFailure(broken)?.code).toBe("hook_failed");
     expect(deriveFailure({ ...broken, hookError: null })?.code).toBe("no_accessibility");
+    expect(deriveFailure({ ...broken, addonError: "not built" })?.code).toBe("addon_missing");
+  });
+
+  it("tells a checkout to build the addon and an install to reinstall, without the raw loader error", () => {
+    const raw = "ol-input native addon not built. Looked in: /repo/native/ol-input/ol-input.darwin-arm64.node";
+    const dev = deriveFailure({ ...HEALTHY, addonError: raw });
+    expect(dev?.detail).toContain("pnpm native:build");
+    expect(dev?.detail).not.toContain("/repo");
+    expect(dev?.actionLabel).toBeTruthy();
+    expect(deriveFailure({ ...HEALTHY, addonError: raw, packaged: true })?.detail).toMatch(/Reinstall/);
   });
 
   it("gives every state a cause, and an action wherever one exists", () => {
     const cases: [Partial<FlowHealth>, string][] = [
       [{ accessibility: false }, "no_accessibility"],
-      [{ wayland: true }, "wayland"],
       [{ secureInput: true }, "secure_input"],
       [{ brainReady: false }, "no_provider"],
       [{ online: false }, "offline"],
@@ -41,7 +50,15 @@ describe("deriveFailure", () => {
   it("names the grant the way the platform does, and offers no trigger that does not exist", () => {
     expect(deriveFailure({ ...HEALTHY, accessibility: false })?.detail).toContain("Accessibility");
     expect(deriveFailure({ ...HEALTHY, platform: "win32", accessibility: false })?.detail).toContain("input access");
-    expect(deriveFailure({ ...HEALTHY, platform: "linux", wayland: true })?.detail).not.toMatch(/tray|command line/);
+  });
+
+  it("lets Wayland try the key listener, and on Linux says how to let it read the keyboard", () => {
+    expect(deriveFailure({ ...HEALTHY, platform: "linux" })).toBeNull();
+    const linux = deriveFailure({ ...HEALTHY, platform: "linux", hookError: "permission denied opening 3 device node(s) under /dev/input" });
+    expect(linux?.code).toBe("hook_failed");
+    expect(linux?.detail).toMatch(/input group/);
+    expect(linux?.detail).toContain("usermod -aG input");
+    expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
   });
 
   it("names the voice models the selected engines actually download", () => {
@@ -109,5 +126,19 @@ describe("turnFailure", () => {
   it("never shows an empty card", () => {
     expect(turnFailure("   ").detail).toBeTruthy();
     expect(turnFailure("agent died").detail).toBe("agent died");
+  });
+});
+
+describe("keyListenerNote", () => {
+  it("is empty while the double tap can work", () => {
+    expect(keyListenerNote(null)).toBe("");
+    expect(keyListenerNote({ hookError: null, wayland: false })).toBe("");
+  });
+  it("passes on why the listener stopped before anything about the session", () => {
+    const denied = "permission denied opening 3 device node(s) under /dev/input";
+    expect(keyListenerNote({ hookError: denied, wayland: true })).toContain(denied);
+  });
+  it("names the Wayland limit", () => {
+    expect(keyListenerNote({ hookError: null, wayland: true })).toMatch(/Wayland/);
   });
 });

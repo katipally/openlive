@@ -117,13 +117,19 @@ function capabilities() {
   let permissions = null;
   let secureInput = null;
   let hookError = null;
-  try {
-    const api = flowInput.load();
-    permissions = api.permissionStatus();
-    secureInput = api.secureInputStatus();
-    hookError = api.hookError();
-  } catch (e) {
-    hookError = String(e && e.message ? e.message : e);
+  let addonError = null;
+  let api = null;
+  // Loading is its own failure: an addon that is not built (or will not load)
+  // has no hook to have stopped, and the fix is a build, not a retry of the hook.
+  try { api = flowInput.load(); } catch (e) { addonError = String(e && e.message ? e.message : e); }
+  if (api) {
+    try {
+      permissions = api.permissionStatus();
+      secureInput = api.secureInputStatus();
+      hookError = flowInput.hookFailure();
+    } catch (e) {
+      hookError = String(e && e.message ? e.message : e);
+    }
   }
   // The addon's own report is the truth about this session when it has one;
   // the environment is only the fallback for builds that predate it.
@@ -131,7 +137,7 @@ function capabilities() {
   const wayland = report
     ? report.session === "wayland"
     : process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
-  return { platform: process.platform, wayland, permissions, secureInput, hookError, report, armed: flowInput.isArmed() };
+  return { platform: process.platform, wayland, permissions, secureInput, hookError, addonError, packaged: app.isPackaged, report, armed: flowInput.isArmed() };
 }
 
 // ── the device bridge ────────────────────────────────────────────────────────

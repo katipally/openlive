@@ -43,6 +43,11 @@ export interface FlowCapabilities {
   permissions: FlowPermissions | null;
   secureInput: SecureInputStatus | null;
   hookError: string | null;
+  /** Why the ol-input addon could not be loaded at all (not built, or will not
+   *  load). Set instead of `hookError`: there is no hook to have stopped. */
+  addonError: string | null;
+  /** An installed app, where the fix is a reinstall rather than a build. */
+  packaged: boolean;
   report: CapabilityReport | null;
   /** False while the tray's quick disarm is on: the hook is suspended on purpose. */
   armed: boolean;

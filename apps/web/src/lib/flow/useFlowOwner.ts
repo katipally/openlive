@@ -191,10 +191,11 @@ export function useFlowOwner(): void {
       patch({
         failure: deriveFailure({
           platform: c?.platform ?? "",
-          wayland: !!c?.wayland,
           accessibility: c?.permissions ? c.permissions.accessibility : null,
           secureInput: !!c?.secureInput?.active,
           hookError: c?.hookError ?? null,
+          addonError: c?.addonError ?? null,
+          packaged: !!c?.packaged,
           brainReady: brainReady.current,
           online: typeof navigator === "undefined" || navigator.onLine,
           modelsCached: modelsCached(),
@@ -598,7 +599,7 @@ export function useFlowOwner(): void {
           else if (c.code === "models_missing") void warm().then(refreshHealth);
           else if (snap.current.failure?.settings) api.expand(`${snap.current.failure.settings}-settings`);
           // `init` replaces a hook thread that died, and the binding goes back on it.
-          else if (c.code === "hook_failed") { armed.current = false; void arm().then(refreshHealth); }
+          else if (c.code === "hook_failed" || c.code === "addon_missing") { armed.current = false; void arm().then(refreshHealth); }
           else void refreshHealth();
           return;
         }

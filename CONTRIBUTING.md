@@ -6,7 +6,12 @@ that way on purpose. This guide gets you running and shows where things live.
 ## Setup
 
 You need Node 22.13 or newer and pnpm (the repo pins the version in
-`package.json`).
+`package.json`). Flow's input addon (`native/ol-input`) is Rust, so the desktop
+app also needs Rust from [rustup.rs](https://rustup.rs) plus a C toolchain: the
+Xcode Command Line Tools on macOS, the Visual Studio Build Tools ("Desktop
+development with C++") on Windows, `build-essential` or equivalent on Linux.
+`pnpm desktop:dev` builds the addon when it is missing or its sources changed
+(a no-op otherwise); `pnpm native:build` does the same on its own.
 
 ```bash
 pnpm install

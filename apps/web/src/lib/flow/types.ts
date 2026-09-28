@@ -13,10 +13,11 @@ export type FlowFailureCode =
   | "no_provider"
   | "no_accessibility"
   | "secure_input"
-  | "wayland"
   | "offline"
   | "models_missing"
   | "hook_failed"
+  /** The ol-input addon did not load: not built in a checkout, damaged in an install. */
+  | "addon_missing"
   | "mic_failed"
   | "answer_lost"
   /** The brain refused this turn for a reason that is fixed in settings. */

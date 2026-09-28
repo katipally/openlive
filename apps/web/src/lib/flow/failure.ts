@@ -6,13 +6,15 @@ import type { FlowFailure } from "./types";
 
 export interface FlowHealth {
   platform: string;
-  /** Wayland cannot deliver a global hook on every compositor. */
-  wayland: boolean;
   /** null when the addon could not be reached at all. */
   accessibility: boolean | null;
   secureInput: boolean;
   /** The message the hook thread died with, when it did. */
   hookError: string | null;
+  /** Why the ol-input addon did not load at all, when it did not. */
+  addonError: string | null;
+  /** An installed app rather than a dev checkout: decides how the addon is fixed. */
+  packaged: boolean;
   /** A provider with a usable key resolved. */
   brainReady: boolean;
   online: boolean;
@@ -22,13 +24,18 @@ export interface FlowHealth {
   voiceModels: string[];
 }
 
+const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes the input group: run `sudo usermod -aG input $USER`, sign out and back in, then try again.";
+
 /**
  * The most blocking truth first: a hook that never installed beats a missing
  * grant, and both beat anything Flow could still half-do.
  */
 export function deriveFailure(h: FlowHealth): FlowFailure | null {
+  if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged), actionLabel: "Try again" };
   if (h.hookError) {
-    return { code: "hook_failed", title: "Flow's key listener stopped", detail: h.hookError, actionLabel: "Try again" };
+    // Linux reads keys from /dev/input on X11 and Wayland alike, which takes the input group.
+    const detail = h.platform === "linux" ? `${h.hookError.replace(/[.!?]?$/, ".")} ${LINUX_INPUT_FIX}` : h.hookError;
+    return { code: "hook_failed", title: "Flow's key listener stopped", detail, actionLabel: "Try again" };
   }
   if (h.accessibility === false) {
     return {
@@ -36,13 +43,6 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       title: "I can hear you, but I cannot type for you",
       detail: `${h.platform === "darwin" ? "macOS has not given OpenLive Accessibility access" : "Your system has not given OpenLive input access"}, so nothing can be inserted. Your words are still here.`,
       actionLabel: "Open settings",
-    };
-  }
-  if (h.wayland) {
-    return {
-      code: "wayland",
-      title: "Wayland will not hand out a global key",
-      detail: "This compositor blocks the system-wide hook, so the double tap cannot reach Flow here. Chat and calls in the OpenLive window still work.",
     };
   }
   if (h.secureInput) {
@@ -118,4 +118,20 @@ export function turnFailure(message: string, agent = false): FlowFailure {
     return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
   }
   return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
+}
+
+/** Flow's words for an ol-input addon that did not load, shared by the orb,
+ *  Flow home and Flow settings. The raw loader error stays behind a disclosure. */
+export function addonProblem(packaged: boolean): { title: string; detail: string } {
+  return packaged
+    ? { title: "Flow can't hear the keyboard", detail: "A part of OpenLive that Flow needs did not load. Reinstalling OpenLive puts it back." }
+    : { title: "Flow's keyboard helper isn't built", detail: "Run pnpm native:build in the repo, then try again. No restart needed." };
+}
+
+/** What Flow settings says about the key listener when the double tap cannot
+ *  work here, in the same words the orb uses. "" while it can. */
+export function keyListenerNote(c: { hookError: string | null; wayland: boolean } | null): string {
+  if (c?.hookError) return `Flow's key listener stopped: ${c.hookError}`;
+  if (c?.wayland) return "On Wayland the double tap reaches Flow only when OpenLive can read /dev/input, which takes the input group. Chat and calls in the OpenLive window work either way.";
+  return "";
 }

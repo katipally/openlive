@@ -12,7 +12,7 @@ const candidates = [
 const found = candidates.find((candidate) => fs.existsSync(candidate));
 if (!found) {
   throw new Error(
-    `ol-input native addon not built. Run \`pnpm --filter @openlive/ol-input build\`. Looked in:\n  ${candidates.join("\n  ")}`,
+    `ol-input native addon not built. Run \`pnpm native:build\` from the repo root. Looked in:\n  ${candidates.join("\n  ")}`,
   );
 }
 
