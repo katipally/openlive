@@ -3,12 +3,12 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "models" | "flow" | "voice" | "agents" | "about";
+export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "chat" | "flow" | "about";
 
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
-const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "voice", voices: "voice" };
-const TABS: readonly string[] = ["general", "models", "flow", "voice", "agents", "about"] satisfies SettingsTabId[];
+const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice" };
+const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "chat", "flow", "about"] satisfies SettingsTabId[];
 
 export function resolveSettingsTab(id: string | null | undefined): SettingsTabId | null {
   if (!id) return null;
@@ -23,7 +23,8 @@ export interface SettingsEntry {
   tab: SettingsTabId;
   /** DOM id of the row (or its section) to scroll to. */
   anchor: string;
-  /** DOM id of the speech engine stage tab that holds the row, clicked first. */
+  /** DOM id of the speech engine stage tab that holds the row, clicked first.
+   *  A row folded under Advanced is unfolded on the way. */
   reveal?: string;
   /** Only rendered in the desktop app. */
   desktop?: boolean;
@@ -37,41 +38,45 @@ const engineWords = (families: EngineFamilyInfo[]) =>
 const LANGUAGE_WORDS = CURATED_LANGUAGES.flatMap((l) => [l.name, l.native, l.native.normalize("NFD").replace(/[\u0300-\u036f]/g, "")]).join(" ");
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
-  { label: "Appearance", keywords: "theme dark light system mode", tab: "general", anchor: "set-general-appearance" },
+  { label: "Appearance", keywords: "theme dark light system mode look glass flat transparency blur", tab: "general", anchor: "set-general-appearance" },
   { label: "Your assistant's style", keywords: "custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
-  { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input", tab: "general", anchor: "set-general-speech" },
-  { label: "Narrate agent progress", keywords: "spoken steps plan voice", tab: "general", anchor: "set-general-speech" },
   { label: "Keyboard shortcuts", keywords: "keys hotkeys", tab: "general", anchor: "set-general-shortcuts" },
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },
 
-  { label: "Provider & API key", keywords: "byok key openai anthropic paste remove", tab: "models", anchor: "set-models-provider" },
-  { label: "Model", keywords: "llm live model vision reasoning", tab: "models", anchor: "set-models-model" },
+  { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
+  { label: "Model", keywords: "llm live model vision reasoning default", tab: "models", anchor: "set-models-model" },
   { label: "Vision model", keywords: "camera screen images see", tab: "models", anchor: "set-models-vision" },
   { label: "Reasoning effort", keywords: "thinking speed latency", tab: "models", anchor: "set-models-effort" },
 
-  { label: "Flow brain", keywords: "agent model who thinks", tab: "flow", anchor: "set-flow-brain" },
+  { label: "Language", keywords: `${LANGUAGE_WORDS} speak reply multilingual translate`, tab: "voice", anchor: "set-voice-language" },
+  { label: "Voice", keywords: "speaker who speaks answers preview sample listen female male accent american british pick", tab: "voice", anchor: "set-voice-voice" },
+  { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
+  { label: "Wait before answering", keywords: "pace turn patient even quick relaxed balanced snappy end of turn interrupt cut off", tab: "voice", anchor: "set-voice-wait" },
+  { label: "Listening sounds", keywords: "experimental backchannel backchannels mm-hmm uh-huh yeah listener active listening cue pause", tab: "voice", anchor: "set-voice-listening-sounds" },
+  { label: "Pronunciation", keywords: "dictionary lexicon respell pronounce say read aloud name brand word mispronounced numbers", tab: "voice", anchor: "set-voice-pronunciation" },
+  { label: "Your voices", keywords: "clone cloning record upload import export delete zipvoice", tab: "voice", anchor: "set-voice-yours" },
+
+  { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "engine", anchor: "set-engine-stage-mic" },
+  { label: "Voiceprint", keywords: "experimental speaker verification only me my voice enroll enrollment other people room voices ignore label speakers diarization who is speaking echo barge-in", tab: "engine", anchor: "set-engine-voiceprint", reveal: "set-engine-stage-mic" },
+  { label: "Speech-to-text", keywords: `stt whisper model size transcription speech recognition engine streaming native download variant latency runs on cpu coreml cuda directml accelerator threads benchmark ${engineWords(STT_FAMILIES)}`, tab: "engine", anchor: "set-engine-stage-stt" },
+  { label: "Turn-taking", keywords: "smart-turn end of turn detector silence timeout threshold mid-thought hold", tab: "engine", anchor: "set-engine-stage-turn" },
+  { label: "Side talk", keywords: "experimental addressee talking to someone else other people room ignore not for me not for you device directed family kids phone call aside shadow judge only judgment log train personal head", tab: "engine", anchor: "set-engine-side-talk", reveal: "set-engine-stage-turn" },
+  { label: "Text-to-speech", keywords: `tts kokoro supertonic pocket kitten engine native download variant runs on cpu coreml cuda directml accelerator threads benchmark license restricted non-commercial allow locked ${engineWords(TTS_FAMILIES)}`, tab: "engine", anchor: "set-engine-stage-tts" },
+  { label: "This device", keywords: "hardware cpu gpu cores ram memory tier performance accelerator coreml cuda directml", tab: "engine", anchor: "set-engine-device" },
+  { label: "Reset speech engine", keywords: "defaults pipeline", tab: "engine", anchor: "set-engine-reset" },
+
+  { label: "Coding agents", keywords: "install sign in sign out hide claude codex cursor acp", tab: "agents", anchor: "set-agents-list" },
+
+  { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
+  { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },
+
+  { label: "Flow brain", keywords: "agent model who thinks different override", tab: "flow", anchor: "set-flow-brain" },
   { label: "Say replies out loud", keywords: "speak voice", tab: "flow", anchor: "set-flow-voice" },
-  { label: "Wait before answering", keywords: "pace turn", tab: "flow", anchor: "set-flow-voice" },
+  { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },
   { label: "Stay open after the last reply", keywords: "idle timeout close", tab: "flow", anchor: "set-flow-voice" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },
   { label: "How text goes in", keywords: "typing paste type insertion clipboard timing", tab: "flow", anchor: "set-flow-typing" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent", tab: "flow", anchor: "set-flow-access" },
-
-  { label: "Language", keywords: `${LANGUAGE_WORDS} speak reply multilingual translate`, tab: "voice", anchor: "set-voice-language" },
-  { label: "Speaking speed", keywords: "rate tts fast slow", tab: "voice", anchor: "set-voice-speaking" },
-  { label: "Pronunciation", keywords: "dictionary lexicon respell pronounce say read aloud name brand word mispronounced numbers", tab: "voice", anchor: "set-voice-pronunciation" },
-  { label: "Voice activity detection", keywords: "vad silero v6 v5 model sensitivity trailing silence", tab: "voice", anchor: "set-voice-stage-mic" },
-  { label: "Voiceprint", keywords: "experimental speaker verification only me my voice enroll enrollment other people room voices ignore label speakers diarization who is speaking echo barge-in", tab: "voice", anchor: "set-voice-voiceprint", reveal: "set-voice-stage-mic" },
-  { label: "Speech-to-text", keywords: `stt whisper model size transcription speech recognition engine streaming native download variant latency runs on cpu coreml cuda directml accelerator threads benchmark ${engineWords(STT_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-stt" },
-  { label: "Turn-taking", keywords: "smart-turn end of turn detector mid-thought hold preset", tab: "voice", anchor: "set-voice-stage-turn" },
-  { label: "Listening sounds", keywords: "experimental backchannel backchannels mm-hmm uh-huh yeah listener active listening cue pause", tab: "voice", anchor: "set-voice-listening-sounds", reveal: "set-voice-stage-turn" },
-  { label: "Side talk", keywords: "experimental addressee talking to someone else other people room ignore not for me not for you device directed family kids phone call aside shadow judge only judgment log train personal head", tab: "voice", anchor: "set-voice-side-talk", reveal: "set-voice-stage-turn" },
-  { label: "Text-to-speech", keywords: `tts kokoro supertonic pocket kitten voice preview engine native download variant runs on cpu coreml cuda directml accelerator threads benchmark license restricted non-commercial allow locked ${engineWords(TTS_FAMILIES)}`, tab: "voice", anchor: "set-voice-stage-tts" },
-  { label: "This device", keywords: "hardware cpu gpu cores ram memory tier performance accelerator coreml cuda directml", tab: "voice", anchor: "set-voice-device" },
-  { label: "Reset speech engine", keywords: "defaults pipeline", tab: "voice", anchor: "set-voice-reset" },
-  { label: "Your voices", keywords: "clone cloning record upload import export delete zipvoice", tab: "voice", anchor: "set-voice-yours" },
-
-  { label: "Coding agents", keywords: "install sign in sign out hide claude codex cursor acp", tab: "agents", anchor: "set-agents-list" },
 
   { label: "Links", keywords: "github releases changelog issue", tab: "about", anchor: "set-about-links" },
   { label: "Replay tours", keywords: "walkthrough onboarding tips help reset", tab: "about", anchor: "set-about-tours" },

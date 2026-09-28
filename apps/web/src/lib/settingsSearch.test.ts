@@ -62,24 +62,37 @@ describe("settings search", () => {
     expect(find("login", false)).not.toContain("Open at login");
   });
 
+  it("finds the one shared wait by its new names and its old ones", () => {
+    for (const q of ["patient", "quick", "snappy", "relaxed"]) expect(find(q)[0]).toBe("Wait before answering");
+    expect(find("wait")).toEqual(["Wait before answering", "Flow's own wait"]);
+  });
+
+  it("files call-only rows under Chat and the engine under Speech engine", () => {
+    expect(SETTINGS_INDEX.find((e) => e.label === "Push-to-talk")!.tab).toBe("chat");
+    expect(SETTINGS_INDEX.find((e) => e.label === "Speech-to-text")!.tab).toBe("engine");
+    expect(SETTINGS_INDEX.find((e) => e.label === "Listening sounds")!.tab).toBe("voice");
+  });
+
   it("every anchor is a settings id", () => {
     for (const e of SETTINGS_INDEX) expect(e.anchor).toMatch(/^set-/);
   });
 
   it("a row inside a speech engine stage has its own anchor and opens its stage first", () => {
     const staged = SETTINGS_INDEX.filter((e) => e.reveal);
-    expect(staged.map((e) => e.label)).toEqual(expect.arrayContaining(["Voiceprint", "Listening sounds", "Side talk"]));
+    expect(staged.map((e) => e.label)).toEqual(expect.arrayContaining(["Voiceprint", "Side talk"]));
     for (const e of staged) {
-      expect(e.reveal).toMatch(/^set-voice-stage-(mic|stt|turn|tts)$/);
+      expect(e.tab).toBe("engine");
+      expect(e.reveal).toMatch(/^set-engine-stage-(mic|stt|turn|tts)$/);
       expect(SETTINGS_INDEX.filter((o) => o.anchor === e.anchor)).toHaveLength(1);
     }
   });
 });
 
 describe("resolveSettingsTab", () => {
-  it("keeps current ids and maps merged ones to Voice", () => {
+  it("keeps current ids and maps old ones to the tab that holds them now", () => {
     expect(resolveSettingsTab("models")).toBe("models");
-    expect(resolveSettingsTab("pipeline")).toBe("voice");
+    for (const id of ["engine", "chat", "flow", "voice"]) expect(resolveSettingsTab(id)).toBe(id);
+    expect(resolveSettingsTab("pipeline")).toBe("engine");
     expect(resolveSettingsTab("voices")).toBe("voice");
   });
   it("drops unknown or empty ids", () => {

@@ -1,31 +1,44 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Bot, Info, Search } from "lucide-react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { animate, motion, stagger } from "motion/react";
+import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2 } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { GeneralSettings } from "./GeneralSettings";
 import { ModelsSettings } from "./ModelsSettings";
 import { VoiceSettings } from "./VoiceSettings";
+import { PipelineSettings } from "./PipelineSettings";
+import { ChatSettings } from "./ChatSettings";
+import { SettingsNav, type SettingsGo } from "./nav";
+import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsSettings } from "./AgentsSettings";
 import { AboutSettings } from "./AboutSettings";
 import { FlowSettings } from "@/components/flow/FlowSettings";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { animateAll, EXIT, FADE, GENTLE, SMOOTH, useMotionTokens } from "@/lib/motion";
 import { cn } from "@/lib/cn";
-import { isDesktop, isMacDesktop, isWinDesktop, MOD } from "@/lib/platform";
+import { isDesktop, isMacDesktop, isNonMacDesktop, MOD } from "@/lib/platform";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { resolveSettingsTab, searchSettings, type SettingsEntry, type SettingsTabId } from "@/lib/settingsSearch";
 
+// `group` heads a run of the nav: what Chat and Flow share, then what each mode
+// keeps for itself. `desc` is the page's own line when it says more than `sub`.
 export const SECTIONS = [
-  { id: "general", label: "General", sub: "Appearance, speech & startup", icon: Settings2, Comp: GeneralSettings },
-  { id: "models", label: "Models", sub: "API mode · BYOK", icon: SlidersHorizontal, Comp: ModelsSettings },
-  { id: "flow", label: "Flow", sub: "Trigger, voice & typing", icon: Waves, Comp: FlowSettings },
-  { id: "voice", label: "Voice", sub: "Language, speed, engine, voices", icon: AudioWaveform, Comp: VoiceSettings },
-  { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings },
-  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
-] as const;
+  { id: "general", label: "General", sub: "Appearance & startup", icon: Settings2, Comp: GeneralSettings },
+  { id: "models", label: "Models", sub: "API mode · BYOK", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Shared by Chat and Flow", shared: true },
+  { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, shared: true },
+  { id: "engine", label: "Speech engine", sub: "VAD · STT · turns · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, shared: true, fresh: true },
+  { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
+  { id: "chat", label: "Chat", sub: "Push-to-talk & narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
+  { id: "flow", label: "Flow", sub: "Trigger, typing & access", icon: Waves, Comp: FlowSettings },
+  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings, group: "" },
+] as const satisfies readonly Sec[];
 type TabId = (typeof SECTIONS)[number]["id"];
+interface Sec {
+  id: SettingsTabId; label: string; sub: string; icon: typeof Info; Comp: () => React.ReactNode;
+  group?: string; desc?: string; shared?: boolean; fresh?: boolean;
+}
 const tabLabel = (t: SettingsTabId) => SECTIONS.find((s) => s.id === t)!.label;
 const HIT_MS = 1600;
 
@@ -43,7 +56,9 @@ export function SettingsPage() {
   const [visible, setVisible] = useState(false);
   const [tab, setTab] = useState<TabId>("general");
   const root = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const firstPaint = useRef(true);
+  const lastTab = useRef<TabId>(tab);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -53,6 +68,8 @@ export function SettingsPage() {
   // result list needs the words.
   const rail = !searching && !query && "@max-3xl/settings:sr-only";
   const listId = useId();
+  const navMark = useId();
+  const t = useMotionTokens();
   const results = useMemo(() => searchSettings(query, tabLabel, isDesktop), [query]);
   const current = results[Math.min(active, results.length - 1)];
 
@@ -93,7 +110,9 @@ export function SettingsPage() {
       if (!el) { if (++tries < 60) raf = requestAnimationFrame(find); return; }
       // Stage tabs inside the speech engine: open the one the result names.
       if (el.hasAttribute("data-reveal")) el.click();
-      el.scrollIntoView({ block: "center", behavior: prefersReduced() ? "auto" : "smooth" });
+      // A row folded under Advanced: unfold it (and every fold around it).
+      for (let d = el.closest("details"); d; d = d.parentElement?.closest("details") ?? null) d.open = true;
+      el.scrollIntoView({ block: "center", behavior: t.reduce ? "auto" : "smooth" });
       el.classList.add("ol-set-hit");
       setTimeout(() => el.classList.remove("ol-set-hit"), HIT_MS);
     };
@@ -107,6 +126,10 @@ export function SettingsPage() {
     setQuery("");
     setActive(0);
   };
+  const goTo: SettingsGo = (t, anchor, reveal) => {
+    setTab(t);
+    if (anchor) setJump({ anchor, reveal });
+  };
   const onSearchKey = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
     const n = results.length;
@@ -117,38 +140,54 @@ export function SettingsPage() {
     else if (e.key === "Escape" && query) { e.preventDefault(); setQuery(""); setActive(0); }
   };
 
-  // Enter: fade the surface, stagger the nav, rise the content pane.
-  const { contextSafe } = useGSAP(() => {
-    if (!visible) return;
-    firstPaint.current = true;
-    // Opacity, not autoAlpha: a visibility-hidden dialog cannot take the focus the
-    // trap moves into it on open.
-    if (prefersReduced()) { gsap.fromTo(root.current, { opacity: 0 }, { opacity: 1, duration: 0.12 }); return; }
-    gsap.timeline()
-      .fromTo(root.current, { opacity: 0 }, { opacity: 1, duration: DUR.base, ease: EASE.soft })
-      .fromTo(".ol-set-navitem", { autoAlpha: 0, x: -10 }, { autoAlpha: 1, x: 0, stagger: 0.045, duration: DUR.base, ease: EASE.out }, "-=0.08")
-      .fromTo(".ol-set-pane", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: DUR.slow, ease: EASE.snappy }, "<");
-  }, { scope: root, dependencies: [visible] });
-
-  // Cross-fade the content on section change (skip the very first paint — the
-  // enter timeline already revealed it).
-  useGSAP(() => {
-    if (!visible) return;
-    if (firstPaint.current) { firstPaint.current = false; return; }
-    gsap.fromTo(".ol-set-body", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: DUR.base, ease: EASE.out });
-  }, { scope: root, dependencies: [tab] });
-
-  // Exit = the entrance played in reverse: pane sinks back, nav slides back out
-  // (tail-first), surface fades — same offsets as the enter, just quicker.
-  const requestClose = contextSafe(() => {
+  // Enter: fade the surface, stagger the nav, rise the content pane. Opacity only
+  // on the page: a visibility-hidden dialog cannot take the focus the trap moves
+  // into it on open.
+  useLayoutEffect(() => {
     const el = root.current;
-    const done = () => { setVisible(false); closeStore(); };
-    if (!el || prefersReduced()) { done(); return; }
-    gsap.timeline({ onComplete: done })
-      .to(".ol-set-pane", { autoAlpha: 0, y: 14, duration: DUR.base, ease: EASE.soft }, 0)
-      .to(".ol-set-navitem", { autoAlpha: 0, x: -10, stagger: { each: 0.03, from: "end" }, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(el, { autoAlpha: 0, duration: DUR.base, ease: EASE.soft }, 0.05);
-  });
+    if (!visible || !el) return;
+    firstPaint.current = true;
+    const runs = t.reduce ? [animate(el, { opacity: [0, 1] }, t.fade)] : [
+      animate(el, { opacity: [0, 1] }, FADE),
+      animateAll(el, ".ol-set-navitem", { opacity: [0, 1], x: [-10, 0] }, { ...SMOOTH, delay: stagger(0.045, { startDelay: 0.1 }) }),
+      animateAll(el, ".ol-set-pane", { opacity: [0, 1], y: [14, 0] }, { ...GENTLE, delay: 0.1 }),
+    ];
+    return () => runs.forEach((r) => r?.stop());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- plays each time the page opens
+  }, [visible]);
+
+  // A new section slides in from the side of the nav it came from: up from below
+  // when it sits lower in the list, down from above when higher. Skips the very
+  // first paint, which the enter timeline already revealed. Before paint, so the
+  // old section never shows in the new one's place.
+  useLayoutEffect(() => {
+    const from = lastTab.current;
+    lastTab.current = tab;
+    const el = body.current;
+    if (!visible || !el) return;
+    if (firstPaint.current) { firstPaint.current = false; return; }
+    if (from === tab) return;
+    const order = (t: TabId) => SECTIONS.findIndex((s) => s.id === t);
+    const dir = order(tab) > order(from) ? 1 : -1;
+    const run = t.reduce
+      ? animate(el, { opacity: [0, 1] }, t.fade)
+      : animate(el, { opacity: [0, 1], y: [dir * 14, 0] }, { ...SMOOTH, opacity: FADE });
+    return () => run.stop();
+  }, [tab, visible]);
+
+  // Exit = the entrance in reverse: the pane sinks back, the nav slides back out
+  // tail-first, the surface fades.
+  const requestClose = async () => {
+    const el = root.current;
+    // The page under a glass Settings comes back first, so the fade-out shows it.
+    el?.removeAttribute("data-covering");
+    if (el && !t.reduce) await Promise.all([
+      animateAll(el, ".ol-set-pane", { opacity: 0, y: 14 }, EXIT),
+      animateAll(el, ".ol-set-navitem", { opacity: 0, x: -10 }, { ...EXIT, delay: stagger(0.03, { from: "last" }) }),
+      animate(el, { opacity: 0 }, { ...EXIT, delay: 0.05 }),
+    ]);
+    setVisible(false); closeStore();
+  };
 
   useFocusTrap(root, visible, requestClose);
 
@@ -165,15 +204,15 @@ export function SettingsPage() {
   }, [visible, closeStore]);
 
   if (!visible) return null;
-  const Active = SECTIONS.find((s) => s.id === tab)!;
+  const Active: Sec = SECTIONS.find((s) => s.id === tab)!;
 
   return (
     <div ref={root} role="dialog" aria-modal="true" aria-label="Settings"
-      className="fixed inset-0 z-[var(--z-settings)] flex flex-col bg-background text-left">
+      data-covering="settings" className="fixed inset-0 z-settings flex flex-col bg-background text-left">
       {/* header: drag region (frameless window), clear of the traffic lights on
           macOS and the window controls on Windows/Linux. */}
       <header className={cn("relative flex h-14 shrink-0 items-center gap-3",
-        isMacDesktop ? "pl-[84px]" : "pl-4", isWinDesktop ? "pr-[140px]" : "pr-3",
+        isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3",
         isDesktop && "[-webkit-app-region:drag]")}>
         <span className="flex min-w-0 items-baseline gap-2 text-title-sm font-semibold">
           Settings
@@ -184,25 +223,24 @@ export function SettingsPage() {
       <div className="@container/settings flex min-h-0 flex-1">
         {/* side nav: the way back first, then the sections. Esc and ⌘[ go back too
             (focus trap + history). */}
-        <nav aria-label="Settings sections" data-tour="settings-nav"
-          className={cn("w-[236px] shrink-0 space-y-1 overflow-y-auto p-3", rail && "@max-3xl/settings:w-auto @max-3xl/settings:p-2")}>
-          <button type="button" onClick={requestClose} title={`Back to ${origin} (Esc)`} aria-label={`Back to ${origin}`}
-            className="sticky top-0 z-10 mb-2 flex w-full items-center gap-2 rounded-xl bg-background px-3 py-2 text-left text-body font-medium text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground">
-            <ChevronLeft className="size-4 shrink-0" aria-hidden />
-            <span className={cn("min-w-0 flex-1 truncate", rail)}>Back to {origin}</span>
-            <kbd aria-hidden className={cn("shrink-0 rounded-md border border-border px-1.5 font-mono text-micro text-faint", rail && "@max-3xl/settings:hidden")}>esc</kbd>
-          </button>
-          <label data-tour="settings-search" title="Search settings"
-            className="mb-2 flex cursor-text items-center gap-2 rounded-xl border border-border bg-card px-3 transition focus-within:border-border-heavy">
-            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <input ref={searchRef} type="search" value={query} placeholder="Search settings" aria-label="Search settings"
-              onFocus={() => setSearching(true)} onBlur={() => setSearching(false)}
-              onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey}
-              role="combobox" aria-expanded={!!query.trim()} aria-controls={listId} aria-autocomplete="list"
-              aria-activedescendant={current ? `${listId}-${results.indexOf(current)}` : undefined}
-              autoComplete="off" spellCheck={false}
-              className={cn("h-9 min-w-0 flex-1 bg-transparent text-label text-foreground outline-none placeholder:text-faint", rail && "@max-3xl/settings:w-0 @max-3xl/settings:flex-none")} />
-          </label>
+        <motion.nav layoutScroll aria-label="Settings sections" data-tour="settings-nav"
+          className={cn("w-[236px] shrink-0 space-y-1 overflow-y-auto overscroll-contain p-3", rail && "@max-3xl/settings:w-auto @max-3xl/settings:p-2")}>
+          <Tooltip label={`Back to ${origin}`} keys="Esc" truncated className="sticky top-0 z-10 mb-2 flex w-full">
+            <button type="button" onClick={requestClose} aria-label={`Back to ${origin}`}
+              className="flex w-full items-center gap-2 rounded-xl bg-background px-3 py-2 text-left text-body font-medium text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground">
+              <ChevronLeft className="size-4 shrink-0" aria-hidden />
+              <span data-truncates className={cn("min-w-0 flex-1 truncate", rail)}>Back to {origin}</span>
+              <kbd aria-hidden className={cn("shrink-0 rounded-md border border-border px-1.5 font-mono text-micro text-faint", rail && "@max-3xl/settings:hidden")}>esc</kbd>
+            </button>
+          </Tooltip>
+          <Input ref={searchRef} type="search" icon={<Search />} value={query} placeholder="Search settings" aria-label="Search settings"
+            data-tour="settings-search"
+            onFocus={() => setSearching(true)} onBlur={() => setSearching(false)}
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey}
+            role="combobox" aria-expanded={!!query.trim()} aria-controls={listId} aria-autocomplete="list"
+            aria-activedescendant={current ? `${listId}-${results.indexOf(current)}` : undefined}
+            autoComplete="off" spellCheck={false}
+            className={cn("mb-2", rail && "@max-3xl/settings:[&_input]:w-0 @max-3xl/settings:[&_input]:flex-none")} />
           {query.trim() ? (
             results.length ? (
               <div id={listId} role="listbox" aria-label="Matching settings">
@@ -219,39 +257,57 @@ export function SettingsPage() {
                 })}
               </div>
             ) : <p id={listId} role="status" className="px-3 py-2 text-label text-muted-foreground">No matches</p>
-          ) : SECTIONS.map((s) => {
+          ) : SECTIONS.map((s: Sec) => {
             const on = s.id === tab;
             return (
-              <button key={s.id} onClick={() => setTab(s.id)} aria-current={on ? "page" : undefined} title={s.label}
-                className={cn("ol-set-navitem group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
-                  on ? "bg-foreground/[0.07]" : "hover:bg-foreground/[0.04]")}>
-                <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg border transition",
-                  on ? "border-transparent bg-accent text-accent-foreground" : "border-border text-muted-foreground group-hover:text-foreground")}>
-                  <s.icon className="size-4" />
-                </span>
-                <span className={cn("min-w-0", rail)}>
-                  <span className={cn("block text-body font-medium", on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground")}>{s.label}</span>
-                  <span className="block truncate text-caption text-faint">{s.sub}</span>
-                </span>
-              </button>
+              <Fragment key={s.id}>
+                {s.group !== undefined && (
+                  <p aria-hidden={!s.group} className={cn("px-3 pb-1 pt-4", groupLabel, !s.group && "pt-2", rail)}>{s.group}</p>
+                )}
+                <Tooltip label={s.label} truncated className="flex w-full">
+                  <button onClick={() => setTab(s.id)} aria-current={on ? "page" : undefined}
+                    className={cn("ol-set-navitem group relative isolate flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
+                      !on && "hover:bg-foreground/[0.04]")}>
+                    {/* One selection mark that glides to the chosen section. */}
+                    {on && <motion.span layoutId={navMark} transition={t.smooth} aria-hidden className="absolute inset-0 -z-10 rounded-xl bg-foreground/[0.07]" />}
+                    <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg border transition",
+                      on ? "border-transparent bg-accent text-accent-foreground" : "border-border text-muted-foreground group-hover:text-foreground")}>
+                      <s.icon className="size-4" />
+                    </span>
+                    <span data-truncates className={cn("min-w-0", rail)}>
+                      <span className={cn("flex flex-wrap items-center gap-x-1.5 text-body font-medium", on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground")}>
+                        {s.label}{s.fresh && <Badge tone="accent">New</Badge>}
+                      </span>
+                      <span className="block truncate text-caption text-faint">{s.sub}</span>
+                    </span>
+                  </button>
+                </Tooltip>
+              </Fragment>
             );
           })}
-        </nav>
+        </motion.nav>
 
         {/* content — centered readable column */}
         <main className="openlive-scroll ol-set-pane min-h-0 flex-1 overflow-y-auto">
-          <div className="ol-set-body mx-auto w-full max-w-2xl px-8 py-9 @max-3xl/settings:px-5 @max-3xl/settings:py-6">
-            <div className="mb-6">
-              <h1 className="text-title-lg font-semibold tracking-tight text-foreground">{Active.label}</h1>
-              <p className="mt-1 text-body text-muted-foreground">{Active.sub}</p>
+          {/* A narrow reading column that stays fluid: it fills a small window
+              and stops growing past a comfortable line length. */}
+          <div ref={body} className="mx-auto w-full max-w-[35rem] px-10 pb-12 pt-14 @max-3xl/settings:px-5 @max-3xl/settings:pt-8">
+            <div className="mb-10">
+              <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-title-lg font-semibold tracking-tight text-foreground">
+                {Active.label}
+                {Active.shared && <Chip className="bg-accent-soft font-normal text-link-foreground"><Link2 aria-hidden /> Used by Chat and Flow</Chip>}
+              </h1>
+              <p className="mt-1.5 text-body text-muted-foreground">{Active.desc ?? Active.sub}</p>
             </div>
-            <Active.Comp />
+            <SettingsNav.Provider value={goTo}>
+              <Active.Comp />
+            </SettingsNav.Provider>
           </div>
         </main>
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Six focused tabs", body: "General (appearance, style & speech), Models for API mode (BYOK), Flow's trigger, voice & typing, Voice for language, speed, the on-device engine and your cloned voices, agent install & sign-in under Agents, and About." },
+        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine and Agents are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>
