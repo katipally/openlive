@@ -146,9 +146,8 @@ is one, a single button that fixes it.
 
 | Card | Cause | Fix |
 |---|---|---|
-| Flow's key listener stopped | The global key hook died | **Try again** restarts it |
+| Flow's key listener stopped | The global key hook died or could not start. On Linux (X11 or Wayland) that usually means no read access to `/dev/input` | **Try again** restarts it. On Linux, first add yourself to the `input` group (`sudo usermod -aG input $USER`) and sign back in |
 | I can hear you, but I cannot type for you | No Accessibility (macOS) or input access | **Open settings**, then allow OpenLive |
-| Wayland will not hand out a global key | Wayland session | Use the tray's New Flow session, or an X11 session |
 | A password field has the keyboard | Secure input is on | Leave the password field |
 | No brain is configured yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
 | You are offline | No network | **Try again** |
@@ -212,11 +211,12 @@ machine can actually do, and Flow says when it cannot rather than guessing.
 
 | | macOS | Windows | Linux (X11) | Linux (Wayland) |
 |---|---|---|---|---|
-| Double tap trigger | Needs Accessibility | Yes | Yes | No (compositor blocks it); use the tray |
+| Double tap trigger | Needs Accessibility | Yes | Needs the `input` group | Needs the `input` group |
 | Typing and clicking | Needs Accessibility | Yes, except into windows running as administrator | Needs one of `xdotool`, `ydotool`, `wtype`, `kwtype`, `dotool` | Same |
 | Screen capture | Needs Screen Recording | Yes (GDI) | Needs `grim`, `spectacle`, `gnome-screenshot`, `maim` or `import` | Same |
 | OCR | Vision | Windows OCR | Needs `tesseract` | Same |
 | Selection | Accessibility | UI Automation | `xclip` or `xsel` | `wl-paste` |
+| Do Not Disturb (go quiet) | Yes | No (Windows does not report Focus) | GNOME only | GNOME only |
 
 **macOS permissions.** Microphone, Accessibility (the key listener, typing,
 clicking, reading the selection) and Screen Recording (screenshots). After

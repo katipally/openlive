@@ -24,6 +24,9 @@ const SETTINGS_PANES = {
 
 let addon = null;
 let hooked = false;
+// Why the hook could not start, e.g. no read access to /dev/input on Linux.
+// The addon only reports a hook that started and then died.
+let startError = null;
 let secureTimer = null;
 let armed = true; // the tray's quick disarm; the hook itself is suspended to match
 let target = () => null; // the webContents that receives effects
@@ -76,7 +79,9 @@ function initialize() {
   // is, so it has to be dropped before a retry can start a live one.
   if (hooked && api.hookError()) { api.shutdown(); hooked = false; }
   if (!hooked) {
-    api.initializeHook((effect) => send("openlive:flow-effect", effect));
+    try { api.initializeHook((effect) => send("openlive:flow-effect", effect)); }
+    catch (e) { startError = String(e && e.message ? e.message : e); throw e; }
+    startError = null;
     hooked = true;
     if (!armed) api.suspendHook();
   }
@@ -104,9 +109,14 @@ function readiness() {
   if (!armed) return "off";
   try {
     const api = load();
-    if (api.hookError()) return "stopped";
+    if (hookFailure()) return "stopped";
     return api.permissionStatus().accessibility ? "ready" : "access";
   } catch { return "off"; }
+}
+
+/** The message the key listener failed with, whether it died or never started. */
+function hookFailure() {
+  try { return load().hookError() || startError; } catch { return startError; }
 }
 
 function granted(what) {
@@ -184,11 +194,11 @@ function install(getTarget) {
   ipcMain.handle("openlive:flow-insert-end", guard((session) => load().endInsertion(session)));
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
-  ipcMain.handle("openlive:flow-hook-error", guard(() => load().hookError()));
+  ipcMain.handle("openlive:flow-hook-error", guard(() => hookFailure()));
 
   // will-quit, not before-quit: ⌘Q only closes to the menu bar now, and that
   // cancelled quit still fires before-quit, which left Flow with no key listener.
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, readiness, request };
+module.exports = { install, teardown, load, setArmed, isArmed, readiness, request, hookFailure };

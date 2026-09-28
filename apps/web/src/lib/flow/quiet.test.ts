@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideQuiet, NO_SIGNALS, type QuietRules } from "./quiet";
+import { decideQuiet, dndNote, NO_SIGNALS, type QuietRules } from "./quiet";
 
 const RULES: QuietRules = { speakReplies: true, meetingApps: true, micContention: true, systemDnd: true, apps: [] };
 
@@ -36,5 +36,14 @@ describe("decideQuiet", () => {
 
   it("stays quiet when replies are configured not to be spoken", () => {
     expect(decideQuiet(NO_SIGNALS, { ...RULES, speakReplies: false })).toBe("off");
+  });
+});
+
+describe("dndNote", () => {
+  it("says nothing where Do Not Disturb is read, and names the gap elsewhere", () => {
+    expect(dndNote("darwin")).toBe("");
+    expect(dndNote("")).toBe("");
+    expect(dndNote("win32")).toMatch(/Windows/);
+    expect(dndNote("linux")).toMatch(/GNOME/);
   });
 });

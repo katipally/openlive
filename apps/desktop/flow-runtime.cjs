@@ -66,9 +66,16 @@ async function inCall() {
   return IN_CALL_PROCESSES.some((p) => hay.includes(p));
 }
 
-/** macOS keeps its Focus assertions in a plist-adjacent JSON; other platforms
- *  have no cheap read, and a wrong answer here silences the user's assistant. */
-function doNotDisturb() {
+/** macOS keeps its Focus assertions in a plist-adjacent JSON, and GNOME's Do
+ *  Not Disturb is one setting. Windows Focus and the other Linux desktops have
+ *  no cheap, documented read, and a wrong answer here silences the user's
+ *  assistant, so they answer null. */
+async function doNotDisturb() {
+  if (process.platform === "linux") {
+    if (!/gnome/i.test(process.env.XDG_CURRENT_DESKTOP || "")) return null;
+    const out = await run("gsettings", ["get", "org.gnome.desktop.notifications", "show-banners"]);
+    return out == null ? null : out.trim() === "false";
+  }
   if (process.platform !== "darwin") return null;
   const dir = path.join(os.homedir(), "Library", "DoNotDisturb", "DB");
   for (const name of ["Assertions.json", "ModeConfigurations.json"]) {
@@ -99,11 +106,11 @@ async function outputMuted() {
 let cached = null;
 async function signals() {
   if (cached && Date.now() - cached.at < SIGNAL_TTL_MS) return cached.value;
-  const [call, muted] = await Promise.all([inCall(), outputMuted()]);
+  const [call, muted, dnd] = await Promise.all([inCall(), outputMuted(), doNotDisturb()]);
   const value = {
     app: foregroundWindow()?.appName ?? null,
     inCall: call,
-    dnd: doNotDisturb(),
+    dnd,
     outputMuted: muted,
     // macOS answers this from CoreAudio; the other platforms have no cheap
     // read and return null, which auto-quiet treats as "could not tell".
