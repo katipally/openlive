@@ -69,6 +69,12 @@ voice — and barge-in) is in `apps/web/src/lib/live`. The model turn goes out f
 `services/agent`, which either streams a provider reply or drives a coding agent
 (Claude Code, Codex, Cursor, OpenCode, Hermes) over ACP as a child process.
 
+The UI's design system is one kit, `apps/web/src/components/ui` (import it from
+`@/components/ui`), on the tokens in `apps/web/src/app/globals.css` and
+`apps/web/src/lib/motion.ts`. [docs/DESIGN.md](docs/DESIGN.md) says what to use
+when, and a design lint in `pnpm test` fails a change that brings in its own
+colours, radii, z-indexes, durations or controls.
+
 ## Voiceprint eval
 
 `pnpm voiceprint:eval` measures how well each candidate speaker embedding model
@@ -222,7 +228,8 @@ scoring have unit tests (`src/score.test.ts`) in `pnpm test`.
 
 1. Fork and branch off `main`.
 2. Keep the change small and focused. One idea per pull request.
-3. Run `pnpm typecheck` before you push. CI will run it too.
+3. Run `pnpm typecheck` and `pnpm test` before you push. CI will run them too.
+   UI changes follow [docs/DESIGN.md](docs/DESIGN.md).
 4. Write a clear title and say what changed and why. Screenshots help for UI.
 5. Match the style around you. This codebase favors short, direct code over
    layers of abstraction, and comments that explain the why.
