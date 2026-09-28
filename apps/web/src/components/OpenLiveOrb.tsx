@@ -10,12 +10,13 @@ import { createWaveOrb, micGate, voiceBands, WAVE_ORB_RADIUS, type WaveOrb, type
 //
 // Each state reads by colour and motion: listening rides YOUR mic, speaking
 // rides the AGENT's voice, and only those two read audio at all.
-export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, pulse = false }: {
+export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, pulse = false, paused = false }: {
   phase?: WaveOrbState;
   getLevels?: () => { mic: number; agent: number };
   getBands?: () => { mic: number[]; agent: number[] }; // per-octave-band energy → real spectrum
   size?: number;
   pulse?: boolean; // runs a mark with no getLevels live (the home heroes)
+  paused?: boolean; // covered (by the call, Settings): holds its frame and draws nothing
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const orb = useRef<WaveOrb | null>(null);
@@ -33,6 +34,7 @@ export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, p
   }, [animated]);
 
   useEffect(() => { orb.current?.setState(phase); }, [phase]);
+  useEffect(() => { orb.current?.hold(paused); }, [paused, animated]);
 
   useEffect(() => {
     if (!voice || !animated) return;

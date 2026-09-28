@@ -477,13 +477,15 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
   let clock = 0;
   const cols = new Float32Array(18);
   const calm = () => still || motion.matches;
+  // Held by its owner while something covers it: no frames at all, not just still ones.
+  let held = false;
 
   const current = (now: number) => mixFrame(from, to, dur ? ease(Math.min(1, Math.max(0, (now - start) / dur))) : 1);
 
   const o: Orb = {
     visible: true, w: 0, h: 0, dirty: true,
     // The flat fallback holds still, so it too redraws only on a change.
-    wants: () => o.dirty || (!calm() && isLive()),
+    wants: () => !held && (o.dirty || (!calm() && isLive())),
     draw(now, dt, live) {
       const { n, c } = current(now);
       const reduced = calm();
@@ -574,6 +576,10 @@ export function createWaveOrb(canvas: HTMLCanvasElement, { state = "idle" as Wav
       ({ dur, ease } = transitionTo(next, motion.matches));
       o.dirty = true;
       kick();
+    },
+    hold(on: boolean) {
+      held = on;
+      if (!on) kick();
     },
     setBands(b: Partial<WaveOrbBands>) {
       for (const k of BANDS) { const v = b[k]; target[k] = v !== undefined && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; }
