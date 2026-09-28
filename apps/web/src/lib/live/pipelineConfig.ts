@@ -78,37 +78,40 @@ export const CURATED_LANGUAGES: { code: LanguageCode; name: string; native: stri
 // Defaults are tuned for modest devices; the bigger models are opt-in for machines
 // that can carry them (WebGPU only — WASM always runs tiny regardless).
 export const WHISPER_SIZES: { id: WhisperSize; name: string }[] = [
-  { id: "tiny", name: "Tiny — fastest, least accurate (~120 MB)" },
-  { id: "base", name: "Base — balanced, default (~290 MB)" },
-  { id: "small", name: "Small — more accurate, heavier (~950 MB)" },
-  { id: "large-v3-turbo", name: "Large v3 Turbo — best accuracy, multilingual (~1.6 GB)" },
+  { id: "tiny", name: "Tiny: fastest, least accurate (~120 MB)" },
+  { id: "base", name: "Base: balanced, default (~290 MB)" },
+  { id: "small", name: "Small: more accurate, heavier (~950 MB)" },
+  { id: "large-v3-turbo", name: "Large v3 Turbo: best accuracy, multilingual (~1.6 GB)" },
 ];
 // vad-web ships Silero v6.2 as "v6"; same network and frame size as v5, only
 // retrained weights, so v5 stays selectable for A/B on hardware where v6 misbehaves.
-export const VAD_MODELS: { id: VadModel; name: string }[] = [
-  { id: "v6", name: "Silero v6.2 (default): fewer errors on noise, soft and phone-quality voices" },
-  { id: "v5", name: "Silero v5: the previous model" },
-];
-export const TURN_ENGINES: { id: TurnEngine; name: string }[] = [
-  { id: "smart-turn", name: "Smart-Turn v3 — semantic end-of-turn" },
-  { id: "silence", name: "Silence timeout — VAD only, no model" },
-];
+export const VAD_MODELS: { id: VadModel }[] = [{ id: "v6" }, { id: "v5" }];
+export const TURN_ENGINES: { id: TurnEngine }[] = [{ id: "smart-turn" }, { id: "silence" }];
 
-// Turn-taking presets: one knob for the three raw values (trailing silence,
-// end-of-turn threshold, mid-thought hold). Derived, not stored — the active
-// preset is whichever one matches the current values ("custom" otherwise), so
-// editing a raw slider naturally drops out of the preset.
+// Turn-taking presets, the "Wait before answering" of Chat and Flow alike: one
+// knob for the three raw values (trailing silence, end-of-turn threshold,
+// mid-thought hold). Derived, not stored: the active preset is whichever one
+// matches the current values ("custom" otherwise), so editing a raw slider
+// naturally drops out of the preset.
 export interface TurnPresetValues { redemptionMs: number; threshold: number; holdMs: number }
-export const TURN_PRESETS: { id: "relaxed" | "balanced" | "snappy"; name: string; desc: string; values: TurnPresetValues }[] = [
-  { id: "relaxed", name: "Relaxed", desc: "Waits you out — best for thinking aloud", values: { redemptionMs: 800, threshold: 0.65, holdMs: 6000 } },
-  { id: "balanced", name: "Balanced", desc: "The default give-and-take", values: { redemptionMs: 550, threshold: 0.5, holdMs: 4000 } },
-  { id: "snappy", name: "Snappy", desc: "Replies fast — best for quick commands", values: { redemptionMs: 350, threshold: 0.35, holdMs: 2500 } },
+export type TurnPresetId = "patient" | "even" | "quick";
+export const TURN_PRESETS: { id: TurnPresetId; name: string; desc: string; values: TurnPresetValues }[] = [
+  { id: "patient", name: "Patient", desc: "Waits you out", values: { redemptionMs: 800, threshold: 0.65, holdMs: 6000 } },
+  { id: "even", name: "Even", desc: "Give and take", values: { redemptionMs: 550, threshold: 0.5, holdMs: 4000 } },
+  { id: "quick", name: "Quick", desc: "Replies fast", values: { redemptionMs: 350, threshold: 0.35, holdMs: 2500 } },
 ];
-export function activeTurnPreset(c: PipelineConfig): "relaxed" | "balanced" | "snappy" | "custom" {
-  const hit = TURN_PRESETS.find((p) =>
-    p.values.redemptionMs === c.vad.redemptionMs && p.values.threshold === c.turn.threshold && p.values.holdMs === c.turn.holdMs);
+/** The preset `v` matches, or "custom". O(presets). */
+export function turnPresetOf(v: TurnPresetValues): TurnPresetId | "custom" {
+  const hit = TURN_PRESETS.find((p) => p.values.redemptionMs === v.redemptionMs && p.values.threshold === v.threshold && p.values.holdMs === v.holdMs);
   return hit?.id ?? "custom";
 }
+/** The shared wait before answering, as the pipeline config holds it. */
+export const sharedWait = (c: PipelineConfig): TurnPresetValues =>
+  ({ redemptionMs: c.vad.redemptionMs, threshold: c.turn.threshold, holdMs: c.turn.holdMs });
+export const activeTurnPreset = (c: PipelineConfig): TurnPresetId | "custom" => turnPresetOf(sharedWait(c));
+/** `c` with the shared wait set to `v`. Pure. */
+export const withWait = (c: PipelineConfig, v: TurnPresetValues): PipelineConfig =>
+  ({ ...c, vad: { ...c.vad, redemptionMs: v.redemptionMs }, turn: { ...c.turn, threshold: v.threshold, holdMs: v.holdMs } });
 
 /** `accent` groups the voices: an English accent, or a language for a catalog voice. */
 export interface VoiceOption { id: string; name: string; accent: string; gender: "Female" | "Male" }
@@ -551,7 +554,7 @@ export function loadPipelineConfig(): PipelineConfig {
   } catch { return DEFAULT_PIPELINE_CONFIG; }
 }
 
-// The Voice tab edits this config from three places at once (speed, engine,
+// The Voice and Speech engine tabs edit this config from several places (speed, engine,
 // cloned voice). Each holds a copy in state; without a change signal one saving
 // its stale copy would silently undo another's edit.
 const listeners = new Set<(c: PipelineConfig) => void>();
