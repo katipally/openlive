@@ -89,16 +89,18 @@ export interface AgentDef {
 
 // Facts verified 2026-07-16 against each tool's CLI on this machine (auth
 // subcommands, credential store locations) and each ACP adapter's distribution.
-// claude-agent-acp is PINNED: OpenLive relies on its `_meta.claudeCode.options`
-// passthrough (native session persistence + system-prompt append, verified
-// against 0.59.0) — an unpinned `npx -y` silently floats to whatever ships next.
+// The npx adapters are PINNED: an unpinned `npx -y` silently floats to whatever
+// ships next. claude-agent-acp because OpenLive relies on its
+// `_meta.claudeCode.options` passthrough (native session persistence +
+// system-prompt append, read against 0.81.2's source); codex-acp so a release
+// can't change the call under the user. Bump both deliberately.
 export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
   "claude-code": {
     id: "claude-code",
     label: "Claude Code",
     brand: { color: "#D97757" },
     logoSrc: "/agents/claude.svg",
-    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.59.0"] },
+    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"] },
     bins: ["claude"],
     install: { npm: "@anthropic-ai/claude-code" },
     uninstall: { npm: "@anthropic-ai/claude-code" },
@@ -128,7 +130,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Codex",
     brand: {},
     logoSrc: "/agents/codex.svg",
-    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] },
+    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp@1.13.1"] },
     bins: ["codex"],
     install: { npm: "@openai/codex" },
     uninstall: { npm: "@openai/codex" },

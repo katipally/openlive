@@ -36,9 +36,9 @@ entry, and the whole UI (including History discovery) picks it up automatically.
 Node-only helpers (credential probing, PATH widening, terminal launch) live in
 `@openlive/shared/node`.
 
-Two adapter versions are **pinned** on purpose (guarded by unit tests):
-`claude-agent-acp@0.59.0` (OpenLive relies on its `_meta.claudeCode.options`
-passthrough) and `hermes-agent[acp]==0.18.2`.
+The npx adapter versions are **pinned** on purpose (guarded by unit tests):
+`claude-agent-acp@0.81.2` (OpenLive relies on its `_meta.claudeCode.options`
+passthrough) and `codex-acp@1.13.1`.
 
 ## Driving a coding agent over ACP (`services/agent/src/agents/`)
 
