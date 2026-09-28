@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, Check, ShieldQuestion } from "lucide-react";
+import { ChevronDown, ShieldQuestion } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AGENT_LIST, agentLabel } from "@openlive/shared";
 import { api } from "@/lib/api";
@@ -12,11 +12,11 @@ import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { ModalVoiceInput } from "./ModalVoiceInput";
 import { useUi } from "@/lib/uiStore";
-import { useMenuPresence, usePresence } from "@/lib/usePopIn";
+import { usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { useMenuKeys } from "@/lib/useMenuKeys";
 import { Picker } from "./SetupControls";
 import { cn } from "@/lib/cn";
+import { Button, menuItem, menuPanel, MenuCheck, useMenu, pill, sidePanel } from "@/components/ui";
 
 // Hydration-safe: false on the server + first client render (SSR markup matches),
 // true only after mount inside the Electron app — so the -webkit-app-region class
@@ -84,26 +84,29 @@ export function AgentSelect() {
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const noDrag = useNoDrag();
-  const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
-  useMenuKeys(ref, open, requestClose);
+  const { open, mounted, requestClose, toggle } = useMenu(ref, menuRef);
 
   const current = options.find((o) => o.id === boundAgent) ?? options[0]!;
 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
-      <button onClick={toggle} aria-haspopup="menu" aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-body text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-        {boundAgent ? <AgentIcon id={boundAgent} className="size-4" /> : <OpenLiveOrb size={16} />} {current.label} <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
+      <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`Talk to ${current.label}`}
+        className={cn(pill, "max-w-full gap-2 pl-1")}>
+        <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
+          {boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={16} />}
+        </span>
+        <span className="min-w-0 truncate">{current.label}</span>
+        <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
       </button>
       {mounted && (
-        <div ref={menuRef} role="menu" aria-label="Talk to" className="absolute left-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div ref={menuRef} role="menu" aria-label="Talk to" className={cn("absolute left-0 z-overlay mt-1.5 w-56 overflow-hidden", menuPanel)}>
           {options.map((o) => (
             <button key={o.id ?? "chat"} role="menuitemradio" aria-checked={o.id === boundAgent} onClick={() => { if (activeChatId) setConversationBind(activeChatId, o.id); requestClose(); }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-foreground transition hover:bg-foreground/[0.06]">
+              className={cn(menuItem, "text-body text-foreground")}>
               {o.id ? <AgentIcon id={o.id} className="size-4" /> : <OpenLiveOrb size={16} />}
               <span className="flex-1">{o.label}</span>
               {!o.id && <span className="text-caption text-muted-foreground">BYOK</span>}
-              {o.id === boundAgent && <Check className="size-3.5 text-success" />}
+              {o.id === boundAgent && <MenuCheck />}
             </button>
           ))}
         </div>
@@ -144,28 +147,26 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
   const reject = permission?.options.find((o) => o.id === "deny" || o.kind?.startsWith("reject"));
   useFocusTrap(rootRef, mounted, () => { if (live && reject) answerPermission(reject.id); });
   if (!mounted || !permission) return null;
+  const firstAllow = permission.options.findIndex((o) => o.id !== "deny" && !o.kind?.startsWith("reject"));
   const mmss = left != null ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : null;
   return (
     // A real centered modal: the agent is blocked on this answer, so it owns the
     // stage. Dim backdrop (no click-through — an approval needs an explicit
     // answer), card centered in the main view. z-modal keeps it above Settings if
     // that's open mid-call (else the ask renders behind it and auto-denies).
-    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+    <div ref={rootRef} className="ol-over-settings fixed inset-0 z-modal grid place-items-center scrim px-4">
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className={cn(sidePanel(true), "animate-modal-in w-full max-w-md gap-3 p-4")}>
         <div className="flex items-start gap-2.5">
           <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
           <p id={titleId} className="text-body leading-relaxed text-foreground">{permission.question}</p>
         </div>
         <ModalVoiceInput hint="Say “yes” to allow, or “no” to reject" />
         <div className="flex flex-wrap justify-end gap-2">
-          {permission.options.map((o) => (
-            <button key={o.id} onClick={() => answerPermission(o.id)}
-              className={cn("rounded-lg px-3 py-1.5 text-label font-medium transition",
-                o.id === "deny" || o.kind?.startsWith("reject")
-                  ? "border border-border text-muted-foreground hover:text-foreground hover:border-border-heavy"
-                  : "bg-foreground text-background hover:opacity-90")}>
+          {permission.options.map((o, i) => (
+            <Button key={o.id} size="sm" onClick={() => answerPermission(o.id)}
+              variant={o.id === "deny" || o.kind?.startsWith("reject") ? "ghost" : i === firstAllow ? "primary" : "secondary"}>
               {o.label}
-            </button>
+            </Button>
           ))}
         </div>
         {mmss && <p className="text-center text-caption text-faint">

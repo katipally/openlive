@@ -7,6 +7,7 @@ import { usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { bridge, isDesktop } from "@/lib/platform";
 import { ModalVoiceInput } from "./ModalVoiceInput";
+import { Checkbox, Input, RadioGroup, Button, linkClass, sidePanel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 // Overlay for an agent elicitation. URL mode: we already opened the browser and
@@ -30,8 +31,8 @@ export function ElicitationPrompt() {
     // Centered modal, same ergonomics as the permission prompt: the agent is
     // blocked on this input, so it owns the stage until answered. z-modal keeps it
     // above Settings if that's open mid-call.
-    <div ref={rootRef} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 px-4 backdrop-blur-[2px]">
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="animate-modal-in flex w-full max-w-md flex-col gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur">
+    <div ref={rootRef} className="ol-over-settings fixed inset-0 z-modal grid place-items-center scrim px-4">
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className={cn(sidePanel(true), "animate-modal-in w-full max-w-md gap-3 p-4")}>
         <div className="flex items-start gap-2.5">
           <KeyRound className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
           <p id={titleId} className="text-body leading-relaxed text-foreground">{elicitation.message}</p>
@@ -52,14 +53,14 @@ function UrlBody({ url, answer }: { url: string; answer: NonNullable<ReturnType<
   return (
     <>
       {url && (
-        <button onClick={reopen} className="flex items-center gap-1.5 self-start text-label text-link-foreground underline underline-offset-2">
+        <button onClick={reopen} className={cn("flex items-center gap-1.5 self-start text-label", linkClass)}>
           <ExternalLink className="size-3.5" />Open the link again
         </button>
       )}
       <ModalVoiceInput hint="Say “done” when finished, or “cancel”" />
       <div className="flex justify-end gap-2">
-        <button onClick={() => answer("cancel")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Cancel</button>
-        <button onClick={() => answer("accept")} className="rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition hover:opacity-90">Done</button>
+        <Button size="sm" onClick={() => answer("cancel")}>Cancel</Button>
+        <Button variant="primary" size="sm" onClick={() => answer("accept")}>Done</Button>
       </div>
     </>
   );
@@ -108,13 +109,10 @@ function FormBody({ schema, answer }: { schema: unknown; answer: NonNullable<Ret
           <Field key={key} name={key} p={p} required={required.has(key)} value={values[key]} onChange={(v) => setV(key, v)} />
         ))}
       </div>
-      <ModalVoiceInput hint="Say your answer — or “cancel” to dismiss" />
+      <ModalVoiceInput hint="Say your answer, or “cancel” to dismiss" />
       <div className="flex justify-end gap-2">
-        <button onClick={() => answer("decline")} className="rounded-lg border border-border px-3 py-1.5 text-label font-medium text-muted-foreground transition hover:border-border-heavy hover:text-foreground">Decline</button>
-        <button onClick={submit} disabled={missing}
-          className={cn("rounded-lg bg-foreground px-3 py-1.5 text-label font-medium text-background transition", missing ? "opacity-40" : "hover:opacity-90")}>
-          Submit
-        </button>
+        <Button size="sm" onClick={() => answer("decline")}>Decline</Button>
+        <Button variant="primary" size="sm" onClick={submit} disabled={missing}>Submit</Button>
       </div>
     </>
   );
@@ -125,34 +123,26 @@ function Field({ name, p, required, value, onChange }: {
 }) {
   const label = p.title || name;
   const opts = choices(p);
-  const input = "w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-body text-foreground outline-none focus:border-border-heavy";
 
   return (
     <label className="flex flex-col gap-1 text-label text-muted-foreground">
       <span>{label}{required && <span className="text-destructive"> *</span>}</span>
       {p.description && <span className="text-caption text-faint">{p.description}</span>}
       {p.type === "boolean" ? (
-        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="size-4 self-start accent-foreground" />
+        <Checkbox checked={!!value} onChange={(e) => onChange(e.target.checked)} className="cursor-pointer self-start" />
       ) : p.type === "array" ? (
         <MultiSelect items={choices({ enum: p.items?.enum, oneOf: p.items?.oneOf })} value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />
       ) : opts.length ? (
         // All options visible (not a dropdown) so they're glanceable and speakable —
         // say the choice and the voice path selects it; tap works too.
-        <div className="flex flex-col gap-0.5">
-          {opts.map((o) => (
-            <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-body text-foreground transition hover:bg-foreground/[0.06]">
-              <input type="radio" name={name} checked={String(value ?? "") === o.value} onChange={() => onChange(o.value)} className="size-4 accent-accent" />
-              {o.label}
-            </label>
-          ))}
-        </div>
+        <RadioGroup label={label} name={name} value={String(value ?? "")} onChange={onChange} options={opts} />
       ) : p.type === "number" || p.type === "integer" ? (
-        <input type="number" value={value == null ? "" : String(value)} min={p.minimum ?? undefined} max={p.maximum ?? undefined}
+        <Input type="number" value={value == null ? "" : String(value)} min={p.minimum ?? undefined} max={p.maximum ?? undefined}
           step={p.type === "integer" ? 1 : "any"}
           onChange={(e) => onChange(e.target.value === "" ? undefined : p.type === "integer" ? Math.trunc(Number(e.target.value)) : Number(e.target.value))}
-          className={input} />
+          className="w-full" />
       ) : (
-        <input type="text" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={input} />
+        <Input value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className="w-full" />
       )}
     </label>
   );
@@ -164,7 +154,7 @@ function MultiSelect({ items, value, onChange }: { items: { value: string; label
     <div className="flex flex-col gap-1">
       {items.map((o) => (
         <label key={o.value} className="flex items-center gap-2 text-label text-foreground">
-          <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} className="size-3.5 accent-foreground" />
+          <Checkbox checked={value.includes(o.value)} onChange={() => toggle(o.value)} className="cursor-pointer" />
           {o.label}
         </label>
       ))}

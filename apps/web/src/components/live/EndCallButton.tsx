@@ -1,49 +1,42 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { PhoneOff } from "lucide-react";
-import { useMenuPresence } from "@/lib/usePopIn";
 import { cn } from "@/lib/cn";
+import { menuItem, menuPanel, useMenu, Button, Tooltip } from "@/components/ui";
 import { isMac } from "@/lib/platform";
 
 // The red hang-up, gated by a small "End call?" popover so a stray click doesn't
-// drop a live call.
-export function EndCallButton({ onEnd, size = "size-9" }: { onEnd: () => void; size?: string }) {
+// drop a live call. Cancel takes focus first, so a stray Enter keeps the call.
+export function EndCallButton({ onEnd }: { onEnd: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { open, mounted, requestClose, toggle } = useMenuPresence(menuRef);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") requestClose(); };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const { open, mounted, requestClose, toggle } = useMenu(ref, menuRef);
 
   return (
     <div ref={ref} className="relative">
       {mounted && (
         // Outer div owns the centering transform; inner (menuRef) owns the pop
-        // animation, so GSAP's transform tweens don't clobber -translate-x-1/2.
-        <div className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2">
-          <div ref={menuRef} className="w-44 rounded-xl border border-border bg-popover p-2 shadow-2xl">
-            <p className="px-1 pb-2 pt-0.5 text-center text-label text-foreground">End call?</p>
+        // animation, so its transforms don't clobber -translate-x-1/2.
+        <div className="absolute bottom-full left-1/2 z-overlay mb-2 -translate-x-1/2">
+          <div ref={menuRef} role="menu" aria-label="End call?" className={cn("w-44", menuPanel)}>
+            <p aria-hidden className="px-1 pb-2 pt-0.5 text-center text-label text-foreground">End call?</p>
             <div className="flex gap-1.5">
-              <button onClick={() => requestClose()}
-                className="flex-1 rounded-lg px-2 py-1.5 text-label text-muted-foreground transition hover:bg-foreground/10">Cancel</button>
-              <button onClick={() => { requestClose(); onEnd(); }}
-                className="flex-1 rounded-lg bg-destructive-fill px-2 py-1.5 text-label font-medium text-white transition hover:opacity-90">End</button>
+              <button role="menuitem" onClick={() => requestClose()}
+                className={cn(menuItem, "flex-1 justify-center text-label text-muted-foreground")}>Cancel</button>
+              <button role="menuitem" onClick={() => { requestClose(); onEnd(); }}
+                className={cn(menuItem, "flex-1 justify-center bg-destructive-fill text-label font-medium text-white hover:bg-destructive-fill hover:brightness-110")}>End</button>
             </div>
           </div>
         </div>
       )}
-      <button onClick={toggle} title={`End call (${isMac ? "⌘E" : "Ctrl+E"})`} aria-label="End call" aria-expanded={open}
-        className={cn("grid place-items-center rounded-full bg-destructive-fill text-white transition hover:opacity-90 active:scale-[0.98]", size)}>
-        <PhoneOff className="size-4" />
-      </button>
+      <Tooltip label="End call" keys={isMac ? "⌘E" : "Ctrl+E"}>
+        <Button variant="destructive" icon size="lg" onClick={toggle} aria-label="End call"
+          aria-haspopup="menu" aria-expanded={open}
+          className="w-14 [&_svg]:transition-transform [&_svg]:duration-spring [&_svg]:ease-spring enabled:hover:[&_svg]:-rotate-12 aria-expanded:[&_svg]:-rotate-12">
+          <PhoneOff />
+        </Button>
+      </Tooltip>
     </div>
   );
 }

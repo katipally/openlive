@@ -63,13 +63,12 @@ export function ScreenTile({ stream }: { stream: MediaStream | null }) {
   return (
     <div ref={boxRef} onPointerDown={onDrag} data-interactive
       style={{ left: pos.x < 0 ? undefined : pos.x, top: pos.x < 0 ? 72 : pos.y, width: w, height: h, right: pos.x < 0 ? 16 : undefined, opacity: pos.x < 0 ? 0 : 1 }}
-      className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-xl border border-border/60 bg-black shadow-2xl shadow-black/40 active:cursor-grabbing">
+      className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-xl border border-border/60 bg-black shadow-pop active:cursor-grabbing">
       {stream
         ? <video ref={vidRef} autoPlay muted playsInline className="h-full w-full object-contain" />
         : <div className="grid h-full place-items-center text-muted-foreground"><MonitorUp className="size-6" /></div>}
       <span data-resize onPointerDown={onResize}
-        className="absolute bottom-0 right-0 size-5 cursor-nwse-resize opacity-0 transition group-hover:opacity-100"
-        style={{ background: "linear-gradient(135deg, transparent 50%, rgba(255,255,255,.5) 50%)" }} />
+        className="absolute bottom-0 right-0 size-5 cursor-nwse-resize opacity-0 grip transition group-hover:opacity-100" />
     </div>
   );
 }
