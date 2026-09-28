@@ -16,6 +16,8 @@ publish:
 
 # Fails the build when the ol-input addon for the platform and arch being packed is missing.
 beforePack: scripts/check-native.cjs
+# Fails the build when the packaged web or agent server does not boot and answer 200.
+afterPack: scripts/smoke-servers.cjs
 
 # Only the shell code goes in the asar; the servers ride along as unpacked
 # resources (they're spawned as child Node processes).
@@ -34,11 +36,17 @@ files:
   # __dirname) has its image in installed builds — without this the tray was blank.
   - build/tray*.png
 
+# electron-builder 26 drops a `from` dir's top-level node_modules no matter the
+# filter, so each server's node_modules is its own source.
 extraResources:
   - from: dist/web
     to: web
+  - from: dist/web/node_modules
+    to: web/node_modules
   - from: dist/agent
     to: agent
+  - from: dist/agent/node_modules
+    to: agent/node_modules
   # The ol-input native addon. Unpacked, not in the asar: Node can only dlopen
   # a real file on disk.
   - from: dist/ol-input
