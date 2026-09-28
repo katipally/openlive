@@ -8,6 +8,7 @@ import { modelsCached } from "@/lib/live/models";
 import { useMotionTokens } from "@/lib/motion";
 import { isDesktop } from "@/lib/platform";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui";
 
 const BACK_MS = 2000;
 
@@ -25,7 +26,7 @@ const subscribeOnline = (fn: () => void) => {
 export function ConnectionBanner() {
   const { state, attempt, retry } = useLinkStatus();
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
-  const { spring, fade } = useMotionTokens();
+  const { smooth, fade } = useMotionTokens();
   const expected = state !== "off";
   const offline = expected && !online;
   const reconnecting = expected && online && state === "reconnecting";
@@ -50,12 +51,12 @@ export function ConnectionBanner() {
 
   return (
     <div role="status" aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 top-3 z-[var(--z-banner)] flex justify-center px-4">
+      className="pointer-events-none fixed inset-x-0 top-3 z-banner flex justify-center px-4">
       <AnimatePresence>
         {shown && (
           <motion.div key="link" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            transition={{ ...spring, opacity: fade }}
-            className={cn("pointer-events-auto flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1 rounded-full bg-card/95 py-1.5 pl-3 shadow-[var(--shadow-pop)] backdrop-blur",
+            transition={{ ...smooth, opacity: fade }}
+            className={cn("pointer-events-auto flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1 rounded-full border border-hairline py-1.5 pl-3 shadow-pop surface-float",
               shown === "back" ? "pr-3" : "pr-1.5", isDesktop && "[-webkit-app-region:no-drag]")}>
             {shown === "offline" && <WifiOff className="size-3.5 shrink-0 text-arc" aria-hidden />}
             {shown === "reconnecting" && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-hidden />}
@@ -68,10 +69,9 @@ export function ConnectionBanner() {
               {voiceLocal && <span className="text-muted-foreground"> On-device voice still works.</span>}
             </p>
             {shown !== "back" && retry && (
-              <button type="button" onClick={retry}
-                className="shrink-0 rounded-full px-2.5 py-1 text-label font-medium text-accent transition hover:bg-accent/10 active:scale-[0.97] motion-reduce:active:scale-100">
+              <Button variant="accent" size="sm" onClick={retry}>
                 Retry now
-              </button>
+              </Button>
             )}
           </motion.div>
         )}

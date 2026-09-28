@@ -2,10 +2,13 @@
 
 import { useId, useRef } from "react";
 import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useUi } from "@/lib/uiStore";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { CONTROL, isDesktop, isMac, MOD } from "@/lib/platform";
-import { Keycap } from "./Keycap";
+import { Keycap, Button, Tooltip, groupLabel, SidePanelHeader, sidePanel } from "@/components/ui";
+import { cn } from "@/lib/cn";
+import { useMotionTokens } from "@/lib/motion";
 
 type Row = { label: string; keys: string[] };
 
@@ -43,31 +46,34 @@ export function ShortcutsSheet() {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const close = () => setOpen(false);
+  const { smooth, fade, exit: leave } = useMotionTokens();
   useFocusTrap(ref, open, close);
-  if (!open) return null;
 
   return (
+    <AnimatePresence>
+    {open && (
     // Esc is claimed here, ahead of Settings' own document-level trap, so closing
     // the sheet over Settings leaves Settings open.
-    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId}
+    <motion.div key="sheet" ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: leave }} transition={fade}
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); close(); } }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}
-      className="animate-fade-in fixed inset-0 z-[var(--z-palette)] grid place-items-center overflow-y-auto bg-black/30 p-4 text-left">
-      <div className="animate-modal-in w-full max-w-[720px] rounded-2xl border border-border bg-popover p-5 shadow-[var(--shadow-pop)]">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 id={titleId} className="text-title-sm font-semibold text-foreground">Keyboard shortcuts</h2>
-          <button type="button" onClick={close} aria-label="Close" title="Close (Esc)"
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-            <X className="size-4" />
-          </button>
-        </div>
+      className={cn("fixed inset-0 z-palette grid place-items-center overflow-y-auto overscroll-contain scrim p-4 text-left", !open && "pointer-events-none")}>
+      <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, transition: leave }}
+        transition={{ ...smooth, opacity: fade }}
+        className={cn(sidePanel(true), "w-full max-w-[45rem]")}>
+        <SidePanelHeader title="Keyboard shortcuts" titleId={titleId}>
+          <Tooltip label="Close" keys="Esc">
+            <Button variant="ghost" icon size="sm" onClick={close} aria-label="Close"><X /></Button>
+          </Tooltip>
+        </SidePanelHeader>
 
         {/* Two columns while they fit, one when the window is narrow: no breakpoint,
             the grid decides from the space it has. */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-x-8 gap-y-5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-x-8 gap-y-5 border-t border-border px-5 py-5">
           {GROUPS.map((g) => (
             <section key={g.title} className="min-w-0">
-              <h3 className="text-caption font-medium uppercase tracking-wide text-faint">{g.title}</h3>
+              <h3 className={groupLabel}>{g.title}</h3>
               {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}
               <dl className="mt-2 flex flex-col gap-1.5">
                 {g.rows.map((r) => (
@@ -81,10 +87,12 @@ export function ShortcutsSheet() {
           ))}
         </div>
 
-        <p className="mt-5 border-t border-border pt-3 text-caption text-faint">
+        <p className="border-t border-border px-5 py-3 text-caption text-faint">
           Press <Keycap>?</Keycap> anywhere to open this sheet.
         </p>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+    )}
+    </AnimatePresence>
   );
 }

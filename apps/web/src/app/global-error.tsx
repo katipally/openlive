@@ -24,7 +24,7 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
             OpenLive hit an unexpected error. You can reload without losing your saved settings or chats.
           </p>
           <button onClick={() => reset()} style={{ background: "#2f6fed", color: "#fff", border: 0,
-            borderRadius: 10, padding: "10px 18px", fontSize: 14, cursor: "pointer" }}>
+            borderRadius: 999, padding: "10px 18px", fontSize: 14, cursor: "pointer" }}>
             Reload
           </button>
           {error?.message && <pre style={{ marginTop: 20, fontSize: 11, color: "var(--faint)",

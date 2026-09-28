@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { Search, Plus, MessageSquare, Waves, Keyboard, SunMoon, History, type LucideIcon } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -10,8 +11,9 @@ import { useFocusTrap } from "@/lib/useFocusTrap";
 import { filterCommands, type Command } from "@/lib/commandPalette";
 import { MOD } from "@/lib/platform";
 import { cn } from "@/lib/cn";
+import { useMotionTokens } from "@/lib/motion";
 import { SECTIONS } from "@/components/settings/SettingsPage";
-import { Keycap } from "./Keycap";
+import { Keycap, groupLabel, sidePanel } from "@/components/ui";
 
 type PaletteCommand = Command & { icon: LucideIcon };
 
@@ -48,7 +50,7 @@ export function CommandPalette({ onNewChat }: { onNewChat: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  return open ? <Palette onNewChat={onNewChat} onClose={() => setOpen(false)} /> : null;
+  return <AnimatePresence>{open && <Palette key="palette" onNewChat={onNewChat} onClose={() => setOpen(false)} />}</AnimatePresence>;
 }
 
 // Mounted per open, so the query and highlight start fresh every time.
@@ -61,7 +63,12 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
   const mode = useUi((s) => s.mode);
   const liveOpen = useUi((s) => s.liveOpen);
   const inCall = useLiveStore((s) => s.active);
-  useFocusTrap(ref, true, onClose);
+  const { smooth, snappy, fade, exit: leave } = useMotionTokens();
+  const highlightId = useId();
+  // Let go of focus as the exit starts, not when it ends: a command that opens
+  // something (Settings) takes focus in the same commit.
+  const present = useIsPresent();
+  useFocusTrap(ref, present, onClose);
 
   const commands = useMemo<PaletteCommand[]>(() => {
     const ui = useUi.getState();
@@ -112,14 +119,17 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
   return (
     // Esc is claimed here, ahead of Settings' own document-level trap, so closing
     // the palette over Settings leaves Settings open.
-    <div ref={ref} role="dialog" aria-modal="true" aria-label="Command palette"
+    <motion.div ref={ref} role="dialog" aria-modal="true" aria-label="Command palette"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: leave }} transition={fade}
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      className="animate-fade-in fixed inset-0 z-[var(--z-palette)] flex items-start justify-center bg-black/30 px-4 pt-[min(15dvh,7rem)] pb-4 text-left">
-      <div className="animate-modal-in flex max-h-full w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-[var(--shadow-pop)]">
+      className={cn("fixed inset-0 z-palette flex items-start justify-center scrim px-4 pt-[min(15dvh,7rem)] pb-4 text-left", !present && "pointer-events-none")}>
+      <motion.div initial={{ opacity: 0, scale: 0.96, y: -8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, transition: leave }}
+        transition={{ ...smooth, opacity: fade }}
+        className={cn(sidePanel(true), "max-h-full w-full max-w-[40rem] origin-top overflow-hidden")}>
         <label className="flex shrink-0 items-center gap-2.5 border-b border-border px-4">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onInputKey}
+          <input data-autofocus value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onInputKey}
             role="combobox" aria-expanded="true" aria-controls={listId} aria-autocomplete="list"
             aria-activedescendant={current ? optionId(current) : undefined} aria-label="Search commands"
             placeholder="Type a command or search…" autoComplete="off" spellCheck={false}
@@ -127,12 +137,12 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
           <Keycap className="shrink-0">esc</Keycap>
         </label>
 
-        {groups.length === 0 && <p role="status" className="px-3 py-8 text-center text-body text-muted-foreground">Nothing matches.</p>}
-        <div id={listId} role="listbox" aria-label="Commands"
+        {groups.length === 0 && <p role="status" className="px-3 py-8 text-center text-body text-muted-strong">Nothing matches.</p>}
+        <motion.div layoutScroll id={listId} role="listbox" aria-label="Commands"
           className={cn("openlive-scroll min-h-0 flex-1 overflow-y-auto p-1.5", groups.length === 0 && "hidden")}>
           {groups.map((g) => (
             <div key={g.group} role="group" aria-labelledby={`${listId}-g-${g.group}`} className="pb-1">
-              <div id={`${listId}-g-${g.group}`} className="px-3 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-faint">{g.group}</div>
+              <div id={`${listId}-g-${g.group}`} className={cn("px-3 pb-1 pt-2", groupLabel)}>{g.group}</div>
               {(g.items as PaletteCommand[]).map((c) => {
                 const on = c === current;
                 return (
@@ -140,8 +150,9 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
                     // Move, not enter: a list scrolling under a still pointer must not steal the highlight.
                     onMouseMove={() => { if (!on) setActive(flat.indexOf(c)); }}
                     onMouseDown={(e) => e.preventDefault()} onClick={() => run(c)}
-                    className={cn("flex cursor-default items-center gap-3 rounded-lg px-3 py-2 text-body",
-                      on ? "bg-accent-soft text-foreground" : "text-muted-strong")}>
+                    className={cn("relative isolate flex cursor-default items-center gap-3 rounded-lg px-3 py-2 text-body",
+                      on ? "text-foreground" : "text-muted-strong")}>
+                    {on && <motion.span layoutId={highlightId} transition={snappy} aria-hidden className="absolute inset-0 -z-10 rounded-lg bg-accent-soft" />}
                     <c.icon className={cn("size-4 shrink-0", on ? "text-accent" : "text-muted-foreground")} aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{c.label}</span>
                     {c.hint && <span className="min-w-0 max-w-[45%] shrink truncate text-caption text-faint">{c.hint}</span>}
@@ -151,14 +162,14 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
               })}
             </div>
           ))}
-        </div>
+        </motion.div>
 
         <div aria-hidden className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-caption text-faint">
           <span className="flex items-center gap-1"><Keycap>↑</Keycap><Keycap>↓</Keycap> move</span>
           <span className="flex items-center gap-1"><Keycap>↵</Keycap> run</span>
           <span className="flex items-center gap-1"><Keycap>{MOD}</Keycap><Keycap>K</Keycap> close</span>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

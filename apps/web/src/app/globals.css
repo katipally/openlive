@@ -541,7 +541,9 @@ html.look-switching::view-transition-new(root) { animation-name: look-in; }
 .ol-md th, .ol-md td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
 .ol-md strong { font-weight: 600; }
 
+/* A scroll that hits its end stays put instead of scrolling the page behind it. */
 .openlive-scroll {
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
@@ -566,6 +568,8 @@ html.look-switching::view-transition-new(root) { animation-name: look-in; }
   to { opacity: 1; }
 }
 .animate-fade-in { animation: fade-in 140ms ease-out; }
+/* Placeholders wait out a quick load before showing at all. */
+.ol-skeleton { animation: fade-in var(--dur-base) ease-out 150ms both; }
 @media (prefers-reduced-motion: reduce) { .animate-fade-in { animation: none; } }
 
 @keyframes fade-up {
@@ -573,6 +577,32 @@ html.look-switching::view-transition-new(root) { animation-name: look-in; }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 320ms var(--ease-out-quart); }
+
+/* A list's first reveal: each row rises in --i steps after the one before.
+   Callers set --i only on the first rows (lib/motion STAGGER_MAX), so a long
+   list never trails, and only on the first paint, never on a data update. */
+.ol-rise { animation: fade-up var(--dur-base) var(--ease-out-quart) both; animation-delay: calc(var(--i, 0) * 25ms); }
+
+/* A number that changed (a context %, a cost): the new figure rolls up into place. */
+@keyframes tick-in { from { opacity: 0; transform: translateY(40%); } }
+.ol-tick { display: inline-block; animation: tick-in var(--dur-fast) var(--ease-out-quart); }
+
+/* A mark that just arrived (a done step, a copied check): springs up from small. */
+@keyframes pop-in { from { opacity: 0; transform: scale(0.4); } }
+.ol-pop { animation: pop-in var(--dur-spring) var(--ease-spring); }
+
+/* A field that refused its input shakes, once, and settles. */
+@keyframes shake {
+  20% { transform: translateX(-4px); }
+  45% { transform: translateX(3px); }
+  70% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
+}
+.ol-shake { animation: shake 360ms var(--ease-standard); }
+
+/* Tooltips arrive from their trigger: a small scale and fade (origin set inline). */
+@keyframes tip-in { from { opacity: 0; transform: scale(0.94); } }
+.ol-tip-in { animation: tip-in 140ms var(--ease-out-quart); }
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }

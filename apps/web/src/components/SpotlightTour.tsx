@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUi } from "@/lib/uiStore";
+import { Button } from "@/components/ui";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 
 // Reusable first-visit SPOTLIGHT tour: dims the page with a cutout + accent ring
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
@@ -42,7 +44,7 @@ export function SpotlightTour({ id, steps, active = true }: { id: string; steps:
   return <Tour steps={steps} onClose={() => { markSeen(id); setShow(false); }} />;
 }
 
-const CARD_W = 330;
+const CARD_MAX_W = 330;
 
 // Inner component mounts ONLY while the tour is live, so every hook and DOM
 // measurement runs against elements that actually exist.
@@ -50,6 +52,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   const [step, setStep] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [cardH, setCardH] = useState(190); // measured after render so vertical clamping is exact
   // Callers pass fresh steps/onClose each render; the poll below keys on the
@@ -86,11 +89,8 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
 
   const close = useCallback(() => { setLeaving(true); setTimeout(() => onCloseRef.current(), 180); }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
+  // Active once measured: the tour renders nothing until its target has a rect.
+  useFocusTrap(rootRef, !!rect, close);
 
   // Measure the real card height so vertical clamping keeps EVERY row (incl. the
   // Done button) inside the viewport — a fixed estimate pushed it off-screen for
@@ -107,6 +107,8 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   const pad = 10;
   const hole = { left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 };
   const vw = window.innerWidth, vh = window.innerHeight, gap = 14, margin = 16;
+  // Never wider than the window leaves room for.
+  const CARD_W = Math.min(CARD_MAX_W, vw - margin * 2);
   const cx = hole.left + hole.width / 2, cy = hole.top + hole.height / 2;
 
   // Pick the side with room — below → above → right → left. A full-height target
@@ -142,20 +144,19 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   const arrowSide = place === "below" ? "-top-1.5" : place === "above" ? "-bottom-1.5" : place === "right" ? "-left-1.5" : "-right-1.5";
 
   return (
-    <div className={cn("fixed inset-0 z-[var(--z-tour)] transition-opacity duration-200", leaving ? "opacity-0" : "opacity-100 animate-[fade-up_0.2s_ease-out]")}
+    <div ref={rootRef} className={cn("fixed inset-0 z-tour transition-opacity duration-fast", leaving ? "opacity-0" : "opacity-100 animate-fade-in")}
       role="dialog" aria-modal="true" aria-label="Feature tour">
       {/* the spotlight: one element whose giant shadow dims everything AROUND the target */}
-      <div className="absolute rounded-2xl transition-all duration-300 ease-out"
-        style={{ ...hole, boxShadow: "0 0 0 200vmax rgba(0,0,0,0.55)" }} onClick={close} />
-      <div className="pointer-events-none absolute rounded-2xl ring-2 ring-accent/80 transition-all duration-300 ease-out" style={hole} />
+      <div className="absolute rounded-xl transition-all duration-base ease-standard"
+        style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} onClick={close} />
+      <div className="pointer-events-none absolute rounded-xl ring-2 ring-accent/80 transition-all duration-base ease-standard" style={hole} />
 
-      <div ref={cardRef} key={step} className="absolute w-[330px] rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-pop)] animate-fade-up"
-        style={{ left, top }}>
-        {arrowOnCard && <div className={cn("absolute size-3 rotate-45 bg-card", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
+      <div ref={cardRef} key={step} className="absolute rounded-xl border border-hairline p-4 text-left surface-float shadow-pop animate-fade-up"
+        style={{ left, top, width: CARD_W }}>
+        {arrowOnCard && <div className={cn("absolute size-3 rotate-45 surface-float", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
         <div className="flex items-start justify-between gap-2">
           <h2 className="text-callout font-semibold tracking-tight text-foreground">{s.title}</h2>
-          <button onClick={close} aria-label="Skip the tour"
-            className="-mr-1 -mt-1 grid size-7 shrink-0 place-items-center rounded-lg text-faint transition hover:bg-foreground/10 hover:text-foreground"><X className="size-3.5" /></button>
+          <Button variant="ghost" size="sm" icon onClick={close} aria-label="Skip the tour" className="-mr-1 -mt-1"><X /></Button>
         </div>
         <p className="mt-1 text-label leading-relaxed text-muted-foreground">{s.body}</p>
         <div className="mt-4 flex items-center justify-between">
@@ -166,11 +167,10 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
             ))}
           </div>
           <div className="flex items-center gap-1.5">
-            {!last && steps.length > 1 && <button onClick={close} className="rounded-lg px-2.5 py-1.5 text-label font-medium text-muted-foreground transition hover:text-foreground">Skip</button>}
-            <button onClick={() => (last ? close() : setStep(step + 1))}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-label font-medium text-accent-foreground transition hover:opacity-90">
-              {last ? "Done" : "Next"} {!last && <ArrowRight className="size-3.5" />}
-            </button>
+            {!last && steps.length > 1 && <Button variant="ghost" size="sm" onClick={close}>Skip</Button>}
+            <Button variant="primary" size="sm" onClick={() => (last ? close() : setStep(step + 1))}>
+              {last ? "Done" : "Next"} {!last && <ArrowRight />}
+            </Button>
           </div>
         </div>
       </div>
