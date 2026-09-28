@@ -620,11 +620,22 @@ summary:focus-visible,
 [role="option"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 6px;
+  animation: focus-in var(--dur-fast) var(--ease-out-quart);
+}
+/* A dialog holds focus itself on open (lib/useFocusTrap.ts); that is not a control. */
+[data-focus-root]:focus { outline: none; }
+/* The ring draws in from a little further out, so the eye catches where focus went. */
+@keyframes focus-in { from { outline-color: transparent; outline-offset: 5px; } }
+/* A 6px ring for what has no radius of its own. In the base layer, so any
+   rounded-* on the element (a capsule button) keeps its own shape. */
+@layer base {
+  :is(a, button, [role="button"], summary, [role="tab"], [role="option"]):focus-visible { border-radius: var(--radius-sm); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  /* A reveal's delay would still hold rows invisible; nothing waits instead. */
+  .ol-rise { animation: none; }
 }
 
 /* Off-screen transcript messages skip layout+paint (native lazy rendering —
