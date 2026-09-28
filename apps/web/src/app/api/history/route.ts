@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listChats, chatMessageCounts, getSetting } from "@openlive/db";
-import type { HistoryChat, HistoryWorkspace } from "@openlive/shared";
-import { readExternalAgentSessions } from "./agentSessions";
+import { AGENT_LIST, type HistoryChat, type HistoryWorkspace } from "@openlive/shared";
+import { mergeListed, readExternalAgentSessions, readListedAgentSessions } from "./agentSessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ const isHidden = (id: string | null) => !!id && getSetting(`agentHidden:${id}`) 
 // external sessions read from disk (source:"external", resumable via ACP
 // loadSession). Only truly empty chats (never spoken in) are hidden — folderless
 // conversations show under a "No folder" workspace, always sorted last.
-export function GET() {
+export async function GET() {
   const byCwd = new Map<string, HistoryWorkspace>();
   const add = (cwd: string, c: HistoryChat) => {
     const ws = byCwd.get(cwd) ?? { cwd, chats: [] };
@@ -31,17 +31,22 @@ export function GET() {
     if (isHidden(c.agentId ?? null)) continue;
     // Carry the agent's own session id so this OpenLive chat dedups against its
     // on-disk agent session (below) — and so the UI can "continue in the CLI".
-    add(c.cwd ?? "", { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, agentId: c.agentId ?? null, source: "openlive", resumeSessionId: c.agentSessionId });
+    add(c.cwd ?? "", { id: c.id, title: c.title || "Conversation", updatedAt: c.updatedAt ?? c.createdAt, createdAt: c.createdAt, agentId: c.agentId ?? null, source: "openlive", resumeSessionId: c.agentSessionId });
   }
 
-  // Each agent's own external sessions (from disk). Hidden agents are skipped
-  // entirely (no discovery work either).
+  // Each agent's own external sessions: from disk, overlaid with the agent's own
+  // ACP session/list where it has one. Hidden agents are skipped entirely (no
+  // discovery work either).
   const seen = new Set([...byCwd.values()].flatMap((w) => w.chats.map((s) => s.resumeSessionId ?? s.id)));
-  for (const a of readExternalAgentSessions()) {
-    if (isHidden(a.agentId)) continue;
-    for (const s of a.sessions) {
+  const shown = AGENT_LIST.filter((a) => !isHidden(a.id));
+  const disk = new Map(readExternalAgentSessions().map((a) => [a.agentId, a.sessions]));
+  const listed = new Map((await readListedAgentSessions(shown.map((a) => a.id))).map((a) => [a.agentId, a.sessions]));
+  for (const a of shown) {
+    const l = listed.get(a.id);
+    const sessions = l ? mergeListed(disk.get(a.id) ?? [], l, `${a.label} session`) : disk.get(a.id) ?? [];
+    for (const s of sessions) {
       if (seen.has(s.id)) continue; // already surfaced as an OpenLive resume of this session
-      add(s.cwd, { id: s.id, title: s.title, updatedAt: s.updatedAt, agentId: a.agentId, source: "external", resumeSessionId: s.id });
+      add(s.cwd, { id: s.id, title: s.title, updatedAt: s.updatedAt, agentId: a.id, source: "external", resumeSessionId: s.id });
     }
   }
 

@@ -6,8 +6,9 @@ import { AGENT_LIST, type AgentDef } from "@openlive/shared";
 // Discover each coding agent's OWN prior sessions from its on-disk storage (the
 // same ones its `/resume` would show), so History can surface them alongside
 // OpenLive's. Read-only + best-effort: a format change or unreadable file is
-// skipped, never fatal. ACP `session/list` is still an unratified RFD (no agents
-// implement it), so disk is the reliable path in July 2026.
+// skipped, never fatal. Agents that support ACP `session/list` are asked too
+// (readListedAgentSessions, laid over this scan by mergeListed); disk stays the
+// base for the ones that don't, or that answer too slowly.
 //
 // ponytail: parses agent-specific on-disk formats — brittle by nature. Capped at
 // RECENT files, first LINES only for the title. If an agent changes its layout,
@@ -186,11 +187,50 @@ const PARSERS: Record<AgentDef["sessionParser"], () => ExternalSession[]> = {
   "hermes-sqlite": hermesSessions,
 };
 
+/** One agent's sessions from its own ACP session/list laid over the disk scan:
+ *  the agent's id, title and time win, a listed session the disk scan missed is
+ *  added, and a disk-only one stays. A missing or boilerplate listed title keeps
+ *  the disk title, else `fallback`. Newest RECENT. O((d + l) log(d + l)). */
+export function mergeListed(disk: ExternalSession[], listed: ExternalSession[], fallback: string): ExternalSession[] {
+  const byId = new Map(disk.map((s) => [s.id, s]));
+  for (const l of listed) {
+    const d = byId.get(l.id);
+    const title = l.title && !isBoilerplate(l.title) ? clip(l.title) : d?.title ?? fallback;
+    byId.set(l.id, { id: l.id, cwd: l.cwd || d?.cwd || "", title, updatedAt: l.updatedAt || d?.updatedAt || "" });
+  }
+  return [...byId.values()].filter((s) => s.cwd && s.updatedAt)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+    .slice(0, RECENT);
+}
+
 /** External sessions per agent, discovered from disk. */
 export function readExternalAgentSessions(): ExternalAgentSessions[] {
   return AGENT_LIST
     .map((a) => ({ agentId: a.id, sessions: PARSERS[a.sessionParser]() }))
     .filter((a) => a.sessions.length > 0);
+}
+
+// Asked of the agent service, which is the only process that starts agents. A
+// cold start (an `npx` fetch) outlasts this; the answer is cached there, so a
+// later open gets it and this one shows the disk scan alone.
+const AGENT = `http://localhost:${process.env.AGENT_PORT || 8787}`;
+const SECRET = process.env.OPENLIVE_AGENT_SECRET?.trim() || "";
+const LIST_WAIT_MS = 2500;
+
+/** Each agent's own session/list, for agents that support it and answer in time. */
+export async function readListedAgentSessions(agentIds: string[]): Promise<ExternalAgentSessions[]> {
+  const got = await Promise.all(agentIds.map(async (agentId) => {
+    try {
+      const res = await fetch(`${AGENT}/agents/sessions?agent=${encodeURIComponent(agentId)}`, {
+        headers: SECRET ? { "x-openlive-secret": SECRET } : {},
+        cache: "no-store",
+        signal: AbortSignal.timeout(LIST_WAIT_MS),
+      });
+      const body = (await res.json()) as { supported?: boolean; sessions?: ExternalSession[] };
+      return res.ok && body.supported && Array.isArray(body.sessions) ? { agentId, sessions: body.sessions } : null;
+    } catch { return null; }
+  }));
+  return got.filter((a): a is ExternalAgentSessions => !!a);
 }
 
 // Permanently delete a coding agent's OWN on-disk session file/dir (History →

@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Hono } from "hono";
-import { isAgentId } from "@openlive/shared";
+import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
+import { widenedPath } from "@openlive/shared/node";
 import { AcpAgent } from "./acp-agent.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type AgentId } from "./index.js";
-import type { AgentMeta } from "./types.js";
+import type { AgentMeta, AgentSession } from "./types.js";
 import { log } from "../log.js";
 
 // Which models a coding agent offers, and how hard it can be told to think, is
@@ -69,6 +72,65 @@ agentRoutes.get("/models", async (c) => {
     return c.json(models);
   } catch (e) {
     log.error("agents", `models(${id}):`, e);
+    return c.json({ error: e instanceof Error ? e.message : "the agent did not start" }, 502);
+  }
+});
+
+// The agent's own sessions over ACP session/list, for History. Same economics as
+// the models probe: initialize only (no session is made), cached, one probe per
+// agent at a time. An agent that is not on PATH is never spawned, since `npx -y`
+// would download an adapter for a CLI the user doesn't have.
+const LIST_CACHE_MS = 60_000;
+const LIST_MAX = 60;
+type Listed = { supported: boolean; sessions: AgentSession[] };
+const listCache = new Map<AgentId, { at: number; listed: Listed }>();
+const listInflight = new Map<AgentId, Promise<Listed>>();
+
+async function onPath(bin: string): Promise<boolean> {
+  try {
+    await promisify(execFile)(process.platform === "win32" ? "where" : "which", [bin], { env: { ...process.env, PATH: widenedPath() }, timeout: 3000 });
+    return true;
+  } catch { return false; }
+}
+
+async function listProbe(id: AgentId): Promise<Listed> {
+  if (!(await Promise.all(AGENT_REGISTRY[id].bins.map(onPath))).some(Boolean)) return { supported: false, sessions: [] };
+  const agent = new AcpAgent(id, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), connectOnly: true });
+  const ac = new AbortController();
+  const bell = setTimeout(() => ac.abort(), PROBE_MS);
+  try {
+    await agent.start(ac.signal);
+    // The same budget covers the list: an agent that never answers session/list
+    // would otherwise hold this probe, and its process, open for good.
+    const late = new Promise<never>((_, reject) => {
+      const fail = () => reject(new Error("the agent did not list its sessions in time"));
+      if (ac.signal.aborted) fail(); else ac.signal.addEventListener("abort", fail, { once: true });
+    });
+    late.catch(() => {});
+    const sessions = await Promise.race([agent.listSessions(LIST_MAX), late]);
+    return { supported: sessions !== null, sessions: sessions ?? [] };
+  } finally {
+    clearTimeout(bell);
+    try { await agent.dispose(); } catch { /* it is going away either way */ }
+  }
+}
+
+agentRoutes.get("/sessions", async (c) => {
+  const id = c.req.query("agent")?.trim() ?? "";
+  if (!isAgentId(id)) return c.json({ error: "unknown agent" }, 400);
+  const hit = listCache.get(id);
+  if (hit && Date.now() - hit.at < LIST_CACHE_MS) return c.json(hit.listed);
+  let run = listInflight.get(id);
+  if (!run) {
+    run = listProbe(id)
+      .then((listed) => { listCache.set(id, { at: Date.now(), listed }); return listed; })
+      .finally(() => listInflight.delete(id));
+    listInflight.set(id, run);
+  }
+  try {
+    return c.json(await run);
+  } catch (e) {
+    log.warn("agents", `sessions(${id}):`, e);
     return c.json({ error: e instanceof Error ? e.message : "the agent did not start" }, 502);
   }
 });

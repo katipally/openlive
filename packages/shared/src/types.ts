@@ -40,6 +40,7 @@ export interface HistoryChat {
   id: string;               // OpenLive chatId, or the agent's ACP sessionId (external)
   title: string;
   updatedAt: string;
+  createdAt?: string;       // OpenLive chats only; an agent's own session files don't say
   agentId: string | null;   // null = built-in OpenLive assistant
   source: "openlive" | "external";
   resumeSessionId?: string; // agent ACP sessionId to loadSession (external), if any
