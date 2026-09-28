@@ -39,19 +39,6 @@ const json = async <T>(url: string): Promise<T> => {
   return r.json() as Promise<T>;
 };
 
-/** `pollMs` is for the one screen that waits for a turn to happen: the first
- *  run's "tap Control twice and say something" cannot see the trigger, because the
- *  effect only ever reaches the owner renderer, so it watches the store instead. */
-export function useFlowSessions(query: string, limit = 40, pollMs = 0) {
-  return useQuery({
-    queryKey: ["flow-sessions", query, limit],
-    queryFn: () => json<{ sessions: FlowSessionSummary[] }>(`/api/flow/sessions?limit=${limit}&q=${encodeURIComponent(query)}`),
-    // A stale list is better than an empty one while the next page arrives.
-    placeholderData: (prev) => prev,
-    refetchInterval: pollMs || false,
-  });
-}
-
 /** Pages by offset, so "see more" reads only the new page. A short page is the
  *  last one. `first` is how many show before anyone asks for more. */
 export function useFlowSessionPages(query: string, first: number, page: number) {

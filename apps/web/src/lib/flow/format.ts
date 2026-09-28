@@ -45,9 +45,3 @@ export function duration(ms: number): string {
   const h = Math.floor(total / 3600);
   return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
-
-/** "340 ms" under a second, "1.4 s" over it. */
-export function latency(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "";
-  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
-}
