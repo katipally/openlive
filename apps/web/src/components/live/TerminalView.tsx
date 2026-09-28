@@ -24,7 +24,7 @@ export const TerminalView = memo(function TerminalView({ terminalId, snapshotOut
   }, [output, running]);
 
   return (
-    <div className="overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
+    <div className="overflow-hidden rounded-lg bg-surface shadow-xs">
       {truncated && <div className="border-b border-border/60 px-2.5 py-1 text-caption text-faint">Earlier output truncated</div>}
       <pre ref={pre} className="openlive-scroll max-h-64 overflow-auto whitespace-pre-wrap break-words p-2.5 font-mono text-caption leading-relaxed text-foreground">
         {output || (running ? "…" : "")}

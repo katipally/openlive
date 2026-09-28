@@ -4,6 +4,7 @@ import { memo, useMemo, useState } from "react";
 import { diffLines } from "diff";
 import { isDesktop } from "@/lib/platform";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "@/components/ui";
 import { openLocation } from "./ToolCallCard";
 
 // Plain colored unified diff (green/red line backgrounds — no syntax
@@ -40,13 +41,19 @@ export const DiffView = memo(function DiffView({ path, oldText, newText, clipped
   const all = useMemo(() => rows(oldText ?? "", newText), [oldText, newText]);
   const visible = showAll ? all : all.slice(0, COLLAPSED_LINES);
   const hidden = all.length - visible.length;
+  const added = all.filter((r) => r.sign === "+").length;
+  const removed = all.filter((r) => r.sign === "-").length;
 
   return (
-    <div className="overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
-      <button onClick={() => openLocation(path)} title={`${path} — ${isDesktop ? "click to reveal" : "click to copy"}`}
-        className="block w-full truncate border-b border-border/60 px-2.5 py-1 text-left font-mono text-caption text-muted-foreground transition hover:text-foreground">
-        {path}
-      </button>
+    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
+      <Tooltip label={`${path}, ${isDesktop ? "click to reveal" : "click to copy"}`} className="flex w-full">
+        <button onClick={() => openLocation(path)}
+          className="flex w-full min-w-0 items-center gap-2 border-b border-border px-2.5 py-1.5 text-left font-mono text-caption text-muted-foreground transition hover:text-foreground">
+          <span className="min-w-0 flex-1 truncate">{path}</span>
+          {added > 0 && <span className="shrink-0 text-success-text">+{added}</span>}
+          {removed > 0 && <span className="shrink-0 text-destructive-text">-{removed}</span>}
+        </button>
+      </Tooltip>
       <pre className="openlive-scroll overflow-x-auto p-0 font-mono text-caption leading-relaxed">
         {visible.map((r, i) => (
           <div key={i} className={cn(

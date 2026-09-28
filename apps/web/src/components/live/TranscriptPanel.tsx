@@ -1,94 +1,163 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertCircle, Brain, Check, ChevronRight, Copy, Download, ListTodo, Loader2, PanelRightClose } from "lucide-react";
+import { AlertCircle, ArrowDown, Brain, Check, ChevronRight, Copy, Download, Image as ImageIcon, Keyboard, ListTodo, Loader2, PanelRightClose } from "lucide-react";
 import { useChat, type ChatMsg, type Part } from "@/lib/chatStore";
 import { usePresence } from "@/lib/usePopIn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { kindMeta, toolMeta as meta } from "@/lib/live/toolMeta";
 import { cn } from "@/lib/cn";
 import { usePointerDrag } from "@/lib/usePointerDrag";
-import { Disclosure } from "@/components/Disclosure";
+import { formatDuration, segmentTurn, summarizeWork, type ToolPart } from "@/lib/live/timeline";
+import { useMotionTokens } from "@/lib/motion";
+import { Disclosure, Button, SidePanelHeader, sidePanel, Swap, Tooltip } from "@/components/ui";
 import { ToolCallCard } from "./ToolCallCard";
+import { Composer, type ComposerHandle } from "./Composer";
 
 // The running conversation, beside the orb. Assistant turns render as they
 // happened — a collapsible "work" block (reasoning + tools, interleaved) followed
 // by the spoken answer, filled word-by-word in lockstep with the VOICE (see
-// useLiveSession) so it always shows exactly what was said. Resizable + closable.
-export function TranscriptPanel({ open, chatId, width, onResize, onClose, onSendAside, onNotForYou }: {
+// useLiveSession) so it always shows exactly what was said. Resizable + closable,
+// with a composer at the foot for typing mid-call.
+export function TranscriptPanel({ open, chatId, width, overlay, onResize, onClose, onSendAside, onNotForYou }: {
   open: boolean; chatId: string; width: number; onResize: (w: number) => void; onClose: () => void; onSendAside?: (id: string) => void; onNotForYou?: (id: string) => void;
+  /** The window is too narrow to sit beside the stage: float over it instead. */
+  overlay?: boolean;
 }) {
   const msgs = useChat(chatId);
-  const { userCaption, userPartial, todos } = useLiveStore(useShallow((s) => ({
-    userCaption: s.userCaption, userPartial: s.userPartial, todos: s.todos,
+  const { userCaption, userPartial, todos, queue } = useLiveStore(useShallow((s) => ({
+    userCaption: s.userCaption, userPartial: s.userPartial, todos: s.todos, queue: s.typedQueue,
   })));
   const scroller = useRef<HTMLDivElement>(null);
+  const feed = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
+  const composer = useRef<ComposerHandle>(null);
+  const { reduce, smooth, fade, exit: leave } = useMotionTokens();
+  // Messages already here when the panel opened arrive with it; only later ones rise in.
+  const [firstCount] = useState(msgs.length);
 
-  // Slide in from the right edge on open, and slide back out on close — a real
-  // exit, no hard cut — before unmounting. usePresence owns mount + both tweens.
-  const mounted = usePresence(asideRef, open, { enter: { autoAlpha: 1, x: 0 }, exit: { autoAlpha: 0, x: 24 } });
+  // Slides in from the right edge on open and back out on close before unmounting.
+  const mounted = usePresence(asideRef, open, { x: 24 });
 
   // Follow new words only while the reader is already at the bottom; scrolling
-  // up to reread must not get yanked back on every word.
-  const atBottom = useRef(true);
+  // up to reread must not get yanked back on every word. Anything that grows the
+  // feed (a word, a terminal line, a card opening) or shrinks the view (the
+  // composer growing, a resize) keeps a pinned reader at the end. O(1) per change.
+  const pinned = useRef(true);
+  const [away, setAway] = useState(false);
   const onScroll = () => {
     const el = scroller.current;
-    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    if (!el) return;
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    setAway(!pinned.current);
   };
-  useEffect(() => {
-    const el = scroller.current;
-    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [msgs, userCaption]);
+  useLayoutEffect(() => {
+    const el = scroller.current, body = feed.current;
+    if (!mounted || !el || !body) return;
+    el.scrollTop = el.scrollHeight;
+    const ro = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight; });
+    ro.observe(body);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mounted]);
+  const toLatest = () => {
+    pinned.current = true;
+    setAway(false);
+    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+  };
 
   // Drag the left edge to resize; clamped to a sane range.
   const drag = usePointerDrag();
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     document.body.style.userSelect = "none";
-    drag((ev) => onResize(Math.min(640, Math.max(280, window.innerWidth - ev.clientX))), () => { document.body.style.userSelect = ""; });
+    const right = asideRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+    drag((ev) => onResize(Math.min(640, Math.max(280, right - ev.clientX))), () => { document.body.style.userSelect = ""; });
   };
 
   if (!mounted) return null;
-  const empty = msgs.length === 0 && !(userPartial && userCaption);
+  const empty = msgs.length === 0 && queue.length === 0 && !(userPartial && userCaption);
 
   return (
-    <aside ref={asideRef} style={{ width }} className="relative m-3 ml-0 flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
-      <div onPointerDown={startResize} title="Drag to resize"
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize" />
-      <div className="flex h-12 shrink-0 items-center justify-between pl-4 pr-2 text-body font-semibold">
-        Activity
-        <div className="flex items-center">
-          {msgs.length > 0 && (
-            <button onClick={() => exportTranscript(msgs)} title="Export transcript as Markdown" aria-label="Export transcript"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-              <Download className="size-4" />
-            </button>
-          )}
-          <button onClick={onClose} title="Hide activity (T)" aria-label="Hide activity"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground">
-            <PanelRightClose className="size-4" />
-          </button>
-        </div>
-      </div>
-      {todos.length > 0 && <PlanCard todos={todos} />}
-      {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
-          anchoring fights content-visibility height estimates. */}
-      <div ref={scroller} onScroll={onScroll} className="openlive-scroll flex-1 space-y-5 overflow-y-auto p-4 [overflow-anchor:none]">
-        {empty && <p className="mt-8 text-center text-label text-faint">Your conversation will appear here.</p>}
-        {msgs.map((m, i) => (
-          <Message key={m.id} msg={m} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} onSendAside={onSendAside} onNotForYou={onNotForYou} />
-        ))}
-        {userPartial && userCaption && (
-          <div className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl bg-accent/40 px-3 py-1.5 text-body italic leading-relaxed text-foreground">{userCaption}</div>
-          </div>
+    // The setup panel's shape, the same inset on every side: docked beside the
+    // stage, or floating over it when the window is too narrow for both.
+    <aside ref={asideRef} aria-label="Activity" style={{ width }}
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+      onDrop={(e) => { e.preventDefault(); composer.current?.addFiles(Array.from(e.dataTransfer.files)); }}
+      className={cn(sidePanel(overlay), "max-w-[calc(100%-1.5rem)] shrink-0 overflow-hidden",
+        overlay ? "absolute inset-y-3 right-3 z-30" : "relative my-3 mr-3")}>
+      <Tooltip label="Drag to resize" className="absolute inset-y-0 left-0 z-10 w-2">
+        <div onPointerDown={startResize} className="w-full cursor-col-resize" />
+      </Tooltip>
+      <SidePanelHeader title="Activity">
+        {msgs.length > 0 && (
+          <Tooltip label="Export transcript as Markdown"><Button variant="ghost" icon size="sm" onClick={() => exportTranscript(msgs)} aria-label="Export transcript"><Download /></Button></Tooltip>
         )}
+        <Tooltip label="Hide activity" keys="T"><Button variant="ghost" icon size="sm" onClick={onClose} aria-label="Hide activity"><PanelRightClose /></Button></Tooltip>
+      </SidePanelHeader>
+      {todos.length > 0 && <PlanCard todos={todos} />}
+      <div className="relative min-h-0 flex-1">
+        {/* overflow-anchor off: we pin to the bottom ourselves; browser scroll
+            anchoring fights content-visibility height estimates. */}
+        <div ref={scroller} onScroll={onScroll} className="openlive-scroll h-full overflow-y-auto [overflow-anchor:none]">
+          {/* From the top while it is short, as a chat reads; once it overflows,
+              the pin above keeps it at the latest. */}
+          <div ref={feed} className="flex flex-col gap-turn px-5 pb-4 pt-1">
+            {empty && <p className="text-label text-muted-foreground">Your conversation will appear here. Talk, or type below.</p>}
+            {msgs.map((m, i) => (
+              <Message key={m.id} msg={m} fresh={i >= firstCount} streaming={m.role === "assistant" && !m.done && i === msgs.length - 1} onSendAside={onSendAside} onNotForYou={onNotForYou} />
+            ))}
+            {userPartial && userCaption && (
+              <div className="flex justify-end">
+                <div className="max-w-[85%] rounded-xl rounded-br-md bg-accent-soft px-3 py-1.5 text-body italic text-muted-strong">{userCaption}</div>
+              </div>
+            )}
+            <AnimatePresence initial={false}>
+              {queue.map((q) => (
+                <motion.div key={q.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: leave }} transition={{ ...smooth, opacity: fade }}>
+                  <QueuedBubble text={q.text} images={q.images.length} id={q.id} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+        <AnimatePresence>
+          {away && (
+            <motion.div initial={{ opacity: 0, y: 8, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.94, transition: leave }}
+              transition={{ ...smooth, opacity: fade }}
+              className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+              <Button size="sm" onClick={toLatest} className="pointer-events-auto border-hairline shadow-pop surface-float">
+                <ArrowDown /> Jump to latest
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+      <Composer ref={composer} onSent={toLatest} />
     </aside>
+  );
+}
+
+/** A typed message waiting for the reply under way (or the user's own words)
+ *  to finish. "Send now" cuts the reply, as speaking over it would. */
+function QueuedBubble({ id, text, images }: { id: string; text: string; images: number }) {
+  const interrupt = useLiveStore((s) => s.interruptReply);
+  const drop = () => { const st = useLiveStore.getState(); st.set({ typedQueue: st.typedQueue.filter((q) => q.id !== id) }); };
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="ol-selectable max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-md border border-dashed border-border-heavy px-3 py-1.5 text-body text-muted-foreground">
+        {images > 0 && <span className="mr-1 inline-flex items-center gap-1 text-faint"><ImageIcon className="size-3.5" />{images}</span>}{text}
+      </div>
+      <span className="flex items-center gap-2 text-micro text-faint">
+        Sends when the reply ends
+        {interrupt && <button type="button" onClick={interrupt} className="hit underline-offset-2 hover:text-foreground hover:underline">Send now</button>}
+        <button type="button" onClick={drop} className="hit underline-offset-2 hover:text-foreground hover:underline">Remove</button>
+      </span>
+    </div>
   );
 }
 
@@ -98,7 +167,7 @@ export function TranscriptPanel({ open, chatId, width, onResize, onClose, onSend
 function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
   const done = todos.filter((t) => t.done).length;
   return (
-    <div className="mx-4 mb-1 shrink-0 rounded-lg bg-card/40 px-2.5 py-2 shadow-[var(--shadow-xs)]">
+    <div className="mx-4 mb-1 shrink-0 rounded-lg bg-card/40 px-2.5 py-2 shadow-xs">
       <div className="flex items-center gap-2 text-caption font-medium text-muted-foreground">
         <ListTodo className="size-3.5 shrink-0 text-accent" />
         Plan
@@ -111,7 +180,7 @@ function PlanCard({ todos }: { todos: { text: string; done: boolean }[] }) {
               "mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border",
               t.done ? "border-accent bg-accent text-accent-foreground" : "border-border-heavy",
             )}>
-              {t.done && <Check className="size-2.5" strokeWidth={3} />}
+              {t.done && <Check className="ol-pop size-2.5" strokeWidth={3} />}
             </span>
             <span className={cn(t.done ? "text-faint line-through" : "text-foreground")}>{t.text}</span>
           </li>
@@ -145,15 +214,17 @@ function exportTranscript(msgs: ChatMsg[]) {
   URL.revokeObjectURL(a.href);
 }
 
-/** One-tap copy with a brief ✓ confirmation. */
-function CopyButton({ text, title, className }: { text: string; title: string; className?: string }) {
+/** One-tap copy; the icon turns into a check for a beat. */
+function CopyButton({ text, label, className }: { text: string; label: string; className?: string }) {
   const [ok, setOk] = useState(false);
   return (
-    <button title={title} aria-label={title}
-      onClick={() => { navigator.clipboard.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1200); }).catch(() => {}); }}
-      className={cn("grid size-6 place-items-center rounded-md text-faint transition hover:bg-foreground/10 hover:text-foreground", className)}>
-      {ok ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-    </button>
+    <Tooltip label={label} className={className}>
+      <button aria-label={ok ? "Copied" : label}
+        onClick={() => { navigator.clipboard.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1200); }).catch(() => {}); }}
+        className="grid size-7 place-items-center rounded-md text-faint transition hover:bg-foreground/10 hover:text-foreground">
+        <Swap id={ok ? "ok" : "copy"}>{ok ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}</Swap>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -171,12 +242,12 @@ const MarkdownText = memo(function MarkdownText({ text, muted }: { text: string;
           code: ({ className, children }) => {
             const body = String(children ?? "");
             if (!body.includes("\n") && !className) {
-              return <code className="rounded bg-foreground/8 px-1 py-0.5 font-mono text-label">{body}</code>;
+              return <code className="rounded-sm bg-foreground/8 px-1 py-0.5 font-mono text-label">{body}</code>;
             }
             return (
-              <span className="group/code relative my-1.5 block overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-xs)]">
-                <CopyButton text={body.replace(/\n$/, "")} title="Copy code"
-                  className="absolute right-1.5 top-1.5 bg-card/80 opacity-0 backdrop-blur transition group-hover/code:opacity-100" />
+              <span className="group/code relative my-1.5 block overflow-hidden rounded-lg bg-surface shadow-xs">
+                <CopyButton text={body.replace(/\n$/, "")} label="Copy code"
+                  className="absolute right-1.5 top-1.5 rounded-md opacity-0 surface-float transition group-hover/code:opacity-100 has-focus-visible:opacity-100" />
                 <code className="openlive-scroll block overflow-x-auto whitespace-pre p-2.5 font-mono text-label leading-relaxed">{body}</code>
               </span>
             );
@@ -194,13 +265,14 @@ const MarkdownText = memo(function MarkdownText({ text, muted }: { text: string;
 
 // Memoized: during the word-by-word voice reveal only ONE message object changes
 // per frame (chatStore preserves identities), so the rest skip re-render.
-const Message = memo(function Message({ msg, streaming, onSendAside, onNotForYou }: { msg: ChatMsg; streaming: boolean; onSendAside?: (id: string) => void; onNotForYou?: (id: string) => void }) {
+const Message = memo(function Message({ msg, fresh, streaming, onSendAside, onNotForYou }: { msg: ChatMsg; fresh: boolean; streaming: boolean; onSendAside?: (id: string) => void; onNotForYou?: (id: string) => void }) {
+  const rise = fresh && "animate-fade-up";
   if (msg.aside) {
     return (
-      <div className="flex flex-col items-end gap-0.5">
-        <div className="ol-selectable max-w-[85%] rounded-2xl border border-dashed border-border px-3 py-1.5 text-body leading-relaxed text-faint">{msg.text}</div>
+      <div className={cn("flex flex-col items-end gap-0.5", rise)}>
+        <div className="ol-selectable max-w-[85%] rounded-xl rounded-br-md border border-dashed border-border px-3 py-1.5 text-body text-faint">{msg.text}</div>
         <span className="text-micro text-faint">
-          Taken as side talk, not sent{onSendAside && <> · <button onClick={() => onSendAside(msg.id)} className="underline underline-offset-2 hover:text-foreground">Send it</button></>}
+          Taken as side talk, not sent{onSendAside && <> · <button onClick={() => onSendAside(msg.id)} className="hit underline underline-offset-2 hover:text-foreground">Send it</button></>}
         </span>
       </div>
     );
@@ -208,91 +280,55 @@ const Message = memo(function Message({ msg, streaming, onSendAside, onNotForYou
   if (msg.role === "user") {
     const other = msg.speaker && msg.speaker !== "you";
     return (
-      <div className="flex flex-col items-end gap-0.5">
+      <div className={cn("flex flex-col items-end gap-1", rise)}>
         {other && <span className="text-micro text-faint">{speakerName(msg.speaker)}</span>}
-        <div className={cn("ol-selectable max-w-[85%] rounded-2xl px-3 py-1.5 text-body leading-relaxed", other ? "bg-foreground/10 text-foreground" : "bg-accent text-accent-foreground")}>{msg.text}</div>
+        {msg.images && msg.images.length > 0 && (
+          <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            {msg.images.map((src, i) => <img key={i} src={src} alt={`Attached image ${i + 1}`} className="max-h-28 max-w-full rounded-lg object-cover shadow-xs" />)}
+          </div>
+        )}
+        <div className={cn("ol-selectable max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-md px-3 py-1.5 text-body", other ? "bg-foreground/10 text-foreground" : "bg-accent-soft text-foreground")}>{msg.text}</div>
+        {msg.typed && <span className="flex items-center gap-1 text-micro text-faint"><Keyboard aria-hidden className="size-3" />Typed</span>}
         {/* Only a turn with a logged judgment: the mark is a training label. */}
         {msg.judged && onNotForYou && (msg.notForYou
           ? <span className="text-micro text-faint">Marked not for you</span>
-          : <button onClick={() => onNotForYou(msg.id)} title="This wasn't said to the agent: stops a reply to it and marks it in the judgment log" className="text-micro text-faint underline-offset-2 hover:text-foreground hover:underline focus-visible:underline">Not for you</button>)}
+          : <Tooltip label="This wasn't said to the agent: stops a reply to it and marks it in the judgment log">
+              <button onClick={() => onNotForYou(msg.id)} className="hit text-micro text-faint underline-offset-2 hover:text-foreground hover:underline focus-visible:underline">Not for you</button>
+            </Tooltip>)}
       </div>
     );
   }
 
-  // Group consecutive reasoning/tool parts into one "work" block; text renders as markdown.
-  type Seg = { kind: "work"; parts: Part[] } | { kind: "text"; text: string };
-  const segs: Seg[] = [];
-  for (const p of msg.parts) {
-    if (p.kind === "reasoning" || p.kind === "tool" || p.kind === "acp_tool") {
-      const last = segs[segs.length - 1];
-      if (last?.kind === "work") last.parts.push(p);
-      else segs.push({ kind: "work", parts: [p] });
-    } else {
-      segs.push({ kind: "text", text: p.text });
-    }
-  }
+  const segs = segmentTurn(msg.parts, msg.endedAt);
   const fullText = segs.filter((s) => s.kind === "text").map((s) => (s as { text: string }).text).join("\n").trim();
 
   return (
     // ol-cv: off-screen messages skip layout/paint — the panel stays smooth on
     // long transcripts without a virtualization library.
-    <div className="ol-cv group/msg flex flex-col gap-2">
+    <div className={cn("ol-cv group/msg flex flex-col gap-beat", rise)}>
       {streaming && segs.length === 0 && <span className="arc-shimmer text-body font-medium">Thinking…</span>}
-      {segs.map((seg, i) =>
-        seg.kind === "work"
-          ? <WorkBlock key={i} parts={seg.parts} active={streaming && i === segs.length - 1} />
-          // The trailing segment updates every frame while the voice reveals it —
-          // render it as plain text (spoken prose has no markdown by design) and
-          // flip to markdown once the segment closes or the turn finishes.
-          : streaming && i === segs.length - 1
-            ? <div key={i} className="min-w-0 whitespace-pre-wrap text-body leading-relaxed text-foreground">{seg.text}</div>
-            : <MarkdownText key={i} text={seg.text} />,
-      )}
+      {segs.map((seg, i) => {
+        const live = streaming && i === segs.length - 1;
+        if (seg.kind === "work") return <WorkBlock key={i} parts={seg.parts} active={live} startedAt={seg.startedAt} endedAt={seg.endedAt} />;
+        if (seg.kind === "step") return seg.part.kind === "tool" ? <ToolRow key={i} part={seg.part} /> : <ToolCallCard key={seg.part.call.id} call={seg.part.call} standalone />;
+        // The trailing segment updates every frame while the voice reveals it —
+        // render it as plain text (spoken prose has no markdown by design) and
+        // flip to markdown once the segment closes or the turn finishes.
+        return live
+          ? <div key={i} className="min-w-0 whitespace-pre-wrap text-body text-foreground">{seg.text}</div>
+          : <MarkdownText key={i} text={seg.text} />;
+      })}
       {!streaming && fullText && (
-        <CopyButton text={fullText} title="Copy message" className="-mt-1 self-start opacity-0 transition group-hover/msg:opacity-100" />
+        <CopyButton text={fullText} label="Copy message" className="-mt-1 self-start opacity-0 transition group-hover/msg:opacity-100 has-focus-visible:opacity-100" />
       )}
     </div>
   );
-})
+});
 
-// Past-tense summaries per tool-call kind, so a finished work block says what it
-// actually DID ("Read 14 files") instead of a generic "Worked it out".
-const KIND_PAST: Record<string, (n: number) => string> = {
-  read: (n) => `Read ${n} file${n === 1 ? "" : "s"}`,
-  edit: (n) => `Edited ${n} file${n === 1 ? "" : "s"}`,
-  delete: (n) => `Deleted ${n} file${n === 1 ? "" : "s"}`,
-  move: (n) => `Moved ${n} file${n === 1 ? "" : "s"}`,
-  search: (n) => `Searched ${n} time${n === 1 ? "" : "s"}`,
-  execute: (n) => `Ran ${n} command${n === 1 ? "" : "s"}`,
-  fetch: (n) => `Fetched ${n} page${n === 1 ? "" : "s"}`,
-  other: (n) => `Ran ${n} step${n === 1 ? "" : "s"}`,
-};
-// Built-in assistant tools have no ACP kind — bucket them into the same categories.
-function builtinKind(tool: string): string {
-  if (tool === "web_search") return "search";
-  if (tool === "fetch_url" || tool === "open_url") return "fetch";
-  if (tool === "look" || tool === "clipboard_read") return "read";
-  return "other";
-}
-type ToolPart = Extract<Part, { kind: "tool" } | { kind: "acp_tool" }>;
-/** Label a finished work block by its dominant action. `multiKind` → also show the
- *  total step count, so the dominant-action count can't be mistaken for the total. */
-function summarizeWork(tools: ToolPart[]): { label: string; multiKind: boolean } {
-  const counts = new Map<string, number>();
-  for (const t of tools) {
-    const kind = t.kind === "acp_tool" ? t.call.kind : builtinKind(t.tool);
-    counts.set(kind, (counts.get(kind) ?? 0) + 1);
-  }
-  if (counts.size === 0) return { label: "Worked on it", multiKind: false };
-  let top = "other", topN = 0;
-  for (const [k, n] of counts) if (n > topN) { top = k; topN = n; }
-  const fn = KIND_PAST[top] ?? ((n: number) => `Ran ${n} step${n === 1 ? "" : "s"}`);
-  return { label: fn(topN), multiKind: counts.size > 1 };
-}
-
-// A run of reasoning + tool calls — the message's "work". Expanded while active,
-// auto-collapses to a one-line summary once the answer starts.
-const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; active: boolean }) {
+// A run of reasoning + tool calls: the message's quiet work. Open while it runs
+// (and while an ask inside it waits), then folded to one line that says what it
+// did and how long it took; the steps hang off a thin rail when opened.
+const WorkBlock = memo(function WorkBlock({ parts, active, startedAt, endedAt }: { parts: Part[]; active: boolean; startedAt?: number; endedAt?: number }) {
   const [open, setOpen] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => { if (wasActive.current && !active) setOpen(false); wasActive.current = active; }, [active]);
@@ -302,39 +338,36 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
   const hasPendingAsk = !!permTool && parts.some((p) => p.kind === "acp_tool" && p.call.id === permTool);
   const expanded = open || active || hasPendingAsk;
 
-  const tools = parts.filter((p): p is Extract<Part, { kind: "tool" } | { kind: "acp_tool" }> => p.kind === "tool" || p.kind === "acp_tool");
+  const tools = parts.filter((p): p is ToolPart => p.kind === "tool" || p.kind === "acp_tool");
   const failed = tools.filter((t) => (t.kind === "tool" ? t.detail === "error" : t.call.status === "failed")).length;
   const running = tools.find((t) => (t.kind === "tool" ? !t.done : t.call.status === "pending" || t.call.status === "in_progress"));
   const runningLabel = running?.kind === "tool" ? `${meta(running.tool).active}…`
-    : running?.kind === "acp_tool" ? `${kindMeta(running.call.kind).active} — ${running.call.title}…` : "Thinking…";
+    : running?.kind === "acp_tool" ? `${kindMeta(running.call.kind).active} ${running.call.title}…` : "Thinking…";
   const hasReasoning = parts.some((p) => p.kind === "reasoning");
   const summary = summarizeWork(tools);
+  const took = startedAt && endedAt ? formatDuration(endedAt - startedAt) : null;
 
   return (
-    <div className="rounded-lg bg-card/40 shadow-[var(--shadow-xs)]">
-      <button onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-caption text-muted-foreground transition hover:bg-foreground/[0.03] hover:text-foreground">
-        {active ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /> : <Brain className="size-3.5 shrink-0 text-muted-foreground" />}
+    <div className="animate-fade-in flex flex-col">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={expanded}
+        className="flex min-h-7 w-full min-w-0 items-center gap-1.5 text-left text-label text-muted-foreground transition hover:text-foreground">
+        <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 transition-transform duration-base ease-standard motion-reduce:transition-none", expanded && "rotate-90")} />
         {active ? (
-          <span className="arc-shimmer truncate font-medium">{runningLabel}</span>
+          <span className="arc-shimmer min-w-0 truncate font-medium">{runningLabel}</span>
         ) : (
-          <>
-            <span className="font-medium text-foreground">{summary.label}</span>
-            {summary.multiKind && <span className="text-faint">· {tools.length} steps</span>}
-            {failed > 0 && <span className="flex items-center gap-1 text-destructive"><AlertCircle className="size-3" />{failed} failed</span>}
-            {hasReasoning && <span className="text-faint">· reasoned</span>}
-          </>
+          <span className="min-w-0 truncate">
+            {summary.label}
+            {summary.multiKind && <span className="text-faint"> · {tools.length} steps</span>}
+            {hasReasoning && <span className="text-faint"> · reasoned</span>}
+            {took && <span className="text-faint"> · {took}</span>}
+          </span>
         )}
-        <ChevronRight className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition", expanded && "rotate-90")} />
+        {!active && failed > 0 && <span className="flex shrink-0 items-center gap-1 text-destructive"><AlertCircle className="size-3" />{failed} failed</span>}
       </button>
       <Disclosure open={expanded}>
-        <div className="flex flex-col gap-2 px-2.5 pb-2.5">
+        <div className="ml-1.5 flex flex-col gap-1 border-l border-border py-1 pl-3.5">
           {parts.map((p, i) =>
-            p.kind === "reasoning"
-              // Reasoning is real markdown (headers/bold/lists) — render it, kept muted
-              // with a left rule so it stays secondary to the tool cards, but no longer
-              // shows literal `**asterisks**`.
-              ? <div key={i} className="border-l-2 border-border-heavy/60 pl-2.5"><MarkdownText text={p.text} muted /></div>
+            p.kind === "reasoning" ? <ReasoningRow key={i} text={p.text} live={active && i === parts.length - 1} />
               : p.kind === "tool" ? <ToolRow key={i} part={p} />
               : p.kind === "acp_tool" ? <ToolCallCard key={p.call.id} call={p.call} /> : null,
           )}
@@ -344,18 +377,40 @@ const WorkBlock = memo(function WorkBlock({ parts, active }: { parts: Part[]; ac
   );
 });
 
+/** The model's reasoning, muted and folded: open while it streams, one tap after. */
+function ReasoningRow({ text, live }: { text: string; live: boolean }) {
+  const [open, setOpen] = useState<boolean | null>(null);
+  const expanded = open ?? live;
+  return (
+    <div className="flex flex-col">
+      <button type="button" onClick={() => setOpen(!expanded)} aria-expanded={expanded}
+        className="flex min-h-7 items-center gap-2 text-left text-label text-faint transition hover:text-foreground">
+        <Brain aria-hidden className="size-3.5 shrink-0" />
+        <span className={cn(live && "arc-shimmer")}>{live ? "Reasoning…" : "Reasoning"}</span>
+        <ChevronRight aria-hidden className={cn("size-3 shrink-0 transition-transform motion-reduce:transition-none", expanded && "rotate-90")} />
+      </button>
+      <Disclosure open={expanded}>
+        <div className="pb-1 pl-5.5"><MarkdownText text={text} muted /></div>
+      </Disclosure>
+    </div>
+  );
+}
+
+/** A built-in tool: one line, the full summary a tap away when it is cut off. */
 function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
+  const [full, setFull] = useState(false);
   const m = meta(part.tool);
   const Icon = m.icon;
   const failed = part.done && part.detail === "error";
   return (
-    <div className="flex items-center gap-2 text-label text-muted-foreground">
-      {!part.done ? <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
-        : failed ? <AlertCircle className="size-3.5 shrink-0 text-destructive" />
-        : <Icon className="size-3.5 shrink-0 text-faint" />}
+    <button type="button" onClick={() => part.summary && setFull((v) => !v)} aria-expanded={part.summary ? full : undefined}
+      className={cn("animate-fade-in flex min-h-7 w-full min-w-0 items-center gap-2 text-left text-label text-muted-foreground", part.summary && "transition hover:text-foreground", full && "items-start py-1")}>
+      {!part.done ? <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-accent" />
+        : failed ? <AlertCircle aria-hidden className="size-3.5 shrink-0 text-destructive" />
+        : <Icon aria-hidden className="size-3.5 shrink-0 text-faint" />}
       <span className={cn("shrink-0", failed && "text-destructive")}>{part.done ? m.label : `${m.active}…`}</span>
       {failed && <span className="shrink-0 text-micro text-destructive">failed</span>}
-      {part.summary && <span className="truncate text-faint">· {part.summary}</span>}
-    </div>
+      {part.summary && <span className={cn("min-w-0 font-mono text-caption text-faint", full ? "whitespace-pre-wrap break-words" : "truncate")}>{part.summary}</span>}
+    </button>
   );
 }

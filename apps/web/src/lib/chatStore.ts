@@ -11,12 +11,14 @@ import { mergeToolCall, type SseEvent, type ToolCallState } from "@openlive/shar
 // instead of piling tools on top. Spoken text is set word-by-word, paced to the
 // VOICE (not the generated stream), so it always equals what was actually said.
 
-export type Part =
+// `at`: when the part began (epoch ms), live parts only; times the work groups.
+export type Part = (
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
   | { kind: "tool"; id?: string; tool: string; summary?: string; detail?: string; done: boolean }
   // Rich ACP tool call (coding agents) — status/kind/diffs/terminal/raw input.
-  | { kind: "acp_tool"; call: ToolCallState };
+  | { kind: "acp_tool"; call: ToolCallState }
+) & { at?: number };
 
 export interface ChatMsg {
   id: string;
@@ -31,6 +33,7 @@ export interface ChatMsg {
   images?: string[]; // a typed turn's attached images, as data URLs; not saved
   parts: Part[];  // assistant turns only
   done: boolean;
+  endedAt?: number; // a live assistant turn: when it finished (epoch ms)
 }
 
 interface ChatState {
@@ -109,8 +112,8 @@ export const chatStore = {
     patch(chatId, id, (m) => {
       const parts = m.parts.slice();
       const last = parts[parts.length - 1];
-      if (last?.kind === "text") { if (last.text === text) return m; parts[parts.length - 1] = { kind: "text", text }; }
-      else parts.push({ kind: "text", text });
+      if (last?.kind === "text") { if (last.text === text) return m; parts[parts.length - 1] = { ...last, text }; }
+      else parts.push({ kind: "text", text, at: Date.now() });
       return { ...m, parts };
     });
   },
@@ -119,15 +122,15 @@ export const chatStore = {
     patch(chatId, id, (m) => {
       const parts = m.parts.slice();
       const last = parts[parts.length - 1];
-      if (last?.kind === "reasoning") parts[parts.length - 1] = { kind: "reasoning", text: last.text + delta };
-      else parts.push({ kind: "reasoning", text: delta });
+      if (last?.kind === "reasoning") parts[parts.length - 1] = { ...last, text: last.text + delta };
+      else parts.push({ kind: "reasoning", text: delta, at: Date.now() });
       return { ...m, parts };
     });
   },
   // Fold a tool event into the assistant turn (ordered where it happened).
   liveEvent(chatId: string, id: string, e: SseEvent) {
     if (e.type === "tool_start") {
-      patch(chatId, id, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", id: e.id, tool: e.tool, summary: e.summary, done: false }] }));
+      patch(chatId, id, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", id: e.id, tool: e.tool, summary: e.summary, done: false, at: Date.now() }] }));
     } else if (e.type === "tool_done") {
       patch(chatId, id, (m) => ({
         ...m,
@@ -145,6 +148,7 @@ export const chatStore = {
       m.done ? m : {
         ...m,
         done: true,
+        endedAt: Date.now(),
         parts: m.parts.map((p) =>
           p.kind === "tool" && !p.done ? { ...p, done: true }
           // A dead turn can't finish its calls — settle, don't spin forever.
@@ -198,11 +202,11 @@ function upsertAcpTool(m: ChatMsg, id: string, next: (prev?: ToolCallState) => T
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i]!;
     if (p.kind === "acp_tool" && p.call.id === id) {
-      parts[i] = { kind: "acp_tool", call: next(p.call) };
+      parts[i] = { kind: "acp_tool", call: next(p.call), at: p.at };
       return { ...m, parts };
     }
   }
-  parts.push({ kind: "acp_tool", call: next(undefined) });
+  parts.push({ kind: "acp_tool", call: next(undefined), at: Date.now() });
   return { ...m, parts };
 }
 
