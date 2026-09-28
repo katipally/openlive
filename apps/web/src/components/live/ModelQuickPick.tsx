@@ -8,7 +8,9 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useUi } from "@/lib/uiStore";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
-import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT, effortName } from "./SetupControls";
+import { apiSummary } from "@/lib/live/howItRuns";
+import { HowItRuns, Field, Picker, AutoControl, ThinkNote, THINK_HINT, effortName } from "./SetupControls";
+import { linkClass } from "@/components/ui";
 
 const PROVIDERS = BUILTIN_PROVIDERS.map((p) => ({ id: p.id, name: p.name, keyless: !!p.keyless, protocol: p.protocol }));
 
@@ -42,15 +44,17 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
   // levels it would silently ignore.
   const efforts = ["auto", ...allowedEfforts(provider?.protocol, model?.reasoning ?? true)];
 
+  const summary = apiSummary(provider?.name, model?.display_name ?? (settings ? settings.liveModel || "Recommended" : undefined), settings && effortName(effort));
+
   return (
-    <Section title="How it runs">
+    <HowItRuns summary={summary}>
       <Field label="Provider">
         <Picker ariaLabel="Provider" value={providerId}
           onChange={(id) => save.mutate({ liveProviderId: id, liveModel: "" })}
           options={PROVIDERS.map((p) => ({ id: p.id, name: p.name, detail: p.keyless ? "runs locally · no key" : undefined }))} />
       </Field>
 
-      <Field label="Model" hint={hasKey ? undefined : <button onClick={onOpenSettings} className="text-accent transition hover:underline">Add a key →</button>}>
+      <Field label="Model" hint={hasKey ? undefined : <button onClick={onOpenSettings} className={linkClass}>Add a key →</button>}>
         <Picker ariaLabel="Model" value={settings?.liveModel || ""}
           onChange={(id) => save.mutate({ liveModel: id })}
           disabled={!hasKey || !models.length}
@@ -85,6 +89,6 @@ export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void 
           }))} />
         <ThinkNote />
       </Field>
-    </Section>
+    </HowItRuns>
   );
 }

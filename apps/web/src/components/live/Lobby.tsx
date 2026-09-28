@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { animate, stagger } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader2 } from "lucide-react";
+import { Button, Input, SidePanelHeader, sidePanel, Tooltip, notice } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
@@ -13,20 +15,18 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { CameraPreview, MicMeter, DownloadProgress, DeviceSelect } from "./LiveStage";
 import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
-import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT } from "./SetupControls";
+import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT, HowItRuns, SwitchField } from "./SetupControls";
+import { agentSummary, optLabel, switchValues } from "@/lib/live/howItRuns";
 import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
-import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
+import { animateAll, EXIT, FADE, GENTLE, useMotionTokens } from "@/lib/motion";
 import { cn } from "@/lib/cn";
-import { isDesktop, isMacDesktop, basename, bridge } from "@/lib/platform";
+import { isDesktop, isMacDesktop, basename, bridge, SETTINGS_KEYS } from "@/lib/platform";
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
-
-const NICE_CATEGORY: Record<string, string> = { thought_level: "Reasoning", model_config: "Model config" };
-const optLabel = (category: string, label: string) => label || NICE_CATEGORY[category] || category || "Option";
 
 // Full-page pre-call lobby. Left = a big self-preview with the mic meter, the mic
 // & camera pickers, and the Start CTA directly under it. Right = the AI side of
@@ -91,34 +91,48 @@ export function Lobby(props: LobbyProps) {
   const micGap = mics.length === 0;
   const root = useRef<HTMLDivElement>(null);
 
-  const { contextSafe } = useGSAP(() => {
-    if (prefersReduced()) { gsap.fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.12 }); return; }
-    gsap.timeline()
-      .fromTo(root.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR.base, ease: EASE.soft })
-      .fromTo(".ol-lobby-stage > *", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, stagger: 0.06, duration: DUR.slow, ease: EASE.snappy }, "-=0.06")
-      .fromTo(".ol-lobby-aside", { autoAlpha: 0, x: 26 }, { autoAlpha: 1, x: 0, duration: DUR.slow, ease: EASE.out }, "<");
-  }, { scope: root });
+  const t = useMotionTokens();
 
-  // Back to home — exit is the entrance played in reverse (aside slides back out,
-  // stage children fall back with a tail-first stagger, surface fades), then unmount.
-  const handleBack = contextSafe(() => {
-    if (!root.current || prefersReduced()) { onExit(); return; }
-    gsap.timeline({ onComplete: onExit })
-      .to(".ol-lobby-aside", { autoAlpha: 0, x: 26, duration: DUR.base, ease: EASE.inOut }, 0)
-      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: 12, stagger: { each: 0.04, from: "end" }, duration: DUR.base, ease: EASE.soft }, 0)
-      .to(root.current, { autoAlpha: 0, duration: DUR.base, ease: EASE.soft }, 0.06);
-  });
+  // Enter: the surface fades up, the stage rises in a stagger, the setup panel
+  // slides in from the right.
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const runs = t.reduce ? [animate(el, { opacity: [0, 1] }, t.fade)] : [
+      animate(el, { opacity: [0, 1] }, FADE),
+      animateAll(el, ".ol-lobby-stage > *", { opacity: [0, 1], y: [12, 0] }, { ...GENTLE, delay: stagger(0.06, { startDelay: 0.08 }) }),
+      animateAll(el, ".ol-lobby-aside", { opacity: [0, 1], x: [26, 0] }, { ...GENTLE, delay: 0.08 }),
+    ];
+    return () => runs.forEach((r) => r?.stop());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the entrance plays on mount only
+  }, []);
 
-  // Into the call — a short "lift": the lobby rises and fades while InCall's
-  // entrance rises to meet it, so start→call reads as one continuous move. The
-  // session's start() runs on completion (~0.2 s — noise next to model warm-up).
-  // The page itself stays opaque: fading it showed the home screen through it.
-  const handleStart = contextSafe(() => {
-    if (!root.current || prefersReduced()) { onStart(); return; }
-    gsap.timeline({ onComplete: onStart })
-      .to(".ol-lobby-aside", { autoAlpha: 0, x: 14, duration: DUR.fast, ease: EASE.soft }, 0)
-      .to(".ol-lobby-stage > *", { autoAlpha: 0, y: -10, stagger: 0.03, duration: DUR.fast, ease: EASE.soft }, 0);
-  });
+  // Back to home: the entrance in reverse (the panel slides back out, the stage
+  // falls back tail-first, the surface fades), then unmount.
+  const handleBack = async () => {
+    const el = root.current;
+    // Under glass the home comes back first, so this fade-out shows it.
+    el?.removeAttribute("data-covering");
+    if (el && !t.reduce) await Promise.all([
+      animateAll(el, ".ol-lobby-aside", { opacity: 0, x: 26 }, EXIT),
+      animateAll(el, ".ol-lobby-stage > *", { opacity: 0, y: 12 }, { ...EXIT, delay: stagger(0.03, { from: "last" }) }),
+      animate(el, { opacity: 0 }, { ...EXIT, delay: 0.06 }),
+    ]);
+    onExit();
+  };
+
+  // Into the call: a short "lift". The lobby's contents rise and fade while
+  // InCall's entrance rises to meet them, so start to call reads as one move.
+  // The session's start() runs on completion (~0.2 s, noise next to model
+  // warm-up). The page itself stays opaque: fading it showed the home through it.
+  const handleStart = async () => {
+    const el = root.current;
+    if (el && !t.reduce) await Promise.all([
+      animateAll(el, ".ol-lobby-aside", { opacity: 0, x: 14 }, EXIT),
+      animateAll(el, ".ol-lobby-stage > *", { opacity: 0, y: -10 }, { ...EXIT, delay: stagger(0.03) }),
+    ]);
+    onStart();
+  };
 
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
@@ -127,39 +141,36 @@ export function Lobby(props: LobbyProps) {
     </div>
   ) : !modelsDownloaded ? (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={downloadAll} className="rounded-full bg-accent px-7 py-2.5 text-callout font-medium text-accent-foreground transition hover:scale-[1.03] hover:opacity-90 active:scale-[0.98]">
+      <Button variant="primary" size="lg" onClick={downloadAll}>
         {plural ? "Download AI models" : "Download AI model"}
-      </button>
+      </Button>
       <p className="max-w-[17rem] text-caption text-faint">A one-time download of {downloads.length} small AI {plural ? "models" : "model"} ({downloads.join(", ")}) that {plural ? "run" : "runs"} fully on your device. Nothing is sent to a server.</p>
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
-      <button onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}
-        className="rounded-full bg-accent px-10 py-3 text-title-sm font-medium text-accent-foreground shadow-lg transition enabled:hover:scale-[1.03] enabled:hover:opacity-90 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40">
+      <Button variant="primary" size="lg" className="min-w-[12.5rem] max-w-full" onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}>
         Start
-      </button>
+      </Button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start — not as a confusing failure after. */}
       {agentGap && (
-        <button onClick={() => useUi.getState().openSettingsTab("agents")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc-text transition hover:bg-arc/15">
-          <Wrench className="size-3.5" />
-          {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed — set it up` : `${agentLabel(boundAgent)} needs a sign-in — open Settings`}
+        <button onClick={() => useUi.getState().openSettingsTab("agents")} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+          <Wrench aria-hidden />
+          {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed. Set it up` : `${agentLabel(boundAgent)} needs a sign-in. Open Settings`}
         </button>
       )}
       {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
       {folderGap && (
-        <p className="max-w-[20rem] rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-label text-danger">
-          That folder doesn&apos;t exist anymore — pick a different one.
+        <p className={cn(notice("danger"), "max-w-[20rem] py-1.5")}>
+          That folder doesn&apos;t exist anymore. Pick a different one.
         </p>
       )}
       {keyGap && provDef && (
-        <button onClick={() => useUi.getState().openSettingsTab("models")}
-          className="flex items-center gap-1.5 rounded-lg border border-arc/40 bg-arc/10 px-3 py-1.5 text-label font-medium text-arc-text transition hover:bg-arc/15">
-          <Wrench className="size-3.5" /> No API key for {provDef.name} — add one in Settings
+        <button onClick={() => useUi.getState().openSettingsTab("models")} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+          <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
         </button>
       )}
-      {micGap && <p className="text-caption text-arc-text">No microphone detected — connect one so the call can hear you.</p>}
+      {micGap && <p className="text-caption text-arc-text">No microphone detected. Connect one so the call can hear you.</p>}
     </div>
   );
   const missingRows = missing.map((m) => (
@@ -172,78 +183,69 @@ export function Lobby(props: LobbyProps) {
   ));
 
   return (
-    <div ref={root} className="@container/lobby fixed inset-0 z-[var(--z-stage)] bg-background">
+    <div ref={root} data-covering="stage" className="@container/lobby fixed inset-0 z-stage bg-background">
       {/* Side by side while both fit; narrower, the setup panel stacks under the
           stage and the whole page scrolls as one. */}
       <div className="flex h-full @max-3xl/lobby:flex-col @max-3xl/lobby:overflow-y-auto">
       {/* main stage — self-preview, mic level, device pickers, Start */}
       <main className="relative min-w-0 flex-1 overflow-y-auto @max-3xl/lobby:flex-none @max-3xl/lobby:overflow-visible">
         {/* thin drag strip, clear of the macOS traffic lights (top-left) */}
-        <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-[84px]" : "left-4")} />
-        <button onClick={() => useUi.getState().setHistoryOpen(true)} title="Sessions" aria-label="Sessions"
-          className={cn("absolute top-2.5 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]", isMacDesktop ? "left-[84px]" : "left-3")}>
-          <PanelLeft className="size-4" />
-        </button>
-        <div className="ol-lobby-stage m-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-5 px-6 py-10 text-center">
-          <div className="space-y-1">
-            <h2 className="text-title-lg font-semibold tracking-tight">Talk with OpenLive</h2>
-            <p className="max-w-sm text-body text-muted-foreground">It listens as you speak, answers out loud, and can see through your camera. The voice runs privately on your device.</p>
-            {cpu && (
-              <p className="mx-auto mt-2 max-w-xs rounded-lg border border-arc/30 bg-arc/10 px-2.5 py-1.5 text-caption text-arc-text">
-                Running voice on CPU — WebGPU isn&apos;t available, so responses will be slower.
-              </p>
-            )}
+        <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-traffic-lights" : "left-4")} />
+        <div className="ol-lobby-stage relative m-auto flex min-h-full w-full max-w-[35rem] flex-col justify-center gap-5 px-6 pb-10 pt-14">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Tooltip label="Sessions"><Button variant="ghost" icon onClick={() => useUi.getState().setHistoryOpen(true)} aria-label="Sessions"><PanelLeft /></Button></Tooltip>
+            <h1 className="min-w-0 break-words text-title-lg font-semibold tracking-tight">Talk with OpenLive</h1>
           </div>
+          {cpu && (
+            <p className={cn(notice(), "py-1.5 text-caption")}>
+              Running voice on CPU. WebGPU isn&apos;t available, so responses will be slower.
+            </p>
+          )}
 
           <CameraPreview camId={camId} onGranted={refreshDevices} />
-          <MicMeter micId={micId} onGranted={refreshDevices} />
 
-          {/* device pickers — moved under the preview so the right panel is all-AI */}
-          <div className="flex w-full max-w-[22rem] items-stretch gap-2">
-            <div className="min-w-0 flex-1"><DeviceSelect icon={Mic} opts={mics} value={micId} onChange={onMic} /></div>
-            <div className="min-w-0 flex-1"><DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} /></div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+            <MicMeter micId={micId} onGranted={refreshDevices} />
+            <div className="min-w-[9rem] flex-[1_1_11rem]"><DeviceSelect icon={Mic} opts={mics} value={micId} onChange={onMic} /></div>
+            <div className="min-w-[9rem] flex-[1_1_11rem]"><DeviceSelect icon={Video} opts={cams} value={camId} onChange={onCam} /></div>
           </div>
 
           {/* project folder — front and center (it gates Start for a coding agent) */}
-          <div className="w-full max-w-[22rem] text-left" data-tour="folder">
+          <div className="text-left" data-tour="folder">
             <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "API mode"} required={!!boundAgent} />
           </div>
 
-          {cta}
-          {missingRows}
-          {error && <p className="max-w-sm text-label text-danger">{error}</p>}
+          <div className="flex flex-col items-center gap-3 pt-3 text-center">
+            {cta}
+            {missingRows}
+            {error && <p role="alert" className={cn(notice("danger"), "max-w-sm")}>{error}</p>}
+          </div>
         </div>
       </main>
 
-      {/* AI panel — a floating elevated card (same slot the in-call transcript uses,
-          so start→call reads as continuous) */}
-      <aside data-tour="setup-panel" className="ol-lobby-aside m-3 ml-0 flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl @max-3xl/lobby:ml-3 @max-3xl/lobby:mt-0 @max-3xl/lobby:w-auto @max-3xl/lobby:overflow-visible border border-border bg-surface-raised text-left shadow-[var(--shadow-pop)]">
-        <header className={cn("flex h-14 shrink-0 items-center justify-between px-4", isDesktop && "[-webkit-app-region:drag]")}>
-          <span className="text-callout font-semibold tracking-tight">Set up your call</span>
+      {/* AI panel — the same slot the in-call transcript uses, so start→call reads as continuous */}
+      <aside data-tour="setup-panel" aria-label="Set up your call"
+        className={cn(sidePanel(), "ol-lobby-aside m-3 ml-0 w-[21.25rem] shrink-0 overflow-hidden @max-3xl/lobby:ml-3 @max-3xl/lobby:mt-0 @max-3xl/lobby:w-auto @max-3xl/lobby:overflow-visible")}>
+        {/* Starts lower than the other panels: on Windows and Linux the window's
+            own controls sit over this corner. */}
+        <SidePanelHeader title="Set up your call" className={cn("pt-6", isDesktop && "[-webkit-app-region:drag]")}>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
-            <button onClick={onOpenSettings} title="Settings" aria-label="Settings"
-              className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><Settings2 className="size-4" /></button>
-            <button onClick={handleBack} title="Back to home" aria-label="Back to home"
-              className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"><X className="size-4" /></button>
+            <Tooltip label="Settings" keys={SETTINGS_KEYS}><Button variant="ghost" size="sm" icon onClick={onOpenSettings} aria-label="Settings"><Settings2 /></Button></Tooltip>
+            <Tooltip label="Back to home"><Button variant="ghost" size="sm" icon onClick={handleBack} aria-label="Back to home"><X /></Button></Tooltip>
           </div>
-        </header>
-        <div className="openlive-scroll flex-1 space-y-6 overflow-y-auto p-4">
+        </SidePanelHeader>
+        <div className="openlive-scroll flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto px-5 pb-6 pt-1 @max-3xl/lobby:overflow-visible">
           <Section title="Talk to">
             <AgentQuickPick />
           </Section>
-
-          {/* Everything below the rule is about the thing picked above. The rule is
-              what makes "who" vs "how" two groups instead of one long list. */}
-          <div className="h-px bg-border/60" />
-
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
         </div>
       </aside>
       </div>
 
       <SpotlightTour id="lobby" steps={[
-        { target: "folder", title: "Give it a project folder", body: "A coding agent works inside one folder — the only place it reads and writes, and where its session is saved so you can resume from the CLI too." },
-        { target: "setup-panel", title: "The AI side of the call", body: "Who you talk to, plus the model and mode it runs with — reported live by the agent itself the moment it connects." },
+        { target: "folder", title: "Give it a project folder", body: "A coding agent works inside one folder. It is the only place it reads and writes, and where its session is saved so you can resume from the CLI too." },
+        { target: "setup-panel", title: "The AI side of the call", body: "Who you talk to, plus the model and mode it runs with, reported live by the agent itself the moment it connects." },
       ]} />
     </div>
   );
@@ -258,42 +260,42 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   const b = bridge;
   const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { log.error("lobby", "pick_folder:", e); toast("Couldn\u2019t open the folder picker."); } };
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-caption font-medium uppercase tracking-wide text-faint">
-          {required ? <>Project folder <span className="text-danger">*</span></> : <>Workspace <span className="rounded bg-surface px-1.5 py-0.5 text-micro font-normal lowercase tracking-normal text-muted-foreground">optional</span></>}
+    <div className="flex flex-col gap-2">
+      <div className="flex min-h-control-sm flex-wrap items-center justify-between gap-2">
+        <p className="text-label font-medium text-muted-strong">
+          {required ? <>Project folder <span className="text-danger">*</span></> : <>Project folder <span className="font-normal text-faint">(optional)</span></>}
         </p>
-        {b && (
-          <button onClick={browse} aria-label={`Choose a folder for ${name}`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium text-accent transition hover:bg-accent/10">
-            <FolderOpen className="size-3.5" /> Browse…
-          </button>
+        {b && !cwd && (
+          <Button variant="ghost" size="sm" onClick={browse} aria-label={`Choose a folder for ${name}`}>
+            <FolderOpen /> Browse&hellip;
+          </Button>
         )}
       </div>
 
       {cwd ? (
-        <div className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 shadow-[var(--shadow-card)]">
-          <Folder className="size-4 shrink-0 text-accent" />
-          <span className="min-w-0 flex-1 truncate font-mono text-label text-foreground" title={cwd}>{cwd}</span>
-          <button onClick={() => setConversationFolder(chatId, "")} className="shrink-0 text-caption text-faint transition hover:text-foreground">change</button>
+        <div className="flex min-h-control-lg items-center gap-2.5 rounded-lg bg-secondary pl-3 pr-1.5 shadow-rim">
+          <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <Tooltip label={cwd} truncated className="min-w-0 flex-1"><span className="truncate font-mono text-label text-foreground">{cwd}</span></Tooltip>
+          <Button variant="ghost" size="sm" onClick={() => setConversationFolder(chatId, "")}>Change</Button>
         </div>
       ) : (
         <>
           {recents.length > 0 && (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col">
               {recents.map((f) => (
-                <button key={f} onClick={() => setConversationFolder(chatId, f)} title={f}
-                  className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-2 text-left shadow-[var(--shadow-xs)] transition hover:shadow-[var(--shadow-card)]">
-                  <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-label text-foreground">{basename(f)}</span>
-                  <span className="max-w-[45%] shrink-0 truncate font-mono text-micro text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
-                </button>
+                <Tooltip key={f} label={f} truncated className="flex">
+                  <button type="button" onClick={() => setConversationFolder(chatId, f)}
+                    className="flex min-h-control-md min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-left transition hover:bg-foreground/[0.06]">
+                    <Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-label text-foreground">{basename(f)}</span>
+                    <span data-truncates className="max-w-[45%] shrink-0 truncate font-mono text-micro text-faint">{f.replace(/^\/Users\/[^/]+/, "~")}</span>
+                  </button>
+                </Tooltip>
               ))}
             </div>
           )}
           {!b && (
-            <input placeholder="/path/to/your/project" spellCheck={false}
-              className="h-9 w-full rounded-lg bg-card px-3 font-mono text-label text-foreground shadow-[var(--shadow-xs)] outline-none focus:shadow-[var(--shadow-card)]"
+            <Input placeholder="/path/to/your/project" spellCheck={false} aria-label="Project folder path" className="w-full font-mono text-label"
               onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); if (v) setConversationFolder(chatId, v); } }} />
           )}
         </>
@@ -326,20 +328,20 @@ function AgentSetup({ agent }: { agent: AgentId }) {
         {agentConnecting && <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />}
         {agentConnecting
           ? `Connecting to ${agentLabel(agent)} to load the models & modes it supports…`
-          : `${agentLabel(agent)} reports the models & modes it supports over ACP — they populate the moment you pick a folder, and your choice is remembered for next time.`}
+          : `${agentLabel(agent)} reports the models & modes it supports over ACP. They populate the moment you pick a folder, and your choice is remembered for next time.`}
       </p>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4">
       {meta?.resumeAcrossRestart === false && (
         <p className="rounded-lg bg-foreground/[0.06] px-2.5 py-1.5 text-caption leading-relaxed text-muted-foreground">
-          Live only — {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
+          Live only: {agentLabel(agent)} can&apos;t reopen this session in its own CLI after it closes (an agent limitation, not OpenLive).
         </p>
       )}
 
-      <Section title="How it runs">
+      <HowItRuns summary={agentSummary(meta!)}>
         {hasModels && (
           <Field label="Model">
             <Picker ariaLabel="Model" value={meta!.currentModelId} onChange={setConversationModel}
@@ -354,21 +356,29 @@ function AgentSetup({ agent }: { agent: AgentId }) {
           </Field>
         )}
 
-        {/* Whatever else the agent exposes (reasoning/thought level, model config…).
-            Reasoning gets the same "keep it low" steer as the built-in brain: this
-            is a spoken call, and every extra thinking token is silence on the line. */}
+        {/* Whatever else the agent exposes (reasoning/thought level, fast mode,
+            model config…). An on/off pair is a switch. Reasoning gets the same
+            "keep it low" steer as the built-in brain: this is a spoken call, and
+            every extra thinking token is silence on the line. */}
         {opts.map((o) => {
+          const label = optLabel(o.category, o.label);
+          const sw = switchValues(o.values);
+          if (sw) {
+            const on = o.currentId === sw.on;
+            return <SwitchField key={o.id} label={label} on={on} onFlip={() => setConversationOption(o.id, on ? sw.off : sw.on)} />;
+          }
           const thinking = o.category === "thought_level";
           return (
-            <Field key={o.id} label={optLabel(o.category, o.label)} hint={thinking ? THINK_HINT : undefined}>
-              <AutoControl ariaLabel={optLabel(o.category, o.label)} value={o.currentId}
+            <Field key={o.id} label={label} hint={thinking ? THINK_HINT : undefined}>
+              <AutoControl ariaLabel={label} value={o.currentId}
                 onChange={(v) => setConversationOption(o.id, v)}
                 options={o.values.map((v) => ({ id: v.id, name: v.name }))} />
               {thinking && <ThinkNote />}
             </Field>
           );
         })}
-      </Section>
+        <p className="text-caption text-faint">Reported live by {agentLabel(agent)} the moment it connects.</p>
+      </HowItRuns>
     </div>
   );
 }

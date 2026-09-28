@@ -5,6 +5,7 @@ import { Mic, Video, VideoOff } from "lucide-react";
 import type { DeviceOpt } from "@/lib/live/liveStore";
 import type { ModelProgress } from "@/lib/live/models";
 import { cn } from "@/lib/cn";
+import { Select } from "@/components/ui";
 
 // Reusable pre-call building blocks: device pickers, a self-preview + mic meter,
 // and the on-device model download. Composed by the full-page Lobby.
@@ -17,7 +18,7 @@ export function DownloadProgress({ pct, loaded, total, models }: { pct: number; 
   return (
     <div className="flex w-72 max-w-[82vw] flex-col gap-2.5">
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
-        <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(pct * 100)}%` }} />
+        <div className="h-full rounded-full bg-accent transition-[width] duration-meter" style={{ width: `${Math.round(pct * 100)}%` }} />
       </div>
       <p className="text-center text-caption text-muted-foreground">
         {Math.round(pct * 100)}%{total ? ` · ${mb(loaded)} / ${mb(total)} MB` : ""} · one-time, then instant
@@ -46,10 +47,9 @@ export function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: type
   return (
     <label className="flex items-center gap-2 text-muted-foreground">
       <Icon className="size-3.5 shrink-0" />
-      <select value={value ?? opts[0]?.id ?? ""} onChange={(e) => onChange(e.target.value)}
-        className="ol-select min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-2 py-1.5 text-label text-foreground">
+      <Select value={value ?? opts[0]?.id ?? ""} onChange={(e) => onChange(e.target.value)} className="flex-1">
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
+      </Select>
     </label>
   );
 }
@@ -74,7 +74,7 @@ export function CameraPreview({ camId, onGranted }: { camId?: string; onGranted:
     return () => { stopped = true; stream?.getTracks().forEach((t) => t.stop()); };
   }, [camId, onGranted]);
   return (
-    <div className="relative aspect-[4/3] max-h-[42vh] w-full max-w-[22rem] overflow-hidden rounded-2xl border border-border/60 bg-black shadow-lg">
+    <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-hairline bg-track shadow-card">
       <video ref={ref} autoPlay muted playsInline className={cn("h-full w-full object-cover transition-opacity", state === "on" ? "opacity-100" : "opacity-0")} />
       {state !== "on" && (
         <div className="absolute inset-0 grid place-items-center gap-1 text-center">
@@ -87,11 +87,13 @@ export function CameraPreview({ camId, onGranted }: { camId?: string; onGranted:
 }
 
 // Live mic level on the pre-call screen (own stream, released on unmount).
+// The level goes straight to the bar, only when it moves: as React state it
+// re-rendered the lobby at the display's rate and laid out the bar's width.
 export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () => void }) {
-  const [level, setLevel] = useState(0);
+  const bar = useRef<HTMLDivElement>(null);
   const [denied, setDenied] = useState(false);
   useEffect(() => {
-    let stream: MediaStream | null = null, ctx: AudioContext | null = null, raf = 0, stopped = false;
+    let stream: MediaStream | null = null, ctx: AudioContext | null = null, raf = 0, stopped = false, shown = 0;
     const unlock = new AbortController();
     setDenied(false);
     (async () => {
@@ -111,7 +113,8 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
         const loop = () => {
           analyser.getFloatTimeDomainData(buf);
           let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i]! * buf[i]!;
-          setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 3.5));
+          const pct = Math.round(Math.min(1, Math.sqrt(sum / buf.length) * 3.5) * 100);
+          if (pct !== shown && bar.current) { shown = pct; bar.current.style.transform = `translateX(${pct - 100}%)`; }
           raf = requestAnimationFrame(loop);
         };
         loop();
@@ -120,10 +123,9 @@ export function MicMeter({ micId, onGranted }: { micId?: string; onGranted: () =
     return () => { stopped = true; unlock.abort(); cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
   }, [micId, onGranted]);
   return (
-    <div className="flex w-full max-w-[18rem] items-center gap-2">
-      <Mic className={cn("size-3.5 shrink-0", denied ? "text-danger" : "text-muted-foreground")} />
+    <div className="flex min-w-[6rem] flex-1 items-center gap-2">
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
-        <div className="h-full rounded-full bg-success transition-[width] duration-100" style={{ width: `${Math.round(level * 100)}%` }} />
+        <div ref={bar} className="h-full rounded-full bg-success transition-transform duration-meter" style={{ transform: "translateX(-100%)" }} />
       </div>
       {denied && <span className="text-micro text-danger">mic blocked</span>}
     </div>

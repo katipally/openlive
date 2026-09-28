@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
-import { ChevronDown, Check } from "lucide-react";
-import { useMenuPresence } from "@/lib/usePopIn";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Segmented, menuItem, menuPanel, MenuCheck, useMenu, Disclosure, Switch, Tooltip, fieldTrigger } from "@/components/ui";
 
 // Shared controls for the pre-call setup panel. Two rules keep the panel readable
 // instead of a wall of dropdowns:
@@ -55,13 +55,12 @@ export interface Opt {
   starred?: boolean;
 }
 
-/** A titled group of fields — same heading style as a Settings section
- *  (settings/Section.tsx), so the panel and Settings read as one app. */
+/** A titled group: a small label over its control or controls. */
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3">
-      <h3 className="text-callout font-semibold text-foreground">{title}</h3>
-      <div className="space-y-4">{children}</div>
+    <section className="flex flex-col gap-2">
+      <h3 className="text-label font-medium text-muted-strong">{title}</h3>
+      {children}
     </section>
   );
 }
@@ -71,15 +70,46 @@ export function Field({ label, hint, required, children }: {
   label: string; hint?: ReactNode; required?: boolean; children: ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-label font-medium text-foreground/90">
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+        <span className="text-label font-medium text-muted-strong">
           {label}{required && <span className="text-danger"> *</span>}
         </span>
-        {hint && <span className="shrink-0 text-micro leading-tight text-muted-foreground">{hint}</span>}
+        {hint && <span className="text-caption leading-tight text-faint">{hint}</span>}
       </div>
       {children}
     </div>
+  );
+}
+
+/** "How it runs": one line saying what the call runs on, which opens in place
+ *  to the controls behind it. Closed by default, so the panel stays quiet. */
+export function HowItRuns({ summary, children }: { summary: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <Section title="How it runs">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}
+        className="flex min-h-control-lg w-full min-w-0 items-center gap-2.5 rounded-lg border border-border bg-secondary px-3 py-2 text-left text-body text-foreground shadow-rim transition hover:border-border-heavy">
+        <Tooltip label={summary || "Choose the model and mode"} truncated className="min-w-0 flex-1">
+          <span className={cn("truncate", !summary && "text-muted-foreground")}>{summary || "Choose the model and mode"}</span>
+        </Tooltip>
+        <ChevronRight aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none", open && "rotate-90")} />
+      </button>
+      <Disclosure open={open}>
+        <div id={id} className="flex flex-col gap-5 px-0.5 pb-1 pt-4">{children}</div>
+      </Disclosure>
+    </Section>
+  );
+}
+
+/** An agent option that is really on/off, as a switch rather than two segments. */
+export function SwitchField({ label, on, onFlip }: { label: string; on: boolean; onFlip: () => void }) {
+  return (
+    <label className="flex min-h-control-lg cursor-pointer select-none items-center gap-3">
+      <span className="min-w-0 flex-1 break-words text-body text-foreground">{label}</span>
+      <Switch on={on} onFlip={onFlip} />
+    </label>
   );
 }
 
@@ -96,38 +126,7 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { open, mounted, requestClose: closeMenu, toggle } = useMenuPresence(menuRef);
-  const requestClose = (refocus = false) => {
-    closeMenu();
-    if (refocus) ref.current?.querySelector("button")?.focus();
-  };
-
-  // Close on outside click OR Escape — a menu you can only dismiss by picking
-  // something is a trap, especially when it covers the Start button. Arrow keys
-  // walk the options (listbox convention); focus lands on the selection on open.
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) requestClose(); };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { requestClose(true); return; }
-      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
-      const opts = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? [])];
-      if (!opts.length) return;
-      e.preventDefault();
-      const i = opts.indexOf(document.activeElement as HTMLButtonElement);
-      const next = e.key === "Home" ? 0
-        : e.key === "End" ? opts.length - 1
-        : e.key === "ArrowDown" ? (i >= opts.length - 1 ? 0 : i + 1)
-        : (i <= 0 ? opts.length - 1 : i - 1);
-      opts[next]?.focus();
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    // Focus the current selection so arrows continue from it.
-    requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("[aria-selected=true]")?.focus());
-    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const { open, mounted, requestClose, toggle } = useMenu(ref, menuRef);
 
   // A disabled control that's still open would float a dead menu (e.g. the agent
   // disconnects mid-pick).
@@ -141,12 +140,12 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
       <button type="button" disabled={disabled} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
         onClick={toggle}
         className={cn(
-          "flex h-9 w-full items-center gap-2 rounded-lg border bg-card px-3 text-left shadow-[var(--shadow-xs)] transition",
-          open ? "border-border-heavy" : "border-border",
+          fieldTrigger, "flex w-full items-center gap-2 text-left",
+          open && "border-border-heavy",
           disabled ? "cursor-not-allowed opacity-55" : "hover:border-border-heavy",
         )}>
         {current?.icon && <span className="grid size-4 shrink-0 place-items-center">{current.icon}</span>}
-        <span className={cn("min-w-0 flex-1 truncate text-label", current ? "text-foreground" : "text-muted-foreground")}>
+        <span className={cn("min-w-0 flex-1 truncate text-body", current ? "text-foreground" : "text-muted-foreground")}>
           {current?.name ?? placeholder ?? "Select…"}
         </span>
         {current?.starred && <span className="shrink-0 text-caption text-accent">✦</span>}
@@ -155,55 +154,22 @@ export function Picker({ value, options, onChange, disabled, placeholder, ariaLa
 
       {mounted && (
         <div ref={menuRef} role="listbox" aria-label={ariaLabel}
-          className="openlive-scroll absolute left-0 right-0 z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-[var(--shadow-pop)]">
+          className={cn("openlive-scroll absolute left-0 right-0 z-overlay mt-1.5 max-h-64 overflow-y-auto", menuPanel)}>
           {options.length === 0 && <p className="px-2.5 py-2 text-label text-faint">Nothing to choose yet.</p>}
           {options.map((o) => (
             <button key={o.id} type="button" role="option" aria-selected={o.id === value}
               onClick={() => { onChange(o.id); requestClose(); }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-foreground/[0.06]">
+              className={menuItem}>
               {o.icon && <span className="grid size-4 shrink-0 place-items-center">{o.icon}</span>}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-label text-foreground">{o.name}{o.starred && <span className="text-accent"> ✦</span>}</span>
                 {o.detail && <span className="block truncate text-micro text-faint">{o.detail}</span>}
               </span>
-              {o.id === value && <Check className="size-3.5 shrink-0 text-success" />}
+              {o.id === value && <MenuCheck />}
             </button>
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Segmented control — the same bordered pill group Settings uses for providers
- *  and effort (ModelsSettings): `border p-1` track, active pill inverted to
- *  foreground-on-background. One vocabulary, no sliding thumb to maintain. */
-export function Segmented({ value, options, onChange, ariaLabel, disabled }: {
-  value: string | null; options: Opt[]; onChange: (id: string) => void; ariaLabel: string; disabled?: boolean;
-}) {
-  return (
-    <div role="radiogroup" aria-label={ariaLabel}
-      className={cn("openlive-scroll flex w-full gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-1",
-        disabled && "cursor-not-allowed opacity-55")}>
-      {options.map((o) => {
-        const on = o.id === value;
-        return (
-          <button key={o.id} type="button" role="radio" aria-checked={on} disabled={disabled}
-            onClick={() => onChange(o.id)} title={o.detail}
-            // grow/basis-auto, NOT flex-1: equal-width segments size to the longest
-            // label, so a six-level scale truncated "Medium" to "Medi…" in a 360px
-            // panel. Growing from content width instead lets each segment take only
-            // the room its own word needs.
-            className={cn(
-              "flex min-w-0 grow basis-auto items-center justify-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-label font-medium transition",
-              on ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
-            )}>
-            {o.icon && <span className="grid size-3.5 shrink-0 place-items-center">{o.icon}</span>}
-            <span className="truncate">{o.name}</span>
-            {o.starred && <span className={cn("shrink-0 text-micro", on ? "text-background/70" : "text-accent")}>✦</span>}
-          </button>
-        );
-      })}
     </div>
   );
 }
@@ -218,6 +184,9 @@ export function AutoControl(props: {
 }) {
   const chars = props.options.reduce((n, o) => n + o.name.length, 0);
   const flat = props.options.length <= SEG_MAX && chars <= SEG_CHARS_MAX && !props.options.some((o) => o.detail);
-  return flat ? <Segmented {...props} /> : <Picker {...props} />;
+  return flat
+    ? <Segmented wrap size="sm" label={props.ariaLabel} value={props.value} onChange={props.onChange} disabled={props.disabled} className="w-full"
+        options={props.options.map((o) => ({ id: o.id, label: o.name, icon: o.icon, starred: o.starred }))} />
+    : <Picker {...props} />;
 }
 
