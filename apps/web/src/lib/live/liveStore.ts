@@ -5,6 +5,9 @@ import type { AgentId, AgentMeta, ElicitationWire, PermissionOption } from "./li
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
 
 export interface DeviceOpt { id: string; label: string }
+/** A message typed in the call, waiting for its turn: it goes once the agent
+ *  is done and the user is not talking, never over either. */
+export interface TypedDraft { id: string; text: string; images: { data: string; mime: string }[] }
 export interface PendingPermission { reqId: string; question: string; options: PermissionOption[]; expiresAt?: number; toolCallId?: string }
 
 interface LiveState {
@@ -43,6 +46,7 @@ interface LiveState {
   terminals: Record<string, TermBuf>;
   // A pending agent elicitation (login URL / input form), one at a time.
   elicitation: ElicitationWire | null;
+  typedQueue: TypedDraft[];
   error?: string;
   micId?: string;
   camId?: string;
@@ -57,6 +61,9 @@ interface LiveState {
   // Answer the pending elicitation (form submit / Done / Cancel) — installed
   // by useLiveSession while a session is live.
   answerElicitation?: (action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  // Cut the reply under way so a queued typed message goes now, as speaking
+  // over it would. Installed by useLiveSession while a session is live.
+  interruptReply?: () => void;
 }
 
 export interface TermBuf { output: string; truncated: boolean; exitCode?: number | null }
@@ -97,6 +104,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   usage: null,
   terminals: {},
   elicitation: null,
+  typedQueue: [],
   mics: [],
   cams: [],
   set: (p) => set(p),

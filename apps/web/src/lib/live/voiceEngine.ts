@@ -787,11 +787,18 @@ export class VoiceEngine {
    *  like a spoken one, cutting a reply under way, and its logged judgment
    *  (`judged`) corrected. False while the user talks: nothing is sent. */
   sendAside(text: string, speaker?: string, judged?: string): boolean {
-    if (this.stopped || this.phase === "listening" || this.finalizing) return false;
+    if (!this.openTurn()) return false;
     if (judged) labelJudgment(judged, "to");
+    this.h.onUserText(text, [], speaker, judged, true);
+    return true;
+  }
+  /** A turn the user sends by hand (a typed message, a dropped sentence sent
+   *  after all): cuts a reply under way and waits on the new one. False while
+   *  the user talks: nothing opens. The caller then sends the turn itself. */
+  openTurn(): boolean {
+    if (this.stopped || this.phase === "listening" || this.finalizing) return false;
     if (this.replyOpen || this.player.playing()) this.bargeIn();
     this.setPhase("thinking"); this.spokenText = ""; this.voicing = null; this.replyFed = false; this.replyVoice = null; this.acceptingReply = true; this.replyOpen = true; this.turnSentAt = performance.now(); perf.turnCommitted(0);
-    this.h.onUserText(text, [], speaker, judged, true);
     return true;
   }
   /** "Not for you" on the turn the reply under way answers: cut like a barge-in. */

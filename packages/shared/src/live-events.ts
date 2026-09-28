@@ -139,6 +139,10 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
       id: z.string(), label: z.string(), category: z.string(),
       values: z.array(z.object({ id: z.string(), name: z.string() })), currentId: z.string().nullable(),
     })).default([]),
+    // Slash commands the session advertised (ACP available_commands_update),
+    // for the composer's slash menu. Sent back as user text "/<name> <args>".
+    // Empty for API mode and for agents that advertise none: the menu hides.
+    commands: z.array(z.object({ name: z.string(), description: z.string(), hint: z.string().optional() })).default([]),
     // Whether the session can be reopened in the agent's own CLI after a restart
     // (Claude yes, Cursor no, Codex best-effort) — drives an honest UI badge.
     resumeAcrossRestart: z.boolean().default(true),
@@ -173,19 +177,21 @@ export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 export const AGENT_ID = z.enum(AGENT_IDS);
 export type AgentIdWire = z.infer<typeof AGENT_ID>;
 export type AgentOptionWire = { id: string; label: string; category: string; values: { id: string; name: string }[]; currentId: string | null };
-export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; resumeAcrossRestart: boolean };
+export type AgentCommandWire = { name: string; description: string; hint?: string };
+export type AgentMetaWire = { models: { id: string; name: string }[]; currentModelId: string | null; modes: { id: string; name: string }[]; currentModeId: string | null; options: AgentOptionWire[]; commands: AgentCommandWire[]; resumeAcrossRestart: boolean };
 
 // ── client → server (JSON) ────────────────────────────────────────────────
 export const liveClientMsgSchema = z.discriminatedUnion("t", [
   // A completed user turn: the on-device STT's final transcript, plus the freshest
-  // frame(s) from any active visual source (camera and/or screen), base64 inline.
+  // frame(s) from any active visual source (camera and/or screen), base64 inline,
+  // and on a typed turn the images the user attached.
   // Inline (not binary) so both sources arrive atomically with the turn — no
   // accumulation/timing races. `source` labels each frame so the model is told
   // whether it's a camera or a screen.
   z.object({
     t: z.literal("user_text"),
     text: z.string(),
-    frames: z.array(z.object({ data: z.string(), mime: z.string(), source: z.enum(["camera", "screen"]) })).optional(),
+    frames: z.array(z.object({ data: z.string(), mime: z.string(), source: z.enum(["camera", "screen", "attachment"]) })).optional(),
     // The session language, read as the turn is sent, so a change applies from
     // the next turn. Absent means English.
     lang: languageSchema.optional(),
@@ -197,6 +203,8 @@ export const liveClientMsgSchema = z.discriminatedUnion("t", [
     speaker: z.string().max(40).optional(),
     // Taken for side talk, then sent on by hand: the brain is told it may be for someone else.
     aside: z.boolean().optional(),
+    // Typed in the call's composer rather than spoken.
+    typed: z.boolean().optional(),
   }),
   // Barge-in: the user started talking over the agent — abort the in-flight LLM
   // stream. Audio is stopped locally; this only stops the server generating.

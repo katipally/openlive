@@ -175,8 +175,8 @@ export class LiveClient {
     this.queue.push(s);
     if (this.queue.length > LiveClient.MAX_QUEUE) this.queue.shift();
   }
-  userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" }[], wordsAt?: number[], speaker?: string, aside?: boolean) {
-    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField(), turn: ++this.turn, wordsAt, speaker, ...(aside ? { aside } : {}) });
+  userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" | "attachment" }[], wordsAt?: number[], speaker?: string, aside?: boolean, typed?: boolean) {
+    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField(), turn: ++this.turn, wordsAt, speaker, ...(aside ? { aside } : {}), ...(typed ? { typed } : {}) });
   }
   cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken !== undefined ? { spoken } : {}) }); }
   /** A completed Flow utterance, with the metadata captured as it was spoken. */

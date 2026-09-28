@@ -27,6 +27,8 @@ export interface ChatMsg {
   aside?: boolean; // heard, judged side talk and not sent (voiceEngine onSideTalk); never saved
   judged?: string; // a spoken user turn's side talk judgment id in the agent's log, when that is on
   notForYou?: boolean; // the user marked this spoken turn "Not for you" (side talk); not saved
+  typed?: boolean; // sent from the composer rather than spoken
+  images?: string[]; // a typed turn's attached images, as data URLs; not saved
   parts: Part[];  // assistant turns only
   done: boolean;
 }
@@ -90,12 +92,12 @@ export const chatStore = {
     return { judged: msgs[i]!.judged, last: !msgs.slice(i + 1).some((x) => x.role === "user" && !x.aside) };
   },
   // Commit a completed user turn and open a fresh assistant turn; returns its id.
-  liveUserTurn(chatId: string, text: string, wordsAt?: number[], speaker?: string, judged?: string): string {
+  liveUserTurn(chatId: string, text: string, wordsAt?: number[], speaker?: string, judged?: string, typed?: { images: string[] }): string {
     const userId = nextId();
     const asstId = nextId();
     useChatState.getState()._set(chatId, (msgs) => [
       ...msgs,
-      { id: userId, role: "user", text, wordsAt, speaker, judged, parts: [], done: true },
+      { id: userId, role: "user", text, wordsAt, speaker, judged, ...(typed && { typed: true, images: typed.images }), parts: [], done: true },
       { id: asstId, role: "assistant", text: "", parts: [], done: false },
     ]);
     return asstId;
@@ -154,14 +156,14 @@ export const chatStore = {
   },
   // Seed the transcript from saved messages (resuming a conversation), preserving
   // the order text and tools appeared in.
-  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; wordsAt?: number[]; speaker?: string; tool?: string; call?: ToolCallState }> }>) {
+  preload(chatId: string, messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string; wordsAt?: number[]; speaker?: string; typed?: boolean; tool?: string; call?: ToolCallState }> }>) {
     const msgs: ChatMsg[] = [];
     for (const m of messages) {
       if (m.role !== "user" && m.role !== "assistant") continue;
       if (m.role === "user") {
         const blocks = m.content.filter((b) => b.type === "text");
         const text = blocks.map((b) => b.text ?? "").join("").trim();
-        if (text) msgs.push({ id: m.id, role: "user", text, wordsAt: blocks.length === 1 ? blocks[0]!.wordsAt : undefined, speaker: blocks.length === 1 ? blocks[0]!.speaker : undefined, parts: [], done: true });
+        if (text) msgs.push({ id: m.id, role: "user", text, wordsAt: blocks.length === 1 ? blocks[0]!.wordsAt : undefined, speaker: blocks.length === 1 ? blocks[0]!.speaker : undefined, typed: blocks.some((b) => b.typed) || undefined, parts: [], done: true });
         continue;
       }
       const parts: Part[] = [];

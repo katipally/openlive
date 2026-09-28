@@ -15,7 +15,7 @@ import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./mode
 import { kindMeta } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
-import { useLiveStore } from "./liveStore";
+import { useLiveStore, type TypedDraft } from "./liveStore";
 import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
@@ -85,6 +85,7 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
     if (!v) return null;
     const meta = JSON.parse(v) as AgentMeta;
     if (!Array.isArray(meta.options)) meta.options = []; // tolerate pre-config-options caches
+    if (!Array.isArray(meta.commands)) meta.commands = [];
     // Mode + model have their OWN dedicated pickers; drop any config option in those
     // categories so "Mode"/"Model" isn't rendered twice (agents report mode via both
     // SessionModeState and a category:"mode" option — and older caches kept it).
@@ -244,7 +245,7 @@ export function useLiveSession(chatId: string) {
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
     client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
     // Keep `error` so the user sees why it ended; start() clears it next time.
-    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null, terminals: {}, elicitation: null });
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null, terminals: {}, elicitation: null, typedQueue: [] });
   }, [chatId, set]);
   teardownRef.current = teardown;
 
@@ -653,8 +654,8 @@ export function useLiveSession(chatId: string) {
   // card (rendered deep in the transcript, no prop thread) share the exact same
   // resolution as the overlay.
   useEffect(() => {
-    useLiveStore.setState({ answerPermission, answerElicitation });
-    return () => { useLiveStore.setState({ answerPermission: undefined, answerElicitation: undefined }); };
+    useLiveStore.setState({ answerPermission, answerElicitation, interruptReply: () => engine.current?.dropReply() });
+    return () => { useLiveStore.setState({ answerPermission: undefined, answerElicitation: undefined, interruptReply: undefined }); };
   }, [answerPermission, answerElicitation]);
 
 
@@ -674,26 +675,46 @@ export function useLiveSession(chatId: string) {
 
   // A completed user turn: attach the freshest camera frame, send the text, and
   // reflect the exchange in the chat store (so it renders + persists like typing).
-  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string, aside?: boolean) => {
+  // `typed`: the images a typed turn carries (a typed turn never waits on a modal).
+  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string, aside?: boolean, typed?: TypedDraft["images"]) => {
     // While a permission ask or an elicitation is pending, EVERY utterance is the
     // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
     // "mmm" mid-approval must never become a coding turn).
-    if (answerModalByVoice(text)) return;
+    if (!typed && answerModalByVoice(text)) return;
     // Attach the freshest frame from every active visual source (camera + screen
     // can both be on), inline with the turn so the model sees exactly this moment.
     const st0 = useLiveStore.getState();
-    const frames: { data: string; mime: string; source: "camera" | "screen" }[] = [];
+    const frames: { data: string; mime: string; source: "camera" | "screen" | "attachment" }[] = (typed ?? []).map((i) => ({ ...i, source: "attachment" }));
     if (st0.cameraOn && camRef.current) { const j = await camRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "camera" }); }
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
     if (tornDown.current) return;
-    client.current?.userText(text, frames, wordsAt, speaker, aside);
+    client.current?.userText(text, frames, wordsAt, speaker, aside, !!typed);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
     if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
     resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
-    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt, speaker, judged);
+    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt, speaker, judged, typed && { images: typed.map((i) => `data:${i.mime};base64,${i.data}`) });
   }, [chatId, set, answerModalByVoice]);
+
+  // Typed messages wait their turn: sent once the reply is over and the user is
+  // not talking, a hold is not pending and no ask is open, one at a time. Typing
+  // never cuts the mic or the voice; the queued bubble's "Send now" does, on purpose.
+  useEffect(() => {
+    let sending = false;
+    const flush = (st: ReturnType<typeof useLiveStore.getState>) => {
+      const eng = engine.current;
+      const next = st.typedQueue[0];
+      if (sending || !next || !eng || !client.current || st.phase !== "idle" || eng.currentPhase() !== "idle"
+        || st.permission || st.elicitation || st.holdUntil || st.pttActive || !eng.openTurn()) return;
+      sending = true;
+      set({ typedQueue: useLiveStore.getState().typedQueue.filter((q) => q !== next) }); // openTurn just moved the store on
+      sending = false;
+      void handleUserText(next.text, [], undefined, undefined, false, next.images);
+    };
+    flush(useLiveStore.getState());
+    return useLiveStore.subscribe(flush);
+  }, [set, handleUserText]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
   // the user asks — and because the worker stays warm, this only happens once.

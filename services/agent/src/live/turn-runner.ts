@@ -7,7 +7,11 @@ import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "..
 import { runWorker } from "./worker.js";
 import { prepareToolImages } from "../tool-images.js";
 
-type Frame = { data: string; mime: string; source?: "camera" | "screen" };
+type Frame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
+
+/** Where the frames came from, as a note to the model reads it: "camera and screen", "attached image". */
+export const frameSources = (frames: Frame[]): string =>
+  [...new Set(frames.map((f) => (f.source === "attachment" ? "attached image" : f.source ?? "camera")))].join(" and ");
 
 /** Have the dedicated vision model look at the frames and report what's there, so
  *  a text-only live model can still "see". One extra round-trip — only taken when
@@ -111,7 +115,7 @@ export class LiveTurnRunner {
     if (cut > 1 && cut < this.messages.length) this.messages.splice(1, cut - 1);
   }
 
-  async runTurn(userText: string, frames: { data: string; mime: string; source?: "camera" | "screen" }[], emit: Emit, signal: AbortSignal, lang?: LanguageCode): Promise<void> {
+  async runTurn(userText: string, frames: Frame[], emit: Emit, signal: AbortSignal, lang?: LanguageCode): Promise<void> {
     const live = resolveLive();
     const { provider, model, apiKey, effort } = live;
     if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
@@ -123,7 +127,7 @@ export class LiveTurnRunner {
     let text = userText;
     let imgs: { data: string; mime: string }[] | undefined;
     if (frames.length) {
-      const sources = [...new Set(frames.map((f) => f.source ?? "camera"))].join(" and ");
+      const sources = frameSources(frames);
       // If the user configured a separate vision model, let IT see and fold its
       // description into this turn (so a text-only live model still works). Falls
       // back to attaching the frames to the live model if the describe call fails.

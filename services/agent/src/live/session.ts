@@ -17,7 +17,7 @@ import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
 
 type Frame = { data: string; mime: string };
-type TurnFrame = Frame & { source: "camera" | "screen" };
+type TurnFrame = Frame & { source: "camera" | "screen" | "attachment" };
 /** A call's tools reach the machine through its own bridge, so the context, typing
  *  and clipboard ports Flow's MCP transport hands a tool go unused here. */
 const UNUSED_PORTS = { context: null, insert: new ForwardOnlyInsertion(() => {}), clipboard: { read: async () => "", write: async () => {} } };
@@ -99,7 +99,7 @@ export class LiveSession {
   // An utterance (with its frames) that arrived mid-turn (barge-in), drained when the
   // current turn settles. Frames are queued too so a barge-in with the camera on
   // doesn't lose what the user was showing.
-  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number; wordsAt?: number[]; speaker?: string; aside?: boolean } | null = null;
+  private queued: { text: string; frames: TurnFrame[]; lang?: LanguageCode; turn?: number; wordsAt?: number[]; speaker?: string; aside?: boolean; typed?: boolean } | null = null;
   private bargeSpoken: string | null = null; // on barge-in, the text the client actually SPOKE
   private cutSaved: Promise<unknown> = Promise.resolve(); // the last cut written for a coding agent
   // The client's number for the utterance the running turn answers, echoed on its
@@ -115,7 +115,6 @@ export class LiveSession {
   private cameraOn = false;
   private screenOn = false;
   private titled = false;                  // rename the chat from the first user turn
-  private lastFrame: Frame | null = null;  // freshest frame, for the `look` handshake
   private closed = false;
 
   // `look` tool ↔ client hi-res frame handshake.
@@ -227,15 +226,10 @@ export class LiveSession {
   // ── inbound ───────────────────────────────────────────────────────────────
   private onBinary(buf: Buffer) {
     if (buf[0] !== LIVE_TAG.FRAME_IN) return;
-    const jpeg = Buffer.from(buf.subarray(1));
-    const frame: Frame = { data: jpeg.toString("base64"), mime: "image/jpeg" };
-    if (this.awaitingLookFrame && this.lookPending) {
-      const p = this.lookPending;
-      this.lookPending = null; this.awaitingLookFrame = false;
-      p.resolve(frame);
-      return;
-    }
-    this.lastFrame = frame; // freshest-per-turn camera frame
+    if (!this.awaitingLookFrame || !this.lookPending) return;
+    const p = this.lookPending;
+    this.lookPending = null; this.awaitingLookFrame = false;
+    p.resolve({ data: Buffer.from(buf.subarray(1)).toString("base64"), mime: "image/jpeg" });
   }
 
   private async onText(str: string) {
@@ -249,7 +243,7 @@ export class LiveSession {
         // is refused, and the sentence is a turn like any other.
         this.cancelPendingPermissions();
         this.cancelPendingElicitations();
-        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn, msg.wordsAt, msg.speaker, msg.aside);
+        return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn, msg.wordsAt, msg.speaker, msg.aside, msg.typed);
       case "cancel":
         // A client showing an ask holds its barge-in, so a cancel means the ask never
         // reached it: the ask is refused along with the turn.
@@ -262,7 +256,6 @@ export class LiveSession {
         else if (msg.action === "screen_on") this.screenOn = true;
         else if (msg.action === "screen_off") this.screenOn = false;
         else if (msg.action === "end") this.dispose();
-        if (!this.cameraOn && !this.screenOn) this.lastFrame = null;
         return;
       case "frame_response":
         if (this.lookPending?.reqId !== msg.reqId) return;
@@ -303,15 +296,19 @@ export class LiveSession {
   }
 
   // ── turn ────────────────────────────────────────────────────────────────
-  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode, turn?: number, wordsAt?: number[], speaker?: string, aside?: boolean) {
+  private async runTurn(text: string, frames: TurnFrame[] = [], lang?: LanguageCode, turn?: number, wordsAt?: number[], speaker?: string, aside?: boolean, typed?: boolean) {
     if (!text.trim() || this.closed) return;
     // A new utterance during an in-flight turn (barge-in) must NOT be dropped:
     // queue it (append text, keep the freshest frames) and the finally below drains
     // it as one turn.
     if (this.turnActive) {
+      const had = this.queued?.frames ?? [];
+      const live = (fs: TurnFrame[]) => fs.filter((f) => f.source !== "attachment");
+      const attached = (fs: TurnFrame[]) => fs.filter((f) => f.source === "attachment");
       this.queued = {
         text: this.queued ? `${this.queued.text} ${text}` : text,
-        frames: frames.length ? frames : (this.queued?.frames ?? []),
+        // The freshest live view, and every image the user attached along the way.
+        frames: [...attached(had), ...attached(frames), ...(live(frames).length ? live(frames) : live(had))],
         lang,
         turn,
         // Two utterances' onsets count from two different starts: a joined turn keeps none.
@@ -319,6 +316,7 @@ export class LiveSession {
         speaker: !this.queued || this.queued.speaker === speaker ? speaker : undefined,
         // A joined turn is mostly not what was sent on, so it is not flagged.
         aside: !this.queued && aside,
+        typed: !this.queued && typed,
       };
       return;
     }
@@ -339,7 +337,7 @@ export class LiveSession {
     const emit = this.blockEmit(blocks, ac.signal, foldCtx);
 
     if (this.chatId) {
-      await addMessage(this.chatId, "user", [{ type: "text", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }) }], true /* live */).catch((e) => log.error("live", "persist user turn:", e));
+      await addMessage(this.chatId, "user", [{ type: "text", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }), ...(typed && { typed }) }], true /* live */).catch((e) => log.error("live", "persist user turn:", e));
       // Auto-title the conversation from the first thing the user says.
       if (!this.titled) { this.titled = true; await renameChat(this.chatId, text.replace(/\s+/g, " ").trim().slice(0, 48) || "Live conversation").catch(() => {}); }
     }
@@ -357,7 +355,7 @@ export class LiveSession {
       await this.cutSaved;
       if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
       if (this.agent) {
-        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames }, hideHosted(gate.emit, hosted), ac.signal);
+        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames, ...(!aside && text.trimStart().startsWith("/") && { command: text }) }, hideHosted(gate.emit, hosted), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -406,7 +404,7 @@ export class LiveSession {
       this.send({ t: "sse", event: { type: "done" }, turn: this.replyTurn });
       if (this.ac === ac) { this.ac = null; this.turnActive = false; }
       const q = this.queued; this.queued = null;
-      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang, q.turn, q.wordsAt, q.speaker, q.aside); // drain a barge-in utterance (with its frames)
+      if (q && !this.closed) void this.runTurn(q.text, q.frames, q.lang, q.turn, q.wordsAt, q.speaker, q.aside, q.typed); // drain a barge-in utterance (with its frames)
     }
   }
 
