@@ -3,6 +3,7 @@
 import { Check, ShieldCheck } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui";
 import { dateLabel } from "@/lib/flow/format";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 
@@ -26,10 +27,10 @@ export function ConsentCard({ config, save, tone = "settings" }: {
   const set = (on: boolean) => save({ consent: on ? { granted: true, at: new Date().toISOString() } : { granted: false, at: "" } });
 
   return (
-    <div className={cn("flex flex-col gap-3.5 rounded-lg bg-card p-5 shadow-[var(--shadow-card)] transition-shadow duration-300",
-      tone === "onboarding" && !granted && "shadow-[var(--shadow-pop),inset_0_0_0_2px_var(--accent-soft)]")}>
+    <div className={cn("flex flex-col gap-3.5 rounded-lg bg-card p-5 shadow-card transition-shadow duration-base",
+      tone === "onboarding" && !granted && "shadow-pop ring-2 ring-inset ring-accent-soft")}>
       <div className="flex flex-wrap items-center gap-3.5">
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-full transition-colors duration-300",
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-full transition-colors duration-base",
           granted ? "bg-success/15" : "bg-surface-raised")}>
           {granted
             ? <Check className="size-4 text-success-text" strokeWidth={2.6} aria-hidden />
@@ -45,11 +46,9 @@ export function ConsentCard({ config, save, tone = "settings" }: {
               : "Say yes once and Flow stops asking. Until then, the next thing it is asked to do it will ask about out loud, and a yes there gives it this for good."}
           </span>
         </div>
-        <button type="button" onClick={() => set(!granted)}
-          className={cn("shrink-0 rounded-full px-4 py-2.5 text-callout font-medium transition active:scale-[0.98]",
-            granted ? "bg-surface-raised hover:bg-foreground/10" : "bg-accent text-accent-foreground shadow-[var(--shadow-xs)] hover:opacity-90")}>
+        <Button variant={granted ? "secondary" : "primary"} size="lg" onClick={() => set(!granted)}>
           {granted ? "Take it back" : "Yes, Flow may act"}
-        </button>
+        </Button>
       </div>
       <p className={cn("text-label leading-relaxed text-muted-strong",
         tone === "onboarding" && "rounded-md bg-surface-raised px-3.5 py-3")}>

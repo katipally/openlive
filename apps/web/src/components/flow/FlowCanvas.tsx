@@ -2,7 +2,8 @@
 
 import { cn } from "@/lib/cn";
 
-// The one centred column every Flow surface sits in.
+// The one centred column Flow onboarding sits in. (Flow home anchors to the
+// top instead, so its list can change height without moving anything.)
 //
 // `m-auto` on the inner block is what makes it balanced at any window height:
 // while the content is shorter than the window it centres, and the moment it is

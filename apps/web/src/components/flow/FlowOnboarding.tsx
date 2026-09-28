@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
-import { CONTROL, isDesktop, isMacDesktop } from "@/lib/platform";
+import { CONTROL, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { Button, linkClass } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { BrainPicker } from "./BrainPicker";
@@ -24,13 +25,10 @@ export function FlowOnboarding({ onDone, config, save }: {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className={cn("flex h-14 shrink-0 items-center gap-3 pr-3",
-        isMacDesktop ? "pl-[84px]" : "pl-4", isDesktop && "app-drag")}>
+      <header className={cn("flex h-14 shrink-0 items-center gap-3",
+        isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
         <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Set up Flow · ${step} of 2`}</span>
-        <button type="button" onClick={onDone}
-          className="shrink-0 rounded-full px-3 py-1.5 text-label font-medium text-muted-strong transition hover:bg-foreground/[0.06] hover:text-foreground [-webkit-app-region:no-drag]">
-          Skip
-        </button>
+        <Button variant="ghost" size="sm" onClick={onDone} className="[-webkit-app-region:no-drag]">Skip</Button>
       </header>
 
       <FlowCanvas>
@@ -45,7 +43,7 @@ export function FlowOnboarding({ onDone, config, save }: {
             </div>
             <AccessRows config={config} save={save} />
             <details className="group">
-              <summary className="cursor-pointer list-none text-label font-medium text-link-foreground hover:underline [&::-webkit-details-marker]:hidden">
+              <summary className={cn("cursor-pointer list-none text-label [&::-webkit-details-marker]:hidden", linkClass)}>
                 What Flow never does
               </summary>
               <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-label text-muted-strong">
@@ -68,17 +66,15 @@ export function FlowOnboarding({ onDone, config, save }: {
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {step === 2 && (
-            <button type="button" onClick={() => setStep(1)}
-              className="flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-callout font-medium text-muted-strong transition hover:bg-foreground/[0.06] hover:text-foreground">
-              <ArrowLeft className="size-4" aria-hidden /> Back
-            </button>
+            <Button variant="ghost" size="lg" onClick={() => setStep(1)}>
+              <ArrowLeft aria-hidden /> Back
+            </Button>
           )}
           <span className="flex-1" />
-          <button type="button" onClick={() => (step === 1 ? setStep(2) : onDone())}
-            className="flex shrink-0 items-center gap-2 rounded-full bg-foreground px-6 py-2.5 text-callout font-medium text-background shadow-[var(--shadow-card)] transition hover:opacity-90">
+          <Button variant="primary" size="lg" onClick={() => (step === 1 ? setStep(2) : onDone())}>
             {step === 1 ? "Continue" : "Start using Flow"}
-            <ArrowRight className="size-4" aria-hidden />
-          </button>
+            <ArrowRight aria-hidden />
+          </Button>
         </div>
       </FlowCanvas>
     </div>
