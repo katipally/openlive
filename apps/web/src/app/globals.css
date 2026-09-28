@@ -38,10 +38,57 @@
   --color-muted-strong: var(--muted-strong);
   --color-arc-text: var(--arc-text);
   --color-surface-raised: var(--surface-raised);
+  /* The one dim behind every modal, sheet and drawer, in both themes and looks. */
+  --color-scrim: rgb(0 0 0 / 0.4);
+  /* Kit tokens: a recessed track (segmented, slider, search), the thumb that
+     rides it, form-control and secondary-button fills, chips, the specular
+     hairline on floating surfaces, and the inverted tooltip. */
+  --color-track: var(--track);
+  --color-thumb: var(--thumb);
+  --color-control: var(--control);
+  --color-secondary: var(--secondary);
+  --color-chip: var(--chip);
+  --color-hairline: var(--hairline);
+  --color-tooltip: var(--tooltip);
+  --color-tooltip-foreground: var(--tooltip-foreground);
 
   --shadow-xs: var(--shadow-xs);
   --shadow-card: var(--shadow-card);
   --shadow-pop: var(--shadow-pop);
+  --shadow-track: var(--shadow-track);
+  --shadow-thumb: var(--shadow-thumb);
+  --shadow-rim: var(--shadow-rim);
+  --shadow-primary: var(--shadow-primary);
+  --shadow-mark: var(--shadow-mark);
+
+  /* The layering ladder (values in :root) as utilities: z-modal, z-toast, ... */
+  --z-index-nav: var(--z-nav);
+  --z-index-stage: var(--z-stage);
+  --z-index-overlay: var(--z-overlay);
+  --z-index-drawer-scrim: var(--z-drawer-scrim);
+  --z-index-drawer: var(--z-drawer);
+  --z-index-settings: var(--z-settings);
+  --z-index-tour: var(--z-tour);
+  --z-index-palette: var(--z-palette);
+  --z-index-modal: var(--z-modal);
+  --z-index-banner: var(--z-banner);
+  --z-index-toast: var(--z-toast);
+  --z-index-window: var(--z-window);
+
+  /* The motion vocabulary (values in :root) as utilities: ease-standard,
+     duration-base, ... */
+  --ease-standard: var(--ease-standard);
+  --ease-out-quart: var(--ease-out-quart);
+  --ease-settle: var(--ease-settle);
+  --ease-spring: var(--ease-spring);
+  --transition-duration-press: var(--dur-press);
+  --transition-duration-fast: var(--dur-fast);
+  --transition-duration-base: var(--dur-base);
+  --transition-duration-settle: var(--dur-settle);
+  --transition-duration-look: var(--dur-look);
+  --transition-duration-slow: var(--dur-slow);
+  --transition-duration-spring: var(--dur-spring);
+  --transition-duration-meter: var(--dur-meter);
 
   /* ── Type scale — the ONLY font sizes in the app. Each token is a Tailwind
      text-* utility (text-micro, text-caption, …). Desktop-app scale: denser
@@ -68,17 +115,41 @@
   --text-chat: 13px;
   --text-chat--line-height: 21px;
 
+  /* One radius system. sm: chips' inner marks, badges, checkboxes, tooltips,
+     menu items. md: fields, selects, segmented tracks, list rows. lg: cards and
+     menus. xl: panels and sheets. Every button is a capsule (rounded-full).
+     Nested corners are concentric: inner = outer - the padding between them. */
   --radius-sm: 6px;
   --radius-md: 9px;
   --radius-lg: 12px;
   --radius-xl: 16px;
 
+  /* Spacing tokens for the kit. Control heights: sm 28, field 32, md 36, lg 44;
+     row is a grouped list row's minimum height. In rem, so they scale with the
+     root font size (h-control-md, size-control-sm, min-h-row, ...). */
+  --spacing-control-sm: 1.75rem;
+  --spacing-field: 2rem;
+  --spacing-control-md: 2.25rem;
+  --spacing-control-lg: 2.75rem;
+  --spacing-row: 3.25rem;
+  --spacing-card-x: 1rem;
+  --spacing-section: 1.75rem;
+  /* The timeline's one rhythm, in a call and in a Flow session alike: a beat
+     between the pieces of one turn, a turn between one speaker and the next. */
+  --spacing-beat: 0.5rem;
+  --spacing-turn: 1.25rem;
+  /* The frameless window's own chrome, in CSS px like the OS draws it: the
+     macOS traffic lights on the left, the Windows and Linux caption buttons
+     (3 x 46) on the right. A title bar keeps its content clear of both. */
+  --spacing-traffic-lights: 84px;
+  --spacing-window-controls: 140px;
+
   /* Motion defaults — every bare transition utility (hovers, presses, colour
      shifts) inherits these, so the whole app eases the same buttery way without
-     sprinkling per-element duration classes. Mirrors DUR/EASE in lib/gsap.ts.
+     sprinkling per-element duration classes. Mirrors the spec in lib/motion.ts.
      Explicit duration/ease utilities still override per element. */
   --default-transition-duration: 200ms;
-  --default-transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-timing-function: var(--ease-standard);
 
   /* Bundled Geist (next/font embeds the files at build time — no runtime
      fetch): identical rendering on macOS and Windows. The system stack was
@@ -100,7 +171,9 @@
   --elevated: #fcfaf6;
   --popover: #fcfaf6;
   --foreground: #1a1a18;
-  --muted-foreground: #6a6a66;
+  /* Clears 4.5:1 on the tinted fills it sits on too (a segmented track, an
+     accent-tinted card); #6a6a66 fell to 4.1 there. */
+  --muted-foreground: #5d5d58;
   /* 0.58 clears 4.5:1 on every light surface (4.95 on --surface, 5.07 on
      --background, 5.24 on --card); 0.45 sat near 3.3:1. */
   --faint: rgba(0, 0, 0, 0.58);
@@ -114,7 +187,7 @@
   /* As words: 5.10:1 on --surface, 4.71:1 on its own /10 tint over --background. */
   --destructive: #b91c1c;
   --success: #16a34a;
-  --link-foreground: #2563eb;
+  --link-foreground: #1d4ed8;
   --success-text: #15803d;
   --destructive-text: #b91c1c;
   --destructive-fill: #c81e1e;
@@ -133,13 +206,49 @@
   --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.09), 0 24px 48px -16px rgba(0, 0, 0, 0.24);
   --surface-raised: #f4f2ec;
 
-  /* Shared motion vocabulary — MIRRORS DUR/EASE in lib/gsap.ts; keep the two in
-     sync. Buttery: longer, smooth-settling, subtle overshoot on entrances. */
+  --track: rgba(60, 50, 30, 0.08);
+  --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.10), inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --thumb: #fdfcf9;
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 6px -2px rgba(0, 0, 0, 0.10);
+  --control: #faf8f3;
+  --secondary: #f4f2ec;
+  --chip: #f4f2ec;
+  --hairline: var(--border);
+  --shadow-rim: 0 0 #0000;
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  /* The outline of an empty checkbox or radio. */
+  --shadow-mark: inset 0 0 0 1.5px var(--border-heavy);
+  --tooltip: #1a1a18;
+  --tooltip-foreground: #fafafa;
+  /* Backdrop for floating surfaces (menus, tooltips, floating bars). None when
+     flat: their fills are opaque. */
+  --surface-blur: none;
+  /* Anything floating over app content (dialogs, toasts, the floating Activity
+     panel): the card in Flat; under glass, an opaque-enough fill that reads over
+     any content, blurred by surface-float. */
+  --float: var(--card);
+  --scrim-blur: none;
+
+  /* Shared motion vocabulary. MIRRORS the spec in lib/motion.ts; keep the two
+     in sync. standard: hovers and colour (the default
+     transition). settle: thumbs and knobs. look: the Glass/Flat switch.
+     spring: SNAPPY sampled into CSS, for what CSS moves itself (a slider thumb,
+     a tick). press: how fast a control gives under the finger; it comes back
+     on the default transition, so a tap never feels stuck. */
+  --ease-spring: linear(0, 0.084, 0.266, 0.471, 0.657, 0.805, 0.911, 0.979, 1.017, 1.035, 1.038, 1.034, 1.027, 1.019, 1.012, 1.007, 1.003, 1.001, 0.999, 1);
+  --dur-spring: 420ms;
+  --dur-press: 90ms;
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-settle: cubic-bezier(0.34, 1.32, 0.64, 1); /* CSS ≈ GSAP back.out — a touch of overshoot */
   --dur-fast: 220ms;
   --dur-base: 340ms;
+  --dur-settle: 380ms;
+  --dur-look: 400ms;
   --dur-slow: 440ms;
+  /* A level or progress meter: one step per reading, so it glides between
+     samples without lagging behind them. */
+  --dur-meter: 100ms;
 
   /* Layering scale — ONE ladder so surfaces can't render in the wrong order.
      Blocking modals (permission / elicitation) MUST sit above Settings, or a
@@ -147,7 +256,8 @@
   --z-nav: 30;
   --z-stage: 40;     /* full-window call surfaces: the lobby and the call itself */
   --z-overlay: 50;   /* drawers, side panels, in-call popovers */
-  --z-drawer: 55;    /* the Sessions drawer (its scrim sits one below) */
+  --z-drawer-scrim: 54;
+  --z-drawer: 55;    /* the Sessions drawer, over its own scrim */
   --z-settings: 60;  /* full-screen Settings overlay */
   --z-tour: 65;      /* spotlight tour: over Settings, which it points into */
   --z-palette: 66;   /* ⌘K palette + shortcuts sheet: over Settings and the tour, under blocking modals */
@@ -194,6 +304,19 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
   --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.5), 0 24px 48px -16px rgba(0, 0, 0, 0.7);
   --surface-raised: #17171a;
+
+  --track: rgba(0, 0, 0, 0.38);
+  --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --thumb: #2e2e34;
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --control: #202024;
+  --secondary: rgba(255, 255, 255, 0.07);
+  --chip: rgba(255, 255, 255, 0.06);
+  --tooltip: #f4f4f5;
+  --tooltip-foreground: #141416;
+  /* Near-black leaves no room for a shadow to lift anything, so floating
+     surfaces step up to the elevated fill to stand off the scrim. */
+  --float: var(--elevated);
 }
 
 html, body {
@@ -250,6 +373,35 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
 .desktop :is(input, textarea, [contenteditable="true"], .ol-md, .ol-selectable, pre, code) {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* A small text control's pointer target grows to the 28px minimum, invisibly,
+   so nothing around it moves. */
+@utility hit {
+  position: relative;
+  &::after { content: ""; position: absolute; inset-block: min(0px, calc((100% - 1.75rem) / 2)); inset-inline: -4px; }
+}
+
+/* Floating surfaces opt in with `surface-blur`; the look decides whether it blurs. */
+@utility surface-blur {
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+/* The one recipe for a surface over app content rather than over the desktop. */
+@utility surface-float {
+  background-color: var(--float);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+/* The drag corner of a floating tile (the camera, a shared screen). */
+@utility grip {
+  background: linear-gradient(135deg, transparent 50%, rgb(255 255 255 / 0.5) 50%);
+}
+/* Behind a modal: under glass, what it dims is also blurred past reading. */
+@utility scrim {
+  background-color: var(--color-scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
 }
 
 /* ─── Scrollbars ──────────────────────────────────────────────────────────── */
