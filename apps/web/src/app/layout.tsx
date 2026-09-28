@@ -11,14 +11,21 @@ import "./globals.css";
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
+const BOOT_LOOK = `try{var a=window.openlive&&window.openlive.appearance&&window.openlive.appearance.get();if(a&&a.look==="glass")document.documentElement.dataset.look="glass"}catch(e){}`;
+
 export const metadata: Metadata = {
   title: "OpenLive",
-  description: "Ears, eyes, and a voice for your AI. Bring your own model or talk to your coding agents — the whole voice loop runs on your device.",
+  description: "Ears, eyes, and a voice for your AI. Bring your own model or talk to your coding agents. The whole voice loop runs on your device.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
+      <head>
+        {/* Before the first paint: the desktop shell says which look this window
+            wears, so a glass window never flashes flat. lib/look.ts takes over. */}
+        <script dangerouslySetInnerHTML={{ __html: BOOT_LOOK }} />
+      </head>
       <body className="h-full antialiased">
         <Providers>{children}</Providers>
         <Toasts />

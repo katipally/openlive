@@ -482,7 +482,9 @@ function createSplash() {
     ...materialOptions(look), show: true, center: true, hasShadow: true,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
-  splashWin.loadFile(path.join(__dirname, "splash.html"), { query: { v: app.getVersion() } });
+  splashWin.loadFile(path.join(__dirname, "splash.html"), {
+    query: { v: app.getVersion(), theme: nativeTheme.shouldUseDarkColors ? "dark" : "light", look },
+  });
   splashWin.on("closed", () => { splashWin = null; });
 }
 
