@@ -80,8 +80,21 @@ const children = [];
 // would silently quit (exit 0) whenever the installed app is open.
 if (DEV) app.setPath("userData", `${app.getPath("userData")}-dev`);
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
+
+// ── the OpenLive home: ~/.openlive installed, <repo>/data in a dev checkout ───
+// One paths module for every process (packages/shared/src/home), shipped
+// beside the servers in a packaged build. Chromium's own files stay in userData.
+const home = require(app.isPackaged ? path.join(process.resourcesPath, "home", "index.mjs") : path.join(__dirname, "..", "..", "packages", "shared", "src", "home", "index.mjs"));
+const HOME = home.resolveHome({ packaged: app.isPackaged });
+const PATHS = home.layout(HOME);
+// Before anything reads the home: the installed app's files move in from userData,
+// once. A dev checkout's data/ is reshaped in place by its servers instead.
+if (app.isPackaged) home.migrateHome(HOME, { from: path.join(app.getPath("userData"), "data"), userData: app.getPath("userData") });
+home.privateDir(PATHS.state);
+const stateFile = (name) => path.join(PATHS.state, name);
+
 const telemetry = createTelemetry({
-  userDataDir: app.getPath("userData"),
+  stateDir: PATHS.state,
   configPath: path.join(__dirname, "telemetry-config.json"),
   appVersion: app.getVersion(), platform: process.platform, arch: process.arch,
   archTranslated: !!app.runningUnderARM64Translation,
@@ -191,7 +204,7 @@ function portFree(port) {
 
 // PIDs of the servers we spawned, persisted so the NEXT launch can reap them even
 // if this process was force-killed (Windows especially: children outlive the parent).
-const pidFile = () => path.join(app.getPath("userData"), "server-pids.json");
+const pidFile = () => stateFile("server-pids.json");
 function recordServerPids() {
   try { fs.writeFileSync(pidFile(), JSON.stringify(children.map((c) => c.pid).filter(Boolean))); } catch { /* best-effort */ }
 }
@@ -304,14 +317,13 @@ function spawnServer(name, scriptRel, env) {
 async function startServers() {
   if (DEV) return true; // dev servers come from `pnpm dev`
   if (!(await ensurePortsFree())) return false;
-  const dataDir = path.join(app.getPath("userData"), "data");
   // The agent binds loopback only (services/agent/src/server.ts defaults AGENT_HOST
   // to 127.0.0.1), so it is never reachable off this machine. That closes the LAN
   // exposure by itself; the renderer connects over localhost.
   spawnServer("agent", "agent/agent.mjs", {
     AGENT_PORT: String(AGENT_PORT),
     AGENT_HOST: "127.0.0.1",
-    OPENLIVE_DATA_DIR: dataDir,
+    OPENLIVE_HOME: HOME,
     WEB_PUBLIC_URL: WEB_URL,
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN,
     // The computer-use helper the agent drives; its own app, so its grants are its own.
@@ -328,7 +340,7 @@ async function startServers() {
     PORT: String(WEB_PORT),
     HOSTNAME: WEB_HOST,
     NODE_ENV: "production",
-    OPENLIVE_DATA_DIR: dataDir,
+    OPENLIVE_HOME: HOME,
     AGENT_PORT: String(AGENT_PORT),
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN, // the /api/voice proxy forwards it as a header
     OPENLIVE_SETTINGS_SECRET: SETTINGS_TOKEN,
@@ -364,10 +376,10 @@ function agentArgs() {
 }
 
 // ── window bounds: remember size/position across launches ─────────────────────
-const stateFile = () => path.join(app.getPath("userData"), "window-state.json");
+const windowStateFile = () => stateFile("window-state.json");
 function loadWindowState() {
   try {
-    const s = JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+    const s = JSON.parse(fs.readFileSync(windowStateFile(), "utf8"));
     // Only restore if the saved rect still lands on a connected display.
     const onScreen = screen.getAllDisplays().some((d) => {
       const b = d.workArea;
@@ -381,11 +393,11 @@ function saveWindowState() {
   // Skip fullscreen bounds: persisting them would reopen the window screen-filling
   // instead of at its real size.
   if (!mainWin || mainWin.isFullScreen()) return;
-  try { fs.writeFileSync(stateFile(), JSON.stringify(mainWin.getBounds())); } catch { /* best-effort */ }
+  try { fs.writeFileSync(windowStateFile(), JSON.stringify(mainWin.getBounds())); } catch { /* best-effort */ }
 }
 
 // ── one-time things (first ⌘Q notice, the login-item default) ────────────────
-const onceFile = () => path.join(app.getPath("userData"), "once.json");
+const onceFile = () => stateFile("once.json");
 /** True the first time it's asked about `name`, false on every call after. */
 function firstTime(name) {
   let done = {};
@@ -405,7 +417,7 @@ const VIBRANCY = "under-window";
 const CLEAR = "#00000000";
 const PAGE_BG = { dark: "#0b0b0c", light: "#efede8" }; // --background in .dark / :root
 const THEMES = new Set(["system", "light", "dark"]);
-const appearanceFile = () => path.join(app.getPath("userData"), "appearance.json");
+const appearanceFile = () => stateFile("appearance.json");
 let appearance = {};          // { theme, look, probe: { version, slow } }
 let look = "flat";            // what the main window wears right now
 let lookTimer = null;
@@ -1203,7 +1215,7 @@ function wireWindowIpc() {
 // On by default; a person who keeps working across a lock (a long call, a running
 // task) can turn it off. Sleep is never up to them. Electron emits lock-screen and
 // unlock-screen on macOS and Windows only, so on Linux this has no effect.
-const preferencesFile = () => path.join(app.getPath("userData"), "preferences.json");
+const preferencesFile = () => stateFile("preferences.json");
 let endOnLock = true;
 
 function loadPreferences() {
@@ -1274,14 +1286,13 @@ function wireCrashReports() {
 
 // ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
 // The agent's reveal/open paths are model-driven — scope them to the bound
-// workspace (reported by the renderer on every bind) plus the app's own data
-// and its skills folder (as packages/db skillsDir() resolves it).
+// workspace (reported by the renderer on every bind) plus the app's own data,
+// its scratch files and its skills folder. Never secrets/ or the rest of the home.
 let workspaceDir = "";
 function pathAllowed(p) {
   let real;
   try { real = fs.realpathSync(path.resolve(String(p ?? ""))); } catch { return false; }
-  const skills = process.env.OPENLIVE_SKILLS_DIR ? path.resolve(process.env.OPENLIVE_SKILLS_DIR) : path.join(os.homedir(), ".openlive", "skills");
-  const roots = [workspaceDir, path.join(app.getPath("userData"), "data"), skills].filter(Boolean);
+  const roots = [workspaceDir, PATHS.data, PATHS.cache, PATHS.skills].filter(Boolean);
   return roots.some((root) => {
     try { const r = fs.realpathSync(root); return real === r || real.startsWith(r + path.sep); } catch { return false; }
   });
@@ -1298,6 +1309,8 @@ function wireBridgeIpc() {
         const r = await (mainWin ? dialog.showOpenDialog(mainWin, opts) : dialog.showOpenDialog(opts));
         return r.canceled ? "" : (r.filePaths[0] ?? "");
       }
+      // Settings, About: the whole folder, opened where the person can see it.
+      if (op === "open_home") { const err = await shell.openPath(HOME); return err || "Opened."; }
       if (op === "open_url") {
         let u = String(arg ?? "").trim();
         if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
@@ -1435,7 +1448,7 @@ async function boot() {
   const openedAtLogin = process.argv.includes(HIDDEN_ARG)
     || (process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin);
   const launchKind = openedAtLogin ? "login" : "manual";
-  // Before anything creates once.json: what userData already holds is how a new install tells from an upgrade.
+  // Before anything creates once.json: what the state folder already holds is how a new install tells from an upgrade.
   telemetry.start({ launchKind });
   // The packaged app takes its dock icon from icon.icns; the dev binary would show Electron's.
   if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, "build", "icon.png"));

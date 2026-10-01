@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUILTIN_PROVIDERS, withSettings, type Message } from "@openlive/harness";
 
-process.env.OPENLIVE_DATA_DIR = mkdtempSync(join(tmpdir(), "openlive-toolimg-"));
+process.env.OPENLIVE_HOME = mkdtempSync(join(tmpdir(), "openlive-toolimg-"));
 const { prepareToolImages, takesImages } = await import("./tool-images");
 
 const ollama = withSettings(BUILTIN_PROVIDERS.find((p) => p.id === "ollama")!, { ollamaBaseUrl: "http://ollama.test:11434" });

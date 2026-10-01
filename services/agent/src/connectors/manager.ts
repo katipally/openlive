@@ -1,6 +1,6 @@
 import { Client, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError, SdkError, SdkErrorCode, type CallToolResult, type ElicitRequestParams, type ElicitResult, type FetchLike, type Tool as McpTool, type Transport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { connectorSecrets, getConnectorRow, setConnectorTools, type CachedTool, type ConnectorRow } from "@openlive/db";
+import { connectorSecrets, getConnectorRow, setConnectorTools, transportWire, type CachedTool, type ConnectorRow } from "@openlive/db";
 import type { ConnectorStatus } from "@openlive/shared";
 import type { Session } from "../capabilities/types.js";
 import { log } from "../log.js";
@@ -25,7 +25,11 @@ export interface ConnectorState { status: ConnectorStatus; error?: string }
 /** A session making a call, so a server's question mid-call reaches the person who asked. */
 type Caller = Pick<Session, "elicit" | "openUrl" | "device">;
 
-interface Live { client: Client; close(): Promise<void> }
+/** `config`: what the connection was opened with (see configOf). */
+interface Live { client: Client; close(): Promise<void>; config?: string }
+
+/** Everything a connection is made from, secrets decrypted, so any change to it by hand shows. In memory only. */
+const configOf = (row: ConnectorRow) => JSON.stringify([row.enabled, row.spawnConsent, transportWire(row.transport), connectorSecrets(row)]);
 
 export class ConsentRequired extends Error {
   constructor(name: string) { super(`${name} has not been allowed to run yet. Allow it in Settings, Connectors.`); }
@@ -108,6 +112,19 @@ export class ConnectorManager {
   }
 
   /**
+   * After mcp.json changed by hand: a connection whose connector is gone or was
+   * opened from what is no longer written is closed, and opens again as written
+   * on next use. One the app reopened itself already matches. O(connectors).
+   */
+  async reconcile(rows: ConnectorRow[]): Promise<void> {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    await Promise.all([...this.live].map(([id, live]) => {
+      const row = byId.get(id);
+      return row && configOf(row) === live.config ? undefined : this.disconnect(id);
+    }));
+  }
+
+  /**
    * Keep cached tool lists fresh without starting anything a session did not ask for:
    * a live connection past its list's ttlMs re-lists, and a connector never
    * listed connects once to learn its tools. O(connectors).
@@ -139,6 +156,7 @@ export class ConnectorManager {
     this.set(id, { status: "connecting" });
     try {
       const live = row.transport.type === "stdio" ? await this.openStdio(row) : await this.openHttp(row);
+      live.config = configOf(row);
       live.client.onclose = () => {
         if (this.live.get(id)?.client !== live.client) return; // we closed it ourselves
         this.live.delete(id);

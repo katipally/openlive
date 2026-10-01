@@ -1,5 +1,5 @@
 // Runnable self-check for the resume round-trip's non-trivial bits. Run:
-//   OPENLIVE_DATA_DIR=$(mktemp -d) pnpm --filter @openlive/agent exec tsx src/live/replay.selfcheck.ts
+//   OPENLIVE_HOME=$(mktemp -d) pnpm --filter @openlive/agent exec tsx src/live/replay.selfcheck.ts
 // Guards: (1) the agent session id persists onto the chat summary (History dedup +
 // "continue in the CLI"); (2) replay-ingest persists ONLY into an empty chat; (3) the
 // replay block-merge folds streamed chunks into one message.

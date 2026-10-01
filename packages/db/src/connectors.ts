@@ -1,53 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { ConnectorPatch, ConnectorSource, ConnectorTransportInput, ConnectorTransportWire } from "@openlive/shared";
-import { readJson, updateJson } from "./store";
+import { readMcp, uniqueName, uniqueSlug, writeMcp, type CachedTool, type ConnectorRow, type ConnectorSecrets, type StoredTransport } from "@openlive/shared/home";
+import { readJson, readText, withFileLock, writeJson } from "./store";
 import { encryptSecret, decryptSecret } from "./crypto";
+import { PATHS } from "./paths";
 
-// MCP connectors, global to every brain and mode. Same economics as providers:
-// one small JSON file, read fresh, written under the cross-process lock. Every
+// MCP connectors, global to every brain and mode. mcp.json holds them in the
+// standard {"mcpServers": {...}} shape, so a person can edit it by hand; every
 // secret (env values marked secret, header values, OAuth tokens and client
-// credentials) is stored as encryptSecret() ciphertext and decrypted only here,
-// on the server, at the moment it is used.
+// credentials) is encryptSecret() ciphertext in secrets/connectors.json, and
+// decrypted only here, on the server, at the moment it is used. Read fresh on
+// every call, so a hand edit counts at once; written under one cross-process lock.
 
-const CONNECTORS = "connectors.json";
-
-/** A tool as the server last listed it. Public metadata, kept so a session can offer it without a live connection. */
-export interface CachedTool {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  readOnly: boolean;
-}
-
-type StoredTransport =
-  | { type: "stdio"; command: string; args: string[]; cwd?: string; env: Record<string, string>; secretEnv: Record<string, string> }
-  | { type: "http"; url: string; headers: Record<string, string> };
-
-/** One authorization server's credentials, both encrypted. */
-interface IssuerCreds { tokens?: string; client?: string }
-
-export interface ConnectorRow {
-  id: string;
-  name: string;
-  slug: string;
-  source: ConnectorSource;
-  createdAt: string;
-  enabled: boolean;
-  disabledTools: string[];
-  spawnConsent: boolean;
-  transport: StoredTransport;
-  clientMetadataUrl?: string;
-  tools?: CachedTool[];
-  toolsAt?: number;
-  toolsTtlMs?: number;
-  oauth?: {
-    /** The issuer whose tokens were saved last, for the per-request token read that carries no issuer. */
-    latest?: string;
-    issuers: Record<string, IssuerCreds>;
-    /** RFC 9728 / 8414 discovery results. Public metadata. */
-    discovery?: unknown;
-  };
-}
+export { slugify } from "@openlive/shared/home";
+export type { CachedTool, ConnectorRow } from "@openlive/shared/home";
 
 export interface ConnectorInput {
   name: string;
@@ -55,23 +21,32 @@ export interface ConnectorInput {
   source?: ConnectorSource;
 }
 
-const readRows = () => readJson<ConnectorRow[]>(CONNECTORS, []);
+/** mcp.json is there but cannot be read, so nothing is written over it. */
+export class McpFileError extends Error {}
+
+const load = () => readMcp(readText(PATHS.mcp), readJson<ConnectorSecrets>(PATHS.connectorSecrets, {}), encryptSecret);
+const readRows = () => load().rows;
+
+/** What is wrong with mcp.json as written, one line each, for the Connectors screen. */
+export const connectorProblems = (): string[] => load().problems;
+
+/** Change the rows under the lock. `names` holds every server key in the file, the unusable ones too. */
+function updateRows<R>(fn: (rows: ConnectorRow[], names: Set<string>) => R): Promise<R> {
+  return withFileLock(PATHS.mcp, () => {
+    const cur = load();
+    if (!cur.doc) throw new McpFileError(`${cur.problems[0]} Fix it by hand, then try again.`);
+    const out = fn(cur.rows, new Set([...cur.rows.map((r) => r.name), ...Object.keys(cur.invalid)]));
+    const { file, secrets } = writeMcp(cur.rows, cur.doc, cur.invalid, readJson<ConnectorSecrets>(PATHS.connectorSecrets, {}));
+    // Secrets first: a reference in mcp.json never points at nothing.
+    writeJson(PATHS.connectorSecrets, secrets);
+    writeJson(PATHS.mcp, file);
+    return out;
+  });
+}
 
 /** Env names that conventionally hold a credential, for input that does not say which are secret. */
 const SECRET_NAME = /key|token|secret|passw|pat\b|auth|credential|cookie|session/i;
 export const looksSecret = (name: string): boolean => SECRET_NAME.test(name);
-
-/** `GitHub (work)` → `github_work`. Short, because it prefixes every tool name. */
-export function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24).replace(/_+$/, "") || "mcp";
-}
-
-function uniqueSlug(name: string, rows: ConnectorRow[]): string {
-  const taken = new Set(rows.map((r) => r.slug));
-  const base = slugify(name);
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base}_${n}`)) return `${base}_${n}`;
-}
 
 const encryptAll = (m: Record<string, string> = {}) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, encryptSecret(v)]));
 
@@ -94,13 +69,12 @@ export function getConnectorRow(id: string): ConnectorRow | undefined {
   return readRows().find((r) => r.id === id);
 }
 
-export async function createConnector(input: ConnectorInput): Promise<ConnectorRow> {
-  let row!: ConnectorRow;
-  await updateJson<ConnectorRow[]>(CONNECTORS, [], (rows) => {
-    row = {
+export function createConnector(input: ConnectorInput): Promise<ConnectorRow> {
+  return updateRows((rows, names) => {
+    const row: ConnectorRow = {
       id: randomUUID(),
-      name: input.name.trim() || "MCP server",
-      slug: uniqueSlug(input.name, rows),
+      name: uniqueName(input.name.trim() || "MCP server", names),
+      slug: uniqueSlug(input.name, new Set(rows.map((r) => r.slug))),
       source: input.source ?? "manual",
       createdAt: new Date().toISOString(),
       enabled: true,
@@ -110,20 +84,17 @@ export async function createConnector(input: ConnectorInput): Promise<ConnectorR
       transport: storeTransport(input.transport),
     };
     rows.push(row);
-    return rows;
+    return row;
   });
-  return row;
 }
 
 /** Apply `fn` to one row under the lock. Resolves the row as written, or undefined when it is gone. */
-async function mutate(id: string, fn: (row: ConnectorRow) => void): Promise<ConnectorRow | undefined> {
-  let out: ConnectorRow | undefined;
-  await updateJson<ConnectorRow[]>(CONNECTORS, [], (rows) => {
+function mutate(id: string, fn: (row: ConnectorRow, names: Set<string>) => void): Promise<ConnectorRow | undefined> {
+  return updateRows((rows, names) => {
     const row = rows.find((r) => r.id === id);
-    if (row) { fn(row); out = row; }
-    return rows;
+    if (row) fn(row, names);
+    return row;
   });
-  return out;
 }
 
 function mergeSecrets(into: Record<string, string>, patch: Record<string, string | null>): void {
@@ -134,8 +105,8 @@ function mergeSecrets(into: Record<string, string>, patch: Record<string, string
 }
 
 export function updateConnector(id: string, p: ConnectorPatch): Promise<ConnectorRow | undefined> {
-  return mutate(id, (row) => {
-    if (p.name !== undefined && p.name.trim()) row.name = p.name.trim();
+  return mutate(id, (row, names) => {
+    if (p.name?.trim() && p.name.trim() !== row.name) { names.delete(row.name); row.name = uniqueName(p.name.trim(), names); }
     if (p.enabled !== undefined) row.enabled = p.enabled;
     if (p.clientMetadataUrl !== undefined) {
       if (p.clientMetadataUrl) row.clientMetadataUrl = p.clientMetadataUrl;
@@ -182,13 +153,12 @@ export function setConnectorTools(id: string, tools: CachedTool[], ttlMs?: numbe
   });
 }
 
-export async function removeConnector(id: string): Promise<boolean> {
-  let removed = false;
-  await updateJson<ConnectorRow[]>(CONNECTORS, [], (rows) => {
-    removed = rows.some((r) => r.id === id);
-    return rows.filter((r) => r.id !== id);
+export function removeConnector(id: string): Promise<boolean> {
+  return updateRows((rows) => {
+    const i = rows.findIndex((r) => r.id === id);
+    if (i >= 0) rows.splice(i, 1);
+    return i >= 0;
   });
-  return removed;
 }
 
 /** Server-only: the env and headers a connection is made with, decrypted. A value that no longer decrypts is left out. */

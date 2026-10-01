@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-process.env.OPENLIVE_DATA_DIR = mkdtempSync(join(tmpdir(), "openlive-settings-"));
+process.env.OPENLIVE_HOME = mkdtempSync(join(tmpdir(), "openlive-settings-"));
 const SECRET = "per-launch-secret";
 process.env.OPENLIVE_SETTINGS_SECRET = SECRET;
 const { GET, PUT } = await import("./route");

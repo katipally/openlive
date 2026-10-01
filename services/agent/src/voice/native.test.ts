@@ -33,7 +33,7 @@ let port: number;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ol-native-ws-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   vi.resetModules();
   models = await import("./native-models.js");
   native = await import("./native.js");
@@ -55,7 +55,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await new Promise((r) => server.close(r));
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { w.posted.length = 0; });

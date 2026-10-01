@@ -1,15 +1,13 @@
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { layout, resolveHome } from "@openlive/shared/home";
 
-// Flow is deliberately global: one store per machine, shared by the Electron main
-// process, the agent service and the renderer, with no workspace anywhere in it.
-// That is why this does NOT reuse packages/db's repo-relative DATA_DIR.
-// Every path is resolved per call so a test (or a dev run) can repoint
-// OPENLIVE_FLOW_HOME without re-importing the module.
+// Flow is deliberately global: one store per OpenLive home, shared by the agent
+// service and the web app, with no workspace anywhere in it. Every path is
+// resolved per call so a test (or a dev run) can repoint OPENLIVE_FLOW_HOME or
+// OPENLIVE_HOME without re-importing the module.
 
-export const flowHome = (): string =>
-  process.env.OPENLIVE_FLOW_HOME ? resolve(process.env.OPENLIVE_FLOW_HOME) : join(homedir(), ".openlive");
+export const flowHome = (): string => layout(resolveHome()).flowHome;
 
 export const flowDir = (): string => join(flowHome(), "flow");
 export const configPath = (): string => join(flowDir(), "config.json");

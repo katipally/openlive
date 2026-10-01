@@ -10,7 +10,7 @@ let m: typeof import("./native-models.js");
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ol-native-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   // Engines as a build from before variants left them on disk.
   for (const f of ["parakeet/tokens.txt", "kitten.part/stale", "pocket/old.txt", "pocket-int8/new.txt"]) {
     mkdirSync(dirname(join(dir, "models", f)), { recursive: true });
@@ -20,7 +20,7 @@ beforeAll(async () => {
   m = await import("./native-models.js");
 });
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -177,7 +177,8 @@ describe("sherpaConfig", () => {
 
 describe("engines downloaded before variants existed", () => {
   it("move to their variant's dir once, and never over one already there", () => {
-    const models = join(dir, "models");
+    // Seeded in the old flat layout: the home's move put them under data/ first.
+    const models = join(dir, "data", "models");
     expect(existsSync(join(models, "parakeet-0.6b-v2-int8", "tokens.txt"))).toBe(true);
     expect(existsSync(join(models, "parakeet"))).toBe(false);
     expect(existsSync(join(models, "kitten.part"))).toBe(false);

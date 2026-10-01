@@ -1,13 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { getSetting, updateSetting } from "@openlive/db";
+import { getMemory, updateMemory } from "@openlive/db";
 import { cleanNote, noteCost, noteKey, NOTES_BUDGET_CHARS, NOTES_MAX, type MemoryWire } from "@openlive/shared";
 
-// The notes behind the `remember` tool: one JSON array in the `agent_notes`
-// setting, oldest first. Every brain's prompt reads it through notesInUse.
+// The notes behind the `remember` tool: one JSON array in memory.json, oldest
+// first. Every brain's prompt reads it through notesInUse.
 
 export interface Note { id: string; text: string; at?: number }
-
-const KEY = "agent_notes";
 
 /**
  * The stored array, either shape: bare strings (what was saved before notes had
@@ -15,9 +13,7 @@ const KEY = "agent_notes";
  * every read until the next write stores it as a note. Nothing is dropped but
  * entries with no text.
  */
-export function parseNotes(raw: string | undefined): Note[] {
-  let arr: unknown;
-  try { arr = JSON.parse(raw ?? "[]"); } catch { return []; }
+export function parseNotes(arr: unknown): Note[] {
   if (!Array.isArray(arr)) return [];
   const seen = new Set<string>();
   const notes: Note[] = [];
@@ -33,7 +29,7 @@ export function parseNotes(raw: string | undefined): Note[] {
   return notes;
 }
 
-export const readNotes = (): Note[] => parseNotes(getSetting(KEY));
+export const readNotes = (): Note[] => parseNotes(getMemory());
 
 /** The newest notes that fit the prompt budget, oldest first as they are listed. A note that does not fit ends the run: older ones are never let in past it. O(notes). */
 export function budgeted(notes: readonly Note[]): { inUse: Note[]; used: number } {
@@ -55,10 +51,10 @@ export type NoteResult<R extends string> = { ok: true; note: Note } | { ok: fals
 /** Read, change and write the notes under one lock; the stored array always leaves in the current shape. */
 async function mutate<R>(fn: (notes: Note[]) => R): Promise<R> {
   let result!: R;
-  await updateSetting(KEY, (raw) => {
+  await updateMemory((raw) => {
     const notes = parseNotes(raw);
     result = fn(notes);
-    return JSON.stringify(notes);
+    return notes;
   });
   return result;
 }

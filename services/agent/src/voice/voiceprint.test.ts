@@ -13,14 +13,14 @@ let vp: typeof import("./voiceprint.js");
 const SECOND = new Float32Array(16000);
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ol-voiceprint-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   vi.resetModules();
   vp = await import("./voiceprint.js");
-  const model = join(dir, "models", vp.SPEAKER_MODEL.id);
+  const model = join(dir, "data", "models", vp.SPEAKER_MODEL.id);
   mkdirSync(model, { recursive: true });
   for (const f of vp.SPEAKER_MODEL.files) writeFileSync(join(model, f), "x");
 });
-afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dir, { recursive: true, force: true }); });
+afterAll(() => { delete process.env.OPENLIVE_HOME; rmSync(dir, { recursive: true, force: true }); });
 beforeEach(async () => { await vp.forgetVoiceprint(); });
 
 const enrollOn = async (mic: string, seconds: number, e = [1, 0, 0]) => {

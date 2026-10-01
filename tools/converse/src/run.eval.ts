@@ -12,7 +12,7 @@
 // "plays" 300 ms of silence on a clock, so the latency is end of the user's
 // speech to the first reply audio handed to the player. Arms: base (the
 // default pipeline) and cues (listening sounds on), alternated turn for turn.
-// Point the agent at a scratch OPENLIVE_DATA_DIR: it keeps no chat (none is named).
+// Point the agent at a scratch OPENLIVE_HOME: it keeps no chat (none is named).
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";

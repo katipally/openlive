@@ -1,8 +1,8 @@
 "use strict";
-// <userData>/telemetry.json: the install ID, the person's choice and the small
+// <home>/state/telemetry.json: the install ID, the person's choice and the small
 // counters the sender needs to stay quiet. Only main touches it, so a temp file
 // and a rename is all the locking it wants. A file that cannot be read starts over.
-// <userData>/telemetry-off is the opt-out's second copy: it exists only while the file could
+// <home>/state/telemetry-off is the opt-out's second copy: it exists only while the file could
 // not record "off", and while it does, sharing stays off.
 const path = require("node:path");
 const { isUuid } = require("./validate.cjs");

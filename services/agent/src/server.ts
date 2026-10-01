@@ -1,14 +1,17 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { loadEnv } from "@openlive/db";
+import { watch } from "node:fs";
+import { dirname } from "node:path";
+import { listConnectorRows, loadEnv, PATHS } from "@openlive/db";
 import { ensureSeedProviders } from "./providers.js";
 import { attachLiveWs } from "./live/ws.js";
 import type { Server } from "node:http";
-import { log } from "./log.js";
+import { log, teeStderr } from "./log.js";
 import { reportException } from "./telemetry/facts.js";
 import { OAUTH_CALLBACK_PATH } from "./connectors/oauth.js";
 
+teeStderr(PATHS.logs);
 loadEnv();
 await ensureSeedProviders(); // top-level await: seed before serving so first requests see keys
 
@@ -47,6 +50,16 @@ const { connectors } = await import("./connectors/manager.js");
 const { registry } = await import("./capabilities/registry.js");
 registry.register(connectorTools());
 app.route("/connectors", connectorRoutes);
+// mcp.json is edited by hand too. Reads are always fresh; a live connection opened
+// from what is no longer written is closed here, and opens again as written.
+let edited: NodeJS.Timeout | undefined;
+try {
+  watch(dirname(PATHS.mcp), (_e, file) => {
+    if (file !== "mcp.json") return;
+    clearTimeout(edited);
+    edited = setTimeout(() => void connectors.reconcile(listConnectorRows()).catch((e) => log.warn("connectors", "reconcile:", e)), 200);
+  }).unref();
+} catch (e) { log.warn("connectors", "cannot watch mcp.json; hand edits apply on the next connect:", e); }
 
 // Agent Skills: one folder OpenLive owns, offered to every brain the same way.
 const { skillRoutes } = await import("./skills/routes.js");

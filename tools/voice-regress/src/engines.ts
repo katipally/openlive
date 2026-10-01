@@ -76,8 +76,8 @@ function native(id: string, variant: string, family: string, license: string, ti
   return {
     id, license, tier, slack, limits,
     async open(cache, accel: Accel = { provider: "cpu", numThreads: 1 }) {
-      // The agent's catalog places engines under DATA_DIR, read once when @openlive/db loads.
-      process.env.OPENLIVE_DATA_DIR = join(cache, "sherpa");
+      // The agent's catalog places engines under the home's data/, read once when @openlive/db loads.
+      process.env.OPENLIVE_HOME = join(cache, "sherpa");
       const m = await import("../../../services/agent/src/voice/native-models");
       const e = m.nativeEngine(variant)!;
       if (!m.engineInstalled(e)) await m.downloadEngine(e, () => {}, AbortSignal.timeout(15 * 60_000));

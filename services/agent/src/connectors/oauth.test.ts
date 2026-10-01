@@ -7,14 +7,14 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 const dir = mkdtempSync(join(tmpdir(), "ol-oauth-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 process.env.OPENLIVE_ENC_KEY = "ef".repeat(32);
 process.env.AGENT_PORT = "47999";
 const db = await import("@openlive/db");
 const { finishSignIn, startSignIn, redirectUrl, ConnectorOAuth } = await import("./oauth.ts");
 
 afterAll(() => {
-  for (const k of ["OPENLIVE_DATA_DIR", "OPENLIVE_ENC_KEY", "AGENT_PORT"]) delete process.env[k];
+  for (const k of ["OPENLIVE_HOME", "OPENLIVE_ENC_KEY", "AGENT_PORT"]) delete process.env[k];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -62,7 +62,7 @@ describe("signing a connector in", () => {
     expect(tokenBodies.at(-1)!.get("code_verifier")).toBeTruthy();
     expect(db.getConnectorOAuth(row.id, "tokens", AS)).toMatchObject({ access_token: "access-fixture", issuer: AS });
     expect(db.getConnectorOAuth(row.id, "client", AS)).toMatchObject({ client_id: "client-1" });
-    expect(readFileSync(join(dir, "connectors.json"), "utf8")).not.toContain("access-fixture");
+    for (const f of ["mcp.json", join("secrets", "connectors.json")]) expect(readFileSync(join(dir, f), "utf8")).not.toContain("access-fixture");
   });
 
   it("refuses a callback from an issuer other than the one the sign-in began with, and spends its state", async () => {

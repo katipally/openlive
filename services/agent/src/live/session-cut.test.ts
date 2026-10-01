@@ -13,7 +13,7 @@ import { afterAll, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-cut-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
 const { getSetting, listMessages, setSetting } = await import("@openlive/db");
 const { cancelledText, sentAside } = await import("../turn.ts");
@@ -41,7 +41,7 @@ await setSetting("ollamaBaseUrl", `http://127.0.0.1:${(server.address() as Addre
 
 afterAll(() => {
   server.close();
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 

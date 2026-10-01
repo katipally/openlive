@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
 
 // One root runner for every package's colocated *.test.ts files (they existed
@@ -9,6 +12,8 @@ export default defineConfig({
     environment: "node",
     // No computer-use helper unless a test brings its own: a dev build on the
     // machine running the tests must not change which tools a session gets.
-    env: { OPENLIVE_CU_HELPER: "" },
+    // And a throwaway OpenLive home unless a test names its own: without one, a
+    // dev checkout's tests would read and reshape the real <repo>/data.
+    env: { OPENLIVE_CU_HELPER: "", OPENLIVE_HOME: mkdtempSync(join(tmpdir(), "openlive-test-home-")) },
   },
 });

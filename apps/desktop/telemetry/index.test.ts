@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as nodeFs from "node:fs";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { CONFIG, count, DAY_1, DAY_2, fact, flush, modeOf, notice, rig, tmpDir } from "./rig";
@@ -33,12 +33,12 @@ describe("when it must stay silent", () => {
     ["OPENLIVE_FLOW_HOME", { env: { OPENLIVE_FLOW_HOME: "/tmp/x" } }],
     ["a remote debugging port", { argv: ["app", "--remote-debugging-port=9333"] }],
     ["an inspector", { argv: ["app", "--inspect=9229"] }],
-    ["no user data dir", { userDataDir: "" }],
+    ["no user data dir", { stateDir: "" }],
   ];
 
   it.each(off)("%s: no files, no requests, every method still callable", async (_, over) => {
     const dir = tmpDir();
-    const r = rig({ userDataDir: dir, ...over });
+    const r = rig({ stateDir: dir, ...over });
     const t = r.telemetry;
     t.start({ launchKind: "manual" });
     notice(t);
@@ -68,12 +68,12 @@ describe("when it must stay silent", () => {
 
   it("reads the stamped config from configPath, and is off when the file is not there", () => {
     const dir = tmpDir();
-    expect(rig({ userDataDir: dir, config: undefined, configPath: `${dir}/nope.json` }).telemetry.getStatus().active).toBe(false);
+    expect(rig({ stateDir: dir, config: undefined, configPath: `${dir}/nope.json` }).telemetry.getStatus().active).toBe(false);
     expect(rig({ config: undefined, configPath: undefined }).telemetry.getStatus().active).toBe(false);
   });
 
   it("never throws out of the factory", () => {
-    for (const deps of [undefined, null, {}, { userDataDir: 5 }, { isPackaged: true, config: CONFIG, userDataDir: "/nonexistent/\0/x" }]) {
+    for (const deps of [undefined, null, {}, { stateDir: 5 }, { isPackaged: true, config: CONFIG, stateDir: "/nonexistent/\0/x" }]) {
       expect(() => createTelemetry(deps)).not.toThrow();
     }
   });
@@ -261,7 +261,7 @@ describe("what is queued", () => {
 });
 
 describe("app_first_open", () => {
-  it("is fresh on a machine with no userData, and sends once", async () => {
+  it("is fresh on a machine with no OpenLive home, and sends once", async () => {
     const r = ready();
     expect(r.queue()[0]).toMatchObject({ n: "app_first_open", p: { origin: "fresh", launch_kind: "manual" } });
     r.telemetry.onQuit();
@@ -270,9 +270,10 @@ describe("app_first_open", () => {
     expect(queued(second).filter((n) => n === "app_first_open")).toHaveLength(1);
   });
 
-  it.each(["once.json", "window-state.json", "appearance.json", "data/settings.json"])("is existing_install when %s was already there", (file) => {
-    const dir = tmpDir();
-    const r = rig({ userDataDir: dir });
+  it.each(["once.json", "window-state.json", "appearance.json", "../settings.json"])("is existing_install when %s was already there", (file) => {
+    const dir = join(tmpDir(), "state");
+    mkdirSync(dir);
+    const r = rig({ stateDir: dir });
     r.touch(file);
     r.telemetry.start({ launchKind: "login" });
     notice(r.telemetry);
@@ -843,7 +844,7 @@ describe("a state or queue file that was edited", () => {
     const dir = tmpDir();
     const line = { n: "tray_action", p: { app_version: "1.2.3", action: "open", path: "/Users/me/secret", note: "hi" }, t: "2026-09-29T12:00:00.000Z" };
     writeFileSync(join(dir, "telemetry-queue.jsonl"), `${JSON.stringify(line)}\n${JSON.stringify({ n: "made_up", p: {}, t: "2026-09-29T12:00:00.000Z" })}\n`);
-    const r = rig({ userDataDir: dir });
+    const r = rig({ stateDir: dir });
     r.telemetry.start({ launchKind: "manual" });
     notice(r.telemetry);
     await flush(200_000);
@@ -914,7 +915,7 @@ describe("an opt-out the disk would not take", () => {
   it("does not show the first-run notice, and queues nothing, while sharing is off", async () => {
     const dir = tmpDir();
     writeFileSync(join(dir, "telemetry-off"), "");
-    const r = rig({ userDataDir: dir });
+    const r = rig({ stateDir: dir });
     r.telemetry.start({ launchKind: "manual" });
     notice(r.telemetry);
     r.telemetry.track("tray_action", { action: "open" });

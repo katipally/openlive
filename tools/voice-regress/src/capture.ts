@@ -1,5 +1,5 @@
 // Reads what the live app played, as written by its debug TTS capture
-// (apps/web/src/lib/live/ttsCapture.ts, data/debug/tts-capture/<run>/<reply>/),
+// (apps/web/src/lib/live/ttsCapture.ts, <home>/cache/debug/tts-capture/<run>/<reply>/),
 // and prints per piece the pace, pitch, silences, gap before it and route, then
 // how adjacent pieces differ and where a join or the middle of a piece clicks.
 // Writes reconstruction.wav beside each manifest: the reply laid out on the

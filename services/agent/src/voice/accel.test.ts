@@ -30,15 +30,15 @@ const load = async () => {
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ol-accel-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   await load();
 });
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(async () => {
-  rmSync(join(dir, "voice-accel.json"), { force: true });
+  rmSync(join(dir, "data", "voice-accel.json"), { force: true });
   await load();
   await a.refreshDevice(async () => mac);
 });

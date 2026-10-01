@@ -5,6 +5,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PATHS } from "@openlive/db";
 import { log } from "../log.js";
 
 // The computer-use helper, one per server, shared by every session.
@@ -173,7 +174,8 @@ export class ComputerHelper implements ComputerPort {
     writeFileSync(tokenFile, token, { mode: 0o600 });
     const path = process.platform === "win32" ? `\\\\.\\pipe\\openlive-cu-${randomUUID()}` : join(dir, "cu.sock");
     const child = spawn(launch.command, [...(launch.args ?? []), "--socket", path, "--token-file", tokenFile], {
-      env: { ...process.env, ...launch.env },
+      // Where the Linux helper keeps the portal's restore token, so a granted screen share survives a restart.
+      env: { ...process.env, OPENLIVE_CU_PORTAL_TOKEN: PATHS.portalToken, ...launch.env },
       stdio: ["ignore", "ignore", "pipe"],
       windowsHide: true,
     });

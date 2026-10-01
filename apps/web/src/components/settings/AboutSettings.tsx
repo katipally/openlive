@@ -1,8 +1,9 @@
 "use client";
 
-import { createLucideIcon, ExternalLink, RotateCcw } from "lucide-react";
+import { createLucideIcon, ExternalLink, FolderOpen, RotateCcw } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { resetTours } from "@/components/SpotlightTour";
+import { bridge, isDesktop } from "@/lib/platform";
 import { REPO_URL } from "@/lib/repo";
 import { toast } from "@/lib/toast";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -35,6 +36,14 @@ export function AboutSettings() {
           ))}
         </ListGroup>
       </Section>
+
+      {isDesktop && bridge && (
+        <Section id="set-about-folder" title="OpenLive folder" desc="Settings, memory, connectors (mcp.json), skills, chats and logs, all in one folder. Keys and tokens in it stay encrypted.">
+          <Button size="sm" onClick={() => void bridge?.("open_home").then((r) => { if (r !== "Opened.") toast(r); })}>
+            <FolderOpen aria-hidden /> Show OpenLive folder
+          </Button>
+        </Section>
+      )}
 
       <Section id="set-about-tours" title="Tours" desc="The short walkthroughs each screen shows the first time you open it.">
         <Button size="sm" onClick={() => { resetTours(); toast("Tours reset. Each plays again the next time you open its screen.", "info"); }}>

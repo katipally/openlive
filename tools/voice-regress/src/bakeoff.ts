@@ -41,8 +41,8 @@ if (args.table) {
 }
 
 const cache = cacheDir();
-// Everything the agent reads from DATA_DIR stays in the bake-off's cache.
-process.env.OPENLIVE_DATA_DIR = join(cache, "sherpa");
+// Everything the agent keeps stays in the bake-off's cache, its OpenLive home.
+process.env.OPENLIVE_HOME = join(cache, "sherpa");
 const models = await import("../../../services/agent/src/voice/native-models");
 const { chooseProvider, BENCH_TEXT } = await import("../../../services/agent/src/voice/accel");
 const { probeDevice, threadsFor } = await import("../../../services/agent/src/voice/device");
@@ -203,7 +203,7 @@ for (const x of heard) scores.push(await mos(x));
 
 let tags = null;
 if (c.tags) {
-  const cedDir = join(cache, "sherpa", "models", CED.id);
+  const cedDir = models.engineDir(CED.id);
   if (!models.engineInstalled({ ...asr, id: CED.id, files: Object.keys(CED.sums) })) await models.downloadEngine({ ...asr, id: CED.id, url: CED.url, files: Object.keys(CED.sums), vocoder: undefined }, () => {}, AbortSignal.timeout(15 * 60_000));
   await verify(cedDir, CED.sums);
   const tagger = new sherpa.AudioTagging({ model: { ced: join(cedDir, "model.int8.onnx"), numThreads, provider: "cpu" }, labels: join(cedDir, "class_labels_indices.csv"), topK: 527 });

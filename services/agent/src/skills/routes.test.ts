@@ -5,12 +5,12 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const dir = mkdtempSync(join(tmpdir(), "ol-skill-routes-"));
 const userDir = join(dir, "skills");
-process.env.OPENLIVE_DATA_DIR = join(dir, "data");
+process.env.OPENLIVE_HOME = join(dir, "home");
 process.env.OPENLIVE_SKILLS_DIR = userDir;
 const { skillRoutes } = await import("./routes.ts");
 
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_SKILLS_DIR;
   rmSync(dir, { recursive: true, force: true });
 });

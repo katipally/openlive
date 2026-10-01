@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,14 +32,14 @@ async function freshDb() {
 describe("sqlite chat store + JSON migration", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "oldb-"));
-    process.env.OPENLIVE_DATA_DIR = dir;
+    process.env.OPENLIVE_HOME = dir;
     // paths.ts reads the env at module load — force re-evaluation.
     vi.resetModules();
   });
   afterEach(async () => {
     const { closeDbForTests } = await import("./sqlite");
     closeDbForTests();
-    delete process.env.OPENLIVE_DATA_DIR;
+    delete process.env.OPENLIVE_HOME;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -59,8 +59,10 @@ describe("sqlite chat store + JSON migration", () => {
     expect(msgs[2]!.live).toBe(false);
 
     expect(q.chatMessageCounts()).toEqual({ c1: 3, c2: 1 });
+    // Moved into data/ with the rest of the old flat layout, then imported there.
     expect(existsSync(join(dir, "conversations.json"))).toBe(false);
-    expect(existsSync(join(dir, "conversations.json.migrated.bak"))).toBe(true);
+    expect(existsSync(join(dir, "data", "conversations.json"))).toBe(false);
+    expect(existsSync(join(dir, "data", "conversations.json.migrated.bak"))).toBe(true);
   });
 
   it("is idempotent — reopening after migration does not duplicate or re-import", async () => {
@@ -70,7 +72,7 @@ describe("sqlite chat store + JSON migration", () => {
 
     // Simulate a second process/boot: drop the singleton, put a NEW json in place
     // (must be ignored — the meta flag says we already migrated).
-    writeFileSync(join(dir, "conversations.json"), JSON.stringify({ chats: [{ id: "evil", title: "X", createdAt: "2026-02-01T00:00:00.000Z" }], messages: [] }));
+    writeFileSync(join(dir, "data", "conversations.json"), JSON.stringify({ chats: [{ id: "evil", title: "X", createdAt: "2026-02-01T00:00:00.000Z" }], messages: [] }));
     q = await freshDb();
     expect(q.listChats().map((c) => c.id).sort()).toEqual(["c1", "c2"]);
   });
@@ -97,6 +99,25 @@ describe("sqlite chat store + JSON migration", () => {
     expect(q.listChats()).toHaveLength(0);
     expect(q.listMessages(chat.id)).toHaveLength(0); // cascade
     expect(q.getAllSettings()).toEqual({ "bind:other-chat": "codex" }); // its per-chat settings go with it
+  });
+
+  it("keeps a secret setting encrypted outside settings.json, behind the same calls", async () => {
+    const q = await freshDb();
+    await q.setSetting("customInstructions", "be brief");
+    await q.setSetting("exa_api_key", "exa_plain_123");
+    expect(q.getSetting("exa_api_key")).toBe("exa_plain_123");
+    expect(q.getAllSettings()).toEqual({ customInstructions: "be brief" });
+    expect(readFileSync(join(dir, "settings.json"), "utf8")).not.toContain("exa_plain_123");
+    expect(readFileSync(join(dir, "secrets", "settings.json"), "utf8")).not.toContain("exa_plain_123");
+    await q.setSetting("exa_api_key", "");
+    expect(q.getSetting("exa_api_key")).toBeUndefined();
+  });
+
+  it("keeps memory in memory.json, under the store's lock", async () => {
+    const q = await freshDb();
+    await Promise.all(["a", "b", "c"].map((t) => q.updateMemory((cur) => [...(cur as string[]), t])));
+    expect((q.getMemory() as string[]).sort()).toEqual(["a", "b", "c"]);
+    expect(JSON.parse(readFileSync(join(dir, "memory.json"), "utf8")).sort()).toEqual(["a", "b", "c"]);
   });
 
   it("createChat is idempotent for an existing id", async () => {

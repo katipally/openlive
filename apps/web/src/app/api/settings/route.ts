@@ -16,9 +16,9 @@ const PREFIXES = ["acpCommand:", "agentHidden:"];
 
 const isExposed = (k: string) => KEYS.includes(k) || PREFIXES.some((p) => k.startsWith(p));
 
-// The store holds secrets (exa_api_key) and the agent's private memory
-// (agent_notes) alongside UI settings. NEVER dump the whole blob to the browser —
-// return only the keys the settings UI legitimately reads.
+// The store holds per-chat state and the agent's own keys alongside UI settings
+// (secret ones live encrypted elsewhere). NEVER dump the whole blob to the
+// browser: return only the keys the settings UI legitimately reads.
 function exposedSettings() {
   const all = getAllSettings();
   const out: Record<string, string> = {};

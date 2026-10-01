@@ -108,10 +108,10 @@ vi.mock("../agents/index.js", async (importOriginal) => ({
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dataDir = mkdtempSync(join(tmpdir(), "ol-flow-ws-"));
-process.env.OPENLIVE_DATA_DIR = dataDir;
-afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dataDir, { recursive: true, force: true }); });
+process.env.OPENLIVE_HOME = dataDir;
+afterAll(() => { delete process.env.OPENLIVE_HOME; rmSync(dataDir, { recursive: true, force: true }); });
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
-const { setSetting } = await import("@openlive/db");
+const { setSetting, updateMemory } = await import("@openlive/db");
 const { readNotes } = await import("../memory/notes.js");
 const { cancelledText, sentAside } = await import("../turn.js");
 const { limits } = await import("../telemetry/limits.js");
@@ -573,7 +573,7 @@ describe("a coding agent as the brain", () => {
 
 describe("OpenLive's memory in Flow", () => {
   it("is offered to either brain, through chat's own remember tool, with what it already holds", async () => {
-    await setSetting("agent_notes", JSON.stringify(["Their name is Ada."]));
+    await updateMemory(() => ["Their name is Ada."]);
     // The built-in brain: the tool in its list, the notes in its prompt, and a call saves.
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);

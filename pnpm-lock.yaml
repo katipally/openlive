@@ -165,6 +165,9 @@ importers:
 
   packages/flow-store:
     dependencies:
+      '@openlive/shared':
+        specifier: workspace:*
+        version: link:../shared
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2

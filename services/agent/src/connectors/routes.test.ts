@@ -1,18 +1,20 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
 const dir = mkdtempSync(join(tmpdir(), "ol-conn-routes-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 process.env.OPENLIVE_ENC_KEY = "12".repeat(32);
 const { connectorRoutes } = await import("./routes.ts");
 const { connectors } = await import("./manager.ts");
+const { listConnectorRows } = await import("@openlive/db");
+const mcpFile = join(dir, "mcp.json");
 
 afterAll(async () => {
   await connectors.shutdown();
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_ENC_KEY;
   rmSync(dir, { recursive: true, force: true });
 });
@@ -41,6 +43,17 @@ describe("the /connectors API", () => {
     expect(r.json.tools.map((t: any) => t.exposedName)).toEqual(["fixture__echo", "fixture__make_note", "fixture__confirm"]);
   });
 
+  it("closes a live connection whose server was changed by hand, and keeps one that was not", async () => {
+    await connectors.reconcile(listConnectorRows());
+    expect((await call("GET", "/")).json.connectors[0].status).toBe("connected");
+    const doc = JSON.parse(readFileSync(mcpFile, "utf8"));
+    doc.mcpServers.fixture.env.MODE = "y";
+    writeFileSync(mcpFile, JSON.stringify(doc));
+    await connectors.reconcile(listConnectorRows());
+    expect((await call("GET", "/")).json.connectors[0]).toMatchObject({ status: "disconnected", transport: { env: { MODE: "y" } } });
+    expect((await call("POST", `/${id}/reconnect`)).json.status).toBe("connected");
+  });
+
   it("switches one tool, then the whole connector, off", async () => {
     const t = await call("POST", `/${id}/tools/echo/enabled`, { enabled: false });
     expect(t.json.tools.find((x: any) => x.name === "echo").enabled).toBe(false);
@@ -60,6 +73,19 @@ describe("the /connectors API", () => {
 
   it("removes it", async () => {
     expect((await call("DELETE", `/${id}`)).status).toBe(200);
-    expect((await call("GET", "/")).json.connectors).toEqual([]);
+    expect((await call("GET", "/")).json).toEqual({ connectors: [], problems: [] });
+  });
+
+  it("names what is wrong with an mcp.json broken by hand, and will not write over it", async () => {
+    writeFileSync(mcpFile, `{"mcpServers": {"a": {}}`);
+    const list = await call("GET", "/");
+    expect(list.json.connectors).toEqual([]);
+    expect(list.json.problems[0]).toMatch(/^mcp\.json is not valid JSON/);
+    const add = await call("POST", "/", { url: "https://x.example/mcp" });
+    expect(add.status).toBe(409);
+    expect(add.json.error).toMatch(/Fix it by hand/);
+    expect(readFileSync(mcpFile, "utf8")).toBe(`{"mcpServers": {"a": {}}`);
+    writeFileSync(mcpFile, JSON.stringify({ mcpServers: { a: {} } }));
+    expect((await call("GET", "/")).json.problems).toEqual([`"a" needs a "command" to run or a "url" to reach.`]);
   });
 });

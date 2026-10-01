@@ -13,13 +13,13 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-call-mcp-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
-const { listMessages, setSetting } = await import("@openlive/db");
+const { listMessages, setSetting, updateMemory } = await import("@openlive/db");
 const { readNotes } = await import("../memory/notes.ts");
 
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -161,7 +161,7 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
 
 test("a coding agent is told what the built-in brain remembered", async () => {
   const prompts = await stubAgent();
-  await setSetting("agent_notes", JSON.stringify(["Their name is Sam."]));
+  await updateMemory(() => ["Their name is Sam."]);
   const { ws, say, done, started } = connect("call-notes");
   await started;
   say({ t: "user_text", text: "Hi." });

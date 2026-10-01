@@ -8,7 +8,7 @@ import { benchEngine } from "./native.js";
 // provider this device has, the same benchmark the agent runs on each user's
 // machine (accel.ts), and prints it. Writes nothing; the app never reads these.
 //   pnpm --filter @openlive/agent bench:voice [--engine id,id] [--providers cpu,coreml] [--threads 1,2,4]
-// OPENLIVE_DATA_DIR points it at another data dir's models.
+// OPENLIVE_HOME points it at another OpenLive home's models.
 
 const { values } = parseArgs({ options: { engine: { type: "string" }, providers: { type: "string" }, threads: { type: "string" } } });
 const list = (s?: string) => s?.split(",").map((x) => x.trim()).filter(Boolean);
@@ -19,7 +19,7 @@ const engines = NATIVE_ENGINES.filter((e) => engineInstalled(e) && (!values.engi
 
 console.log(`${device.cpu} · ${device.os} ${device.arch} · ${device.osVersion} · ${device.cores} logical / ${device.physicalCores ?? "?"} physical / ${device.performanceCores ?? "-"} performance cores`);
 console.log(`${Math.round(device.ramBytes / 2 ** 30)} GB RAM · GPU ${device.gpus.map((g) => g.model).join(", ") || "none found"} · ${device.runtime} · ${device.ortRuntime} · tier ${tier(device)} · ${threadsFor(device)} threads by default\n`);
-if (!engines.length) console.log("No native engines installed in this data dir.");
+if (!engines.length) console.log("No native engines installed in this OpenLive home.");
 
 const pad = (s: unknown, n: number) => String(s).padStart(n);
 console.log(`${"engine".padEnd(28)}${pad("provider", 9)}${pad("threads", 8)}${pad("load ms", 9)}${pad("warm ms", 9)}${pad("first ms", 10)}${pad("rtf", 8)}`);

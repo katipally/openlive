@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
-import { DATA_DIR, listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
+import { PATHS, listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
 import { NATIVE_ENGINES, NATIVE_FAMILIES, nativeEngine, onOrt, engineInstalled, engineDiskBytes, engineDir, downloadEngine, langCode, speakable, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
@@ -192,7 +192,7 @@ voiceRoutes.post("/tts", async (c) => {
 // The web app's ttsCapture.ts PUTs each played piece's PCM and a manifest per
 // reply here, only while localStorage["openlive-debug"] holds "tts". Loopback
 // binds only; tools/voice-regress/src/capture.ts reads the folder.
-const CAPTURE_DIR = resolve(DATA_DIR, "debug", "tts-capture");
+const CAPTURE_DIR = resolve(PATHS.debug, "tts-capture");
 const captureLoopback = ["127.0.0.1", "localhost", "::1"].includes(process.env.AGENT_HOST?.trim() || "127.0.0.1");
 voiceRoutes.put("/debug/tts-capture/:run/:reply/:file", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
   const { run, reply, file } = c.req.param();

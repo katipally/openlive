@@ -5,7 +5,7 @@
  *
  *   const { createTelemetry } = require("./telemetry/index.cjs");
  *   const telemetry = createTelemetry({
- *     userDataDir: app.getPath("userData"),
+ *     stateDir: PATHS.state,                                       // the OpenLive home's state/ (packages/shared/src/home)
  *     configPath: path.join(__dirname, "telemetry-config.json"),  // stamped at release; no file, no telemetry
  *     appVersion: app.getVersion(), platform: process.platform, arch: process.arch,
  *     archTranslated: app.runningUnderARM64Translation, osMajor,   // see osMajor below
@@ -19,7 +19,7 @@
  * the first-run notice has been shown (events wait in memory, never on disk) and only while the person
  * has not turned telemetry off.
  *
- * Deps (all but userDataDir are optional): userDataDir, configPath | config ({ endpoint, clientId, origin }
+ * Deps (all but stateDir are optional): stateDir, configPath | config ({ endpoint, clientId, origin }
  * or null), appVersion, platform, arch, archTranslated, osMajor ("15" for macOS 15, "10" or "11" for
  * Windows, "linux"), isPackaged, env, argv, electronNet (else node:https), post, fs, now, random, randomId,
  * timers ({ setTimeout, clearTimeout }), sleep. The last seven exist so tests need no Electron and no network.
@@ -31,7 +31,7 @@
  *
  * LIFECYCLE
  *   start({ launchKind })   Call in boot(), BEFORE firstTime("loginItemDefault") creates once.json: it needs
- *                           to see whether the app's userData already existed to tell app_first_open's
+ *                           to see whether the app's state folder already existed to tell app_first_open's
  *                           origin ("fresh" or "existing_install"). launchKind: "manual" | "login".
  *                           Also queues app_updated and sends a crash-leftover feature_usage. The sender
  *                           starts when the notice is seen: a random 0 to 60 s after launch when it was
@@ -107,8 +107,8 @@ const { usernameOf } = require("./username.cjs");
 
 const BUFFER_MAX = 200;
 const OS_NAMES = { darwin: "macOS", win32: "Windows", linux: "Linux" };
-// Files main and the web app create under userData: any of them means the app was here before telemetry.
-const KNOWN_FILES = ["once.json", "window-state.json", "appearance.json", path.join("data", "settings.json")];
+// Files main and the web app create in the home (relative to its state/): any of them means the app was here before telemetry.
+const KNOWN_FILES = ["once.json", "window-state.json", "appearance.json", path.join("..", "settings.json")];
 // Who may send what. A process can only report events that are its own.
 const RENDERER_EVENTS = new Set([
   "flow_failure_card", "onboarding_step", "setting_changed", "agent_action_result", "lobby_blocked",
@@ -158,10 +158,10 @@ function createTelemetry(deps) {
 }
 
 function build(deps) {
-  const { userDataDir, appVersion = "", platform = process.platform, arch = process.arch, archTranslated = false, osMajor = "" } = deps;
+  const { stateDir, appVersion = "", platform = process.platform, arch = process.arch, archTranslated = false, osMajor = "" } = deps;
   const fs = deps.fs ?? nodeFs;
   const config = deps.config !== undefined ? deps.config : deps.configPath ? loadConfig(fs, deps.configPath) : null;
-  if (!userDataDir || !isActive({ isPackaged: deps.isPackaged, env: deps.env ?? process.env, argv: deps.argv ?? process.argv, config })) return inert(deps);
+  if (!stateDir || !isActive({ isPackaged: deps.isPackaged, env: deps.env ?? process.env, argv: deps.argv ?? process.argv, config })) return inert(deps);
 
   const now = deps.now ?? Date.now;
   const random = deps.random ?? Math.random;
@@ -171,9 +171,9 @@ function build(deps) {
   const https = httpsPost(require("node:https"));
   const post = deps.post ?? (deps.electronNet ? electronPost(deps.electronNet, https) : https);
 
-  const state = createState({ dir: userDataDir, fs, timers });
+  const state = createState({ dir: stateDir, fs, timers });
   const data = state.data;
-  const queue = createQueue({ dir: userDataDir, fs });
+  const queue = createQueue({ dir: stateDir, fs });
   const limits = createLimits({ schema, state, now });
   const common = validateCommon({ app_version: appVersion, platform, arch, arch_translated: archTranslated, os_major: osMajor });
   const sender = createSender({
@@ -279,7 +279,7 @@ function build(deps) {
     if (data.firstOpenAt === null) {
       data.firstOpenAt = now();
       // A telemetry.json that was there but unreadable already reported this install's first open; the notice is still owed.
-      if (!state.existed) data.pendingFirstOpen = { origin: KNOWN_FILES.some((f) => fs.existsSync(path.join(userDataDir, f))) ? "existing_install" : "fresh", launch_kind: launchKind };
+      if (!state.existed) data.pendingFirstOpen = { origin: KNOWN_FILES.some((f) => fs.existsSync(path.join(stateDir, f))) ? "existing_install" : "fresh", launch_kind: launchKind };
     }
     const previous = data.lastVersion;
     const updated = !!previous && previous !== appVersion;

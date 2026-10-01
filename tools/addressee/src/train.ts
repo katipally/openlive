@@ -2,7 +2,7 @@
 // judgment log (Settings, Side talk, "Keep a judgment log"), and writes it to
 // the agent's data dir (HEAD_FILE), never over the shipped head in the repo.
 //   pnpm addressee:train [--rate 0.01] [--dry]
-// OPENLIVE_DATA_DIR points it at another data dir, as the agent. The sentence
+// OPENLIVE_HOME points it at another OpenLive home, as the agent. The sentence
 // model is the one the app downloaded there; nothing else is fetched.
 //
 // A log row's label is the user's correction when there is one ("Send it":
@@ -34,7 +34,7 @@ const LABELLED_WEIGHT = 4, IMPLICIT_WEIGHT = 1;
 const MIN_TO = 100, MIN_SIDE = 20, K = 5;
 
 if (!engineInstalled(ADDRESSEE_MODEL)) {
-  console.log(`The side talk model is not in this data dir: download it in Settings, Voice, Side talk (or set OPENLIVE_DATA_DIR).`);
+  console.log(`The side talk model is not in this OpenLive home: download it in Settings, Voice, Side talk (or set OPENLIVE_HOME).`);
   process.exit(1);
 }
 

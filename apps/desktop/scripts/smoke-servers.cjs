@@ -100,10 +100,10 @@ exports.default = async function smokeServers({ appOutDir, electronPlatformName,
     const [webPort, agentPort] = [await freePort(), await freePort()];
     await Promise.all([
       boot(exe, path.join(resources, "web/server.js"),
-        { PORT: String(webPort), HOSTNAME: "127.0.0.1", NODE_ENV: "production", OPENLIVE_DATA_DIR: dataDir, AGENT_PORT: String(agentPort) },
+        { PORT: String(webPort), HOSTNAME: "127.0.0.1", NODE_ENV: "production", OPENLIVE_HOME: dataDir, AGENT_PORT: String(agentPort) },
         `http://127.0.0.1:${webPort}/`),
       boot(exe, path.join(resources, "agent/agent.mjs"),
-        { AGENT_PORT: String(agentPort), AGENT_HOST: "127.0.0.1", OPENLIVE_DATA_DIR: dataDir },
+        { AGENT_PORT: String(agentPort), AGENT_HOST: "127.0.0.1", OPENLIVE_HOME: dataDir },
         `http://127.0.0.1:${agentPort}/health`),
     ]);
     console.log(`[smoke-servers] web and agent answered 200 (${electronPlatformName}-${Arch[arch]})`);

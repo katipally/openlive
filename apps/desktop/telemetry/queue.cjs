@@ -1,5 +1,5 @@
 "use strict";
-// <userData>/telemetry-queue.jsonl: events that passed every gate and have not
+// <home>/state/telemetry-queue.jsonl: events that passed every gate and have not
 // been sent yet, one JSON object per line, so a restart loses nothing. Capped by
 // count and by bytes, oldest dropped first. Every write is synchronous: the last
 // thing an app does on quit is append to this file.

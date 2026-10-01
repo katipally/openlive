@@ -1,25 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// DATA_DIR is read at import, so each test points it at a fresh folder first.
+// The home is read at import, so each test points it at a fresh folder first.
 let dir: string;
 const load = () => import("./connectors");
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "ol-conn-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   process.env.OPENLIVE_ENC_KEY = "ab".repeat(32);
   vi.resetModules();
 });
 afterEach(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_ENC_KEY;
   rmSync(dir, { recursive: true, force: true });
 });
 
-const onDisk = () => readFileSync(join(dir, "connectors.json"), "utf8");
+const mcpFile = () => join(dir, "mcp.json");
+const secretsFile = () => join(dir, "secrets", "connectors.json");
+const onDisk = () => readFileSync(mcpFile(), "utf8") + readFileSync(secretsFile(), "utf8");
+const mcp = () => JSON.parse(readFileSync(mcpFile(), "utf8")) as { mcpServers: Record<string, Record<string, any>> } & Record<string, unknown>;
+const handEdit = (doc: unknown) => writeFileSync(mcpFile(), typeof doc === "string" ? doc : JSON.stringify(doc, null, 2));
 
 describe("the connector store", () => {
   it("never writes a secret in plain text, and hands it back decrypted on the server", async () => {
@@ -36,6 +40,21 @@ describe("the connector store", () => {
     expect(c.connectorSecrets(c.getConnectorRow(http.id)!)).toEqual({ Authorization: "Bearer lin_secret" });
     expect(c.transportWire(c.getConnectorRow(http.id)!.transport)).toEqual({ type: "http", url: "https://mcp.linear.app/mcp", headers: ["Authorization"] });
     expect(c.transportWire(c.getConnectorRow(stdio.id)!.transport)).toMatchObject({ env: { LOG: "info" }, secretEnv: ["GITHUB_TOKEN"] });
+  });
+
+  it("writes the standard mcpServers shape, with each secret a reference into secrets/", async () => {
+    const c = await load();
+    const s = await c.createConnector({ name: "GitHub", transport: { type: "stdio", command: "npx", args: ["-y", "gh-mcp"], env: { LOG: "info" }, secretEnv: { GITHUB_TOKEN: "ghp_x" } } });
+    await c.createConnector({ name: "Linear", transport: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer y" } } });
+    const doc = mcp();
+    expect(doc.mcpServers.GitHub).toMatchObject({ command: "npx", args: ["-y", "gh-mcp"], env: { LOG: "info", GITHUB_TOKEN: "${secret:GITHUB_TOKEN}" }, openlive: { id: s.id, slug: "github", enabled: true } });
+    expect(doc.mcpServers.Linear).toMatchObject({ type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "${secret:Authorization}" } });
+    const sealed = JSON.parse(readFileSync(secretsFile(), "utf8"));
+    expect(sealed[s.id].env.GITHUB_TOKEN).toMatch(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
+    if (process.platform !== "win32") {
+      expect(statSync(join(dir, "secrets")).mode & 0o777).toBe(0o700);
+      expect(statSync(secretsFile()).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("gives every connector a unique slug that survives a rename", async () => {
@@ -84,6 +103,72 @@ describe("the connector store", () => {
     await c.setConnectorToolsEnabled(h.id, ["b", "a", "c"], false);
     await c.setConnectorToolsEnabled(h.id, ["a", "c"], true);
     expect(c.getConnectorRow(h.id)!.disabledTools).toEqual(["b"]);
+  });
+});
+
+describe("mcp.json edited by hand", () => {
+  it("picks up a server added by hand, asks before running it, and seals a plain header on the next write", async () => {
+    handEdit({ $schema: "x", mcpServers: {
+      "Local files": { command: "npx", args: ["fs-mcp"], env: { ROOT: "/tmp" }, timeout: 5000 },
+      Remote: { url: "https://r.example/mcp", headers: { Authorization: "Bearer hand_secret" } },
+    } });
+    const c = await load();
+    const [fs, remote] = c.listConnectorRows();
+    expect(fs).toMatchObject({ name: "Local files", slug: "local_files", enabled: true, spawnConsent: false, source: "manual" });
+    expect(fs!.transport).toMatchObject({ type: "stdio", command: "npx", args: ["fs-mcp"], env: { ROOT: "/tmp" } });
+    expect(c.connectorSecrets(remote!)).toEqual({ Authorization: "Bearer hand_secret" });
+    // Its id holds still across reads, so the UI can act on it.
+    expect(c.listConnectorRows()[0]!.id).toBe(fs!.id);
+
+    await c.consentToSpawn(fs!.id);
+    const doc = mcp();
+    expect(JSON.stringify(doc)).not.toContain("hand_secret");
+    expect(doc.mcpServers.Remote!.headers).toEqual({ Authorization: "${secret:Authorization}" });
+    expect(doc.$schema).toBe("x");
+    expect(doc.mcpServers["Local files"]!.timeout).toBe(5000);
+    expect(c.connectorSecrets(c.getConnectorRow(remote!.id)!)).toEqual({ Authorization: "Bearer hand_secret" });
+    expect(c.getConnectorRow(fs!.id)!.spawnConsent).toBe(true);
+  });
+
+  it("asks again when the command is changed by hand", async () => {
+    const c = await load();
+    const s = await c.createConnector({ name: "fs", transport: { type: "stdio", command: "npx", args: ["fs-mcp"] } });
+    await c.consentToSpawn(s.id);
+    const doc = mcp();
+    doc.mcpServers.fs!.args = ["evil-mcp"];
+    handEdit(doc);
+    expect(c.getConnectorRow(s.id)!.spawnConsent).toBe(false);
+  });
+
+  it("names an unusable server, leaves it out, and keeps it as written", async () => {
+    const c = await load();
+    const h = await c.createConnector({ name: "h", transport: { type: "http", url: "https://h.example/mcp" } });
+    const doc = mcp();
+    doc.mcpServers.broken = { args: ["x"], note: "mine" };
+    handEdit(doc);
+    expect(c.listConnectorRows().map((r) => r.name)).toEqual(["h"]);
+    expect(c.connectorProblems()).toEqual([`"broken" needs a "command" to run or a "url" to reach.`]);
+    await c.setConnectorToolsEnabled(h.id, ["a"], false);
+    expect(mcp().mcpServers.broken).toEqual({ args: ["x"], note: "mine" });
+    // The name stays taken while it is there.
+    expect((await c.createConnector({ name: "broken", transport: { type: "http", url: "https://b.example/mcp" } })).name).toBe("broken (2)");
+  });
+
+  it("never writes over an mcp.json that is not JSON, and says why", async () => {
+    handEdit(`{ "mcpServers": { "a": `);
+    const c = await load();
+    expect(c.listConnectorRows()).toEqual([]);
+    expect(c.connectorProblems()[0]).toMatch(/^mcp\.json is not valid JSON/);
+    await expect(c.createConnector({ name: "x", transport: { type: "http", url: "https://x.example/mcp" } })).rejects.toBeInstanceOf(c.McpFileError);
+    expect(readFileSync(mcpFile(), "utf8")).toBe(`{ "mcpServers": { "a": `);
+  });
+
+  it("keeps names unique, since a name is the key", async () => {
+    const c = await load();
+    await c.createConnector({ name: "h", transport: { type: "http", url: "https://a.example/mcp" } });
+    const b = await c.createConnector({ name: "h", transport: { type: "http", url: "https://b.example/mcp" } });
+    expect(b.name).toBe("h (2)");
+    expect(Object.keys(mcp().mcpServers)).toEqual(["h", "h (2)"]);
   });
 });
 

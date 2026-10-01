@@ -1,9 +1,11 @@
+import { join } from "node:path";
 import { readJson, updateJson } from "./store";
+import { PATHS } from "./paths";
 
 // Which skills are switched off, by name. The skills themselves are folders on
 // disk (skillsDir()); this choice is the only skill state OpenLive keeps.
 
-const SKILLS = "skills.json";
+const SKILLS = join(PATHS.state, "skills.json");
 
 interface SkillsState { disabled: string[] }
 

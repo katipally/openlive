@@ -10,7 +10,7 @@ import { Client as AgentClient } from "@modelcontextprotocol/sdk/client/index.js
 import { StreamableHTTPClientTransport as AgentTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const dir = mkdtempSync(join(tmpdir(), "ol-connectors-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 process.env.OPENLIVE_ENC_KEY = "cd".repeat(32);
 const db = await import("@openlive/db");
 const { ConnectorManager, ConsentRequired } = await import("./manager.ts");
@@ -35,7 +35,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await manager.shutdown();
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_ENC_KEY;
   rmSync(dir, { recursive: true, force: true });
 });

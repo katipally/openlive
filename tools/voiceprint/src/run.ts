@@ -115,7 +115,7 @@ console.log(`${speakers.length} speakers, ${tests.length} test utterances`);
 // ── the agent's voices, as others ────────────────────────────────────────────
 const ttsDir = join(cache, "tts");
 mkdirSync(ttsDir, { recursive: true });
-process.env.OPENLIVE_DATA_DIR = join(regressCache, "sherpa");
+process.env.OPENLIVE_HOME = join(regressCache, "sherpa");
 const m = await import("../../../services/agent/src/voice/native-models");
 const worker = new Worker(new URL("../../../services/agent/src/voice/native-worker.ts", import.meta.url));
 let nextId = 0;
@@ -132,7 +132,7 @@ function call<T>(req: WorkerRequest, pick: (ev: WorkerEvent, done: (v: T) => voi
 }
 for (const [variant, voices] of Object.entries(TTS_VOICES)) {
   const e = m.nativeEngine(variant)!;
-  if (!m.engineInstalled(e)) { console.log(`skipping ${variant}: not in ${process.env.OPENLIVE_DATA_DIR} (pnpm voice:regress downloads it)`); continue; }
+  if (!m.engineInstalled(e)) { console.log(`skipping ${variant}: not in ${process.env.OPENLIVE_HOME} (pnpm voice:regress downloads it)`); continue; }
   for (const id of voices) {
     const v = e.voices!.find((x) => x.id === id)!;
     for (const [si, text] of SENTENCES.entries()) {

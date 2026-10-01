@@ -3,17 +3,20 @@ import type {
   Provider, ChatSummary, ChatMessage,
   ProviderKind, MessageBlock, MessageRole,
 } from "@openlive/shared";
+import { join } from "node:path";
+import { SECRET_SETTINGS } from "@openlive/shared/home";
 import { readJson, updateJson } from "./store";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { getDb, withBusyRetry } from "./sqlite";
+import { PATHS } from "./paths";
 
 // Stored shapes. Providers/settings/voice-profiles live in tiny JSON files;
 // chats + messages live in SQLite (append-shaped, growing — see sqlite.ts).
 interface ProviderRow { id: string; name: string; kind: string; apiKeyCiphertext: string | null; keyLast4: string | null; isDefault: boolean }
 interface ChatDbRow { id: string; title: string; created_at: string; updated_at: string | null; agent_id: string | null; cwd: string | null; agent_session_id: string | null }
 
-const PROVIDERS = "providers.json";
-const SETTINGS = "settings.json";
+const PROVIDERS = PATHS.providers;
+const SETTINGS = PATHS.settings;
 
 const readProviders = () => readJson<ProviderRow[]>(PROVIDERS, []);
 
@@ -165,7 +168,7 @@ export async function deleteChat(id: string): Promise<void> {
 
 // ─── Voice profiles (cloned-voice metadata; wavs live in DATA_DIR/voices) ───
 export interface VoiceProfile { id: string; name: string; transcript: string; wavFile: string; createdAt: string; seconds?: number }
-const VOICES = "voice-profiles.json";
+const VOICES = join(PATHS.data, "voice-profiles.json");
 
 export function listVoiceProfiles(): VoiceProfile[] {
   return readJson<VoiceProfile[]>(VOICES, []);
@@ -197,27 +200,49 @@ export async function deleteVoiceProfile(id: string): Promise<VoiceProfile | und
 }
 
 // ─── Settings (key/value) ──────────────────────────────────────────────────
+// settings.json is plain and edited by hand, so a secret setting (SECRET_SETTINGS)
+// is kept encrypted in secrets/settings.json instead, behind the same calls.
+const secret = (key: string) => SECRET_SETTINGS.includes(key);
+
+function open(sealed: string | undefined): string | undefined {
+  if (sealed === undefined) return undefined;
+  try { return decryptSecret(sealed); } catch { return undefined; } // the enc-key changed; it is set again
+}
+
 export function getSetting(key: string): string | undefined {
+  if (secret(key)) return open(readJson<Record<string, string>>(PATHS.settingSecrets, {})[key]);
   return readJson<Record<string, string>>(SETTINGS, {})[key];
 }
 
-export async function setSetting(key: string, value: string): Promise<void> {
-  await updateJson<Record<string, string>>(SETTINGS, {}, (s) => {
-    s[key] = value;
-    return s;
-  });
-}
+export const setSetting = (key: string, value: string): Promise<void> => updateSetting(key, () => value);
 
-/** One setting's read-modify-write, under the store's lock, so a note saved by the agent and one edited from the web never lose each other. */
+/** One setting's read-modify-write, under the store's lock, so two processes changing it never lose each other's write. */
 export async function updateSetting(key: string, fn: (cur: string | undefined) => string): Promise<void> {
+  if (secret(key)) {
+    await updateJson<Record<string, string>>(PATHS.settingSecrets, {}, (s) => {
+      const next = fn(open(s[key]));
+      if (next) s[key] = encryptSecret(next); else delete s[key];
+      return s;
+    });
+    return;
+  }
   await updateJson<Record<string, string>>(SETTINGS, {}, (s) => {
     s[key] = fn(s[key]);
     return s;
   });
 }
 
+/** The plain settings. Secret ones are only ever read by name. */
 export function getAllSettings(): Record<string, string> {
   return readJson<Record<string, string>>(SETTINGS, {});
+}
+
+// ─── Memory (memory.json: the notes `remember` keeps, oldest first) ───────────
+export const getMemory = (): unknown => readJson<unknown>(PATHS.memory, []);
+
+/** Read, change and write the notes under the store's lock, as updateSetting does for a setting. */
+export async function updateMemory(fn: (cur: unknown) => unknown): Promise<void> {
+  await updateJson<unknown>(PATHS.memory, [], fn);
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────

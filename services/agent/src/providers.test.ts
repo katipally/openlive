@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-process.env.OPENLIVE_DATA_DIR = mkdtempSync(join(tmpdir(), "openlive-prov-"));
+process.env.OPENLIVE_HOME = mkdtempSync(join(tmpdir(), "openlive-prov-"));
 
 const { setSetting } = await import("@openlive/db");
 const { liveReasoning, providerInfo, resolveLive } = await import("./providers");

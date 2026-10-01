@@ -43,14 +43,15 @@ export function ConnectorsSettings() {
   const [signIns, setSignIns] = useState<ReadonlyMap<string, SignIn>>(new Map());
   const [adding, setAdding] = useState<"add" | "import" | null>(null);
   const [filter, setFilter] = useState("");
-  const { data: list, isLoading, isError, error, refetch, isFetching } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: KEY, queryFn: api.connectors, retry: 1, refetchOnWindowFocus: true,
     refetchInterval: (q) => {
       if (signIns.size) return signInsPollMs([...signIns.values()].map((s) => s.since), Date.now());
-      return q.state.data?.some((c) => c.status === "connecting") ? 2000 : false;
+      return q.state.data?.connectors.some((c) => c.status === "connecting") ? 2000 : false;
     },
   });
-  const put = (c: ConnectorWire) => qc.setQueryData<ConnectorWire[]>(KEY, (l) => l?.map((x) => (x.id === c.id ? c : x)));
+  const list = data?.connectors;
+  const put = (c: ConnectorWire) => qc.setQueryData<Awaited<ReturnType<typeof api.connectors>>>(KEY, (d) => d && { ...d, connectors: d.connectors.map((x) => (x.id === c.id ? c : x)) });
   const refresh = () => qc.invalidateQueries({ queryKey: KEY });
 
   // The desktop window regains focus without the page turning visible, which
@@ -107,6 +108,17 @@ export function ConnectorsSettings() {
           {adding === "add" && <AddPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
           {adding === "import" && <ImportPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
           {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
+          {!!data?.problems?.length && (
+            <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-border px-card-x py-3">
+              <p className="text-label text-foreground">mcp.json has a problem. Fix it in a text editor, then check again.</p>
+              {data.problems.map((p) => <p key={p} className="break-words font-mono text-caption text-destructive">{p}</p>)}
+              <span>
+                <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
+                  {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Check again
+                </Button>
+              </span>
+            </div>
+          )}
           {isError && (
             <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t reach OpenLive&apos;s agent. {msg(error)}</span>

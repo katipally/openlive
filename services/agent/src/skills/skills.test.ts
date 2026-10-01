@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 const tmp = mkdtempSync(join(tmpdir(), "ol-skills-"));
 const userDir = join(tmp, "user-skills");
-process.env.OPENLIVE_DATA_DIR = join(tmp, "data");
+process.env.OPENLIVE_HOME = join(tmp, "data");
 process.env.OPENLIVE_SKILLS_DIR = userDir;
 const { parseSkill } = await import("./parse.ts");
 const { catalog, rescan, resources } = await import("./catalog.ts");
@@ -17,7 +17,7 @@ const { setSkillEnabled } = await import("@openlive/db");
 const { ToolSet } = await import("../capabilities/dispatch.ts");
 
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_SKILLS_DIR;
   rmSync(tmp, { recursive: true, force: true });
 });

@@ -73,7 +73,8 @@ export const api = {
   /** Asks the system for one grant: its prompt and settings page on macOS, the screen sharing dialog on Wayland. */
   requestComputerPermission: (id: ComputerGrant["id"]) =>
     fetch("/api/computer/permissions/request", { method: "POST", body: JSON.stringify({ id }) }).then(j<ComputerStatus>),
-  connectors: () => fetch("/api/connectors").then(j<{ connectors: ConnectorWire[] }>).then((r) => r.connectors),
+  /** `problems`: what is wrong with mcp.json as written by hand, one line each. */
+  connectors: () => fetch("/api/connectors").then(j<{ connectors: ConnectorWire[]; problems?: string[] }>),
   addConnector: (b: { url: string; name?: string; headers?: Record<string, string> } | { json: string }) =>
     fetch("/api/connectors", { method: "POST", body: JSON.stringify(b) }).then(j<{ connectors: ConnectorWire[]; warnings: string[] }>),
   updateConnector: (id: string, p: ConnectorPatch) =>

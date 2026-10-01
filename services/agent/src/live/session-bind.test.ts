@@ -10,12 +10,12 @@ import { afterAll, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-bind-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
 const { listChats } = await import("@openlive/db");
 
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 

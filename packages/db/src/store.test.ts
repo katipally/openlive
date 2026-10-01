@@ -6,7 +6,7 @@ import { beforeAll, afterAll, expect, test } from "vitest";
 // DATA_DIR is resolved at import time, so point it at a temp dir BEFORE the
 // store module loads.
 const dir = mkdtempSync(join(tmpdir(), "openlive-store-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 let store: typeof import("./store");
 
 beforeAll(async () => { store = await import("./store"); });

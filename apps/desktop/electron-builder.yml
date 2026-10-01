@@ -67,6 +67,11 @@ extraResources:
     to: agent
   - from: dist/agent/node_modules
     to: agent/node_modules
+  # The one paths module (packages/shared/src/home): main loads it from here,
+  # the servers carry their own bundled copy.
+  - from: ../../packages/shared/src/home
+    to: home
+    filter: ["*.mjs"]
   # The ol-input native addon. Unpacked, not in the asar: Node can only dlopen
   # a real file on disk.
   - from: dist/ol-input

@@ -5,7 +5,7 @@ import { embed } from "./native.js";
 import { SAMPLE_RATE } from "./pcm.js";
 
 // The enrolled user's voiceprint: a mean speaker embedding per microphone,
-// kept in the agent's settings store (never exposed by /api/settings, never
+// kept encrypted in the home's secrets/ (never exposed by /api/settings, never
 // sent anywhere) and gone with one DELETE. The live gate (apps/web
 // voiceEngine.ts) asks verify() whether a segment is the user.
 // Enrollment is explicit: the user reads for ~15 s in Settings. Passive

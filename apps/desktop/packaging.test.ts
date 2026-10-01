@@ -57,6 +57,15 @@ describe("electron-builder files", () => {
   it("packs the stamped config when there is one", () => {
     expect(files).toContain("telemetry-config.json");
   });
+
+  it("ships the paths module main loads from the resources, with every file it imports", () => {
+    expect(read("main.cjs")).toContain(`path.join(process.resourcesPath, "home", "index.mjs")`);
+    expect(read("electron-builder.yml")).toMatch(/- from: \.\.\/\.\.\/packages\/shared\/src\/home\n\s+to: home\n\s+filter: \["\*\.mjs"\]/);
+    const homeDir = join(here, "..", "..", "packages", "shared", "src", "home");
+    const imports = [...text(join(homeDir, "index.mjs")).matchAll(/from "(\.[^"]+)"/g)].map((m) => m[1]!);
+    for (const f of imports) expect(existsSync(join(homeDir, f)), f).toBe(true);
+    expect(imports.every((f) => f.endsWith(".mjs"))).toBe(true);
+  });
 });
 
 describe("the computer-use helper", () => {

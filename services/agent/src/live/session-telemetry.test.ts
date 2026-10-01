@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-call-telemetry-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
 const { setSetting } = await import("@openlive/db");
 const { limits } = await import("../telemetry/limits.ts");
@@ -41,7 +41,7 @@ beforeEach(() => { sent = []; limits.clear(); (process as unknown as { parentPor
 afterEach(() => { delete (process as unknown as { parentPort?: unknown }).parentPort; });
 afterAll(() => {
   model.close();
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 

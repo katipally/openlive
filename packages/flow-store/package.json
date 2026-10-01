@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@openlive/shared": "workspace:*",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {

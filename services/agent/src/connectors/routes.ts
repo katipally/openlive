@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import {
-  clearConnectorOAuth, consentToSpawn, createConnector, getConnectorRow, hasConnectorTokens, listConnectorRows,
-  removeConnector, setConnectorToolsEnabled, transportWire, updateConnector, type ConnectorRow,
+  clearConnectorOAuth, connectorProblems, consentToSpawn, createConnector, getConnectorRow, hasConnectorTokens, listConnectorRows,
+  McpFileError, removeConnector, setConnectorToolsEnabled, transportWire, updateConnector, type ConnectorRow,
 } from "@openlive/db";
 import type { ConnectorWire } from "@openlive/shared";
 import { log } from "../log.js";
@@ -16,6 +16,12 @@ import { fromMcpServers, importSources, preview, readSource, sameness, type Foun
 // on with no way to send the secret: it is guarded by its single-use state.
 
 export const connectorRoutes = new Hono();
+
+// mcp.json is broken by hand: say so, and leave the file for the person to fix.
+connectorRoutes.onError((e, c) => {
+  if (e instanceof McpFileError) return c.json({ error: e.message }, 409);
+  throw e;
+});
 
 /** Rows as the UI sees them. Names are computed across all rows at once, as the registry computes them. */
 function wires(rows: ConnectorRow[]): ConnectorWire[] {
@@ -52,7 +58,7 @@ const addSchema = z.union([
   z.object({ json: z.union([z.string(), z.record(z.string(), z.unknown())]) }),
 ]);
 
-connectorRoutes.get("/", (c) => c.json({ connectors: wires(listConnectorRows()) }));
+connectorRoutes.get("/", (c) => c.json({ connectors: wires(listConnectorRows()), problems: connectorProblems() }));
 
 // Add by URL, or by pasting `{ "mcpServers": { ... } }` (or just the map inside it).
 connectorRoutes.post("/", async (c) => {

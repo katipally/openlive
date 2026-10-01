@@ -11,11 +11,11 @@ import { LANGUAGE_CODES } from "@openlive/shared";
 
 // DATA_DIR is resolved when @openlive/db loads, so point it at a temp dir first.
 const dir = mkdtempSync(join(tmpdir(), "ol-webcat-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { NATIVE_FAMILIES } = await import("./native-models.ts");
 const { STT_FAMILIES, TTS_FAMILIES, VOICEPRINT_ENGINE, ADDRESSEE_ENGINE } = await import("../../../../apps/web/src/lib/live/pipelineConfig.ts");
 const { licenseTag } = await import("../../../../apps/web/src/lib/live/engineMenu.ts");
-afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dir, { recursive: true, force: true }); });
+afterAll(() => { delete process.env.OPENLIVE_HOME; rmSync(dir, { recursive: true, force: true }); });
 
 const curated = new Set<string>(LANGUAGE_CODES);
 const shape = (f: { id: string; variants: { id: string; languages: readonly string[]; streaming?: boolean; legacy?: string; legacyId?: string }[] }) => ({

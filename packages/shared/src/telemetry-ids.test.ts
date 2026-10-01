@@ -10,9 +10,9 @@ import { BUILTIN_PROVIDERS } from "../../harness/src/registry";
 
 // native-models resolves its data dir when it loads, so it gets an empty one.
 const dir = mkdtempSync(join(tmpdir(), "ol-telemetry-ids-"));
-process.env.OPENLIVE_DATA_DIR = dir;
+process.env.OPENLIVE_HOME = dir;
 const { NATIVE_FAMILIES } = await import("../../../services/agent/src/voice/native-models");
-delete process.env.OPENLIVE_DATA_DIR;
+delete process.env.OPENLIVE_HOME;
 // Not a literal path: pipelineConfig reads `window`, which this package's tsc (no DOM lib) would reject.
 const pipelineConfig = "../../../apps/web/src/lib/live/pipelineConfig";
 const { STT_FAMILIES, TTS_FAMILIES } = (await import(/* @vite-ignore */ pipelineConfig)) as Record<"STT_FAMILIES" | "TTS_FAMILIES", { id: string }[]>;

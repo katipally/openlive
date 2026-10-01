@@ -8,7 +8,7 @@
 // its truth. `--cue level` renders side talk 6 dB quieter, as if turned away
 // from the mic: a planted cue the features should find. With `--cue none`
 // nothing about the sound depends on the label. Either way, a simulated room is
-// weak evidence about real ones. Point the agent at a scratch OPENLIVE_DATA_DIR.
+// weak evidence about real ones. Point the agent at a scratch OPENLIVE_HOME.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

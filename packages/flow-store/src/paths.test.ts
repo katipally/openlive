@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { assetsDir, configPath, ensureDir, flowDir, flowHome, sessionAssetsDir, sessionsDir } from "./paths";
@@ -8,10 +8,13 @@ import { assetsDir, configPath, ensureDir, flowDir, flowHome, sessionAssetsDir, 
 const dir = mkdtempSync(join(tmpdir(), "flow-paths-"));
 afterAll(() => { delete process.env.OPENLIVE_FLOW_HOME; rmSync(dir, { recursive: true, force: true }); });
 
-test("falls back to ~/.openlive on every platform", () => {
+test("falls back to the OpenLive home, read per call", () => {
   delete process.env.OPENLIVE_FLOW_HOME;
-  expect(flowHome()).toBe(join(homedir(), ".openlive"));
-  expect(flowDir()).toBe(join(homedir(), ".openlive", "flow"));
+  const home = process.env.OPENLIVE_HOME;
+  process.env.OPENLIVE_HOME = dir;
+  expect(flowHome()).toBe(dir);
+  expect(flowDir()).toBe(join(dir, "flow"));
+  process.env.OPENLIVE_HOME = home;
 });
 
 test("OPENLIVE_FLOW_HOME is read per call, not at import", () => {

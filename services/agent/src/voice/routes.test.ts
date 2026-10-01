@@ -25,13 +25,13 @@ let m: typeof import("./native-models.js");
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ol-routes-"));
-  process.env.OPENLIVE_DATA_DIR = dir;
+  process.env.OPENLIVE_HOME = dir;
   vi.resetModules();
   m = await import("./native-models.js");
   app = (await import("./routes.js")).voiceRoutes;
 });
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { transcribe.mockClear(); speak.mockClear(); });
@@ -137,7 +137,7 @@ describe("POST /addressee", () => {
     expect((await label({ id: "j1", label: "side" })).status).toBe(200);
     expect((await label({ id: "nope", label: "side" })).status).toBe(404);
     expect((await label({ id: "j1", label: "maybe" })).status).toBe(400);
-    const lines = readFileSync(join(dir, "addressee-log.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const lines = readFileSync(join(dir, "data", "addressee-log.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     expect(lines[0]).toMatchObject({ id: "j1", text: "kept", mode: "shadow", side: true, feats: { relDb: -3, pitch: null, cut: 1 } });
     expect(lines[1]).toEqual({ id: "j1", label: "side" });
     expect((await status()).log.labelled).toBe(1);
@@ -148,7 +148,7 @@ describe("POST /addressee", () => {
   it("judges with the user's own head only once it passed its eval", async () => {
     install("addressee-mpnet-multi-int8");
     const { HEAD } = await import("@openlive/shared/speech/addressee-head");
-    const file = join(dir, "addressee-head.json");
+    const file = join(dir, "data", "addressee-head.json");
     // Turned around from the embedding: calls the sentence addressed.
     const own = (pass: boolean, mtime: number) => {
       writeFileSync(file, JSON.stringify({ model: HEAD.model, w: HEAD.w.map((w) => -w), b: 0, threshold: 0, eval: { pass } }));
@@ -177,7 +177,7 @@ describe("POST /addressee", () => {
   it("bounds what a judgment keeps and what a label may send", async () => {
     install("addressee-mpnet-multi-int8");
     await judge({ text: "kept", reply: "", speaker: "x".repeat(5000), id: "b1", mode: "shadow" });
-    expect(JSON.parse(readFileSync(join(dir, "addressee-log.jsonl"), "utf8").trim().split("\n").at(-1)!).speaker).toHaveLength(40);
+    expect(JSON.parse(readFileSync(join(dir, "data", "addressee-log.jsonl"), "utf8").trim().split("\n").at(-1)!).speaker).toHaveLength(40);
     const big = await app.request("/addressee/label", { method: "POST", body: JSON.stringify({ id: "b1", label: "to", pad: "x".repeat(4096) }), headers: { "content-type": "application/json" } });
     expect(big.status).toBe(413);
     await app.request("/addressee/log", { method: "DELETE" });
@@ -340,11 +340,11 @@ describe("POST /tts (native)", () => {
 describe("PUT /debug/tts-capture", () => {
   const put = (path: string, body: string | Uint8Array) => app.request(`/debug/tts-capture/${path}`, { method: "PUT", body, headers: { "content-type": "application/octet-stream" } });
 
-  it("keeps a piece's PCM and a reply's manifest under the data dir", async () => {
+  it("keeps a piece's PCM and a reply's manifest under the home's cache", async () => {
     const pcm = new Float32Array([0.5, -0.25]);
     expect((await put("run-1/reply-001/p0000.f32", new Uint8Array(pcm.buffer))).status).toBe(200);
     expect((await put("run-1/reply-001/manifest.json", "{}")).status).toBe(200);
-    const base = join(dir, "debug", "tts-capture", "run-1", "reply-001");
+    const base = join(dir, "cache", "debug", "tts-capture", "run-1", "reply-001");
     const saved = readFileSync(join(base, "p0000.f32"));
     expect(new Float32Array(saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.length))).toEqual(pcm);
     expect(readFileSync(join(base, "manifest.json"), "utf8")).toBe("{}");

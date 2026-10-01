@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 const dir = mkdtempSync(join(tmpdir(), "ol-memory-routes-"));
-process.env.OPENLIVE_DATA_DIR = dir;
-const { getSetting, setSetting } = await import("@openlive/db");
+process.env.OPENLIVE_HOME = dir;
+const { getMemory, updateMemory } = await import("@openlive/db");
 const { memoryRoutes } = await import("./routes.ts");
 
 afterAll(() => {
-  delete process.env.OPENLIVE_DATA_DIR;
+  delete process.env.OPENLIVE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -24,11 +24,11 @@ describe("the /memory API", () => {
   });
 
   it("lists the old array of strings as notes, newest first, without rewriting it", async () => {
-    await setSetting("agent_notes", JSON.stringify(["Their name is Ada.", "They drink tea."]));
+    await updateMemory(() => ["Their name is Ada.", "They drink tea."]);
     const { json } = await call("GET", "/");
     expect(json.notes.map((n: any) => [n.text, n.inUse])).toEqual([["They drink tea.", true], ["Their name is Ada.", true]]);
     expect(json.used).toBe("Their name is Ada.".length + "They drink tea.".length + 6);
-    expect(JSON.parse(getSetting("agent_notes")!)).toEqual(["Their name is Ada.", "They drink tea."]);
+    expect(getMemory()).toEqual(["Their name is Ada.", "They drink tea."]);
   });
 
   it("adds a note and answers with the list, refusing an empty one, a duplicate and a bad body", async () => {
@@ -56,7 +56,7 @@ describe("the /memory API", () => {
     expect((await call("DELETE", `/note/${newest.id}`)).json.notes).toHaveLength(2);
     expect((await call("DELETE", `/note/${newest.id}`)).status).toBe(404);
     expect((await call("DELETE", "/")).json).toEqual({ notes: [], used: 0, budget: 2000, max: 300 });
-    expect(JSON.parse(getSetting("agent_notes")!)).toEqual([]);
+    expect(getMemory()).toEqual([]);
   });
 
   it("marks what is past the prompt budget as not in use", async () => {

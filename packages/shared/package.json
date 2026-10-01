@@ -8,6 +8,10 @@
     "./sse-events": "./src/sse-events.ts",
     "./types": "./src/types.ts",
     "./node": "./src/node/agent-node.ts",
+    "./home": {
+      "types": "./src/home/index.d.mts",
+      "default": "./src/home/index.mjs"
+    },
     "./speech/*": "./src/speech/*.ts"
   },
   "scripts": {

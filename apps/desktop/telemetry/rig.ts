@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, existsSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Test scaffolding for the telemetry modules: a temp userData dir, a fake clock,
+// Test scaffolding for the telemetry modules: a temp state dir, a fake clock,
 // and a recording `post` that stands in for the network. Nothing here can reach a host.
 const require = createRequire(import.meta.url);
 const { createTelemetry } = require("./index.cjs");
@@ -22,7 +22,7 @@ export const modeOf = (file: string) => statSync(file).mode & 0o777;
 
 let idCounter = 0;
 export function rig(over: Record<string, unknown> = {}) {
-  const dir = (over.userDataDir as string) ?? tmpDir();
+  const dir = (over.stateDir as string) ?? tmpDir();
   const sent: Sent[] = [];
   const respond = { status: 200, retryAfter: undefined as string | undefined, fail: false };
   const post = vi.fn(async (req: Omit<Sent, "json">) => {
@@ -31,7 +31,7 @@ export function rig(over: Record<string, unknown> = {}) {
     return { status: respond.status, retryAfter: respond.retryAfter };
   });
   const deps = {
-    userDataDir: dir,
+    stateDir: dir,
     config: CONFIG,
     isPackaged: true,
     env: {},
@@ -59,8 +59,8 @@ export function rig(over: Record<string, unknown> = {}) {
     state: () => readJson(file("telemetry.json")),
     names: () => sent.filter((s) => s.json.type === "track").map((s) => s.json.payload.name as string),
     file,
-    /** A second run of the app over the same userData. */
-    again: (more: Record<string, unknown> = {}) => rig({ ...over, userDataDir: dir, ...more }),
+    /** A second run of the app over the same state dir. */
+    again: (more: Record<string, unknown> = {}) => rig({ ...over, stateDir: dir, ...more }),
     touch: (name: string, body = "{}") => {
       mkdirSync(join(dir, name, ".."), { recursive: true });
       writeFileSync(file(name), body);

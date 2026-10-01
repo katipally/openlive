@@ -32,7 +32,7 @@ export function migrateConversationsJson(db: DatabaseSync): void {
   try {
     if (migrated(db)) return; // the other process imported while we waited
 
-    const data = readJson<Conversations>(CONVOS, { chats: [], messages: [] });
+    const data = readJson<Conversations>(src, { chats: [], messages: [] });
     const insChat = db.prepare(
       "INSERT OR IGNORE INTO chats (id, title, created_at, updated_at, agent_id, cwd, agent_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
