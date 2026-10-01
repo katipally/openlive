@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { AGENT_LIST } from "@openlive/shared";
 import { widenedPath, evalCredProbe, readJsonHome, type CredState } from "@openlive/shared/node";
@@ -12,19 +13,32 @@ export const dynamic = "force-dynamic";
 // Status for the Agents panel: is each agent's CLI installed, is it signed in
 // (read-only credential probe — file/JSON/keychain presence, never the secret),
 // and is it hidden from selectors. Session dirs are the tools' own stores.
-async function present(bin: string): Promise<boolean> {
+/** Where `bin` is on the PATH, or null. */
+async function locate(bin: string): Promise<string | null> {
   const finder = process.platform === "win32" ? "where" : "which";
-  try { await promisify(execFile)(finder, [bin], { env: { ...process.env, PATH: widenedPath() }, timeout: 3000 }); return true; }
-  catch { return false; }
+  try {
+    const { stdout } = await promisify(execFile)(finder, [bin], { env: { ...process.env, PATH: widenedPath() }, timeout: 3000 });
+    return stdout.trim().split(/\r?\n/)[0]?.trim() || null;
+  } catch { return null; }
 }
+
+/** Versions read, by the path `which` found, with that file's mtime and size then.
+ *  Spawning `--version` is most of this route's time (a Node CLI takes ~300 ms)
+ *  and the panel asks on every focus, so a version is read again only when its
+ *  binary changed. */
+const versions = new Map<string, { stamp: string; version: string }>();
 
 /** `<bin> --version` → a short version string, or undefined. Best-effort: some
  *  CLIs print banners — keep just the first line, capped. */
-async function binVersion(bin: string): Promise<string | undefined> {
+async function binVersion(bin: string, path: string): Promise<string | undefined> {
+  const stamp = await stat(path).then((s) => `${s.mtimeMs}:${s.size}`, () => "");
+  const hit = versions.get(path);
+  if (stamp && hit?.stamp === stamp) return hit.version;
   try {
     const { stdout } = await promisify(execFile)(bin, ["--version"], { env: { ...process.env, PATH: widenedPath() }, timeout: 4000 });
-    const line = stdout.trim().split("\n")[0]?.trim();
-    return line ? line.slice(0, 48) : undefined;
+    const version = stdout.trim().split("\n")[0]?.trim().slice(0, 48) || undefined;
+    if (version && stamp) versions.set(path, { stamp, version });
+    return version;
   } catch { return undefined; }
 }
 
@@ -41,14 +55,15 @@ export async function GET() {
   const rows = await Promise.all(AGENT_LIST.map(async (a) => {
     // Installed = runner binary on PATH, AND (where the binary alone proves
     // nothing) the agent's own footprint exists.
-    const presentBins = await Promise.all(a.bins.map(async (b) => ((await present(b)) ? b : null)));
-    const firstBin = presentBins.find(Boolean) ?? null;
+    const paths = await Promise.all(a.bins.map(locate));
+    const found = paths.findIndex(Boolean);
+    const firstBin = found < 0 ? null : a.bins[found]!;
     const installed = !!firstBin && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
     // Only probe credentials when actually installed — a leftover config file
     // from an old install shouldn't render as signed in.
     const credState: CredState = installed ? await evalCredProbe(a.credProbe) : "unknown";
     // CLI version, shown in the row.
-    const version = installed && firstBin ? await binVersion(firstBin) : undefined;
+    const version = installed && firstBin ? await binVersion(firstBin, paths[found]!) : undefined;
     return {
       id: a.id, label: a.label,
       installed,
