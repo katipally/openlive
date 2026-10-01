@@ -7,5 +7,8 @@ export default defineConfig({
     // The desktop shell is plain CJS with no src/, so its tests sit beside it.
     include: ["{apps,services,packages,tools}/*/src/**/*.test.ts", "apps/desktop/*.test.ts", "apps/desktop/telemetry/*.test.ts", "native/*/scripts/*.test.ts"],
     environment: "node",
+    // No computer-use helper unless a test brings its own: a dev build on the
+    // machine running the tests must not change which tools a session gets.
+    env: { OPENLIVE_CU_HELPER: "" },
   },
 });

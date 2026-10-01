@@ -54,6 +54,11 @@ const { skillTools } = await import("./skills/tools.js");
 registry.register(skillTools());
 app.route("/skills", skillRoutes);
 
+// Computer use: one helper for every session, started on first use. Its own grants, for Access settings.
+const { computer } = await import("./computer/helper.js");
+const { computerRoutes } = await import("./computer/routes.js");
+app.route("/computer", computerRoutes());
+
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
 // reaches it over localhost, and the web app's proxy routes reach it over localhost
@@ -80,6 +85,7 @@ function shutdown() {
   if (closing) return; closing = true;
   for (const c of wss.clients) { try { c.close(); } catch { /* */ } }
   wss.close();
+  computer.shutdown();
   // Every stdio connector's child goes with us.
   void connectors.shutdown().finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 1500).unref();
