@@ -9,7 +9,7 @@ const path = require("node:path");
 const INPUTS = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "scripts/build.cjs"];
 
 /** Every input file under `root`, sorted so the walk order never changes the hash. O(n log n) in files. */
-function inputFiles(root) {
+function inputFiles(root, inputs) {
   const files = [];
   const walk = (rel) => {
     const abs = path.join(root, rel);
@@ -17,13 +17,14 @@ function inputFiles(root) {
     if (!fs.statSync(abs).isDirectory()) { files.push(rel); return; }
     for (const name of fs.readdirSync(abs)) walk(path.join(rel, name));
   };
-  INPUTS.forEach(walk);
+  inputs.forEach(walk);
   return files.map((f) => f.split(path.sep).join("/")).sort();
 }
 
-function sourceHash(root) {
+/** `inputs`: the files and folders under `root` the binary is built from. */
+function sourceHash(root, inputs = INPUTS) {
   const hash = crypto.createHash("sha256");
-  for (const rel of inputFiles(root)) {
+  for (const rel of inputFiles(root, inputs)) {
     hash.update(`${rel}\0`);
     hash.update(fs.readFileSync(path.join(root, rel)));
     hash.update("\0");

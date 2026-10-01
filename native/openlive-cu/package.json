@@ -1,0 +1,11 @@
+{
+  "name": "@openlive/openlive-cu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The computer-use helper OpenLive's server drives over a local socket",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "build:if-stale": "node scripts/build.cjs --if-stale --host-only",
+    "test:rust": "cargo test --workspace"
+  }
+}

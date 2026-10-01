@@ -88,9 +88,15 @@ mac:
   # identical across the two single-arch passes of the universal build. Declare
   # them or electron-builder rejects the merge ("not covered by x64ArchFiles").
   # The ol-input addon is already a universal (lipo'd) Mach-O, so it is identical
-  # across the passes too, as is onnxruntime-node's arm64-only binary (it ships
-  # none for Intel; pack-agent.cjs).
-  x64ArchFiles: "{**/sherpa-onnx-darwin-*/**,**/ol-input/*.node,**/onnxruntime-node/**}"
+  # across the passes too, as is the computer-use helper and onnxruntime-node's
+  # arm64-only binary (it ships none for Intel; pack-agent.cjs).
+  x64ArchFiles: "{**/sherpa-onnx-darwin-*/**,**/ol-input/*.node,**/onnxruntime-node/**,**/OpenLive Computer Use.app/**}"
+  # The computer-use helper: its own app bundle, so macOS grants Accessibility and
+  # Screen Recording to "OpenLive Computer Use" rather than to OpenLive. Signed
+  # with the app's identity like every other nested binary.
+  extraResources:
+    - from: "dist/computer-use/OpenLive Computer Use.app"
+      to: "OpenLive Computer Use.app"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
