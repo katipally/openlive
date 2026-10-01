@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, Check, CornerDownLeft, Paperclip, X } from "lucide-react";
 import { agentLabel } from "@openlive/shared";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { api } from "@/lib/api";
 import { featureUsed } from "@/lib/featureUse";
-import { acceptFiles, composeMessage, filterCommands, promoteCommand, slashQuery, type Command } from "@/lib/live/composer";
+import { acceptFiles, composeMessage, filterCommands, promoteCommand, slashQuery, withSkills, type Command } from "@/lib/live/composer";
 import { useMotionTokens } from "@/lib/motion";
-import { Button, Swap, Tooltip, menuPanel, groupLabel } from "@/components/ui";
+import { Badge, Button, Swap, Tooltip, menuPanel, groupLabel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 export interface ComposerHandle { addFiles: (files: File[]) => void }
@@ -38,12 +40,18 @@ async function toJpeg(file: File): Promise<{ data: string; mime: string }> {
 
 // Type mid-call, in API mode and with every agent: a growing field (Enter
 // sends, Shift+Enter breaks the line, an IME composition is never cut short),
-// images by button, paste or drop, and the agent's slash commands as a chip.
+// images by button, paste or drop, and the agent's slash commands and the
+// enabled skills as a chip.
 // A send joins the queue the live session drains once the reply is over and
 // the user is not talking, so typing never cuts the mic or the voice.
 export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: () => void }) {
-  const commands = useLiveStore((s) => s.agentMeta?.commands ?? NO_COMMANDS);
+  const agentCommands = useLiveStore((s) => s.agentMeta?.commands ?? NO_COMMANDS);
   const agent = useLiveStore((s) => s.boundAgent);
+  const workspace = useLiveStore((s) => s.boundCwd);
+  // The same list, and cache, as Settings > Skills. A failed read only means no skills here.
+  const { data: skillList } = useQuery({ queryKey: ["skills", workspace], queryFn: () => api.skills(workspace), retry: 1, staleTime: 30_000 });
+  const skills = skillList?.skills;
+  const commands = useMemo(() => (skills ? withSkills(agentCommands, skills) : agentCommands), [agentCommands, skills]);
   const [text, setText] = useState("");
   const [command, setCommand] = useState<Command | null>(null);
   const [images, setImages] = useState<Attachment[]>([]);
@@ -152,6 +160,8 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
   };
 
   const label = agent ? agentLabel(agent) : "Commands";
+  const hasSkills = commands.length > agentCommands.length;
+  const heading = !agentCommands.length ? "Skills" : `${agent ? `${label} commands` : label}${hasSkills ? " and skills" : ""}`;
   return (
     <div className="@container group/composer relative mx-3 mb-3 shrink-0"
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
@@ -163,11 +173,11 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
             transition={{ ...smooth, opacity: fade }}
             className={cn("absolute inset-x-0 bottom-full z-30 mb-2 flex max-h-[min(22rem,50vh)] origin-bottom flex-col", menuPanel)}>
             <div className={cn("flex shrink-0 items-center justify-between gap-2 px-2.5 pb-1.5 pt-1", groupLabel)}>
-              <span className="truncate">{agent ? `${label} commands` : label}</span>
+              <span className="truncate">{heading}</span>
               <span className="shrink-0 normal-case tracking-normal">Esc to close</span>
             </div>
-            <motion.div layoutScroll id={listId} role="listbox" aria-label={`${label} commands`} className="openlive-scroll min-h-0 overflow-y-auto">
-              {matches.length === 0 && <p className="px-2.5 py-3 text-center text-label text-faint">No command matches</p>}
+            <motion.div layoutScroll id={listId} role="listbox" aria-label={heading} className="openlive-scroll min-h-0 overflow-y-auto">
+              {matches.length === 0 && <p className="px-2.5 py-3 text-center text-label text-faint">No {agentCommands.length ? "command" : "skill"} matches</p>}
               {matches.map((c, i) => (
                 <button key={c.name} id={optionId(i)} type="button" role="option" aria-selected={i === active} tabIndex={-1}
                   onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c)}
@@ -177,6 +187,7 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
                   <span className={cn("max-w-[45%] shrink-0 truncate font-mono text-label", i === active ? "text-link-foreground" : "text-foreground")}>/{c.name}</span>
                   <span className="min-w-0 flex-1 truncate text-label text-muted-foreground">{c.description}</span>
                   {c.hint && <span className="hidden max-w-[30%] shrink truncate font-mono text-caption text-faint @[22rem]:inline">{c.hint}</span>}
+                  {c.skill && <Badge className="shrink-0">Skill</Badge>}
                   {i === active && <CornerDownLeft aria-hidden className="size-3 shrink-0 text-faint" />}
                 </button>
               ))}
@@ -235,7 +246,7 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
             <Button variant="ghost" icon size="sm" aria-label="Attach an image" onClick={() => picker.current?.click()}><Paperclip /></Button>
           </Tooltip>
           {commands.length > 0 && !command && (
-            <Tooltip label={`${label} commands`}>
+            <Tooltip label={heading}>
               <Button variant="ghost" icon size="sm" aria-label="Commands" aria-pressed={menuOpen}
                 className={cn("font-mono text-callout", menuOpen && "bg-accent-soft text-link-foreground")}
                 onMouseDown={(e) => e.preventDefault()} onClick={toggleCommands}>

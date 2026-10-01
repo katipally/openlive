@@ -976,8 +976,10 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
 - **Typed `/name`.** In a call's text box, a message starting with `/name`
   loads that skill before the turn, and the rest of the message is the turn.
   The bound coding agent's own slash commands come first: a name the agent
-  advertises goes to the agent untouched. Spoken words never trigger it, and
-  Flow, which has no text box, does not.
+  advertises goes to the agent untouched. The text box's `/` menu lists the
+  enabled skills after the agent's commands, marked as skills, and leaves out
+  a skill named like one of them. Spoken words never trigger it, and Flow,
+  which has no text box, does not.
 - **Import** (`import.ts`). Claude Code (`$CLAUDE_CONFIG_DIR` or `~/.claude`,
   then `skills`), `~/.agents/skills`, Codex (`$CODEX_HOME` or `~/.codex`, then
   `skills`) and Gemini CLI (`~/.gemini/skills`), the same relative path on every

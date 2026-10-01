@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ATTACHMENTS, MAX_IMAGE_BYTES, acceptFiles, composeMessage, filterCommands, promoteCommand, slashQuery } from "./composer";
+import { MAX_ATTACHMENTS, MAX_IMAGE_BYTES, acceptFiles, composeMessage, filterCommands, promoteCommand, slashQuery, withSkills } from "./composer";
 
 const CMDS = [
   { name: "review", description: "Review the current changes" },
@@ -16,6 +16,28 @@ describe("slashQuery", () => {
     expect(slashQuery("/review main")).toBeNull();
     expect(slashQuery("see /rev")).toBeNull();
     expect(slashQuery("")).toBeNull();
+  });
+});
+
+describe("withSkills", () => {
+  const skill = (name: string, enabled = true) => ({ name, description: `the ${name} skill`, enabled });
+
+  it("adds the enabled skills after the agent's commands, marked as skills", () => {
+    const all = withSkills(CMDS, [skill("pdf"), skill("off", false)]);
+    expect(all.map((c) => c.name)).toEqual([...CMDS.map((c) => c.name), "pdf"]);
+    expect(all.at(-1)).toEqual({ name: "pdf", description: "the pdf skill", skill: true });
+  });
+
+  it("hides a skill an agent command shares a name with, so the command wins", () => {
+    const all = withSkills(CMDS, [skill("review")]);
+    expect(all).toBe(CMDS);
+    expect(promoteCommand("/review main", all)?.command.skill).toBeUndefined();
+  });
+
+  it("offers skills alone when the brain has no commands, and promotes a typed one", () => {
+    const all = withSkills([], [skill("pdf")]);
+    expect(promoteCommand("/pdf fill this in", all)).toEqual({ command: all[0], rest: "fill this in" });
+    expect(composeMessage(all[0]!, "fill this in")).toBe("/pdf fill this in");
   });
 });
 

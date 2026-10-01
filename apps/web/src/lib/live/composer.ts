@@ -1,11 +1,12 @@
-import type { AgentCommandWire } from "@openlive/shared";
+import type { AgentCommandWire, SkillWire } from "@openlive/shared";
 
 // The typed composer's rules, kept pure so they are unit-tested: when the
 // slash menu is open and for what, which commands match, when a typed
 // "/name " becomes a command chip, which files attach, and the text a send
 // puts on the wire (ACP wants a command as "/name args").
 
-export type Command = AgentCommandWire;
+/** An agent's command, or an OpenLive skill, which a typed "/name" loads. */
+export type Command = AgentCommandWire & { skill?: true };
 
 export const MAX_ATTACHMENTS = 4;
 // Past this an image is a photo library export, not a screenshot; it would be
@@ -17,6 +18,14 @@ export const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 export function slashQuery(draft: string): string | null {
   const m = /^\/(\S*)$/.exec(draft);
   return m ? m[1]! : null;
+}
+
+/** The agent's commands, then the enabled skills. A skill named like a command
+ *  is left out: the server sends that name to the agent, as typed. O(commands + skills). */
+export function withSkills(commands: Command[], skills: readonly Pick<SkillWire, "name" | "description" | "enabled">[]): Command[] {
+  const taken = new Set(commands.map((c) => c.name));
+  const extra = skills.filter((s) => s.enabled && !taken.has(s.name)).map((s) => ({ name: s.name, description: s.description, skill: true as const }));
+  return extra.length ? [...commands, ...extra] : commands;
 }
 
 /** Commands matching `query`, best first: name prefix, then name contains, then
