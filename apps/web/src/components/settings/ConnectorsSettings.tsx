@@ -142,6 +142,7 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
   const [editing, setEditing] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState("");
   const toolsId = useId();
   const status = STATUS[c.status];
   const line = transportLine(c.transport);
@@ -157,6 +158,14 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
   const flip = (next: ConnectorWire, call: () => Promise<ConnectorWire>, fail: string) => {
     put(next);
     call().then(put).catch((e) => { put(c); toast(`${fail} ${msg(e)}`); });
+  };
+  // A failed Allow keeps the card open, with the reason beside the button.
+  const allow = async () => {
+    setBusy("consent");
+    setConsentError("");
+    try { put(await api.consentConnector(c.id)); setReviewing(false); }
+    catch (e) { setConsentError(`Couldn’t start ${c.name}. ${msg(e)}`); }
+    finally { setBusy(null); }
   };
   const spin = (what: string, Icon: typeof LogIn) => (busy === what ? <Loader2 className="animate-spin" /> : <Icon />);
 
@@ -233,12 +242,12 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
               ) : "None"}
             </Fact>
           </dl>
+          {consentError && <p role="alert" className="break-words text-label text-destructive">{consentError}</p>}
           <span className="flex flex-wrap gap-1.5">
-            <Button variant="primary" size="sm" disabled={!!busy}
-              onClick={() => void run("consent", () => api.consentConnector(c.id), `Couldn’t start ${c.name}.`).then(() => setReviewing(false))}>
+            <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void allow()}>
               {spin("consent", ShieldCheck)} Allow
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setReviewing(false)}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setReviewing(false); setConsentError(""); }}>Cancel</Button>
           </span>
         </div>
       )}
