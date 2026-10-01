@@ -20,7 +20,10 @@ pub const MAX_LONG_EDGE: u32 = 1280;
 /// About what a provider takes per image comfortably after base64 (+33%), and
 /// small enough that a screenshot after every action does not swamp a turn.
 pub const MAX_BYTES: usize = 900_000;
-const JPEG_QUALITY: u8 = 80;
+/// Measured on real 1280-wide window captures: at 90 the 11 px text and the
+/// coloured status words read as they do in the PNG, Vision's OCR returns the
+/// same words, and the file is half the PNG's size. 80 rings around coloured text.
+const JPEG_QUALITY: u8 = 90;
 /// Below this the picture stops being worth sending; the best attempt goes as is.
 const MIN_LONG_EDGE: u32 = 320;
 const SHRINK: f64 = 0.8;
@@ -33,9 +36,12 @@ pub struct Encoded {
     pub height: u32,
 }
 
-/// PNG while it fits (UI is flat colour and text, which PNG keeps sharp),
-/// then JPEG at the same size, then JPEG smaller by a fifth per step until it
-/// fits. O(k * w * h) for k shrink steps, k <= 7 from 1280 down to 320.
+/// Whichever of PNG and JPEG is smaller at full size (a flat UI stays PNG,
+/// which keeps it exact; a busy one goes JPEG at half the bytes or less), then
+/// JPEG smaller by a fifth per step until it fits. Every picture kept in a
+/// transcript is uploaded again with each step, so bytes are latency. Image
+/// tokens follow the pixel size, not the format, so they do not change.
+/// O(k * w * h) for k shrink steps, k <= 7 from 1280 down to 320.
 pub fn encode(rgba: RgbaImage) -> Result<Encoded, String> {
     encode_within(rgba, MAX_BYTES)
 }
@@ -44,17 +50,18 @@ fn encode_within(rgba: RgbaImage, budget: usize) -> Result<Encoded, String> {
     let (w, h) = fit(rgba.width(), rgba.height(), MAX_LONG_EDGE);
     let mut img = if (w, h) == rgba.dimensions() { rgba } else { ::image::imageops::resize(&rgba, w, h, FilterType::Triangle) };
     let png = png(&img)?;
-    if png.bytes.len() <= budget {
+    let mut lossy = jpeg(&img)?;
+    if png.bytes.len() <= lossy.bytes.len().min(budget) {
         return Ok(png);
     }
     loop {
-        let jpeg = jpeg(&img)?;
         let long = img.width().max(img.height());
-        if jpeg.bytes.len() <= budget || long <= MIN_LONG_EDGE {
-            return Ok(jpeg);
+        if lossy.bytes.len() <= budget || long <= MIN_LONG_EDGE {
+            return Ok(lossy);
         }
         let (w, h) = fit(img.width(), img.height(), ((f64::from(long) * SHRINK) as u32).max(MIN_LONG_EDGE));
         img = ::image::imageops::resize(&img, w, h, FilterType::Triangle);
+        lossy = jpeg(&img)?;
     }
 }
 
@@ -100,6 +107,22 @@ mod tests {
         let e = encode(flat(1280, 800)).unwrap();
         assert_eq!((e.mime, e.width, e.height), ("image/png", 1280, 800));
         assert!(e.bytes.len() <= MAX_BYTES);
+    }
+
+    #[test]
+    fn a_busy_window_goes_jpeg_at_full_size_when_that_is_smaller() {
+        // Fits as PNG too, so only the size comparison picks JPEG.
+        let img = noise(400, 250);
+        let png_len = png(&img).unwrap().bytes.len();
+        let e = encode(img).unwrap();
+        assert_eq!((e.mime, e.width, e.height), ("image/jpeg", 400, 250));
+        assert!(e.bytes.len() < png_len, "{} >= {png_len}", e.bytes.len());
+    }
+
+    #[test]
+    fn a_flat_ui_is_png_because_png_is_smaller() {
+        let img = flat(1280, 800);
+        assert!(png(&img).unwrap().bytes.len() < jpeg(&img).unwrap().bytes.len());
     }
 
     #[test]
