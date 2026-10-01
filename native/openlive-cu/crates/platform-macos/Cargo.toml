@@ -1,0 +1,21 @@
+[package]
+name = "openlive-cu-macos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+openlive-cu-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+block2 = "0.6"
+image.workspace = true
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "SCScreenshotManager", "SCShareableContent", "SCStream", "objc2-core-foundation", "objc2-core-graphics"] }
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray", "NSURL", "NSObject", "NSEnumerator", "NSError", "NSData"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSApplication", "NSRunningApplication", "NSWorkspace", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSImage"] }
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXValue", "AXError", "AXActionConstants", "AXAttributeConstants", "AXRoleConstants", "AXValueConstants"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFBase", "CFDictionary", "CFNumber", "CFString", "CFCGTypes", "CFRunLoop", "CFURL"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventTypes", "CGEventSource", "CGWindow", "CGDirectDisplay", "CGGeometry", "CGRemoteOperation", "CGImage", "CGContext", "CGBitmapContext", "CGColorSpace"] }

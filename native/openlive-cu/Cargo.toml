@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/platform-macos", "crates/platform-windows", "crates/platform-linux", "crates/helper"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+openlive-cu-core = { path = "crates/core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+base64 = "0.23.1"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+interprocess = "2.4.4"
+libc = "0.2"
+
+[profile.release]
+lto = true
+strip = "symbols"

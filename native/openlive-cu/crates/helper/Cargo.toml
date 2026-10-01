@@ -1,0 +1,21 @@
+[package]
+name = "openlive-cu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+openlive-cu-core.workspace = true
+serde_json.workspace = true
+interprocess.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+openlive-cu-macos = { path = "../platform-macos" }
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+openlive-cu-windows = { path = "../platform-windows" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+openlive-cu-linux = { path = "../platform-linux" }
