@@ -40,11 +40,12 @@ const CHROMIUM_WARMUP: Duration = Duration::from_millis(400);
 
 /// Chromium and Electron apps expose their tree only when AXManualAccessibility
 /// is set. Setting it on native Cocoa apps can collapse their trees to the root,
-/// so it is an allowlist, not a default.
+/// so it is an allowlist, not a default. Editors stay off it: VS Code reads the
+/// switch as a screen reader arriving and changes how its editor behaves.
 const CHROMIUM_APPS: &[&str] = &[
     "com.google.chrome", "com.microsoft.edgemac", "com.brave.browser", "com.operasoftware.opera",
     "com.vivaldi.vivaldi", "com.github.electron", "com.tinyspeck.slackmacgap", "com.spotify.client",
-    "com.hnc.discord", "com.microsoft.teams2", "notion.id", "com.microsoft.vscode", "com.openlive.desktop",
+    "com.hnc.discord", "com.microsoft.teams2", "notion.id",
 ];
 const BROWSERS: &[&str] = &[
     "com.apple.safari", "org.mozilla.firefox", "company.thebrowser.browser", "app.zen-browser.zen",
