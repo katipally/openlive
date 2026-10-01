@@ -27,6 +27,7 @@
     "unbzip2-stream": "^1.4.3",
     "undici": "^8.11.2",
     "ws": "^8.22.0",
+    "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

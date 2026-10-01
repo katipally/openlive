@@ -48,6 +48,12 @@ const { registry } = await import("./capabilities/registry.js");
 registry.register(connectorTools());
 app.route("/connectors", connectorRoutes);
 
+// Agent Skills: one folder OpenLive owns, offered to every brain the same way.
+const { skillRoutes } = await import("./skills/routes.js");
+const { skillTools } = await import("./skills/tools.js");
+registry.register(skillTools());
+app.route("/skills", skillRoutes);
+
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
 // reaches it over localhost, and the web app's proxy routes reach it over localhost

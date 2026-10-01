@@ -6,6 +6,7 @@ import { CHAT } from "../capabilities/profiles.js";
 import { cancelledText, collectTurn, safeParseArgs } from "../turn.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
+import { CARRIED_HEAD, carriedSkills } from "../skills/content.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
 
@@ -47,8 +48,9 @@ export class LiveTurnRunner {
   /** Always messages[0]: seeding and the history cap keep it. */
   private readonly system = { role: "system" as const, text: "" };
 
-  /** `tools` is the call's set, run against `session` through `approve`; `tally` hears each call. */
-  constructor(private tools: ToolSet, private session: Session, private opts: { approve: Approve; tally?: ToolTally }) {
+  /** `tools` is the call's set, run against `session` through `approve`; `tally` hears each call.
+   *  The call swaps `tools` when its folder changes, as a folder brings its own skills. */
+  constructor(public tools: ToolSet, private session: Session, private opts: { approve: Approve; tally?: ToolTally }) {
     this.messages = [this.system];
   }
 
@@ -99,13 +101,16 @@ export class LiveTurnRunner {
   // Bound the per-call history so a long conversation doesn't grow `messages`
   // unboundedly (Anthropic caching helps but doesn't cap it, and OpenAI has no cache
   // on this path). Cut only at a USER boundary so an assistant tool_use is never
-  // separated from its tool_result (providers 400 on an orphaned pair).
+  // separated from its tool_result (providers 400 on an orphaned pair). Skills
+  // activated in what is cut stay, in a note where the cut was.
   private capHistory() {
     const CAP = 40, KEEP = 30;
     if (this.messages.length <= CAP) return;
     let cut = this.messages.length - KEEP;
     while (cut < this.messages.length && this.messages[cut]!.role !== "user") cut++;
-    if (cut > 1 && cut < this.messages.length) this.messages.splice(1, cut - 1);
+    if (cut <= 1 || cut >= this.messages.length) return;
+    const carried = carriedSkills(this.messages.slice(1, cut), this.messages.slice(cut));
+    this.messages.splice(1, cut - 1, ...(carried ? [{ role: "user" as const, text: `[${CARRIED_HEAD}]\n${carried}` }] : []));
   }
 
   async runTurn(userText: string, frames: Frame[], emit: Emit, signal: AbortSignal, lang?: LanguageCode): Promise<void> {

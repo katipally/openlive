@@ -513,6 +513,7 @@ export class FlowLiveSession {
       );
       this.opening = Promise.resolve(this.store);
       this.messages = transcriptOf(loaded.entries);
+      this.tools = registry.tools(FLOW, this.toolSession);
       this.assetCount = loaded.assets.length;
       // A coding agent keeps its own conversation, so it has to be rebuilt and
       // seeded with this one, or it answers from the session it was last in.
@@ -553,6 +554,8 @@ export class FlowLiveSession {
     this.store = null;
     this.opening = null;
     this.messages = [];
+    // A fresh scan, so skills added since show up, and none counts as already loaded.
+    this.tools = registry.tools(FLOW, this.toolSession);
     this.voicedFrom = -1;
     this.assetCount = 0;
     void this.dropAgent();
@@ -607,8 +610,10 @@ export class FlowLiveSession {
       return this.brain;
     }
     void this.dropAgent();
+    const flow = this;
     this.mcp ??= await serveMcp({
-      tools: this.tools,
+      // Read per request: a new session brings a fresh tool set.
+      get tools() { return flow.tools; },
       // A call arriving outside a turn is refused, as the built-in brain never makes
       // one, and so is one a stopped turn made that lands in the next.
       ctx: (agentCallId) => ({

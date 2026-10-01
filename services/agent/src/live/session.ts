@@ -10,6 +10,7 @@ import { CHAT } from "../capabilities/profiles.js";
 import { ToolSet } from "../capabilities/dispatch.js";
 import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
 import { MCP_SERVER_NAME, serveMcp } from "../capabilities/mcp.js";
+import { slashSkill } from "../skills/tools.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
 import { narrationEnabled, wrapEmitWithNarration, createCommentaryGate } from "./narrator.js";
@@ -159,7 +160,7 @@ export class LiveSession {
       elicit: (req) => this.askElicitation(req),
       ...(device && { device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS), async () => (this.cameraOn ? this.requestFrame() : null)) }),
     };
-    this.tools = new ToolSet(registry.tools(CHAT, this.toolSession).list.map((t) => (OWN_UI.has(t.name) ? t : this.chipped(t))));
+    this.tools = this.callTools();
     this.approve = CHAT.approval((question) => this.askPermission(question, ALLOW_OR_DENY).then((id) => id === "allow"));
     this.runner = new LiveTurnRunner(this.tools, this.toolSession, { approve: this.approve, tally: toolTally("call") });
 
@@ -323,7 +324,7 @@ export class LiveSession {
     // loads twice, and goes to the built-in brain instead of the agent.
     await this.startup.catch(() => {});
 
-    const said = aside ? sentAside(text) : text;
+    let said = aside ? sentAside(text) : text;
     const blocks: MessageBlock[] = [];
     const hosted = new Set<string>();
     const foldCtx = newFoldCtx();
@@ -348,8 +349,15 @@ export class LiveSession {
       await this.agentReady?.catch(() => {}); // wait out the ACP handshake on the first turn
       await this.cutSaved;
       if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
+      // A typed "/name" loads that OpenLive skill for the turn, unless the bound
+      // agent has a command by that name: the agent's own commands come first.
+      const word = typed && !aside ? /^\/(\S+)/.exec(text.trim())?.[1] : undefined;
+      const skill = word && !this.lastMeta?.commands.some((c) => c.name === word)
+        ? await slashSkill(text, this.tools, { ...this.toolSession, signal: ac.signal, context: null })
+        : null;
+      if (skill) said = `${skill.content}\n\n${skill.rest || `Use the ${skill.name} skill.`}`;
       if (this.agent) {
-        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames, ...(!aside && text.trimStart().startsWith("/") && { command: text }) }, hideHosted(gate.emit, hosted), ac.signal);
+        await this.agent.runTurn({ text: withReplyLanguage(said, lang), frames, ...(!aside && !skill && text.trimStart().startsWith("/") && { command: text }) }, hideHosted(gate.emit, hosted), ac.signal);
         await gate.flush();
       } else if (this.boundId) {
         // A coding agent is bound but not running (no folder yet, or its start
@@ -528,9 +536,11 @@ export class LiveSession {
       if (this.lastMeta) this.send({ t: "agent_meta", ...this.lastMeta });
       return;
     }
+    const moved = effectiveCwd !== this.boundCwd;
     this.agentAc?.abort();
     void this.agent?.dispose();
     this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd; this.agentStartMs = 0; this.resumed = undefined;
+    if (moved) { this.tools = this.callTools(); this.runner.tools = this.tools; }
     if (this.chatId) await setBoundAgent(this.chatId, id);
     if (epoch !== this.bindEpoch) return;
     if (!id || this.closed || !this.chatId) return;
@@ -542,8 +552,10 @@ export class LiveSession {
     // user who speaks before the session/load finishes doesn't make ingestReplay think
     // the chat is OpenLive-origin and drop the recovered transcript.
     this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
+    const call = this;
     const mcp = await (this.mcp ??= serveMcp({
-      tools: this.tools,
+      // Read per request, so a new folder's skills are served once it is bound.
+      get tools() { return call.tools; },
       // A call arriving outside a turn is refused, as the built-in brain never makes
       // one, and so is one a stopped turn made that lands in the next.
       ctx: (agentCallId) => ({ ...this.toolSession, context: null, signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort() }),
@@ -587,6 +599,11 @@ export class LiveSession {
     if (this.boundId) return brainOf("acp", this.boundId);
     try { return brainOf("api", resolveLive().provider.id); }
     catch { return {}; }
+  }
+
+  /** The call's tools, each with its chip. Built again when the folder changes, as a folder brings its own skills. */
+  private callTools(): ToolSet {
+    return new ToolSet(registry.tools(CHAT, this.toolSession).list.map((t) => (OWN_UI.has(t.name) ? t : this.chipped(t))));
   }
 
   /** A tool with its chip in the running turn, the same whichever brain calls it. */

@@ -3,6 +3,7 @@ import { allowAll } from "../capabilities/approval.js";
 import type { Approve, Session } from "../capabilities/types.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
+import { CARRIED_HEAD, carriedSkills } from "../skills/content.js";
 import type { ErrorClass } from "@openlive/shared";
 import type { Brain, FlowEvent, Msg, Usage } from "./types.js";
 
@@ -80,20 +81,24 @@ const TRIM_NOTE = "[Earlier in this conversation was dropped to fit the context 
  * The cut never lands on a tool result: one whose assistant call was dropped is
  * a message no provider will accept. It may land mid-run, because one request
  * can take more steps than the tail holds, so the request itself rides along in
- * the note or the model loses sight of what it was asked to do.
+ * the note or the model loses sight of what it was asked to do. So do the
+ * skills activated in what is dropped.
  */
 export function compact(messages: Msg[], budget: Budget, anchor: { index: number; tokens: number } | null): Msg[] | null {
   if (estimateTokens(messages, anchor) <= budget.limit - budget.reserve) return null;
   let cut = Math.max(0, messages.length - budget.tail);
   while (cut < messages.length && messages[cut]!.role === "tool") cut++;
   if (cut === 0 || cut >= messages.length) return null;
-  if (messages[cut]!.role === "user") return [{ role: "user", text: TRIM_NOTE }, ...messages.slice(cut)];
+  const carried = carriedSkills(messages.slice(0, cut), messages.slice(cut));
+  const skills = carried && `\n\n${CARRIED_HEAD}\n${carried}`;
+  if (messages[cut]!.role === "user") return [{ role: "user", text: TRIM_NOTE + skills }, ...messages.slice(cut)];
   let ask = cut - 1;
   while (ask >= 0 && messages[ask]!.role !== "user") ask--;
-  const asked = ask >= 0 ? (messages[ask] as { text: string }).text : "";
+  // An earlier note's skills are among those carried, so only its request is kept from it.
+  const asked = ask >= 0 ? (messages[ask] as { text: string }).text.split(`\n\n${CARRIED_HEAD}`)[0]! : "";
   // A note from an earlier compaction already carries the request.
   const note = !asked || asked.startsWith(TRIM_NOTE) ? asked || TRIM_NOTE : `${TRIM_NOTE}\n\nWhat they asked for:\n${asked}`;
-  return [{ role: "user", text: note }, ...messages.slice(cut)];
+  return [{ role: "user", text: note + skills }, ...messages.slice(cut)];
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

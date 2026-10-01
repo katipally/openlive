@@ -335,6 +335,28 @@ describe("context budget", () => {
     expect((again[0] as { text: string }).text).toBe((out[0] as { text: string }).text);
   });
 
+  it("keeps an activated skill's instructions through every compaction, once", () => {
+    const skill = '<skill_content name="pdf">\nAlways merge with qpdf.\n</skill_content>';
+    const step = (id: string): Msg[] => [
+      { role: "assistant", text: "", toolCalls: [{ id, name: "t", arguments: "{}" }] },
+      { role: "tool", callId: id, name: "t", result: "x".repeat(4_000) },
+    ];
+    const run: Msg[] = [
+      { role: "user", text: "merge these PDFs" },
+      { role: "assistant", text: "", toolCalls: [{ id: "s", name: "activate_skill", arguments: '{"name":"pdf"}' }] },
+      { role: "tool", callId: "s", name: "activate_skill", result: skill },
+      ...["1", "2", "3", "4"].flatMap(step),
+    ];
+    const out = compact(run, { limit: 1_000, reserve: 100, tail: 3 }, null)!;
+    const note = (out[0] as { text: string }).text;
+    expect(note).toContain("merge these PDFs");
+    expect(note).toContain("Always merge with qpdf.");
+    const again = compact([...out, ...step("5"), ...step("6")], { limit: 1_000, reserve: 100, tail: 3 }, null)!;
+    const next = (again[0] as { text: string }).text;
+    expect(next).toBe(note);
+    expect(next.split("<skill_content").length).toBe(2);
+  });
+
   it("refuses to compact when there is nothing safe to drop", () => {
     const one: Msg[] = [{ role: "user", text: "x".repeat(100_000) }];
     expect(compact(one, { limit: 100, reserve: 10, tail: 1 }, null)).toBe(null);
