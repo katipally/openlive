@@ -270,7 +270,7 @@ mod tests {
     impl Backend for Fake {
         fn platform(&self) -> &'static str { "macos" }
         fn unsupported(&self) -> Option<String> { self.stub.then(|| not_yet("testos").message) }
-        fn grants(&self) -> Vec<Grant> { vec![Grant { id: "accessibility", granted: true, settings_url: None }] }
+        fn grants(&self) -> Vec<Grant> { vec![Grant { id: "accessibility", granted: true, settings_url: None, detail: None }] }
         fn request_grant(&mut self, _: &str) -> Result<(), CuError> { Ok(()) }
         fn list_apps(&mut self) -> Result<Vec<AppInfo>, CuError> { Ok(vec![app("com.apple.Notes")]) }
         fn list_windows(&mut self, _: Option<&str>) -> Result<Vec<WindowInfo>, CuError> { Ok(vec![]) }

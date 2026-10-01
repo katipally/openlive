@@ -11,6 +11,10 @@ Adapted in the computer-use helper and its client:
                                                      click pacing, key codes
   native/openlive-cu/crates/platform-windows/src/uia.rs      click pattern order
   native/openlive-cu/crates/platform-windows/src/backend.rs  focus check before keys
+  native/openlive-cu/crates/platform-linux/src/roles.rs      the action names a click tries
+                                                             (from the Linux AT-SPI runtime)
+  native/openlive-cu/crates/platform-linux/src/clipboard.rs  restoring the clipboard after
+                                                             a paste (same runtime)
   native/openlive-cu/scripts/build.cjs               helper app bundle and signing
   services/agent/src/computer/helper.ts              socket launch, token and reaping
   services/agent/src/computer/tools.ts               prompt guidance
@@ -46,6 +50,9 @@ choices. Adapted in:
                                                              sequence (free-threaded frame
                                                              pool, polled frame, staging copy)
                                                              and the minimized-window refusal
+  native/openlive-cu/crates/platform-linux/src/desktop.rs    switching accessibility on through
+                                                             org.a11y.Status IsEnabled alone,
+                                                             and leaving Cinnamon's switch alone
 
 MIT License
 

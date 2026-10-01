@@ -100,7 +100,7 @@ fn private(opts: ListenerOptions<'_>) -> ListenerOptions<'_> {
 }
 #[cfg(target_os = "linux")]
 fn backend() -> openlive_cu_linux::LinuxBackend {
-    openlive_cu_linux::LinuxBackend
+    openlive_cu_linux::LinuxBackend::new()
 }
 
 fn args() -> Result<(PathBuf, PathBuf), String> {

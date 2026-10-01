@@ -287,8 +287,8 @@ impl Backend for MacBackend {
 
     fn grants(&self) -> Vec<Grant> {
         vec![
-            Grant { id: "accessibility", granted: trusted(), settings_url: Some(ACCESSIBILITY_URL) },
-            Grant { id: "screenRecording", granted: CGPreflightScreenCaptureAccess(), settings_url: Some(SCREEN_URL) },
+            Grant { id: "accessibility", granted: trusted(), settings_url: Some(ACCESSIBILITY_URL), detail: None },
+            Grant { id: "screenRecording", granted: CGPreflightScreenCaptureAccess(), settings_url: Some(SCREEN_URL), detail: None },
         ]
     }
 

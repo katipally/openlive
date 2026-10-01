@@ -7,3 +7,14 @@ publish.workspace = true
 
 [dependencies]
 openlive-cu-core.workspace = true
+atspi-common = { version = "0.14.0", default-features = false }
+image.workspace = true
+serde.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+x11rb = { version = "0.14.0", features = ["xtest"] }
+libloading = "0.9.0"
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+futures-lite = "2.6.0"
+async-io = "2.4.0"

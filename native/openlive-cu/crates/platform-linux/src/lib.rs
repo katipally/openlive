@@ -1,39 +1,41 @@
-//! The Linux backend. A stub until phase 5c fills it in: every method that
-//! touches the desktop answers `unsupported_platform`, so the client falls back
-//! to ol-input's tools and the contract is already in place.
+//! The Linux backend: AT-SPI for the tree and semantic actions on X11 and
+//! Wayland alike; on X11, EWMH for windows, the root window for pixels and
+//! XTEST for input; on Wayland, the xdg-desktop-portal RemoteDesktop session
+//! for pixels (a PipeWire screen cast) and input. Coordinates are X screen
+//! pixels on X11 and the compositor's logical coordinates on Wayland.
+//!
+//! Nothing links a system library: D-Bus (zbus) and X11 (x11rb) are spoken in
+//! Rust, and libpipewire is loaded at run time only to take a Wayland picture.
+//!
+//! Adapted in part from Orca's Linux runtime (MIT, Copyright (c) 2026 Lovecast
+//! Inc.): the action names a click tries, and the clipboard restore after a
+//! paste. And from Cua Driver's platform-linux (https://github.com/trycua/cua,
+//! MIT, Copyright (c) 2025 Cua AI, Inc.): switching on accessibility through
+//! `org.a11y.Status.IsEnabled` alone, and leaving Cinnamon's switch alone.
+//! See THIRD_PARTY_NOTICES.
 
-use openlive_cu_core::backend::{not_yet, Action, Backend, Observation, Resolved};
-use openlive_cu_core::protocol::{ActionReport, AppInfo, CuError, Grant, WindowInfo};
+pub mod codes;
+pub mod desktop;
+pub mod ewmh;
+pub mod geom;
+pub mod portal;
+pub mod roles;
+pub mod spa;
 
-#[derive(Default)]
-pub struct LinuxBackend;
+#[cfg(target_os = "linux")]
+mod atspi;
+#[cfg(target_os = "linux")]
+mod backend;
+#[cfg(target_os = "linux")]
+mod bus;
+#[cfg(target_os = "linux")]
+mod clipboard;
+#[cfg(target_os = "linux")]
+mod pipewire;
+#[cfg(target_os = "linux")]
+mod wayland;
+#[cfg(target_os = "linux")]
+mod x11;
 
-impl Backend for LinuxBackend {
-    fn platform(&self) -> &'static str {
-        "linux"
-    }
-    fn unsupported(&self) -> Option<String> {
-        Some(not_yet("Linux").message)
-    }
-    fn grants(&self) -> Vec<Grant> {
-        Vec::new()
-    }
-    fn request_grant(&mut self, _: &str) -> Result<(), CuError> {
-        Err(not_yet("Linux"))
-    }
-    fn list_apps(&mut self) -> Result<Vec<AppInfo>, CuError> {
-        Err(not_yet("Linux"))
-    }
-    fn list_windows(&mut self, _: Option<&str>) -> Result<Vec<WindowInfo>, CuError> {
-        Err(not_yet("Linux"))
-    }
-    fn resolve(&mut self, _: Option<&str>, _: Option<u64>) -> Result<Resolved, CuError> {
-        Err(not_yet("Linux"))
-    }
-    fn observe(&mut self, _: &Resolved, _: bool, _: u32) -> Result<Observation, CuError> {
-        Err(not_yet("Linux"))
-    }
-    fn act(&mut self, _: &Resolved, _: &Action) -> Result<ActionReport, CuError> {
-        Err(not_yet("Linux"))
-    }
-}
+#[cfg(target_os = "linux")]
+pub use backend::LinuxBackend;

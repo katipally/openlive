@@ -87,7 +87,9 @@ pub trait Backend {
 }
 
 /// Password managers stay out of reach whatever the model is asked to do: macOS
-/// bundle ids, then Windows executables (the id the Windows backend reports).
+/// bundle ids, then Windows executables (the id the Windows backend reports),
+/// then Linux executables (the id the Linux backend reports, the script's name
+/// for an app an interpreter runs, so GNOME Secrets reads `secrets`).
 pub const BLOCKED_APPS: &[&str] = &[
     "com.1password.1password", "com.1password.safari", "com.agilebits.onepassword7",
     "com.bitwarden.desktop", "com.dashlane.dashlanephonefinal", "com.lastpass.lastpass",
@@ -95,6 +97,9 @@ pub const BLOCKED_APPS: &[&str] = &[
     "com.apple.keychainaccess", "com.apple.passwords",
     "1password.exe", "bitwarden.exe", "dashlane.exe", "lastpass.exe", "nordpass.exe", "proton pass.exe",
     "keepass.exe", "keepassxc.exe", "enpass.exe", "roboform.exe", "keeper.exe", "passwordsafe.exe",
+    "keepassxc", "keepassx", "keepass2", "1password", "bitwarden", "enpass", "nordpass", "proton-pass", "protonpass",
+    "seahorse", "secrets", "gnome-passwordsafe", "kwalletmanager5", "kwalletmanager", "pwsafe", "keeperpasswordmanager",
+    "buttercup", "padloc", "qtpass",
 ];
 
 pub fn refuse_blocked(app: &AppInfo) -> Result<(), CuError> {
@@ -143,6 +148,14 @@ mod tests {
         assert!(!within(Path::new("/x"), Path::new("")));
         if cfg!(any(target_os = "macos", windows)) {
             assert!(within(Path::new("/applications/openlive.app/x"), Path::new("/Applications/OpenLive.app")));
+        }
+    }
+
+    #[test]
+    fn blocks_linux_password_managers_by_executable() {
+        for id in ["keepassxc", "bitwarden", "1password", "seahorse", "secrets"] {
+            let app = AppInfo { name: id.into(), bundle_id: Some(id.into()), pid: 1, active: false };
+            assert_eq!(refuse_blocked(&app).unwrap_err().code, ErrorCode::AppBlocked, "{id}");
         }
     }
 

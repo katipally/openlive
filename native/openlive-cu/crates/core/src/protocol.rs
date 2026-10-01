@@ -112,6 +112,9 @@ pub struct Grant {
     pub granted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings_url: Option<&'static str>,
+    /// How to grant it where there is no settings page to open (Linux).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

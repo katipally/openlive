@@ -212,8 +212,8 @@ impl Backend for WindowsBackend {
     fn grants(&self) -> Vec<Grant> {
         let desktop = !win::session_zero() && win::input_desktop();
         vec![
-            Grant { id: "accessibility", granted: desktop, settings_url: None },
-            Grant { id: "screenRecording", granted: desktop, settings_url: None },
+            Grant { id: "accessibility", granted: desktop, settings_url: None, detail: None },
+            Grant { id: "screenRecording", granted: desktop, settings_url: None, detail: None },
         ]
     }
 
