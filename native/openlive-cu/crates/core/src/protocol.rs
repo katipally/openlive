@@ -124,7 +124,8 @@ pub struct AppInfo {
     pub active: bool,
 }
 
-/// Desktop coordinates in points, as the window server reports them. Window ids
+/// Desktop coordinates as the window server reports them: points on macOS,
+/// physical pixels on Windows (the helper is per-monitor DPI aware). Window ids
 /// are the platform's own (CGWindowID, HWND, XID), the same ids ol-input's
 /// window tools take, so the two can be mixed in one session.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]

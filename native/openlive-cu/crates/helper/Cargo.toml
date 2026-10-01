@@ -16,6 +16,7 @@ libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 openlive-cu-windows = { path = "../platform-windows" }
+widestring = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 openlive-cu-linux = { path = "../platform-linux" }

@@ -33,7 +33,7 @@ fn main() {
     let listener = socket
         .as_os_str()
         .to_fs_name::<GenericFilePath>()
-        .and_then(|name| ListenerOptions::new().name(name).create_sync())
+        .and_then(|name| private(ListenerOptions::new().name(name)).create_sync())
         .unwrap_or_else(|e| fail(&format!("listen on {}: {e}", socket.display())));
 
     std::thread::spawn(|| {
@@ -75,7 +75,28 @@ fn backend() -> openlive_cu_macos::MacBackend {
 }
 #[cfg(target_os = "windows")]
 fn backend() -> openlive_cu_windows::WindowsBackend {
-    openlive_cu_windows::WindowsBackend
+    openlive_cu_windows::WindowsBackend::new()
+}
+
+/// A Unix socket is private by the 0700 directory it sits in.
+#[cfg(not(windows))]
+fn private(opts: ListenerOptions<'_>) -> ListenerOptions<'_> {
+    opts
+}
+
+/// A named pipe lives in a global namespace with a default descriptor that lets
+/// Everyone read it, so it gets a DACL naming this user alone (see pipe.rs).
+/// Without one the helper does not listen at all.
+#[cfg(windows)]
+fn private(opts: ListenerOptions<'_>) -> ListenerOptions<'_> {
+    use interprocess::os::windows::{local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor};
+    use openlive_cu_windows::pipe;
+    let sd = pipe::current_user_sid()
+        .and_then(|sid| pipe::sddl(&sid).ok_or_else(|| std::io::Error::other(format!("not a SID: {sid}"))))
+        .and_then(|sddl| widestring::U16CString::from_str(sddl).map_err(std::io::Error::other))
+        .and_then(|wide| SecurityDescriptor::deserialize(&wide))
+        .unwrap_or_else(|e| fail(&format!("pipe security: {e}")));
+    opts.security_descriptor(sd)
 }
 #[cfg(target_os = "linux")]
 fn backend() -> openlive_cu_linux::LinuxBackend {
