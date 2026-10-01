@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Desktop"] },
+    "github": { "command": "docker", "args": ["run", "-i", "--rm", "ghcr.io/github/github-mcp-server"], "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_fixture", "LOG_LEVEL": "info" } }
+  },
+  "globalShortcut": "Ctrl+Space"
+}

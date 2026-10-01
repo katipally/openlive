@@ -1,0 +1,8 @@
+{
+  "theme": "Default",
+  "mcpServers": {
+    "stream": { "httpUrl": "https://stream.example.com/mcp", "headers": { "X-Api-Key": "gem_fixture" }, "timeout": 5000 },
+    "events": { "url": "https://events.example.com/sse" },
+    "local": { "command": "python", "args": ["-m", "srv"], "cwd": "./srv", "env": { "SECRET_TOKEN": "tok_fixture" }, "trust": true }
+  }
+}

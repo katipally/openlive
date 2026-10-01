@@ -1,0 +1,17 @@
+model = "gpt-5.5"
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+env_vars = ["CONTEXT7_HOME"]
+
+[mcp_servers.context7.env]
+CONTEXT7_API_KEY = "c7_fixture"
+REGION = "eu"
+
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+bearer_token_env_var = "FIGMA_OAUTH_TOKEN"
+http_headers = { "X-Figma-Region" = "us-east-1" }
+env_http_headers = { "X-Org" = "FIGMA_ORG" }
+enabled = false

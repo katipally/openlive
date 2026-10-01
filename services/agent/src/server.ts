@@ -7,6 +7,7 @@ import { attachLiveWs } from "./live/ws.js";
 import type { Server } from "node:http";
 import { log } from "./log.js";
 import { reportException } from "./telemetry/facts.js";
+import { OAUTH_CALLBACK_PATH } from "./connectors/oauth.js";
 
 loadEnv();
 await ensureSeedProviders(); // top-level await: seed before serving so first requests see keys
@@ -19,7 +20,8 @@ const WEB_ORIGIN = process.env.WEB_PUBLIC_URL?.trim() || "http://localhost:3000"
 const app = new Hono();
 app.use("*", cors({ origin: WEB_ORIGIN }));
 app.use("*", async (c, next) => {
-  if (!AGENT_SECRET || c.req.path === "/health") return next();
+  // A browser lands on the OAuth callback with no way to send the secret; its single-use state guards it.
+  if (!AGENT_SECRET || c.req.path === "/health" || c.req.path === OAUTH_CALLBACK_PATH) return next();
   if (c.req.header("x-openlive-secret") !== AGENT_SECRET) return c.json({ error: "unauthorized" }, 401);
   return next();
 });
@@ -37,6 +39,14 @@ void import("./voice/accel.js").then((a) => a.refreshDevice()).catch((e) => log.
 // the caller's cost, never the boot path's.
 const { agentRoutes } = await import("./agents/models-route.js");
 app.route("/agents", agentRoutes);
+
+// MCP connectors: added once, offered to every brain in both modes through the registry.
+const { connectorRoutes } = await import("./connectors/routes.js");
+const { connectorTools } = await import("./connectors/tools.js");
+const { connectors } = await import("./connectors/manager.js");
+const { registry } = await import("./capabilities/registry.js");
+registry.register(connectorTools());
+app.route("/connectors", connectorRoutes);
 
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
@@ -64,7 +74,8 @@ function shutdown() {
   if (closing) return; closing = true;
   for (const c of wss.clients) { try { c.close(); } catch { /* */ } }
   wss.close();
-  server.close(() => process.exit(0));
+  // Every stdio connector's child goes with us.
+  void connectors.shutdown().finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 1500).unref();
 }
 process.on("SIGINT", shutdown);

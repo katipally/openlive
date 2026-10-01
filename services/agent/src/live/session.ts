@@ -156,6 +156,7 @@ export class LiveSession {
       // Read live, so the file tools track a folder change mid-call.
       workspace: () => this.boundCwd,
       emit: (e) => this.toolEmit(e),
+      elicit: (req) => this.askElicitation(req),
       ...(device && { device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS), async () => (this.cameraOn ? this.requestFrame() : null)) }),
     };
     this.tools = new ToolSet(registry.tools(CHAT, this.toolSession).list.map((t) => (OWN_UI.has(t.name) ? t : this.chipped(t))));

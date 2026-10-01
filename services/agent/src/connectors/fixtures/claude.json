@@ -1,0 +1,9 @@
+{
+  "numStartups": 12,
+  "mcpServers": {
+    "linear": { "type": "http", "url": "https://mcp.linear.app/mcp", "headers": { "Authorization": "Bearer ${LINEAR_TOKEN}" } },
+    "legacy": { "type": "sse", "url": "https://legacy.example.com/sse" },
+    "fs": { "type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Desktop"], "env": {} }
+  },
+  "projects": { "/Users/me/code": { "mcpServers": { "project-only": { "command": "nope" } } } }
+}

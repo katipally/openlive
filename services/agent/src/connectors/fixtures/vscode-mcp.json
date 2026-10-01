@@ -1,0 +1,8 @@
+{
+  "inputs": [{ "type": "promptString", "id": "perplexity-key", "description": "Perplexity API Key", "password": true }],
+  "servers": {
+    "perplexity": { "type": "stdio", "command": "npx", "args": ["-y", "server-perplexity-ask"], "env": { "PERPLEXITY_API_KEY": "${input:perplexity-key}" }, "envFile": "${workspaceFolder}/.env" },
+    "fetch": { "type": "stdio", "command": "uvx", "args": ["mcp-server-fetch"] },
+    "remote": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" }
+  }
+}

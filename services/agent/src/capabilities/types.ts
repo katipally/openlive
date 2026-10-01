@@ -1,5 +1,6 @@
 import type { FlowContentWire, FlowContextWire, SseEvent } from "@openlive/shared";
 import type { DevicePort } from "./device.js";
+import type { ElicitationAnswer, ElicitationAsk } from "../agents/index.js";
 
 // One tool shape for every surface. Chat's loop, Flow's loop and the MCP server
 // a coding agent reaches all run the same `Tool` through the same dispatch.
@@ -82,6 +83,8 @@ export interface Session {
   /** The project folder. Read per call, because the user can change it mid-session. */
   workspace?: () => string;
   emit?: Emit;
+  /** Ask the person something a tool's server needs mid-call: a page to visit or a form. */
+  elicit?: (req: ElicitationAsk) => Promise<ElicitationAnswer>;
 }
 
 export interface ToolCtx extends Session {
