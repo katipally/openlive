@@ -59,6 +59,18 @@ describe("electron-builder files", () => {
   });
 });
 
+describe("the computer-use helper", () => {
+  it("ships where Electron main tells the agent to find it, on macOS and Windows", () => {
+    const builder = read("electron-builder.yml");
+    const main = read("main.cjs");
+    expect(builder).toMatch(/- from: "dist\/computer-use\/OpenLive Computer Use.app"\n\s+to: "OpenLive Computer Use.app"/);
+    expect(main).toContain(`path.join(process.resourcesPath, "OpenLive Computer Use.app", "Contents", "MacOS", "openlive-cu")`);
+    expect(builder).toMatch(/- from: dist\/computer-use\/openlive-cu.exe\n\s+to: openlive-cu.exe/);
+    expect(main).toContain(`process.platform === "win32" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu.exe") }`);
+    expect(read("scripts/check-native.cjs")).toContain(`win32: path.join(staged, "openlive-cu.exe")`);
+  });
+});
+
 describe("hook sites", () => {
   const source = ["main.cjs", "flow-input.cjs", "flow-runtime.cjs"].map(read).join("\n");
   const all = (re: RegExp) => [...source.matchAll(re)].map((m) => m[1]);

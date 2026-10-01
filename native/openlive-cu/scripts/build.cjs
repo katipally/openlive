@@ -1,7 +1,8 @@
 "use strict";
 // Builds the computer-use helper. On macOS it becomes its own app bundle,
 // "OpenLive Computer Use.app", so Accessibility and Screen Recording are
-// granted to it and not to Electron; elsewhere it is a bare executable.
+// granted to it and not to Electron; elsewhere it is a bare executable (on
+// Windows with its manifest embedded by crates/helper/build.rs).
 // Bundle layout and signing follow Orca's build-computer-macos.mjs (MIT,
 // Copyright (c) 2026 Lovecast Inc.; see THIRD_PARTY_NOTICES).
 //

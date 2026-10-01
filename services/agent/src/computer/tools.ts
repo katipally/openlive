@@ -25,7 +25,7 @@ const text = (t: string): TextPart => ({ type: "text", text: t });
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 
 const TARGET = {
-  app: { type: "string", description: "The app: its name or bundle id from list_apps. Omit to keep using the last app, or the app in front at the start." },
+  app: { type: "string", description: "The app: its name or its id from list_apps (a bundle id on a Mac, an executable on Windows). Omit to keep using the last app, or the app in front at the start." },
   window_id: { type: "integer", description: "One of the app's windows, from list_windows. Omit for its focused window." },
 };
 const ELEMENT = { type: "integer", description: "An element number from the latest state of this window" };
@@ -104,7 +104,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     {
       name: "list_apps",
       readOnly: true,
-      description: "The apps running on this machine, with their bundle ids, the one in front first.",
+      description: "The apps running on this machine, with their ids (bundle ids on a Mac, executables on Windows), the one in front first.",
       parameters: obj({}),
       async execute() {
         const { apps } = await computer.call<{ apps: AppInfo[] }>("listApps");
@@ -130,7 +130,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
         "To work in an app, call get_app_state first and act on its numbered elements. Every action answers with the window's new state: read it before the next step. Element numbers go stale after any change, so only ever use numbers from the latest state.",
         "Prefer the meaning over the pixels: set_value for a field, click with an element number, perform_action with an action the element lists. Use x and y from the picture only when no element fits.",
         "An action's result says how sure it is. \"Read back\" means it was checked. Anything else is unproven until the state shows it, so never tell the user something was sent, saved, bought or deleted unless the state shows it.",
-        "Name the app by its name or bundle id. Without one you get the window in front that is not OpenLive's own.",
+        "Name the app by its name or its id from list_apps. Without one you get the window in front that is not OpenLive's own.",
         "Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that. Password managers are off limits.",
         "In a browser, set the address field with set_value, then keypress Return.",
       ],

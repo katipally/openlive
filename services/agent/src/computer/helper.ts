@@ -21,8 +21,8 @@ import { log } from "../log.js";
 
 /** Must equal the helper's PROTOCOL_VERSION. */
 export const PROTOCOL = 1;
-/** Platforms whose helper backend is real. Windows (5b) and Linux (5c) join here. */
-const SUPPORTED = new Set<NodeJS.Platform>(["darwin"]);
+/** Platforms whose helper backend is real. Linux (5c) joins here. */
+const SUPPORTED = new Set<NodeJS.Platform>(["darwin", "win32"]);
 const CONNECT_TIMEOUT_MS = 10_000;
 /** A tree walk of a busy window plus a capture fits well inside this; a hung helper does not. */
 export const REQUEST_TIMEOUT_MS = 30_000;

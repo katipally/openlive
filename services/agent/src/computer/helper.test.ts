@@ -89,8 +89,11 @@ describe("the helper client", () => {
 
 describe("locateHelper", () => {
   it("has nothing to offer where the backend is not built yet", () => {
-    expect(locateHelper({}, "win32")).toBeNull();
-    expect(locateHelper({}, "linux")).toBeNull();
+    expect(locateHelper({ OPENLIVE_CU_HELPER: process.execPath }, "linux")).toBeNull();
+  });
+
+  it("runs the packaged Windows executable Electron main names", () => {
+    expect(locateHelper({ OPENLIVE_CU_HELPER: process.execPath }, "win32")).toEqual({ command: process.execPath });
   });
 
   it("takes the packaged path from the environment, and only when it exists", () => {

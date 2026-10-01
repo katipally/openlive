@@ -1,8 +1,8 @@
 "use strict";
 // Build ol-input and stage it as extraResources. The crate links statically
 // (no per-dylib signing), so the staged directory is just the loader, its
-// types, and the .node for the running platform. On macOS the computer-use
-// helper app is built and staged beside it.
+// types, and the .node for the running platform. On macOS and Windows the
+// computer-use helper is built and staged beside it.
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -24,15 +24,16 @@ const archs = process.platform === "darwin" ? ["arm64", "x64"] : [process.arch];
 for (const arch of archs) fs.copyFileSync(built, path.join(outdir, `ol-input.${process.platform}-${arch}.node`));
 console.log(`[pack-native] staged ol-input for ${process.platform}-${process.arch}`);
 
-// The computer-use helper ships on macOS only until its Windows and Linux
-// backends land; elsewhere the server falls back to ol-input's screen tools.
-if (process.platform === "darwin") {
+// The computer-use helper ships on macOS (its own app bundle) and Windows (an
+// executable) until its Linux backend lands; there the server falls back to
+// ol-input's screen tools.
+if (process.platform === "darwin" || process.platform === "win32") {
   const cu = path.resolve(__dirname, "..", "..", "..", "native", "openlive-cu");
-  const app = "OpenLive Computer Use.app";
+  const helper = process.platform === "darwin" ? "OpenLive Computer Use.app" : "openlive-cu.exe";
   const staged = path.resolve(__dirname, "..", "dist", "computer-use");
   execFileSync(process.execPath, [path.join(cu, "scripts", "build.cjs")], { stdio: "inherit" });
   fs.rmSync(staged, { recursive: true, force: true });
   fs.mkdirSync(staged, { recursive: true });
-  fs.cpSync(path.join(cu, "dist", app), path.join(staged, app), { recursive: true, verbatimSymlinks: true });
-  console.log(`[pack-native] staged ${app}`);
+  fs.cpSync(path.join(cu, "dist", helper), path.join(staged, helper), { recursive: true, verbatimSymlinks: true });
+  console.log(`[pack-native] staged ${helper}`);
 }

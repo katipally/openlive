@@ -135,6 +135,11 @@ win:
     - target: nsis
       arch: [x64]
   artifactName: ${productName}-${version}-windows.${ext}
+  # The computer-use helper, beside the app's resources. Electron main names it
+  # to the agent as OPENLIVE_CU_HELPER.
+  extraResources:
+    - from: dist/computer-use/openlive-cu.exe
+      to: openlive-cu.exe
   # Unpadded: Windows and Linux draw no tile of their own, unlike macOS's grid.
   # A multi-size .ico whose 16-64 entries are drawn at their own size, so the
   # taskbar and title bar don't downscale the 1024 into a smear.
