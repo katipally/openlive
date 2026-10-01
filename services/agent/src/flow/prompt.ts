@@ -1,5 +1,5 @@
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
-import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
+import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { MCP_SERVER_NAME, type FlowContext, type Tool } from "./types.js";
 
 // Flow's prompt is short on purpose. It is read once per turn by a model that
@@ -43,7 +43,9 @@ export function formatContext(c: FlowContext | null): string {
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
 export function buildFlowPrompt(p: { tools: Tool[]; lang?: LanguageCode }): string {
   const guidelines = p.tools.flatMap((t) => t.promptGuidelines ?? []);
-  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), rememberedNotes().trim(), replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
+  const custom = customInstructions();
+  const persona = custom && `How the user wants you to behave and speak, in their own words. Follow it within reason:\n${custom}`;
+  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), rememberedNotes().trim(), persona, replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
 }
 
 /**

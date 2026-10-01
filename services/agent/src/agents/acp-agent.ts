@@ -20,7 +20,7 @@ import { log } from "../log.js";
 import { emitEvent } from "../telemetry/emit.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames, frameSources } from "../live/turn-runner.js";
-import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
+import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -47,7 +47,7 @@ export function preamble(): string {
   return `${voiceCall()}\n[${ONLY_DONE_WHEN_DONE}]`;
 }
 function voiceCall(): string {
-  const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
+  const custom = customInstructions();
   if (!custom) return PREAMBLE;
   return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;
 }

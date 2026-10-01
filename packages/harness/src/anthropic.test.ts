@@ -29,13 +29,14 @@ const SSE = [
 ].join("\n") + "\n";
 
 let body = SSE;
+let sent: RequestInit | undefined;
 vi.mock("./retry", () => ({
-  fetchWithRetry: async () => new Response(
+  fetchWithRetry: async (_url: string, init: RequestInit) => (sent = init, new Response(
     new ReadableStream({
       start(c) { c.enqueue(new TextEncoder().encode(body)); c.close(); },
     }),
     { status: 200 },
-  ),
+  )),
 }));
 
 describe("streamAnthropic wire adapter", () => {
@@ -84,5 +85,20 @@ describe("streamAnthropic wire adapter", () => {
       .toEqual([{ type: "usage", input: 0, output: 0 }, { type: "usage", input: 169, output: 3 }]);
     expect(await usage(`{"input_tokens":42}`, `{"input_tokens":42,"output_tokens":7}`))
       .toEqual([{ type: "usage", input: 42, output: 0 }, { type: "usage", input: 0, output: 7 }]);
+  });
+
+  // The live turn's last step: tools stay defined (the history holds tool_use
+  // blocks, which Anthropic rejects without them) but none may be called.
+  it("forbids a tool call with toolChoice none, and says nothing otherwise", async () => {
+    const { streamAnthropic } = await import("./anthropic");
+    const choice = async (toolChoice?: "none") => {
+      const tools = [{ name: "look", description: "", parameters: {} }];
+      for await (const _ of streamAnthropic({ baseURL: "https://x/v1", req: { model: "m", messages: [{ role: "user", text: "hi" }], tools, toolChoice }, signal: new AbortController().signal })) { /* drain */ }
+      const sentBody = JSON.parse(String(sent!.body));
+      expect(sentBody.tools).toHaveLength(1);
+      return sentBody.tool_choice;
+    };
+    expect(await choice("none")).toEqual({ type: "none" });
+    expect(await choice()).toBeUndefined();
   });
 });

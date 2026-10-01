@@ -73,6 +73,7 @@ export async function* streamOpenAIChat(opts: {
     stream_options: { include_usage: true },
   }
   if (req.tools.length) body.tools = toTools(req.tools)
+  if (req.tools.length && req.toolChoice) body.tool_choice = req.toolChoice
   // Raw passthrough only. Most Chat Completions providers reject an unknown
   // `reasoning_effort`, and reasoning models here are always-on (they emit
   // reasoning_content regardless), so we don't send the mapped Effort.

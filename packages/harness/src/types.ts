@@ -58,6 +58,9 @@ export interface ChatRequest {
    *  `effort`; ignored by other providers. Used by live mode for lowest latency. */
   reasoningEffort?: string
   maxTokens?: number
+  /** "none" keeps the tools defined (history may hold tool calls) but forbids
+   *  calling one, so the model must answer in text. */
+  toolChoice?: "none"
 }
 
 /** Provider wire protocol — selects the adapter. Three adapters:

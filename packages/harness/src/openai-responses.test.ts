@@ -56,4 +56,13 @@ describe("streamOpenAIResponses", () => {
       { type: "function_call_output", call_id: "b", output: "Waited." },
     ]);
   });
+
+  it("forbids a tool call with toolChoice none, keeping the tools", async () => {
+    const fetch = serve(`data: {"type":"response.completed","response":{}}\n\n`);
+    const req = { model: "m", tools: [{ name: "look", description: "", parameters: {} }], toolChoice: "none" as const, messages: [{ role: "user" as const, text: "hi" }] };
+    for await (const _ of streamOpenAIResponses({ baseURL: "http://x/v1", req, signal: new AbortController().signal })) { /* drain */ }
+    const body = JSON.parse(String(fetch.mock.calls[0]![1].body));
+    expect(body.tool_choice).toBe("none");
+    expect(body.tools).toHaveLength(1);
+  });
 });

@@ -25,34 +25,29 @@ describe("trimImages", () => {
     expect(trimImages(messages, 2)).toBeNull();
   });
 
-  it("drops the oldest screenshots with their calls, leaving no orphan", () => {
+  it("strips the oldest pictures but keeps every call and its result text", () => {
     const messages: Msg[] = [{ role: "user", text: "go" }, ...shot("a"), ...shot("b"), ...shot("c"), ...shot("d")];
     const out = trimImages(messages, 2)!;
+    expect(out).toHaveLength(messages.length);
     expect(orphans(out)).toEqual([]);
-    expect(out.some((m) => m.role === "tool" && m.callId === "a")).toBe(false);
-    expect(out.some((m) => m.role === "tool" && m.callId === "d")).toBe(true);
-    expect(orphans(messages)).toEqual([]);
+    expect(out[2]).toEqual({ role: "tool", callId: "a", name: "screenshot", result: "the screen\n[screenshot removed]", images: undefined });
+    expect(out.filter((m) => m.role === "assistant")).toEqual(messages.filter((m) => m.role === "assistant"));
+    expect(out.filter((m) => m.role === "tool" && m.images?.length).map((m) => (m as { callId: string }).callId)).toEqual(["c", "d"]);
+    expect(messages[2]).toMatchObject({ images: [{ data: "PNG" }] });
   });
 
-  it("keeps the rest of an assistant message when only one of its calls goes", () => {
+  it("leaves a placeholder where a picture had no text with it", () => {
     const messages: Msg[] = [
-      { role: "assistant", text: "looking", toolCalls: [{ id: "a", name: "screenshot", arguments: "{}" }, { id: "x", name: "get_context", arguments: "{}" }] },
-      { role: "tool", callId: "a", name: "screenshot", result: "screen", images: [{ data: "PNG", mime: "image/png" }] },
-      { role: "tool", callId: "x", name: "get_context", result: "Mail" },
-      ...shot("b"), ...shot("c"), ...shot("d"),
+      { role: "assistant", toolCalls: [{ id: "a", name: "click", arguments: "{}" }] },
+      { role: "tool", callId: "a", name: "click", result: "", images: [{ data: "PNG", mime: "image/png" }] },
+      ...shot("b"),
     ];
-    const out = trimImages(messages, 2)!;
-    expect(orphans(out)).toEqual([]);
-    const assistant = out.find((m) => m.role === "assistant" && m.text === "looking");
-    expect(assistant).toMatchObject({ toolCalls: [{ id: "x" }] });
-    expect(out.some((m) => m.role === "tool" && m.callId === "x")).toBe(true);
+    expect(trimImages(messages, 1)![1]).toMatchObject({ result: "[screenshot removed]", images: undefined });
   });
 
-  it("drops an assistant message that was nothing but the dropped call", () => {
-    const messages: Msg[] = [...shot("a"), ...shot("b"), ...shot("c")];
-    const out = trimImages(messages, 1)!;
-    expect(out).toHaveLength(2);
-    expect(orphans(out)).toEqual([]);
+  it("keeps the default of three screenshots", () => {
+    const messages: Msg[] = [...shot("a"), ...shot("b"), ...shot("c"), ...shot("d")];
+    expect(trimImages(messages)!.filter((m) => m.role === "tool" && m.images?.length)).toHaveLength(3);
   });
 
   it("no trim of any size can orphan a call", () => {

@@ -36,4 +36,14 @@ describe("streamOpenAIChat", () => {
     ])
     expect(out.map((m) => m.role)).toEqual(["assistant", "tool", "assistant"])
   })
+
+  it("forbids a tool call with toolChoice none, keeping the tools", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response("data: [DONE]\n\n", { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const tools = [{ name: "look", description: "", parameters: {} }]
+    for await (const _ of streamOpenAIChat({ baseURL: "http://x/v1", req: { model: "m", tools, toolChoice: "none", messages: [{ role: "user", text: "hi" }] }, signal: new AbortController().signal })) { /* drain */ }
+    const body = JSON.parse(String(fetch.mock.calls[0]![1].body))
+    expect(body.tool_choice).toBe("none")
+    expect(body.tools).toHaveLength(1)
+  })
 })

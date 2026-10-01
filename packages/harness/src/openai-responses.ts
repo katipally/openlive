@@ -60,6 +60,7 @@ export async function* streamOpenAIResponses(opts: {
   }
   if (instructions) body.instructions = instructions
   if (req.tools.length) body.tools = toTools(req.tools)
+  if (req.tools.length && req.toolChoice) body.tool_choice = req.toolChoice
   // reasoningEffort is a raw passthrough (e.g. "minimal" on GPT-5) and wins over
   // the mapped Effort; skip the summary for minimal to shave latency + tokens.
   if (req.reasoningEffort) body.reasoning = { effort: req.reasoningEffort }

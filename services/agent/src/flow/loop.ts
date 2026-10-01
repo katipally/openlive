@@ -151,7 +151,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       const context = (await run.context?.capture(signal)) ?? null;
       if (context) yield { type: "context", context };
 
-      // Dropping messages moves every index after them, and the anchor is an index.
+      // The anchor's token count included the pictures just dropped.
       const trimmed = trimImages(messages);
       if (trimmed) { messages.splice(0, messages.length, ...trimmed); anchor = null; }
 

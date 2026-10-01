@@ -1,7 +1,13 @@
 // Flow's prompt in the session language: one line added outside English,
 // nothing changed in it, and never in the coding agent's session preamble
 // (its turns carry the language instead, see brain.test.ts).
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+
+const settings = new Map<string, string>();
+vi.mock("@openlive/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@openlive/db")>()),
+  getSetting: (k: string) => settings.get(k),
+}));
 import { preamble } from "../agents/acp-agent.js";
 import { buildLivePrompt } from "../prompt.js";
 import { buildFlowAcpPreamble, buildFlowPrompt } from "./prompt.js";
@@ -23,4 +29,13 @@ test("both brains, in Flow and in calls, are told never to claim an action they 
 
 test("the coding agent's preamble has no language line", () => {
   expect(buildFlowAcpPreamble({ tools })).not.toContain("Always reply in");
+});
+
+test("both Flow brains follow the user's custom instructions, as calls do", () => {
+  settings.set("customInstructions", "  Call me Captain.  ");
+  try {
+    for (const said of [buildFlowPrompt({ tools }), buildFlowAcpPreamble({ tools }), buildLivePrompt(), preamble()]) expect(said).toContain("Call me Captain.");
+    expect(buildFlowPrompt({ tools, lang: "de" })).toMatch(/Call me Captain\.\n\nAlways reply in German\.$/);
+  } finally { settings.delete("customInstructions"); }
+  expect(buildFlowPrompt({ tools })).not.toContain("How the user wants you");
 });

@@ -176,23 +176,28 @@ export class LiveTurnRunner {
     };
 
     try {
-      for (let step = 0; step < MAX_STEPS; step++) {
+      // Once the tool budget is spent, one more step with tools forbidden, so the
+      // turn always ends in a spoken reply instead of silence.
+      for (let step = 0; step <= MAX_STEPS; step++) {
         if (signal.aborted) return;
         if (partial) before = partial;
         partial = "";
+        const last = step === MAX_STEPS;
         const turn = await collectTurn(
-          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: toolDefs, ...reasoning, maxTokens: 4096 }, signal),
+          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: toolDefs, ...(last && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
           track,
         );
+        // A provider that ignores toolChoice may still call one; drop it, as it would never get a result.
+        const toolCalls = last ? [] : turn.toolCalls;
         this.messages.push({
           role: "assistant",
           text: turn.text,
           reasoning: turn.reasoning || undefined,
           reasoningSignature: turn.reasoningSignature,
-          toolCalls: turn.toolCalls.length ? turn.toolCalls : undefined,
+          toolCalls: toolCalls.length ? toolCalls : undefined,
         });
         await emit({ type: "usage", contextTokens: turn.usage.input, outputTokens: turn.usage.output, costUsd: 0 });
-        if (!turn.toolCalls.length) break;
+        if (!toolCalls.length) break;
         // Run this step's tool calls CONCURRENTLY. Serializing them was extra dead
         // air (two web_searches back-to-back); fanned out, they finish while the
         // model's spoken bridge line is still being voiced. Results are pushed in
@@ -204,7 +209,7 @@ export class LiveTurnRunner {
           try { return { tc, res: await tool.execute(safeParseArgs(tc.arguments)) }; }
           catch (e: any) { return { tc, res: { output: `Error: ${String(e?.message ?? e)}`, isError: true as const } }; }
         };
-        const results = await Promise.all(turn.toolCalls.map(runOne));
+        const results = await Promise.all(toolCalls.map(runOne));
         // Pair a tool_result to EVERY tool_use we just recorded — unconditionally,
         // even on a barge-in abort. An assistant message carrying toolCalls with no
         // matching tool results makes the very next turn 400 at Anthropic/OpenAI

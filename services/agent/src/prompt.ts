@@ -68,6 +68,10 @@ export function rememberedNotes(): string {
   return "";
 }
 
+/** The user's own instructions from Settings → General, "" when unset. Every
+ *  brain follows them, in calls and in Flow. Read per prompt build. */
+export const customInstructions = (): string => getSetting("customInstructions")?.trim().slice(0, 2000) ?? "";
+
 /** Slim, spoken-conversation system prompt for live voice mode. Injects the real
  *  current date (so the agent never guesses "the date") and appends any facts the
  *  user asked to be remembered (the `remember` tool) so they persist. */
@@ -78,7 +82,7 @@ export function buildLivePrompt(): string {
   const notes = rememberedNotes();
   // The user's own instructions from Settings → General (same text every ACP
   // agent receives via its session preamble). Read per session build.
-  const custom = getSetting("customInstructions")?.trim().slice(0, 2000);
+  const custom = customInstructions();
   const persona = custom ? `\n\n---\nHOW THE USER WANTS YOU TO BEHAVE AND SPEAK (their own words — follow within reason):\n${custom}` : "";
   return `${PERSONA}\n\n${LIVE_RULES}${clock}${notes}${persona}`;
 }
