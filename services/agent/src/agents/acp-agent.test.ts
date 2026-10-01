@@ -2,9 +2,9 @@
 // slash commands, boolean config options, session/list paging and session/resume
 // with its fallback. Plus the pure mappers they rest on.
 import assert from "node:assert";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test, vi } from "vitest";
 import type { AgentMeta } from "./types.ts";
@@ -13,7 +13,7 @@ const FIXTURE = fileURLToPath(new URL("./fake-acp-agent.fixture.mjs", import.met
 vi.mock("@openlive/db", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   // The driver's own override hook runs the fixture in place of the real adapter.
-  getSetting: (k: string) => (k === "acpCommand:codex" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : undefined),
+  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : undefined),
 }));
 const adapter = vi.hoisted(() => ({ command: undefined as string | undefined }));
 
@@ -23,9 +23,9 @@ const cwd = mkdtempSync(join(tmpdir(), "acp-agent-test-"));
 const live: { dispose(): Promise<void> }[] = [];
 afterEach(async () => { adapter.command = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
 
-function agent(opts: Record<string, unknown> = {}) {
+function agent(opts: Record<string, unknown> = {}, id: "codex" | "pi" = "codex") {
   const metas: AgentMeta[] = [];
-  const a = new AcpAgent("codex", async () => "deny", { cwd, onMeta: (m) => { metas.push(m); }, ...opts });
+  const a = new AcpAgent(id, async () => "deny", { cwd, onMeta: (m) => { metas.push(m); }, ...opts });
   live.push(a);
   return { a, metas, last: () => metas.at(-1)! };
 }
@@ -208,4 +208,33 @@ test("auth_required from session/new reads as a sign-in instruction, not a proto
   const err = await agent().a.start(new AbortController().signal).then(() => null, (e: Error & { errorClass?: string }) => e);
   assert.equal(err?.errorClass, "agent_start_failed");
   assert.match(err!.message, /isn't signed in[\s\S]*signed in/);
+}, 20_000);
+
+async function piSees(a: InstanceType<typeof AcpAgent>): Promise<{ launcher: string | null; registered: unknown[] }> {
+  let out = "";
+  await a.runTurn({ text: "[pi]", frames: [] }, (e) => { if (e.type === "text_delta") out += e.text; }, new AbortController().signal);
+  return JSON.parse(out) as { launcher: string | null; registered: unknown[] };
+}
+
+test("pi gets OpenLive's tools through a private extension its adapter's pi loads, gone with the session", async () => {
+  flagged("--no-http-mcp"); // what pi-acp answers
+  const { a } = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" }, "pi");
+  await a.start(new AbortController().signal);
+  assert.match((await said(a, { text: "hello" }))[0]!, /^\[HOSTED TOOLS\]/);
+  assert.deepEqual(await said(a, { text: "[mcp]" }), [], "nothing in session/new, which the adapter would drop");
+  const { launcher, registered } = await piSees(a);
+  assert.deepEqual(registered, [{ name: "openlive", url: hosted.url, headers: {}, exposure: "direct" }]);
+  const dir = dirname(launcher!);
+  if (process.platform !== "win32") {
+    assert.equal(statSync(dir).mode & 0o777, 0o700);
+    assert.equal(statSync(join(dir, "openlive.js")).mode & 0o777, 0o600);
+  }
+  await a.dispose();
+  assert.ok(!existsSync(dir), "the token leaves with the session");
+}, 20_000);
+
+test("pi without hosted servers (a model or session probe) gets no extension", async () => {
+  const { a } = agent({}, "pi");
+  await a.start(new AbortController().signal);
+  assert.equal((await piSees(a)).launcher, null);
 }, 20_000);

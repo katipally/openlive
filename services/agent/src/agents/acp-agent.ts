@@ -16,6 +16,7 @@ import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
 import { killTree, track } from "./proc.js";
 import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
+import { piBridge, type PiBridge } from "./pi-bridge.js";
 import { log } from "../log.js";
 import { emitEvent } from "../telemetry/emit.js";
 import { resolveVision } from "../providers.js";
@@ -130,6 +131,7 @@ export class AcpAgent implements Agent {
   private modelConfigId: string | null = null; // the ACP config option id for model selection
   private legacyModels = false;  // models arrived as session state (`models`), set with session/set_model
   private hosted: McpServerWire[] = []; // the servers OpenLive hosts that this agent can actually reach
+  private bridge: PiBridge | null = null; // hosted servers handed to pi past its adapter
   private booleanIds = new Set<string>(); // config options set with a typed boolean, not a value id
   private caps: AgentCapabilities = {};
   // A message chunk the agent does not attribute to any message is a session
@@ -177,6 +179,8 @@ export class AcpAgent implements Agent {
     try { if (!statSync(cfg.cwd).isDirectory()) throw new Error("not a directory"); }
     catch { throw new ClassedError(`The project folder ${cfg.cwd} doesn't exist — pick a different one.`, "agent_no_folder"); }
     const isWin = process.platform === "win32";
+    const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
+    if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length) this.bridge = piBridge(http);
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
       // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
@@ -194,6 +198,7 @@ export class AcpAgent implements Agent {
         // sessions show in /resume and are genuinely shared both ways
         // (verified 2026-09-27 against claude 2.1.283 / adapter 0.81.2).
         ...(AGENT_REGISTRY[this.id].acp.env ?? {}),
+        ...this.bridge?.env,
       },
       stdio: ["pipe", "pipe", "pipe"],
       // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
@@ -205,6 +210,8 @@ export class AcpAgent implements Agent {
     });
     this.child = child;
     track(child);
+    const bridge = this.bridge;
+    if (bridge) child.once("close", () => bridge.dispose()); // a failed start or a crash leaves no token behind
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
 
@@ -276,11 +283,12 @@ export class AcpAgent implements Agent {
     const canLoad = !!this.caps.loadSession;
     const canResume = !!this.caps.sessionCapabilities?.resume;
     const quirks = AGENT_REGISTRY[this.id].acp;
-    // An agent that says outright it takes no http MCP (pi-acp's `http: false`) never
-    // sees the hosted servers, and the preamble stops promising their tools. One that
-    // stays silent keeps them: Hermes accepts http without advertising it.
+    // An agent that says outright it takes no http MCP never sees the hosted servers,
+    // and the preamble stops promising their tools. One that stays silent keeps them:
+    // Hermes accepts http without advertising it. Pi's adapter says it takes none, so
+    // its servers went in through the bridge instead.
     const asked = this.opts.mcpServers ?? [];
-    this.hosted = asked.filter((s) => !("type" in s) || this.caps.mcpCapabilities?.[s.type] !== false);
+    this.hosted = this.bridge?.servers ?? asked.filter((s) => !("type" in s) || this.caps.mcpCapabilities?.[s.type] !== false);
     if (this.hosted.length < asked.length) log.warn(`agent:${this.id}`, "it accepts no MCP over http, so OpenLive's tools are not attached");
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
@@ -292,7 +300,7 @@ export class AcpAgent implements Agent {
     // Hosted servers ride along for every agent that accepts them: they are not in
     // the project's file, so a native-MCP agent cannot double-register them.
     const mcpServers = [
-      ...this.hosted,
+      ...(this.bridge ? [] : this.hosted),
       ...(quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : []),
     ];
 
@@ -817,6 +825,7 @@ export class AcpAgent implements Agent {
     // Kill the adapter's whole process tree (npx → node → acp binary) so
     // grandchildren don't leak — POSIX process group / Windows taskkill /T.
     if (child) killTree(child);
+    this.bridge?.dispose();
   }
 }
 

@@ -92,10 +92,16 @@ over stdio ("LSP for agents"). Design points:
   list models as session state, so their picker is filled from that and switches
   with `session/set_model`.
 - **Agents that cannot take OpenLive's tools.** The `openlive` server is http, and
-  an agent that says outright it takes none (`mcpCapabilities.http: false`, as Pi's
-  adapter does) is not sent it, and the preamble no longer lists its tools, so
-  the agent is not told about tools it cannot call. One that stays silent keeps
-  it, since Hermes accepts http without advertising it.
+  an agent that says outright it takes none (`mcpCapabilities.http: false`) is not
+  sent it, and the preamble no longer lists its tools, so the agent is not told
+  about tools it cannot call. One that stays silent keeps it, since Hermes accepts
+  http without advertising it.
+- **Pi.** Its adapter, `pi-acp`, says it takes no MCP and drops `mcpServers`, but it
+  starts pi as `$PI_ACP_PI_COMMAND`. So each session gets a private temp folder
+  (0700) with a launcher that runs `pi -e <extension>` and an extension that
+  registers the `openlive` server through `pi.registerMcpServer` (pi 0.99+) with
+  `direct` exposure. Nothing goes into `~/.pi` or the project, and the folder,
+  with the URL and its token, is removed when the adapter exits or the session ends.
 - **Sign-in.** OpenLive never calls `authenticate`: each agent signs in through its
   own CLI (Settings → Agents opens it in a terminal). A `session/new` answered
   with `auth_required` is reported as "not signed in" with that agent's hint.

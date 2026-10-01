@@ -81,6 +81,9 @@ export interface AgentDef {
     mcp: "native" | "passthrough";
     /** Advertise client-hosted terminals to this agent. */
     terminal: boolean;
+    /** The adapter drops session mcpServers, so OpenLive's own servers reach the agent
+     *  another way. `piExtension`: a per-session pi extension (see pi-bridge.ts). */
+    mcpBridge?: "piExtension";
     /** Extra env for the adapter process (e.g. Claude's entrypoint marker that
      *  files sessions where `claude --resume` finds them — verified 2026-07-15
      *  against claude 2.1.198 / adapter 0.59.0). */
@@ -343,9 +346,9 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     brand: {},
     logoSrc: "/agents/pi.svg",
     // Pi has no ACP of its own: pi-acp (svkozak, MIT, listed in the ACP registry)
-    // spawns `pi --mode rpc` and bridges it, so `pi` (>= 0.81) must be on PATH too.
-    // Pinned like the other npx adapters. The adapter advertises `http: false` and never
-    // wires mcpServers through to pi, so OpenLive's tools do not reach it.
+    // spawns `pi --mode rpc` and bridges it, so `pi` must be on PATH too, 0.99 or newer
+    // for OpenLive's tools. Pinned like the other npx adapters. The adapter drops
+    // mcpServers, so OpenLive's tools reach pi through its own extension (mcpBridge).
     adapter: { command: "npx", args: ["-y", "pi-acp@0.0.34"] },
     bins: ["pi"],
     install: { npm: "@earendil-works/pi-coding-agent" },
@@ -364,8 +367,8 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     },
     // pi reads its own ~/.pi/agent/mcp.json and .pi/mcp.json, which the adapter ignores
     // in the wire, so passing .mcp.json would only be dropped.
-    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: false },
-    startHint: "Make sure Pi is installed (npm i -g @earendil-works/pi-coding-agent) and has a provider (run `pi`, then /login).",
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: false, mcpBridge: "piExtension" },
+    startHint: "Make sure Pi 0.99 or newer is installed (npm i -g @earendil-works/pi-coding-agent) and has a provider (run `pi`, then /login).",
   },
 };
 
