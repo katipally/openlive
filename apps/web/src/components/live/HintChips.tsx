@@ -17,10 +17,11 @@ export function HintChips({ className }: { className?: string }) {
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const agentMeta = useLiveStore((s) => s.agentMeta);
   const error = useLiveStore((s) => s.error);
+  const errorCode = useLiveStore((s) => s.errorCode);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const { smooth, fade, exit: leave } = useMotionTokens();
 
-  const hints = selectHints({ phase, active, boundAgent, agentMeta, error }).filter((h) => !dismissed.includes(h.id));
+  const hints = selectHints({ phase, active, boundAgent, agentMeta, error, errorCode }).filter((h) => !dismissed.includes(h.id));
   return (
     <div className={cn("pointer-events-none flex flex-col items-center gap-1.5", className)}>
       <AnimatePresence initial={false}>

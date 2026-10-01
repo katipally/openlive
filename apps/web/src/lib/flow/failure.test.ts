@@ -123,6 +123,30 @@ describe("turnFailure", () => {
     expect(turnFailure("Could not reach Ollama (local) at http://nas:11434. Is it running?").detail).toBe("Could not reach Ollama (local) at http://nas:11434. Is it running?");
   });
 
+  it("reads the wire code before the words, so a reworded message cannot change the card", () => {
+    expect(turnFailure("The provider said something new", false, "auth")).toMatchObject({ code: "brain_setup", settings: "models" });
+    expect(turnFailure("The provider said something new", true, "auth").settings).toBe("agents");
+    expect(turnFailure("The provider said something new", false, "no_key").title).toBe("API mode has no key yet");
+    expect(turnFailure("x", false, "model_not_found")).toMatchObject({ code: "brain_setup", settings: "models" });
+    expect(turnFailure("x", true, "no_model").settings).toBe("flow");
+    expect(turnFailure("x", false, "quota").title).toContain("credit");
+    expect(turnFailure("x", false, "rate_limited").title).toContain("busy");
+    expect(turnFailure("x", false, "unreachable").title).toContain("reach");
+  });
+
+  it("trusts the code over words that say otherwise", () => {
+    expect(turnFailure("HTTP 401: invalid x-api-key", false, "rate_limited").title).toContain("busy");
+    expect(turnFailure("HTTP 429: rate limit", false, "server_error").title).toBe("That turn failed");
+  });
+
+  it("gives a plain card for a class with no fix of its own", () => {
+    for (const code of ["server_error", "bad_request", "stream_error", "other", "agent_crashed", "agent_refused"] as const) {
+      const f = turnFailure("it broke", false, code);
+      expect(f).toMatchObject({ code: "turn_failed", detail: "it broke" });
+      expect(f.actionLabel).toBeUndefined();
+    }
+  });
+
   it("never shows an empty card", () => {
     expect(turnFailure("   ").detail).toBeTruthy();
     expect(turnFailure("agent died").detail).toBe("agent died");

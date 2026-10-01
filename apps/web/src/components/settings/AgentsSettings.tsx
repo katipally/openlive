@@ -5,7 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
-import { useAgentActions } from "@/lib/agentActions";
+import { useAgentActions, trackAgentAction, type ActionKind } from "@/lib/agentActions";
+import { telemetry } from "@/lib/telemetry";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
@@ -51,31 +52,45 @@ function AgentRow({ a }: { a: AgentStatus }) {
   const run = useAgentActions((s) => s.runs[a.id]);
   const start = useAgentActions((s) => s.run);
   const [confirmUn, setConfirmUn] = useState(false);
-  const [waiting, setWaiting] = useState(false);
+  const [waiting, setWaiting] = useState<{ action: ActionKind; startedAt: number } | null>(null);
+  // An install or sign-in just ended, so the next time this agent reads Ready is its first.
+  const readyNext = useRef(false);
 
   // When a background action finishes, re-check installed/signed-in status.
   // A terminal action (sign-in) merely OPENS a terminal and returns — the user
   // finishes there, so keep polling and the row flips by itself. Detect that from
-  // the server's own success marker rather than guessing from the action: a
+  // the server's own result marker rather than guessing from the action: a
   // headless install streams its result inline and is already DONE, so telling the
   // user to go finish in a terminal would just be wrong.
   const wasRunning = useRef(false);
   useEffect(() => {
     if (wasRunning.current && !run?.running) {
       qc.invalidateQueries({ queryKey: ["agents"] });
-      if (run?.log.includes("Continues in the terminal window")) setWaiting(true);
+      if (run?.result === "terminal_opened") setWaiting({ action: run.action, startedAt: run.startedAt });
+      if (run?.result === "terminal_opened" || (run?.action === "install" && run.result === "ok")) readyNext.current = true;
     }
     wasRunning.current = !!run?.running;
-  }, [run?.running, run?.log, qc]);
+  }, [run, qc]);
 
   // Poll every 3s while waiting; stop when the agent is ready or after 5 min.
-  useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchInterval: 3000, enabled: waiting });
+  // Either ending is reported, except a sign-out's: the agent still reads Ready when it starts waiting.
+  useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchInterval: 3000, enabled: !!waiting });
   useEffect(() => {
     if (!waiting) return;
-    if (a.credState === "ready") { setWaiting(false); return; }
-    const t = setTimeout(() => setWaiting(false), 5 * 60_000);
+    const end = (result: "signed_in" | "wait_timeout") => {
+      setWaiting(null);
+      if (waiting.action !== "logout") trackAgentAction(a.id, waiting.action, result, waiting.startedAt);
+    };
+    if (a.credState === "ready") { end("signed_in"); return; }
+    const t = setTimeout(() => end("wait_timeout"), 5 * 60_000);
     return () => clearTimeout(t);
-  }, [waiting, a.credState]);
+  }, [waiting, a.credState, a.id]);
+
+  useEffect(() => {
+    if (!readyNext.current || !a.installed || a.credState !== "ready") return;
+    readyNext.current = false;
+    telemetry.track("onboarding_step", { step: "first_agent_ready" });
+  }, [a.installed, a.credState]);
 
   const copyLogin = () => {
     void navigator.clipboard.writeText(a.loginCommand)

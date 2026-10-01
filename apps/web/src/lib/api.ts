@@ -1,4 +1,5 @@
-import type { Provider, ChatSummary, ChatMessage, HistoryWorkspace } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace } from "@openlive/shared";
+import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
   id: string; display_name: string; created_at?: string;
@@ -25,23 +26,25 @@ async function j<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** A key write went through: report which provider, never the key. */
+const keyChanged = (value: "added" | "removed") => (p: Provider): Provider => { providerKeyChanged(p.kind, value); return p; };
+
 export const api = {
   providers: () => fetch("/api/providers").then(j<Provider[]>),
   updateProviderKey: (id: string, apiKey: string) =>
-    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ apiKey }) }).then(j<Provider>),
+    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ apiKey }) }).then(j<Provider>).then(keyChanged("added")),
   // keepalive here and on the two chat deletes: an Undo toast commits them, and
   // that can happen as the window closes.
   removeProviderKey: (id: string) =>
-    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ clear: true }), keepalive: true }).then(j<Provider>),
+    fetch(`/api/providers/${id}`, { method: "PATCH", body: JSON.stringify({ clear: true }), keepalive: true }).then(j<Provider>).then(keyChanged("removed")),
   // Upsert a key for a provider by its registry id (creates the DB row if new).
   setProviderKey: (kind: string, apiKey: string) =>
-    fetch("/api/providers", { method: "POST", body: JSON.stringify({ kind, apiKey }) }).then(j<Provider>),
+    fetch("/api/providers", { method: "POST", body: JSON.stringify({ kind, apiKey }) }).then(j<Provider>).then(keyChanged("added")),
   models: (provider?: string) =>
     fetch(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`).then(j<ModelInfo[]>),
-  settings: () => fetch("/api/settings").then(j<AppSettings & Record<string, string>>),
+  settings: () => fetch("/api/settings").then(j<AppSettings & Record<string, string>>).then(seedServerSettings),
   updateSettings: (b: Record<string, string>) =>
-    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>),
-  chats: () => fetch("/api/chats").then(j<ChatSummary[]>),
+    fetch("/api/settings", { method: "PUT", body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>).then(serverSettingsChanged),
   history: () => fetch("/api/history").then(j<HistoryWorkspace[]>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE", keepalive: true }).then(j),

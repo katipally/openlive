@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
+import type { CallEndedBy } from "@/lib/live/callFact";
 import { usePtt } from "@/lib/live/usePtt";
 import { useUi } from "@/lib/uiStore";
 import { api } from "@/lib/api";
@@ -55,7 +56,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // instant). No-op for the built-in assistant or once already connected.
   useEffect(() => { if (!active && boundAgent && boundCwd && agentReady) prewarm(); }, [active, boundAgent, boundCwd, agentReady, prewarm]);
 
-  const end = () => { stop(); onExit(); };
+  const end = (by: CallEndedBy = "end_button") => { stop(by); onExit(); };
 
   // Desktop: the call, for the orb to show while this window is minimised or
   // hidden, and the orb's mute / end back. End skips InCall's exit animation:
@@ -65,7 +66,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   useEffect(() => {
     if (!active) return;
     startedAt.current = Date.now();
-    setPanelCmdHandler((c) => { if (c.t === "mute") ctl.current.toggleMute(); else if (c.t === "end") ctl.current.end(); });
+    setPanelCmdHandler((c) => { if (c.t === "mute") ctl.current.toggleMute(); else if (c.t === "end") ctl.current.end("orb_end"); });
     return () => { setPanelCmdHandler(null); openliveBridge()?.callState?.(null); };
   }, [active]);
   useEffect(() => {
@@ -79,7 +80,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           error={error} modelsDownloaded={modelsDownloaded} downloading={downloading} downloadPct={downloadPct}
           downloadLoaded={downloadLoaded} downloadTotal={downloadTotal} downloadModels={downloadModels}
           refreshDevices={refreshDevices} onDownload={() => void download()} onStart={() => void start()}
-          onOpenSettings={openSettings} onExit={end} />
+          onOpenSettings={openSettings} onExit={() => end()} />
       )}
 
       {active && (
@@ -87,7 +88,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
           setMic={(id) => void setMic(id)} setCam={setCam}
-          getLevels={getLevels} getBands={getBands} onEnd={end} sendNow={sendNow} sendAside={sendAside} notForYou={notForYou} />
+          getLevels={getLevels} getBands={getBands} onEnd={() => end()} sendNow={sendNow} sendAside={sendAside} notForYou={notForYou} />
       )}
       {active && <PermissionPrompt answerPermission={answerPermission} />}
       {active && <ElicitationPrompt />}

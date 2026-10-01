@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUi } from "@/lib/uiStore";
+import { tourClosed, tourRun, type TourExit } from "@/lib/featureUse";
 import { Button } from "@/components/ui";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 
@@ -33,22 +34,25 @@ export function SpotlightTour({ id, steps, active = true }: { id: string; steps:
   // the rest wait and pick up again once it closes.
   const coveredBySettings = useUi((s) => s.settingsOpen) && id !== "settings";
   const live = active && !coveredBySettings;
+  const run = useMemo(() => tourRun((exit, reached) => { markSeen(id); tourClosed(id, exit, reached); }), [id]);
   // Defer the start slightly so the surface's own entrance animation finishes
   // and the anchors are where they'll stay.
   useEffect(() => {
     if (!live || tourSeen(id)) return;
-    const t = setTimeout(() => setShow(true), 650);
+    const t = setTimeout(() => { run.begin(); setShow(true); }, 650);
     return () => clearTimeout(t);
-  }, [id, live]);
+  }, [id, live, run]);
+  // The whole screen going away takes the tour with it, and that is an exit too.
+  useEffect(() => () => run.end("left"), [run]);
   if (!show || !live) return null;
-  return <Tour steps={steps} onClose={() => { markSeen(id); setShow(false); }} />;
+  return <Tour steps={steps} run={run} onClose={(exit) => { run.end(exit); setShow(false); }} />;
 }
 
 const CARD_MAX_W = 330;
 
 // Inner component mounts ONLY while the tour is live, so every hook and DOM
 // measurement runs against elements that actually exist.
-function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
+function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<typeof tourRun>; onClose: (exit: TourExit) => void }) {
   const [step, setStep] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -58,7 +62,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
   // Callers pass fresh steps/onClose each render; the poll below keys on the
   // target alone so a parent re-render does not restart it.
   const onCloseRef = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; });
+  useEffect(() => { onCloseRef.current = onClose; run.reach(step + 1); });
   const target = steps[step]!.target;
 
   // Poll the anchor (rAF-throttled) so the spotlight FOLLOWS layout changes, and —
@@ -79,7 +83,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
         if (key !== prev) { prev = key; setRect(r); }
       } else {
         if (!missingSince) missingSince = t;
-        else if (t - missingSince > 400) { onCloseRef.current(); return; } // anchor gone for good → don't strand
+        else if (t - missingSince > 400) { onCloseRef.current("left"); return; } // anchor gone for good → don't strand
       }
       raf = requestAnimationFrame(tick);
     };
@@ -87,10 +91,11 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
     return () => cancelAnimationFrame(raf);
   }, [target]);
 
-  const close = useCallback(() => { setLeaving(true); setTimeout(() => onCloseRef.current(), 180); }, []);
+  const close = useCallback((exit: TourExit) => { setLeaving(true); setTimeout(() => onCloseRef.current(exit), 180); }, []);
+  const skip = useCallback(() => close("skipped"), [close]);
 
   // Active once measured: the tour renders nothing until its target has a rect.
-  useFocusTrap(rootRef, !!rect, close);
+  useFocusTrap(rootRef, !!rect, skip);
 
   // Measure the real card height so vertical clamping keeps EVERY row (incl. the
   // Done button) inside the viewport — a fixed estimate pushed it off-screen for
@@ -148,7 +153,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
       role="dialog" aria-modal="true" aria-label="Feature tour">
       {/* the spotlight: one element whose giant shadow dims everything AROUND the target */}
       <div className="absolute rounded-xl transition-all duration-base ease-standard"
-        style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} onClick={close} />
+        style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} onClick={skip} />
       <div className="pointer-events-none absolute rounded-xl ring-2 ring-accent/80 transition-all duration-base ease-standard" style={hole} />
 
       <div ref={cardRef} key={step} className="absolute rounded-xl border border-hairline p-4 text-left surface-float shadow-pop animate-fade-up"
@@ -156,7 +161,7 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
         {arrowOnCard && <div className={cn("absolute size-3 rotate-45 surface-float", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
         <div className="flex items-start justify-between gap-2">
           <h2 className="text-callout font-semibold tracking-tight text-foreground">{s.title}</h2>
-          <Button variant="ghost" size="sm" icon onClick={close} aria-label="Skip the tour" className="-mr-1 -mt-1"><X /></Button>
+          <Button variant="ghost" size="sm" icon onClick={skip} aria-label="Skip the tour" className="-mr-1 -mt-1"><X /></Button>
         </div>
         <p className="mt-1 text-label leading-relaxed text-muted-foreground">{s.body}</p>
         <div className="mt-4 flex items-center justify-between">
@@ -167,8 +172,8 @@ function Tour({ steps, onClose }: { steps: TourStep[]; onClose: () => void }) {
             ))}
           </div>
           <div className="flex items-center gap-1.5">
-            {!last && steps.length > 1 && <Button variant="ghost" size="sm" onClick={close}>Skip</Button>}
-            <Button variant="primary" size="sm" onClick={() => (last ? close() : setStep(step + 1))}>
+            {!last && steps.length > 1 && <Button variant="ghost" size="sm" onClick={skip}>Skip</Button>}
+            <Button variant="primary" size="sm" onClick={() => (last ? close("done") : setStep(step + 1))}>
               {last ? "Done" : "Next"} {!last && <ArrowRight />}
             </Button>
           </div>

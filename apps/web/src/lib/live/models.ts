@@ -5,7 +5,7 @@
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
 import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES, ADDRESSEE_ENGINE } from "./pipelineConfig";
-import type { LanguageCode } from "@openlive/shared";
+import type { LanguageCode, TelemetryEventProps } from "@openlive/shared";
 import { normalizeAligned } from "@openlive/shared/speech/normalize";
 import { heardOnsets } from "@openlive/shared/speech/timing";
 import type { StreamedFinal } from "./asrStream";
@@ -13,6 +13,8 @@ import { pcmDecoder } from "./pcm";
 import { failureIsLasting, notDownloaded } from "./nativeFailure";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
+import { telemetry } from "../telemetry";
+import { sttFamilyOf, ttsFamilyOf } from "../telemetryIds";
 
 export type ModelKey = "stt" | "tts" | "turn";
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
@@ -103,16 +105,23 @@ export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Pr
 
 let loading: Promise<void> | null = null;
 
-export function loadModels(onProgress: (p: LoadProgress) => void): Promise<void> {
+/** What asked for the load, for the download's report. Joining an in-flight load adds nothing. */
+export type ModelsTrigger = TelemetryEventProps<"voice_models_result">["trigger"];
+
+export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start"): Promise<void> {
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise.
   // Which voice the agent runs decides what the worker loads, so it is read first.
-  loading ??= agentCopy(loadPipelineConfig().tts.variant).then(() => loadWorker(onProgress)).finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
+  loading ??= agentCopy(loadPipelineConfig().tts.variant).then(() => loadWorker(onProgress, trigger)).finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
   return loading;
 }
 
-function loadWorker(onProgress: (p: LoadProgress) => void): Promise<void> {
+function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger): Promise<void> {
   if (modelsMatchConfig()) return Promise.resolve();
+  // A load whose weights are all in the browser cache is a warm-up, not a download: it reports only if it fails.
+  const download = !modelsCached();
+  const startedAt = Date.now();
+  let bytes = 0;
   // A warm worker loaded with a DIFFERENT config (the user changed Whisper size /
   // TTS engine) — tear it down so we reload the right weights. This is what makes
   // "Applies on the next call" true instead of needing a full app restart.
@@ -122,6 +131,18 @@ function loadWorker(onProgress: (p: LoadProgress) => void): Promise<void> {
   files.clear();
   // Best-effort: ask the browser not to evict the model cache under storage pressure.
   try { navigator.storage?.persist?.(); } catch { /* not supported */ }
+  const settled = (result: "ok" | "failed") => {
+    if (result === "ok") telemetry.track("onboarding_step", { step: "voice_models_ready" });
+    if (result === "ok" && !download) return;
+    const cfg = loadPipelineConfig();
+    telemetry.track("voice_models_result", {
+      trigger,
+      result: result === "failed" && typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : result,
+      duration_s: Math.round((Date.now() - startedAt) / 1000),
+      ...(bytes ? { mb: Math.round(bytes / 1e7) * 10 } : {}),
+      stt_family: sttFamilyOf(cfg.stt.family), tts_family: ttsFamilyOf(cfg.tts.family), webgpu: hasWebGPU(),
+    });
+  };
   return new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
     const tw = new Worker(new URL("./turn.worker.ts", import.meta.url), { type: "module" });
@@ -147,6 +168,7 @@ function loadWorker(onProgress: (p: LoadProgress) => void): Promise<void> {
             const models: ModelProgress[] = (["stt", "tts", "turn"] as ModelKey[])
               .filter((k) => per.has(k))
               .map((k) => ({ key: k, name: MODEL_NAMES[k], loaded: per.get(k)!.loaded, total: per.get(k)!.total }));
+            bytes = tot;
             onProgress({ pct: tot ? load / tot : 0, loaded: load, total: tot, models });
           }
           break;
@@ -184,7 +206,7 @@ function loadWorker(onProgress: (p: LoadProgress) => void): Promise<void> {
       ttsEngine: browserTts, ttsNative: !browserTts, ttsVoice: cfg.tts.voice, lang: cfg.language,
     });
     tw.postMessage({ type: "load" });
-  });
+  }).then(() => settled("ok"), (e) => { settled("failed"); throw e; });
 }
 
 // Safety net: a hung/dead worker (a stalled inference, a dropped message, a crashed

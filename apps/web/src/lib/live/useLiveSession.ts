@@ -16,6 +16,12 @@ import { kindMeta } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
 import { useLiveStore, type TypedDraft } from "./liveStore";
+import { callFactProps, newCallFact, type CallEndedBy } from "./callFact";
+import { perf } from "./perf";
+import { speechFacts } from "./speechFacts";
+import { featureUsed } from "../featureUse";
+import { reportSetting } from "../settingChanges";
+import { telemetry } from "../telemetry";
 import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
@@ -107,6 +113,8 @@ const readPref = (key: string) => { try { return localStorage.getItem(key) || nu
 
 export function setConversationModel(modelId: string) {
   const agent = useLiveStore.getState().boundAgent;
+  const shown = (useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent))?.currentModelId;
+  if (agent && modelId !== shown) reportSetting({ setting: "agent_model", value: "changed", subject: agent });
   if (agent) { try { localStorage.setItem(`openlive-model:${agent}`, modelId); } catch { /* */ } }
   activeLiveClient?.setModel(modelId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
@@ -152,8 +160,10 @@ export function useLiveSession(chatId: string) {
   const turnStartedAt = useRef(0); // notify "finished" only for turns that took real time
   const cwdHealTried = useRef(false); // one self-heal re-bind per session when the server lost the folder
   const tornDown = useRef(false);
+  // What the call reports about itself when it ends (see callFact.ts).
+  const fact = useRef(newCallFact());
   const onPageHide = useRef<() => void>(() => {});
-  const teardownRef = useRef<() => void>(() => {}); // for effects declared above teardown
+  const teardownRef = useRef<(endedBy?: CallEndedBy) => void>(() => {}); // for effects declared above teardown
   // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
   // `segText` = chunks of the CURRENT segment already voiced, `curChunk` = the one
   // revealing now, `revealRaf` = its frame. Tool activity is shown LIVE on tool_start
@@ -215,16 +225,21 @@ export function useLiveSession(chatId: string) {
     api?.onPower?.((state) => {
       if (state !== "suspend") return;
       if (!useLiveStore.getState().active) return;
-      teardownRef.current();
-      set({ error: "Call paused while your machine slept. Press Start to pick it back up." });
+      teardownRef.current("sleep_or_lock");
+      set({ error: "Call paused while your machine slept or the screen locked. Press Start to pick it back up." });
     });
     // replace-on-subscribe in the preload: no unsubscribe needed
   }, [set]);
 
   // ── single teardown authority — releases EVERYTHING, always ───────────────
-  const teardown = useCallback(() => {
+  const teardown = useCallback((endedBy: CallEndedBy = "other") => {
     if (tornDown.current) return;
     tornDown.current = true;
+    // No Start, no call: leaving the lobby or a chat that never began reports nothing.
+    if (fact.current.startedAt) {
+      telemetry.fact("call_renderer", callFactProps(fact.current, endedBy, !!useLiveStore.getState().boundCwd, speechFacts(fact.current.mark)));
+      fact.current = newCallFact();
+    }
     stopReveal();
     if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
     window.removeEventListener("pagehide", onPageHide.current);
@@ -249,16 +264,26 @@ export function useLiveSession(chatId: string) {
   }, [chatId, set]);
   teardownRef.current = teardown;
 
+  // The call is usable once Start has run and the link is up, whichever came last.
+  const markReady = useCallback(() => {
+    const f = fact.current;
+    if (f.startedAt && f.startMs === undefined && f.startResult === "ok") f.startMs = performance.now() - f.startedAt;
+  }, []);
+
   // Open the live socket + register every handler, binding this conversation's agent
   // the moment it connects. Shared by `prewarm` (pre-call: connect a bound agent to
   // fetch its models/modes) and `start` (layers the voice engine onto the SAME
   // connection — no second agent process). Returns the new or existing client.
   const ensureClient = useCallback((): LiveClient => {
     if (client.current) return client.current;
+    // A drop is the link going from open to reconnecting; every failed retry after it is the same outage.
+    let linkUp = false;
     const c = new LiveClient({
       // The engine may already be mid-turn (a turn spoken while connecting, or a reply
       // still playing across a reconnect), and it reports only changes: take its phase.
       onOpen: () => {
+        linkUp = true;
+        markReady();
         // A reconnect gets a fresh server session: a reply that was streaming to the
         // old one never finishes. A turn said while the link was down is still queued.
         if (turnStartedAt.current && !client.current?.queued) {
@@ -270,9 +295,12 @@ export function useLiveSession(chatId: string) {
         set({ phase: engine.current?.currentPhase() ?? "idle", error: undefined, warming: true });
         const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined);
       },
-      onReconnecting: () => set({ phase: "reconnecting" }),
+      onReconnecting: () => {
+        if (linkUp) { linkUp = false; fact.current.linkDrops++; }
+        set({ phase: "reconnecting" });
+      },
       onClose: () => teardown(),
-      onError: (m) => set({ error: m, agentConnecting: false }),
+      onError: (m, code) => set({ error: m, errorCode: code, agentConnecting: false }),
       // A session/load recovered prior turns (persisted server-side) — refetch so the
       // resumed transcript renders. preloadIfEmpty so a live turn the user started
       // during the refetch isn't wiped by the replace.
@@ -354,7 +382,7 @@ export function useLiveSession(chatId: string) {
         // Also clear agentConnecting — a server-sent agent-start failure would
         // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
         if (e.type === "error") {
-          set({ error: e.message, agentConnecting: false });
+          set({ error: e.message, errorCode: e.code, agentConnecting: false });
           // Ends the reply too when no done follows (an agent that failed to start).
           engine.current?.endAgentTurn();
           // Voice-first users hear the failure/recovery — speak the whole thing
@@ -452,10 +480,10 @@ export function useLiveSession(chatId: string) {
     client.current = c;
     activeLiveClient = c;
     c.connect(chatId);
-    onPageHide.current = () => teardown();
+    onPageHide.current = () => teardown("window_closed");
     window.addEventListener("pagehide", onPageHide.current);
     return c;
-  }, [chatId, set, teardown, closeSpokenSegment]);
+  }, [chatId, set, teardown, closeSpokenSegment, markReady]);
 
   // Pre-call: connect a bound agent (with a project folder) so it reports its
   // models/modes into the lobby BEFORE the call starts. No-op for the built-in
@@ -470,6 +498,9 @@ export function useLiveSession(chatId: string) {
 
   const start = useCallback(async () => {
     tornDown.current = false;
+    // Counts already made in the lobby (a camera left on) stay: they are part of this call.
+    fact.current.startedAt = performance.now();
+    fact.current.mark = perf.mark();
     // NOTE: boundAgent/boundCwd/agentMeta are deliberately NOT touched here. The
     // store is already synced per-conversation (the chatId effect below), and
     // re-reading localStorage at Start raced it: a pick saved under another chatId
@@ -549,6 +580,7 @@ export function useLiveSession(chatId: string) {
         // Barge-in: cancel the server turn AND drop the stale caption immediately,
         // so interrupting gives instant "I'm listening" feedback.
         onBargeIn: (spoken) => {
+          fact.current.bargeIns++;
           client.current?.cancel(spoken);
           // Truncate the assistant node to what was actually spoken — the server
           // persists the same cutoff, so the panel and the saved history agree.
@@ -575,7 +607,7 @@ export function useLiveSession(chatId: string) {
         holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
         answersAsk: (text) => !!useLiveStore.getState().permission && !!classifyYesNo(text),
         // The chosen mic can come back later; the call needs one now.
-        onMicLost: () => { toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
+        onMicLost: () => { fact.current.micLost++; toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
       }, player.current ?? undefined);
       engine.current = eng;
       await eng.start(stream);
@@ -586,15 +618,17 @@ export function useLiveSession(chatId: string) {
       //    over whichever connection; a pre-connected agent means Start is instant.
       if (!client.current) set({ phase: "connecting" });
       const c = ensureClient();
-      if (c.ready) set({ phase: eng.currentPhase(), warming: false, error: undefined }); // already connected in the lobby
+      fact.current.startResult = "ok";
+      if (c.ready) { set({ phase: eng.currentPhase(), warming: false, error: undefined }); markReady(); } // already connected in the lobby
       await refreshDevices();
     } catch (e: any) {
       const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";
+      fact.current.startResult = denied ? "mic_denied" : "start_failed";
       set({ error: denied ? "Microphone access denied. Allow the mic and try again." : `Couldn't start live mode: ${String(e?.message ?? e)}` });
-      teardown();
+      teardown("start_failed");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId, set, teardown, ensureClient]);
+  }, [chatId, set, teardown, ensureClient, markReady]);
 
   // Answer a bound agent's pending permission ask (chip tap or classified voice).
   const answerPermission = useCallback((optionId: string) => {
@@ -627,6 +661,7 @@ export function useLiveSession(chatId: string) {
       const yn = classifyYesNo(text);
       log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
       if (yn) {
+        fact.current.permByVoice++;
         answerPermission(optionForVerdict(pend.options, yn));
       } else {
         engine.current?.say("Say yes to allow, or no to reject.");
@@ -689,6 +724,8 @@ export function useLiveSession(chatId: string) {
     if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
     // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
     if (tornDown.current) return;
+    if (typed) fact.current.typedTurns++;
+    telemetry.track("onboarding_step", { step: "first_call_turn" });
     client.current?.userText(text, frames, wordsAt, speaker, aside, !!typed);
     turnStartedAt.current = Date.now();
     set({ userCaption: "", userPartial: false, agentCaption: "" });
@@ -722,7 +759,7 @@ export function useLiveSession(chatId: string) {
     if (modelsReady()) { set({ modelsDownloaded: true }); return; }
     set({ downloading: true, downloadPct: 0, error: undefined });
     try {
-      await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models }));
+      await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models }), "lobby_button");
       set({ modelsDownloaded: true, downloading: false });
     } catch (e: any) {
       set({ downloading: false, error: `Couldn't download the AI models: ${String(e?.message ?? e)}` });
@@ -737,7 +774,7 @@ export function useLiveSession(chatId: string) {
     // Never mid-call: a reload replaces the worker and fails the call's STT and TTS.
     const cached = modelsCached();
     set({ modelsDownloaded: cached || modelsMatchConfig() });
-    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}).catch(() => {});
+    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}, "launch_warm").catch(() => {});
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       set({
@@ -747,7 +784,8 @@ export function useLiveSession(chatId: string) {
     } catch { /* enumerate not available */ }
   }, [set]);
 
-  const stop = useCallback(() => teardown(), [teardown]);
+  // Unmounting the dock is what ends a call that no button ended: the chat was switched.
+  const stop = useCallback((endedBy: CallEndedBy = "switched_chat") => teardown(endedBy), [teardown]);
 
   const toggleMute = useCallback(() => {
     const next = !useLiveStore.getState().muted;
@@ -822,9 +860,12 @@ export function useLiveSession(chatId: string) {
         } catch {
           try { camera.stop(); } catch { /* */ }
           camRef.current = null;
+          fact.current.cameraFailed++;
           set({ error: "Camera access denied." });
           return;
         }
+        featureUsed("n_camera_on");
+        fact.current.camera = true;
         client.current?.control("camera_on");
         set({ cameraOn: true, cameraStream: camera.getStream() ?? null });
       } else {
@@ -856,9 +897,12 @@ export function useLiveSession(chatId: string) {
         } catch {
           try { cap.stop(); } catch { /* */ }
           screenRef.current = null;
+          fact.current.screenFailed++;
           set({ error: "Screen share was cancelled." });
           return;
         }
+        featureUsed("n_screen_on");
+        fact.current.screen = true;
         client.current?.control("screen_on");
         set({ screenOn: true, screenStream: cap.getStream() ?? null });
       } else {
@@ -881,6 +925,7 @@ export function useLiveSession(chatId: string) {
   // Refused while the user talks: then it stays, back at the end.
   const sendAside = useCallback((id: string) => {
     const m = engine.current && chatStore.takeAside(chatId, id);
+    if (m) featureUsed("n_send_aside");
     if (m && !engine.current!.sendAside(m.text, m.speaker, m.judged)) chatStore.aside(chatId, m.text, m.speaker, m.judged);
   }, [chatId]);
   // "Not for you" on a spoken turn: side talk in the judgment log, and the reply
@@ -888,11 +933,12 @@ export function useLiveSession(chatId: string) {
   // agent keeps: taking it out would mean rewriting a saved conversation.
   const notForYou = useCallback((id: string) => {
     const r = chatStore.notForYou(chatId, id);
+    if (r) featureUsed("n_not_for_you");
     if (r?.judged) labelJudgment(r.judged, "side");
     if (r?.last) engine.current?.dropReply();
   }, [chatId]);
   // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
-  const pttDown = useCallback(() => { if (!engine.current) return; engine.current.beginPtt(); set({ pttActive: true }); }, [set]);
+  const pttDown = useCallback(() => { if (!engine.current) return; engine.current.beginPtt(); fact.current.ptt = true; set({ pttActive: true }); }, [set]);
   const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(); }, [set]);
 
   return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp };

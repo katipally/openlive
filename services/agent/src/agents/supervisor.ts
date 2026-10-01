@@ -1,7 +1,9 @@
 import type { Message } from "@openlive/harness";
-import { agentLabel } from "@openlive/shared";
+import { agentLabel, ClassedError, supervisorClass } from "@openlive/shared";
 import type { Emit } from "../tools.js";
 import type { Agent, AgentId, AskPermission, TurnInput } from "./types.js";
+import { emitFact } from "../telemetry/emit.js";
+import { brainOf, reportBrainError, type Surface } from "../telemetry/facts.js";
 import { log } from "../log.js";
 
 // Reliability wrapper every agent runs inside. External agents are child processes
@@ -31,7 +33,8 @@ export class AgentSupervisor implements Agent {
   private ask: AskPermission;
   private t: SupervisorTimeouts;
 
-  constructor(private factory: (ask: AskPermission) => Agent, askPermission: AskPermission, timeouts?: Partial<SupervisorTimeouts>) {
+  /** `surface`: which session's incidents and restarts this reports; none for an agent nobody counts. */
+  constructor(private factory: (ask: AskPermission) => Agent, askPermission: AskPermission, timeouts?: Partial<SupervisorTimeouts>, private surface?: Surface) {
     // The agent asks the user for permission through us, so we can PAUSE the stall
     // watchdog while the user is deciding (they get 120s; the watchdog fires at 30–60s
     // of silence — without this it would abort + restart mid-decision).
@@ -119,11 +122,14 @@ export class AgentSupervisor implements Agent {
         ? (sawOutput ? "stopped mid-answer" : "didn't start answering")
         : `crashed (${String(e?.message ?? e)})`;
       log.error(`agent:${this.id}`, e);
+      const cls = supervisorClass({ timedOut, sawOutput });
+      const canRestart = !this.restartAttempted && !this.disposed;
       await this.recycle();
+      if (this.surface) reportBrainError(this.surface, brainOf("acp", this.id), cls, { recovered: canRestart && this.restarted });
       // A recovery NOTICE — not part of the agent's answer. Emit it as an error so the
       // client speaks it out-of-band (engine.say) and shows a banner, instead of a
       // text_delta that gets concatenated into — and persisted as — the agent's reply.
-      await emit({ type: "error", message: `${agentLabel(this.id)} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — say that again." : "Check that it's installed and signed in."}` });
+      await emit({ type: "error", message: `${agentLabel(this.id)} ${timedOut ? detail : "stopped responding"}. ${this.restarted ? "I've restarted it — say that again." : "Check that it's installed and signed in."}`, code: cls });
     } finally {
       clearInterval(watchdog);
       signal.removeEventListener("abort", onAbort);
@@ -147,6 +153,7 @@ export class AgentSupervisor implements Agent {
       if (this.disposed) { await next.dispose().catch(() => {}); return; } // disposed while starting
       this.agent = next;
       this.restarted = true;
+      if (this.surface) emitFact(this.surface, { agent_restarts: 1 });
     } catch (e) {
       log.error(`agent:${this.id}`, "restart failed:", e);
     }
@@ -154,7 +161,7 @@ export class AgentSupervisor implements Agent {
 
   private withStartTimeout<T>(p: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`agent "${this.id}" didn't become ready within ${this.t.startMs / 1000}s`)), this.t.startMs);
+      const timer = setTimeout(() => reject(new ClassedError(`agent "${this.id}" didn't become ready within ${this.t.startMs / 1000}s`, "agent_start_timeout")), this.t.startMs);
       p.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
     });
   }

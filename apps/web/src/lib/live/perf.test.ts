@@ -1,39 +1,61 @@
-import { describe, expect, it } from "vitest";
-import { perf, perfStats, pct } from "./perf";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { latencyFact, perf, roundMs, type Turn } from "./perf";
 
-describe("perf aggregation", () => {
-  it("takes nearest-rank percentiles, whatever the order", () => {
-    const v = [900, 100, 500, 300, 700, 200, 800, 400, 600, 1000];
-    expect(pct(v, 50)).toBe(600);
-    expect(pct(v, 95)).toBe(1000);
-    expect(pct([42], 95)).toBe(42);
-    expect(pct([], 50)).toBe(0);
+const record = (n: number) => {
+  for (let i = 0; i < n; i++) {
+    perf.turnCommitted(100);
+    perf.firstToken();
+    perf.firstAudio();
+  }
+};
+
+beforeEach(() => {
+  vi.spyOn(console, "debug").mockImplementation(() => {});
+  perf.reset();
+});
+
+describe("perf slice", () => {
+  it("returns only the turns recorded after the mark", () => {
+    record(3);
+    const mark = perf.mark();
+    record(2);
+    expect(perf.since(mark)).toHaveLength(2);
+    expect(perf.since(0)).toHaveLength(5);
+    expect(perf.since(perf.mark())).toEqual([]);
   });
 
-  it("summarizes every stage, and nothing before the first turn", () => {
-    expect(perfStats([])).toBeNull();
-    const turn = (s: number, m: number, t: number) => ({ sttEndpoint: s, model: m, tts: t, total: s + m + t });
-    expect(perfStats([turn(200, 400, 300), turn(100, 800, 200), turn(300, 600, 100)])).toEqual({
-      turns: 3, sttEndpoint: { p50: 200, p95: 300 }, model: { p50: 600, p95: 800 }, tts: { p50: 200, p95: 300 }, voiceToVoice: { p50: 1000, p95: 1100 },
+  it("keeps the newest 200 turns, and a mark that fell out of them gets what is left", () => {
+    record(150);
+    const mark = perf.mark();
+    record(120);
+    expect(perf.since(mark)).toHaveLength(120);
+    expect(perf.since(0)).toHaveLength(200);
+    expect(perf.stats()?.turns).toBe(200);
+  });
+
+  it("counts marks from the start again after a reset", () => {
+    record(4);
+    perf.reset();
+    expect(perf.mark()).toBe(0);
+    record(1);
+    expect(perf.since(0)).toHaveLength(1);
+  });
+});
+
+describe("latencyFact", () => {
+  const turn = (sttEndpoint: number, model: number, tts: number): Turn => ({ sttEndpoint, model, tts, total: sttEndpoint + model + tts });
+
+  it("is empty when no turn was measured, so nothing is sent for a session that never spoke", () => {
+    expect(latencyFact([])).toEqual({});
+  });
+
+  it("reports medians in 10 ms steps with the turn count", () => {
+    expect(latencyFact([turn(234, 300, 96), turn(400, 500, 200), turn(236, 310, 104)])).toEqual({
+      stt_ms_p50: 240, tts_ms_p50: 100, v2v_ms_p50: 650, v2v_turns: 3,
     });
   });
 
-  it("tells subscribers about each turn and a reset, with a stable snapshot between them", () => {
-    let calls = 0;
-    const off = perf.subscribe(() => calls++);
-    perf.turnCommitted(150);
-    perf.firstToken();
-    perf.firstAudio();
-    expect(calls).toBe(1);
-    const s = perf.stats();
-    expect(s?.turns).toBe(1);
-    expect(perf.stats()).toBe(s);
-    perf.firstAudio(); // no turn in flight: nothing recorded
-    expect(calls).toBe(1);
-    perf.reset();
-    expect(perf.stats()).toBeNull();
-    off();
-    perf.reset();
-    expect(calls).toBe(2);
+  it("rounds to the nearest 10", () => {
+    expect([roundMs(4), roundMs(5), roundMs(14), roundMs(1234)]).toEqual([0, 10, 10, 1230]);
   });
 });

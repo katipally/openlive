@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { app, ipcMain, shell } = require("electron");
+const { askedFrom, permissionGranted, permissionName } = require("./telemetry-map.cjs");
 
 // macOS never reports a secure-input change, so it has to be polled.
 const SECURE_INPUT_POLL_MS = 1000;
@@ -30,6 +31,7 @@ let startError = null;
 let secureTimer = null;
 let armed = true; // the tray's quick disarm; the hook itself is suspended to match
 let target = () => null; // the webContents that receives effects
+let telemetry = null;
 
 function load() {
   if (addon) return addon;
@@ -80,9 +82,14 @@ function initialize() {
   if (hooked && api.hookError()) { api.shutdown(); hooked = false; }
   if (!hooked) {
     try { api.initializeHook((effect) => send("openlive:flow-effect", effect)); }
-    catch (e) { startError = String(e && e.message ? e.message : e); throw e; }
+    catch (e) {
+      startError = String(e && e.message ? e.message : e);
+      telemetry.reportOnboardingStep("flow_hook_failed");
+      throw e;
+    }
     startError = null;
     hooked = true;
+    telemetry.reportOnboardingStep("flow_hook_started");
     if (!armed) api.suspendHook();
   }
   startSecureInputPoll();
@@ -146,13 +153,21 @@ const resetGrant = (service) => new Promise((resolve) => {
 });
 
 /** Asks for `what` with the system's own prompt, every time it is not held. */
-async function request(what) {
+async function prompt(what) {
   if (!TCC_SERVICES[what]) throw new Error(`unknown permission "${what}"`);
   if (process.platform === "darwin" && ownBundleId() && !granted(what)) await Promise.all(TCC_SERVICES[what].map(resetGrant));
   const api = load();
   if (what === "accessibility") return api.requestAccessibility();
   if (what === "microphone") return api.requestMicrophone();
   return api.requestScreenRecording();
+}
+
+/** `prompt`, and the post-event grant's own, with the answer counted for the onboarding funnel.
+ *  `from` is the screen that asked; only a name from telemetry's closed set is kept. */
+async function request(what, from) {
+  const answer = await (what === "postEvents" ? load().requestPostEvents() : prompt(what));
+  telemetry.track("os_permission_request", { permission: permissionName(what), granted_now: permissionGranted(what, answer), asked_from: askedFrom(from) });
+  return answer;
 }
 
 /** The system settings page for `what`. False where the platform has none. */
@@ -171,12 +186,13 @@ function teardown() {
 }
 
 // `getTarget` returns the webContents that should receive hook effects.
-function install(getTarget) {
+function install(getTarget, telemetryClient) {
   target = getTarget;
+  telemetry = telemetryClient;
 
   ipcMain.handle("openlive:flow-init", guard(() => initialize()));
   ipcMain.handle("openlive:flow-permissions", guard(() => load().permissionStatus()));
-  ipcMain.handle("openlive:flow-request", guard((what) => (what === "postEvents" ? load().requestPostEvents() : request(what))));
+  ipcMain.handle("openlive:flow-request", guard(request));
   ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
   ipcMain.handle("openlive:flow-register", guard((id, binding) => load().registerBinding(id, binding)));

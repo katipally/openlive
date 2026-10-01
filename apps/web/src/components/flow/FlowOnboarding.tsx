@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
@@ -8,6 +8,8 @@ import { CONTROL, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platfor
 import { Button, linkClass } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
+import { flowOnboardingOpen } from "@/lib/settingChanges";
+import { telemetry } from "@/lib/telemetry";
 import { BrainPicker } from "./BrainPicker";
 import { AccessRows } from "./FlowSettings";
 import { FlowCanvas } from "./FlowCanvas";
@@ -22,13 +24,18 @@ export function FlowOnboarding({ onDone, config, save }: {
   save: (patch: FlowConfigPatch) => void;
 }) {
   const [step, setStep] = useState<1 | 2>(1);
+  useEffect(() => {
+    telemetry.track("onboarding_step", { step: step === 1 ? "flow_onboarding_shown" : "flow_onboarding_step2" });
+  }, [step]);
+  useEffect(() => { flowOnboardingOpen(true); return () => flowOnboardingOpen(false); }, []);
+  const finish = (how: "flow_onboarding_done" | "flow_onboarding_skipped") => { telemetry.track("onboarding_step", { step: how }); onDone(); };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
         <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Set up Flow · ${step} of 2`}</span>
-        <Button variant="ghost" size="sm" onClick={onDone} className="[-webkit-app-region:no-drag]">Skip</Button>
+        <Button variant="ghost" size="sm" onClick={() => finish("flow_onboarding_skipped")} className="[-webkit-app-region:no-drag]">Skip</Button>
       </header>
 
       <FlowCanvas>
@@ -41,7 +48,7 @@ export function FlowOnboarding({ onDone, config, save }: {
                 {`Tap ${CONTROL} ${CONTROL} anywhere. Flow types, acts, and answers out loud. It needs these first:`}
               </p>
             </div>
-            <AccessRows config={config} save={save} />
+            <AccessRows config={config} save={save} askedFrom="onboarding" />
             <details className="group">
               <summary className={cn("cursor-pointer list-none text-label [&::-webkit-details-marker]:hidden", linkClass)}>
                 What Flow never does
@@ -71,7 +78,7 @@ export function FlowOnboarding({ onDone, config, save }: {
             </Button>
           )}
           <span className="flex-1" />
-          <Button variant="primary" size="lg" onClick={() => (step === 1 ? setStep(2) : onDone())}>
+          <Button variant="primary" size="lg" onClick={() => (step === 1 ? setStep(2) : finish("flow_onboarding_done"))}>
             {step === 1 ? "Continue" : "Start using Flow"}
             <ArrowRight aria-hidden />
           </Button>

@@ -62,6 +62,18 @@ describe("settings search", () => {
     expect(find("login", false)).not.toContain("Open at login");
   });
 
+  it("finds the screen lock row by what people call it, in the desktop app only", () => {
+    for (const q of ["lock", "screen lock", "locked", "sleep", "hang up"]) expect(find(q)).toContain("End Flow and calls when the screen locks");
+    expect(find("lock", false)).not.toContain("End Flow and calls when the screen locks");
+    expect(SETTINGS_INDEX.find((e) => e.anchor === "set-general-lock")!.tab).toBe("general");
+  });
+
+  it("leaves the screen lock row out of a Linux desktop, where the OS never reports a lock", () => {
+    const at = (os: string) => searchSettings("screen locks", label, true, undefined, os).map((e) => e.label);
+    expect(at("linux")).not.toContain("End Flow and calls when the screen locks");
+    for (const os of ["darwin", "win32", ""]) expect(at(os)).toContain("End Flow and calls when the screen locks");
+  });
+
   it("finds the one shared wait by its new names and its old ones", () => {
     for (const q of ["patient", "quick", "snappy", "relaxed"]) expect(find(q)[0]).toBe("Wait before answering");
     expect(find("wait")).toEqual(["Wait before answering", "Flow's own wait"]);
@@ -88,10 +100,27 @@ describe("settings search", () => {
   });
 });
 
+describe("privacy settings", () => {
+  it("are found by what people call them, in the desktop app only", () => {
+    for (const q of ["telemetry", "analytics", "opt out", "privacy"]) expect(find(q)).toContain("Share anonymous usage");
+    expect(find("uuid")).toEqual(["Install ID"]);
+    expect(find("bug")).toEqual(["Report a problem"]);
+    for (const q of ["delete my data", "gdpr", "erase"]) expect(find(q)).toContain("Request deletion");
+    expect(find("telemetry", false)).toEqual([]);
+    expect(find("report", false)).not.toContain("Report a problem");
+  });
+
+  it("file every row under the Privacy tab", () => {
+    const rows = SETTINGS_INDEX.filter((e) => e.tab === "privacy");
+    expect(rows.map((e) => e.label)).toEqual(["Share anonymous usage", "What is shared", "Privacy policy", "Ask for feedback", "Install ID", "Your anonymous name", "Request deletion", "Report a problem"]);
+    for (const e of rows) expect(e.desktop).toBe(true);
+  });
+});
+
 describe("resolveSettingsTab", () => {
   it("keeps current ids and maps old ones to the tab that holds them now", () => {
     expect(resolveSettingsTab("models")).toBe("models");
-    for (const id of ["engine", "chat", "flow", "voice"]) expect(resolveSettingsTab(id)).toBe(id);
+    for (const id of ["engine", "chat", "flow", "voice", "privacy"]) expect(resolveSettingsTab(id)).toBe(id);
     expect(resolveSettingsTab("pipeline")).toBe("engine");
     expect(resolveSettingsTab("voices")).toBe("voice");
   });

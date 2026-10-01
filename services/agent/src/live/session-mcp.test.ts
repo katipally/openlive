@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-call-mcp-"));
@@ -20,6 +20,20 @@ const { getSetting, listMessages, setSetting } = await import("@openlive/db");
 afterAll(() => {
   delete process.env.OPENLIVE_DATA_DIR;
   rmSync(dir, { recursive: true, force: true });
+});
+
+// What the call reports to main, read the way main's validator would.
+const { validateEvent, validateFact } = createRequire(import.meta.url)("../../../../apps/desktop/telemetry/validate.cjs");
+type Sent = { kind: "event" | "fact"; name?: string; scope?: "flow" | "call"; props: Record<string, unknown> };
+let sent: Sent[] = [];
+beforeEach(() => { sent = []; (process as unknown as { parentPort?: unknown }).parentPort = { postMessage: (m: Sent) => sent.push(m) }; });
+afterEach(() => { delete (process as unknown as { parentPort?: unknown }).parentPort; });
+const callFacts = () => sent.filter((m) => m.kind === "fact" && m.scope === "call").map((m) => m.props);
+const total = (key: string) => callFacts().reduce((n, f) => n + (typeof f[key] === "number" ? (f[key] as number) : 0), 0);
+/** Nothing dropped: the validator keeps every prop, though it rounds the numbers. */
+const allAccepted = () => sent.every((m) => {
+  const clean = m.kind === "event" ? validateEvent(m.name, m.props) : validateFact(m.scope === "flow" ? "agent_flow" : "agent_call", m.props);
+  return !!clean && Object.keys(clean).sort().join() === Object.keys(m.props).sort().join();
 });
 
 /** A stub ACP agent that, on each prompt, calls OpenLive's tools over the MCP
@@ -134,6 +148,11 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
   expect(copied).toBe("clipboard_write ok");
   expect(remembered).toMatch(/^Got it/);
   expect(looked).toMatch(/^This is what the user's camera is showing right now.* image$/);
+  // Reported as the built-in brain's would be: each tool under its group, the agent's own beside them.
+  expect(["t_clipboard", "t_memory", "t_look", "interrupted"].map(total)).toEqual([1, 1, 1, 0]);
+  expect(callFacts()).toContainEqual({ camera_used: true });
+  expect(callFacts().at(-1)).toMatchObject({ brain_kind: "acp", brain_id: "codex", turns: 1, lang: "en", agent_tools: 1, agent_start_ms: expect.any(Number) });
+  expect(allAccepted()).toBe(true);
   ws.emit("close");
 }, 20_000);
 
@@ -165,6 +184,8 @@ test("an agent that asks before one of OpenLive's tools gets a proper ask, and t
   expect(ask.options.map((o: { kind: string }) => o.kind)).toEqual(["allow_once", "reject_once"]);
   say({ t: "permission_response", reqId: ask.reqId, optionId: "declined" });
   await done();
+  expect(["perm_asks", "perm_denied", "perm_allowed", "perm_timeout"].map(total)).toEqual([1, 1, 0, 0]);
+  expect(allAccepted()).toBe(true);
   expect(ws.sent.filter((m) => m.event?.type === "text_delta").map((m) => m.event.text).join("")).toBe("declined");
   // The rejection settles a card nobody sees, so it stays unseen.
   expect(ws.sent.some((m) => m.event?.type === "acp_tool_call" || m.event?.type === "acp_tool_update")).toBe(false);
@@ -173,12 +194,19 @@ test("an agent that asks before one of OpenLive's tools gets a proper ask, and t
 
 test("a resumed session replays OpenLive's tools as it showed them live", async () => {
   await stubAgent();
-  const { ws, started } = connect("call-replay", "codex", "old");
+  const { ws, say, done, started } = connect("call-replay", "codex", "old");
   await started;
   while (!ws.sent.some((m) => m.t === "reload_history")) await new Promise((r) => setTimeout(r, 10));
   const blocks = listMessages("call-replay").flatMap((m) => m.content);
   expect(blocks.filter((b) => b.type === "acp_tool").map((b) => b.type === "acp_tool" && b.call.id)).toEqual(["own"]);
   expect(blocks.some((b) => b.type === "text" && b.text === "A cup.")).toBe(true);
+  // The agent came up in the lobby, before the call's record exists, so main
+  // would drop the fact; it rides in with the first turn instead.
+  expect(callFacts().some((f) => "resumed" in f)).toBe(false);
+  say({ t: "user_text", text: "Hi." });
+  await done();
+  expect(callFacts().filter((f) => f.turns)).toMatchObject([{ resumed: "loaded" }]);
+  expect(allAccepted()).toBe(true);
   ws.emit("close");
 }, 20_000);
 
@@ -221,5 +249,10 @@ test("the built-in brain shows the same chip for a bridge tool", async () => {
   expect(ws.sent.find((m) => m.t === "tool_bridge")).toMatchObject({ op: "open_url", arg: "https://example.com" });
   expect(ws.sent.find((m) => m.event?.type === "tool_start")).toMatchObject({ event: { tool: "open_url", summary: "https://example.com" }, turn: 2 });
   expect(ws.sent.some((m) => m.event?.type === "tool_done")).toBe(true);
+  // The built-in brain reports the same tool under the same group, and starts no agent.
+  expect(total("t_open_url")).toBe(1);
+  expect(callFacts().at(-1)).toMatchObject({ brain_kind: "api", brain_id: "ollama", turns: 1, agent_start_ms: 0, ttft_ms: expect.any(Number), turn_ms: expect.any(Number) });
+  expect(callFacts().some((f) => "resumed" in f)).toBe(false);
+  expect(allAccepted()).toBe(true);
   ws.emit("close");
 }, 20_000);

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ModelProgress } from "./models";
+import type { ErrorClass } from "@openlive/shared";
 import type { AgentId, AgentMeta, ElicitationWire, PermissionOption } from "./liveClient";
 
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
@@ -48,6 +49,8 @@ interface LiveState {
   elicitation: ElicitationWire | null;
   typedQueue: TypedDraft[];
   error?: string;
+  /** Why `error` happened, when the brain said. Cleared by any write of `error` that does not carry one. */
+  errorCode?: ErrorClass;
   micId?: string;
   camId?: string;
   mics: DeviceOpt[];
@@ -107,7 +110,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   typedQueue: [],
   mics: [],
   cams: [],
-  set: (p) => set(p),
+  set: (p) => set("error" in p && !("errorCode" in p) ? { ...p, errorCode: undefined } : p),
   termAppend: (terminalId, chunk, truncated) =>
     set((s) => {
       const t = s.terminals[terminalId] ?? { output: "", truncated: false };

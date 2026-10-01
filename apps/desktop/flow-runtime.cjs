@@ -162,6 +162,9 @@ const SHELL_OUTPUT_CAP = 64 * 1024;
 
 const addon = () => flowInput.load();
 
+let telemetry = null;
+let reportedFirstAction = false;
+
 /**
  * The display a capture means when neither a display nor a window was named.
  *
@@ -262,7 +265,11 @@ async function deviceCall(fn, args = {}) {
       return api.recognizeText(Buffer.from(String(args.png ?? ""), "base64"), args.shot);
     case "windows": return api.windowList();
     case "foreground": return api.foregroundWindow();
-    case "control": { await control(args); return null; }
+    case "control": {
+      await control(args);
+      if (!reportedFirstAction) { reportedFirstAction = true; telemetry.reportOnboardingStep("first_device_action"); }
+      return null;
+    }
     case "shell": return shell(args.command);
     default: throw new Error(`"${fn}" is not something this machine can be asked to do.`);
   }
@@ -286,7 +293,8 @@ function guard(fn) {
   };
 }
 
-function install() {
+function install(telemetryClient) {
+  telemetry = telemetryClient;
   flowCursor.install();
   ipcMain.handle("openlive:flow-context", guard(captureContext));
   ipcMain.handle("openlive:flow-signals", guard(signals));

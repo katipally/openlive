@@ -2,8 +2,9 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, motion, stagger } from "motion/react";
-import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2 } from "lucide-react";
+import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { GeneralSettings } from "./GeneralSettings";
 import { ModelsSettings } from "./ModelsSettings";
@@ -14,11 +15,12 @@ import { SettingsNav, type SettingsGo } from "./nav";
 import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsSettings } from "./AgentsSettings";
 import { AboutSettings } from "./AboutSettings";
+import { PrivacySettings } from "./PrivacySettings";
 import { FlowSettings } from "@/components/flow/FlowSettings";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { animateAll, EXIT, FADE, GENTLE, SMOOTH, useMotionTokens } from "@/lib/motion";
 import { cn } from "@/lib/cn";
-import { isDesktop, isMacDesktop, isNonMacDesktop, MOD } from "@/lib/platform";
+import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop, MOD } from "@/lib/platform";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { resolveSettingsTab, searchSettings, type SettingsEntry, type SettingsTabId } from "@/lib/settingsSearch";
 
@@ -32,13 +34,18 @@ export const SECTIONS = [
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
   { id: "chat", label: "Chat", sub: "Push-to-talk & narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "flow", label: "Flow", sub: "Trigger, typing & access", icon: Waves, Comp: FlowSettings },
-  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings, group: "" },
+  { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "", desktop: true },
+  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
 ] as const satisfies readonly Sec[];
 type TabId = (typeof SECTIONS)[number]["id"];
 interface Sec {
   id: SettingsTabId; label: string; sub: string; icon: typeof Info; Comp: () => React.ReactNode;
   group?: string; desc?: string; shared?: boolean; fresh?: boolean;
+  /** Needs the desktop shell: left out of a browser tab. */
+  desktop?: boolean;
 }
+/** The tabs this window offers. */
+export const shownSections = () => SECTIONS.filter((s: Sec) => !s.desktop || isDesktop);
 const tabLabel = (t: SettingsTabId) => SECTIONS.find((s) => s.id === t)!.label;
 const HIT_MS = 1600;
 
@@ -70,12 +77,13 @@ export function SettingsPage() {
   const listId = useId();
   const navMark = useId();
   const t = useMotionTokens();
-  const results = useMemo(() => searchSettings(query, tabLabel, isDesktop), [query]);
+  const results = useMemo(() => searchSettings(query, tabLabel, isDesktop, undefined, desktopPlatform), [query]);
   const current = results[Math.min(active, results.length - 1)];
 
   // Store open → show. (Close is driven through requestClose so the exit animates;
   // a close from outside, like a palette command, hides without one.)
   useEffect(() => setVisible(openStore), [openStore]);
+  useEffect(() => { if (visible) featureUsed(`n_settings_tab_${tab}`); }, [visible, tab]);
   // Closing with the search focused hides the input without a blur event, so
   // `searching` has to be reset here or the rail stays unfolded next time.
   useEffect(() => { if (!visible) { setQuery(""); setActive(0); setSearching(false); } }, [visible]);
@@ -236,7 +244,7 @@ export function SettingsPage() {
           <Input ref={searchRef} type="search" icon={<Search />} value={query} placeholder="Search settings" aria-label="Search settings"
             data-tour="settings-search"
             onFocus={() => setSearching(true)} onBlur={() => setSearching(false)}
-            onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey}
+            onChange={(e) => { if (!query && e.target.value) featureUsed("n_settings_search"); setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey}
             role="combobox" aria-expanded={!!query.trim()} aria-controls={listId} aria-autocomplete="list"
             aria-activedescendant={current ? `${listId}-${results.indexOf(current)}` : undefined}
             autoComplete="off" spellCheck={false}
@@ -257,7 +265,7 @@ export function SettingsPage() {
                 })}
               </div>
             ) : <p id={listId} role="status" className="px-3 py-2 text-label text-muted-foreground">No matches</p>
-          ) : SECTIONS.map((s: Sec) => {
+          ) : shownSections().map((s: Sec) => {
             const on = s.id === tab;
             return (
               <Fragment key={s.id}>

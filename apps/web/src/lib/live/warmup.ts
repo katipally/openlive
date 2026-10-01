@@ -31,7 +31,7 @@ async function run(): Promise<void> {
         setTimeout(() => s.getTracks().forEach((t) => t.stop()), 250);
       } catch { /* device busy — the call will grab it */ }
     }
-    await loadModels(() => {}); // weights come from the Cache API; this is shader warm-up
+    await loadModels(() => {}, "launch_warm"); // weights come from the Cache API; this is shader warm-up
     log.debug("warmup", "voice stack warmed before first call");
   } catch (e) { log.debug("warmup", "skipped:", e); }
 }

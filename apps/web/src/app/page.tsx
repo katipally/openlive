@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
@@ -24,6 +24,8 @@ import { FlowShell, SwitchHole } from "@/components/flow/FlowShell";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ShortcutsSheet } from "@/components/ShortcutsSheet";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { PrivacyNotice } from "@/components/PrivacyNotice";
+import { FeedbackPrompt } from "@/components/FeedbackPrompt";
 
 // One home for the mode switch: top centre of the window, clear of the traffic
 // lights on the left and the window controls on the right, in every mode.
@@ -54,6 +56,8 @@ export default function Home() {
   const mode = useUi((s) => s.mode);
   const settingsOpen = useUi((s) => s.settingsOpen);
   const reduce = useReducedMotion();
+  // The first-run notice goes first: two overlays would contend for the same first look.
+  const [noticePending, setNoticePending] = useState(false);
 
   // The saved mode, applied after mount: this store is evaluated during SSR too,
   // so seeding it from localStorage there would be a hydration mismatch.
@@ -64,7 +68,7 @@ export default function Home() {
   // cached — a fresh install still downloads via the explicit pre-call button (we
   // don't silently pull hundreds of MB on first launch).
   useEffect(() => {
-    if (modelsCached() && !modelsReady()) void loadModels(() => {}).catch(() => {});
+    if (modelsCached() && !modelsReady()) void loadModels(() => {}, "launch_warm").catch(() => {});
   }, []);
 
   // Desktop: route the orb's call controls (mute / end) to the live call.
@@ -169,7 +173,7 @@ export default function Home() {
               </a>
             </footer>
 
-            <SpotlightTour id="home" active={!liveOpen} steps={[
+            <SpotlightTour id="home" active={!liveOpen && !noticePending} steps={[
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
@@ -185,6 +189,8 @@ export default function Home() {
       <CommandPalette onNewChat={startNew} />
       <ShortcutsSheet />
       <ConnectionBanner />
+      <PrivacyNotice onPending={setNoticePending} />
+      <FeedbackPrompt hold={noticePending || liveOpen} />
     </div>
   );
 }

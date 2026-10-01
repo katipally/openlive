@@ -1,3 +1,4 @@
+import type { ErrorClass } from "@openlive/shared";
 import type { FlowFailure } from "./types";
 
 // Nothing silent. Every way Flow can be unable to do its job has a state with a
@@ -88,36 +89,47 @@ const said = (message: string): string =>
   (/"message"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(message)?.[1] ?? message).replace(/\\(.)/g, "$1").trim().slice(0, 240);
 
 /**
- * A turn the brain failed, as the card it gets. The error text is all that
- * crosses the socket, so the cause is read from it: the status codes and words
- * every provider and agent uses for the same four problems. `agent` is whether
- * the brain is a coding agent, whose sign-in and model are set elsewhere than
- * API mode's key and model.
+ * The class of a failure read from its words, for a brain that sent no `code`:
+ * an older agent, or an error made on this side of the socket.
  */
-export function turnFailure(message: string, agent = false): FlowFailure {
+function classFromText(m: string): ErrorClass {
+  if (/no api key/i.test(m)) return "no_key";
+  if (/\b40[13]\b|invalid.{0,20}(api.?)?key|authenticat|unauthori[sz]ed|x-api-key|forbidden|permission_denied/i.test(m)) return "auth";
+  if (/\b404\b|model.{0,40}(not found|does not exist|not available|unsupported)|unknown model|not_found_error/i.test(m)) return "model_not_found";
+  if (/quota|insufficient|billing|credit/i.test(m)) return "quota";
+  if (/\b429\b|rate.?limit|too many requests|overloaded|\b529\b/i.test(m)) return "rate_limited";
+  if (/could not reach|fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) return "unreachable";
+  return "other";
+}
+
+/**
+ * A turn the brain failed, as the card it gets. The wire carries a closed
+ * `code` for why, so the cause is read from it; only a brain that sent none has
+ * its cause read from the error text. `agent` is whether the brain is a coding
+ * agent, whose sign-in and model are set elsewhere than API mode's key and model.
+ */
+export function turnFailure(message: string, agent = false, code?: ErrorClass): FlowFailure {
   const m = message;
-  if (/no api key/i.test(m)) {
-    return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
+  switch (code ?? classFromText(m)) {
+    case "no_key":
+      return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
+    case "auth":
+      return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
+    case "model_not_found":
+    case "no_model":
+      return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
+    case "quota":
+      return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
+    case "rate_limited":
+      return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
+    case "unreachable":
+      // The brain names the address it tried when it knows it; that is the thing to
+      // check, and the address is set in Models.
+      if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "I could not reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
+      return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
+    default:
+      return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
   }
-  if (/\b40[13]\b|invalid.{0,20}(api.?)?key|authenticat|unauthori[sz]ed|x-api-key|forbidden|permission_denied/i.test(m)) {
-    return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
-  }
-  if (/\b404\b|model.{0,40}(not found|does not exist|not available|unsupported)|unknown model|not_found_error/i.test(m)) {
-    return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
-  }
-  if (/quota|insufficient|billing|credit/i.test(m)) {
-    return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
-  }
-  if (/\b429\b|rate.?limit|too many requests|overloaded|\b529\b/i.test(m)) {
-    return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
-  }
-  if (/could not reach|fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) {
-    // The brain names the address it tried when it knows it; that is the thing to
-    // check, and the address is set in Models.
-    if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "I could not reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
-    return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
-  }
-  return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
 }
 
 /** Flow's words for an ol-input addon that did not load, shared by the orb,

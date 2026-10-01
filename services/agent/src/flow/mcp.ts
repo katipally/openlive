@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerWire } from "../agents/mcp-config.js";
 import type { OpenLiveTool } from "../tools.js";
-import { dispatch } from "./tools.js";
+import { dispatch, type ToolTally } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { MCP_SERVER_NAME, type Approve, type Tool, type ToolCtx } from "./types.js";
 
@@ -29,6 +29,8 @@ export interface FlowMcpOpts {
    *  that id is all that ties a late call to the prompt that made it. */
   ctx: (agentCallId?: string) => Omit<ToolCtx, "callId">;
   approve?: Approve;
+  /** Told of every call that ran. Must not throw. */
+  tally?: ToolTally;
   /**
    * Every call the agent makes, for the session transcript.
    *
@@ -51,7 +53,7 @@ export function flowMcpServer(opts: FlowMcpOpts): Server {
     const call = { id: randomUUID(), name: req.params.name, args: req.params.arguments ?? {} };
     opts.onCall?.({ type: "tool_call", id: call.id, name: call.name, args: call.args });
     const agentCallId = req.params._meta?.["claudecode/toolUseId"];
-    const running = dispatch([call], opts.tools, opts.ctx(typeof agentCallId === "string" ? agentCallId : undefined), { approve: opts.approve ?? allowAll });
+    const running = dispatch([call], opts.tools, opts.ctx(typeof agentCallId === "string" ? agentCallId : undefined), { approve: opts.approve ?? allowAll, tally: opts.tally });
     let step = await running.next();
     while (!step.done) step = await running.next();
     const result = step.value[0]!;

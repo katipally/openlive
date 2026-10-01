@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Check, CornerDownLeft, Paperclip, X } from "lucide-react";
 import { agentLabel } from "@openlive/shared";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { featureUsed } from "@/lib/featureUse";
 import { acceptFiles, composeMessage, filterCommands, promoteCommand, slashQuery, type Command } from "@/lib/live/composer";
 import { useMotionTokens } from "@/lib/motion";
 import { Button, Swap, Tooltip, menuPanel, groupLabel } from "@/components/ui";
@@ -117,6 +118,7 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
     const st = useLiveStore.getState();
     st.set({ typedQueue: [...st.typedQueue, { id: crypto.randomUUID(), text: message, images: images.map(({ data, mime }) => ({ data, mime })) }] });
     setText(""); setCommand(null); setImages([]); setNote(""); setForced(false); setSent(true);
+    featureUsed("n_typed_msg");
     onSent();
   };
 

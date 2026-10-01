@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { WebSocket } from "ws";
 import type { FlowContentWire, LanguageCode, LiveServerMsg, ToolCallState } from "@openlive/shared";
-import { flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
+import { classifyError, flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
@@ -11,6 +11,8 @@ import { makeRemember } from "../tools.js";
 import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type PermissionAskOption } from "../agents/index.js";
+import { emitEvent, emitFact } from "../telemetry/emit.js";
+import { askOutcome, brainOf, flowToolFact, permissionFact, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent } from "../telemetry/facts.js";
 import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
@@ -131,6 +133,12 @@ export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLiv
   return { kind: "api", id: provider.id, model, effort: effort ?? "" };
 };
 
+/** The brain as telemetry names it; nothing when settings cannot say. */
+const flowIdent = (cfg: FlowConfig): BrainIdent => {
+  try { const { kind, id } = brainMeta(cfg); return brainOf(kind === "acp" ? "acp" : "api", id); }
+  catch { return {}; }
+};
+
 /** How hard a coding agent thinks, where it exposes that as a config option. */
 export const agentEffortOption = (meta: AgentMeta | null) =>
   meta?.options.find((o) => o.category === "thought_level") ?? null;
@@ -209,6 +217,10 @@ export class FlowLiveSession {
   /** The effort already pushed to `agent`, kept apart from the model for the
    *  same reason: it is an option the agent names, not one OpenLive knows. */
   private agentEffort = "";
+  /** What the coding agent took to start, 0 in API mode. */
+  private agentStartMs = 0;
+  /** The brain the running turn started on, for what it reports. */
+  private ident: BrainIdent = {};
   private bridgePending = new Map<string, (out: string) => void>();
   private permPending = new Map<string, (optionId: string) => void>();
   private store: FlowStoreSession | null = null;
@@ -331,7 +343,7 @@ export class FlowLiveSession {
     if (!text.trim() || this.closed) return;
     const m: Msg = { role: "user", text: aside ? sentAside(text) : text };
     this.write(() => this.persist("message", { role: "user", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }) }));
-    if (this.turnActive) { this.steering.push(m); return; }
+    if (this.turnActive) { this.steering.push(m); emitFact("flow", { steered: 1 }); return; }
     this.messages.push(m);
     void this.run();
   }
@@ -347,7 +359,10 @@ export class FlowLiveSession {
     this.ac = ac;
     const cfg = readFlowConfig();
     this.consented = cfg.consent.granted;
+    this.ident = flowIdent(cfg);
     this.approve = this.freshApprove();
+    const timer = new TurnTimer();
+    let finished = false;
     try {
       for await (const event of runFlow({
         brain: await this.brainFor(cfg, ac.signal),
@@ -359,6 +374,7 @@ export class FlowLiveSession {
         context: this.context,
         approve: (req, signal) => this.approve(req, signal),
         getSystemPrompt: () => buildFlowPrompt({ tools: this.tools, lang: this.lang }),
+        tally: flowToolFact,
         pollSteering: () => {
           // A new request gets its own answer: a no to the last one is not a no to it.
           if (this.steering.length) { this.replyTurn = this.turn; this.approve = this.freshApprove(); }
@@ -366,6 +382,9 @@ export class FlowLiveSession {
         },
       })) {
         this.send({ t: "flow", event, turn: this.replyTurn });
+        if (event.type === "text_delta") timer.firstText();
+        else if (event.type === "error" && !event.aborted) reportTurnError("flow", this.ident, event);
+        else if (event.type === "done") finished = event.reason !== "error" && event.reason !== "aborted";
         const stopped = ac.signal.aborted;
         this.write(() => this.record(event, stopped));
       }
@@ -374,9 +393,16 @@ export class FlowLiveSession {
       // Mostly a coding agent that would not start, and its reason is the fix.
       const message = (e instanceof Error && e.message.slice(0, 400)) || "That turn failed.";
       const aborted = ac.signal.aborted;
-      this.send({ t: "flow", event: { type: "error", message, aborted }, turn: this.replyTurn });
+      const code = classifyError(e, this.ident.brain_kind === "acp" ? "agent_start_failed" : "other");
+      this.send({ t: "flow", event: { type: "error", message, aborted, code }, turn: this.replyTurn });
       this.send({ t: "flow", event: { type: "done", reason: aborted ? "aborted" : "error" }, turn: this.replyTurn });
+      if (!aborted) reportTurnError("flow", this.ident, { code, message });
     } finally {
+      emitFact("flow", {
+        ...this.ident, turns: 1, consent: this.consented, agent_start_ms: this.agentStartMs, ...(this.lang && { lang: this.lang }),
+        ...(this.quiet && { quiet_turns: 1 }), ...timer.timings(finished),
+      });
+      if (finished) reportReply("flow");
       this.turnActive = false;
       this.ac = null;
       // An ask left hanging by a cancelled turn must be settled, or the client's
@@ -412,6 +438,7 @@ export class FlowLiveSession {
   private freshApprove(): Approve {
     return consentApprove({
       granted: () => this.consented,
+      onResult: (outcome) => emitEvent("flow_consent_result", { outcome, ...(this.ident.brain_kind && { brain_kind: this.ident.brain_kind }) }),
       timeoutMs: ASK_TIMEOUT_MS,
       ask: (question, signal) => this.askPermission(question, signal),
       remember: () => this.rememberConsent(),
@@ -599,6 +626,7 @@ export class FlowLiveSession {
         context: this.lastContext, insert: this.insert, clipboard: this.clipboard,
       }),
       approve: (req, s) => this.approve(req, s),
+      tally: flowToolFact,
       // An agent brain drives these tools itself, so the session only learns
       // what it did if the server says so.
       // The orb shows a tool at work whichever brain called it.
@@ -618,9 +646,12 @@ export class FlowLiveSession {
       }),
       (question, options, toolCallId) => this.answerForAgent(question, options, toolCallId, signal),
       { startMs: 60_000 },
+      "flow",
     );
+    const startedAt = performance.now();
     try { await agent.start(signal); }
     catch (e) { await agent.dispose().catch(() => {}); throw e; }
+    this.agentStartMs = Math.round(performance.now() - startedAt);
     agent.seed(priorTurns(this.messages));
     this.agent = agent;
     this.agentModel = "";
@@ -636,6 +667,7 @@ export class FlowLiveSession {
     const { kind, target, args } = agentToolEntry(call, flowAgentCwd());
     const shown = { kind, ...(target && { target }) };
     if (!settled) { this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn }); return; }
+    emitFact("flow", { agent_tools: 1, ...(call.status === "failed" && { agent_tools_failed: 1 }) });
     const cancelled = call.status === "canceled" || (call.status !== "completed" && !!this.ac?.signal.aborted);
     this.write(async () => {
       await this.persist("tool_call", { callId: call.id, name: kind, ...shown, args });
@@ -682,15 +714,20 @@ export class FlowLiveSession {
   private answerForAgent(question: string, options: PermissionAskOption[], toolCallId: string | undefined, signal: AbortSignal): Promise<string> {
     if (this.consented) {
       const allow = options.find((o) => o.kind === "allow_always") ?? options.find((o) => !o.kind?.startsWith("reject"));
-      if (allow) return Promise.resolve(allow.id);
+      if (allow) { permissionFact("flow", "auto_allowed"); return Promise.resolve(allow.id); }
     }
-    return this.ask(question, this.ac?.signal ?? signal, options, toolCallId).then((id) => id || PERMISSION_CANCELLED);
+    const turn = this.ac?.signal ?? signal;
+    return this.ask(question, turn, options, toolCallId).then((id) => {
+      permissionFact("flow", id ? askOutcome(options, id) : turn.aborted ? "cancelled" : "rejected");
+      return id || PERMISSION_CANCELLED;
+    });
   }
 
   private async dropAgent(): Promise<void> {
     const agent = this.agent;
     this.agent = null;
     this.agentModel = "";
+    this.agentStartMs = 0;
     try { await agent?.dispose(); } catch { /* it is going away either way */ }
   }
 
@@ -699,6 +736,7 @@ export class FlowLiveSession {
    *  would not open is worse than forgetting it at the next launch. */
   private async rememberConsent(): Promise<void> {
     this.consented = true;
+    emitEvent("onboarding_step", { step: "flow_consent_granted" });
     try { await updateFlowConfig((cur) => ({ ...cur, consent: { granted: true, at: new Date().toISOString() } })); }
     catch (e) { log.error("flow", "consent:", e); }
   }

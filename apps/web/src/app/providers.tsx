@@ -7,6 +7,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useUi } from "@/lib/uiStore";
 import { warmupOnLaunch } from "@/lib/live/warmup";
 import { useAppearanceSync } from "@/lib/look";
+import { watchRendererErrors } from "@/lib/rendererError";
+import { watchPipelineConfig } from "@/lib/settingChanges";
 
 // Inside the ThemeProvider, which it reads the theme from.
 function AppearanceSync() {
@@ -26,6 +28,8 @@ export function Providers({ children }: { children: ReactNode }) {
     // so the first call doesn't pay the cold start.
     warmupOnLaunch();
   }, []);
+  useEffect(watchRendererErrors, []);
+  useEffect(watchPipelineConfig, []);
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <AppearanceSync />

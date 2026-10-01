@@ -100,26 +100,26 @@ describe("LocalBrain", () => {
 
   it("encodes a resolution failure as a terminal event instead of throwing", async () => {
     const brain = new LocalBrain(() => { throw new Error("no provider configured"); });
-    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "no provider configured", aborted: false }]);
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "no provider configured", aborted: false, code: "other" }]);
   });
 
   it("names the missing key instead of sending a request that can only be refused", async () => {
     const provider = { id: "openai", name: "OpenAI", protocol: "openai" as const, baseURL: "http://x" };
     const brain = new LocalBrain(() => ({ provider, model: "gpt-5", apiKey: null }));
-    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "No API key for OpenAI. Add one in Settings > Models.", aborted: false }]);
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "No API key for OpenAI. Add one in Settings > Models.", aborted: false, code: "no_key" }]);
   });
 
   it("names the configured address when the server is not there", async () => {
     const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
     const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }));
-    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?", aborted: false }]);
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "Could not reach Ollama (local) at http://127.0.0.1:1. Is it running?", aborted: false, code: "unreachable" }]);
   }, 20_000);
 
   it("hands the model its transcript as prepared for what it can see", async () => {
     const provider = { id: "ollama", name: "Ollama (local)", protocol: "openai" as const, baseURL: "http://127.0.0.1:1/v1", keyless: true };
     const seen: unknown[] = [];
     const brain = new LocalBrain(() => ({ provider, model: "m", apiKey: null }), async (messages) => { seen.push(messages); throw new Error("stop here"); });
-    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "stop here", aborted: false }]);
+    expect(await collect(brain)).toEqual([{ type: "turn_error", message: "stop here", aborted: false, code: "other" }]);
     expect(seen).toEqual([[{ role: "user", text: "hi" }]]);
   });
 
@@ -127,7 +127,7 @@ describe("LocalBrain", () => {
     const ac = new AbortController();
     ac.abort();
     const brain = new LocalBrain(() => { throw new Error("aborted"); });
-    expect(await collect(brain, ac.signal)).toEqual([{ type: "turn_error", message: "aborted", aborted: true }]);
+    expect(await collect(brain, ac.signal)).toEqual([{ type: "turn_error", message: "aborted", aborted: true, code: "other" }]);
   });
 });
 
@@ -180,6 +180,10 @@ describe("ACP mapping", () => {
       null, null, null, null,
       { type: "turn_error", message: "agent died", aborted: false },
     ]);
+  });
+
+  it("carries the wire code of an agent's error into the turn's", () => {
+    expect(acpEventToBrain({ type: "error", message: "stalled", code: "agent_stalled" })).toEqual({ type: "turn_error", message: "stalled", aborted: false, code: "agent_stalled" });
   });
 });
 

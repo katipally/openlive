@@ -27,11 +27,30 @@ files:
   - flow-input.cjs
   - flow-runtime.cjs
   - look.cjs
+  - external-url.cjs
   - orb-pointer.cjs
   - flow-cursor.cjs
   - flow-cursor-preload.cjs
   - flow-cursor.html
   - splash.html
+  - telemetry-map.cjs
+  # Product-usage telemetry: every runtime file of telemetry/, not its tests. A file
+  # missing here is a "Cannot find module" at launch (packaging.test.ts checks).
+  - telemetry/aggregator.cjs
+  - telemetry/config.cjs
+  - telemetry/feedback.cjs
+  - telemetry/index.cjs
+  - telemetry/limits.cjs
+  - telemetry/queue.cjs
+  - telemetry/schema.json
+  - telemetry/sender.cjs
+  - telemetry/state.cjs
+  - telemetry/transport.cjs
+  - telemetry/username.cjs
+  - telemetry/validate.cjs
+  # Stamped at release by scripts/pack-telemetry.cjs. Without it (a local build) the
+  # pattern matches nothing and the app sends nothing.
+  - telemetry-config.json
   # Packed INTO the asar so the menu-bar tray (main.cjs loads build/tray*.png via
   # __dirname) has its image in installed builds — without this the tray was blank.
   - build/tray*.png

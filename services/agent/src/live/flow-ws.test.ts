@@ -2,7 +2,8 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
+import { createRequire } from "node:module";
+import { afterAll, afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { Msg, Tool } from "../flow/types.js";
 
 // The session is driven exactly as the orb drives it: messages in over the
@@ -111,6 +112,8 @@ afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dataDir, { recursi
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
 const { getSetting, setSetting } = await import("@openlive/db");
 const { cancelledText, sentAside } = await import("../turn.js");
+const { limits } = await import("../telemetry/limits.js");
+const { validateEvent, validateFact } = createRequire(import.meta.url)("../../../../apps/desktop/telemetry/validate.cjs");
 
 /** Answers the bridge the way the desktop would, so no call sits out its timeout. */
 class FakeSocket extends EventEmitter {
@@ -671,5 +674,168 @@ describe("what the header records", () => {
       .toEqual({ kind: "api", id: "anthropic", model: "opus", effort: "high" });
     expect(brainMeta(cfg({}), () => ({ provider: { id: "ollama" }, model: "qwen3", apiKey: null }) as never))
       .toEqual({ kind: "api", id: "ollama", model: "qwen3", effort: "" });
+  });
+});
+
+describe("what a Flow turn reports to main", () => {
+  type Sent = { kind: "event" | "fact"; name?: string; scope?: "flow" | "call"; props: Record<string, unknown> };
+  let sent: Sent[] = [];
+  beforeEach(() => {
+    sent = [];
+    limits.clear();
+    (process as unknown as { parentPort?: unknown }).parentPort = { postMessage: (m: Sent) => sent.push(m) };
+  });
+  afterEach(() => { delete (process as unknown as { parentPort?: unknown }).parentPort; });
+
+  const facts = () => sent.filter((m) => m.kind === "fact").map((m) => m.props);
+  const events = (name: string) => sent.filter((m) => m.name === name).map((m) => m.props);
+  /** Nothing dropped: main's validator keeps every prop, though it rounds the numbers. */
+  const accepted = () => sent.every((m) => {
+    const clean = m.kind === "event" ? validateEvent(m.name, m.props) : validateFact(m.scope === "flow" ? "agent_flow" : "agent_call", m.props);
+    return !!clean && Object.keys(clean).sort().join() === Object.keys(m.props).sort().join();
+  });
+  const listWindows = (id: string) => [
+    { type: "tool_start", id, name: "list_windows" },
+    { type: "tool_end", id, name: "list_windows", args: {} },
+    { type: "turn_done", stop: "tools" },
+  ];
+
+  it("counts each tool by group as it runs, and the turn once it ends, with the brain and its timings", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [{ type: "text_delta", delta: "Looking." }, ...listWindows("c1"), { type: "tool_start", id: "c2", name: "invented_tool" }, { type: "tool_end", id: "c2", name: "invented_tool", args: {} }];
+    ws.say("what is open?");
+    await until(() => turnsDone(ws) === 1);
+
+    // Each call is counted as it settles, so an invented name is in before a real round trip is.
+    expect(facts().slice(0, 2)).toEqual(expect.arrayContaining([{ tool_calls: 1, t_see: 1 }, { tool_calls: 1, tool_errors: 1 }]));
+    const turn = facts().at(-1)!;
+    expect(turn).toMatchObject({ brain_kind: "api", turns: 1, consent: true, agent_start_ms: 0 });
+    expect(typeof turn.brain_id).toBe("string");
+    expect(typeof turn.ttft_ms).toBe("number");
+    expect(typeof turn.turn_ms).toBe("number");
+    expect(turn).not.toHaveProperty("quiet_turns");
+    expect(accepted()).toBe(true);
+  });
+
+  it("marks the first answered turn once, and a failed or cut off turn is not one", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [{ type: "turn_error", message: "HTTP 401", aborted: false, code: "auth" }];
+    ws.say("first");
+    await until(() => turnsDone(ws) === 1);
+    expect(events("onboarding_step")).toEqual([]);
+
+    fake.script = reply("Done.");
+    ws.say("second");
+    await until(() => turnsDone(ws) === 2);
+    fake.script = reply("Again.");
+    ws.say("third");
+    await until(() => turnsDone(ws) === 3);
+    expect(events("onboarding_step")).toEqual([{ step: "first_flow_reply" }, { step: "activated" }]);
+    expect(accepted()).toBe(true);
+  });
+
+  it("carries the language the last sentence was spoken in, and nothing when none was said", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Hola.");
+    ws.client({ t: "flow_text", text: "hola", lang: "es" });
+    await until(() => turnsDone(ws) === 1);
+    fake.script = reply("Done.");
+    ws.say("again");
+    await until(() => turnsDone(ws) === 2);
+    expect(facts().filter((f) => f.turns).map((f) => f.lang)).toEqual(["es", undefined]);
+    expect(accepted()).toBe(true);
+  });
+
+  it("counts a quiet turn", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Done.");
+    ws.client({ t: "flow_text", text: "do a thing", quiet: true });
+    await until(() => turnsDone(ws) === 1);
+    expect(facts().at(-1)).toMatchObject({ turns: 1, quiet_turns: 1 });
+    expect(accepted()).toBe(true);
+  });
+
+  it("counts a sentence that steers a running turn, and the turn it then becomes", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [async () => { ws.say("and also this"); await tick(); }, ...reply("Done.")];
+    ws.say("do a thing");
+    await until(() => turnsDone(ws) >= 2);
+    expect(facts().filter((f) => f.steered)).toEqual([{ steered: 1 }]);
+    expect(facts().filter((f) => f.turns)).toHaveLength(2);
+    expect(accepted()).toBe(true);
+  });
+
+  it("reports a failed brain turn as an error fact and one event per class, with no turn time", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    const fail = { type: "turn_error", message: "HTTP 401: the key is wrong", aborted: false, code: "auth" };
+    fake.script = [fail];
+    ws.say("first");
+    await until(() => turnsDone(ws) === 1);
+    fake.script = [fail];
+    ws.say("second");
+    await until(() => turnsDone(ws) === 2);
+
+    expect(events("brain_error")).toEqual([expect.objectContaining({ surface: "flow", class: "auth", brain_kind: "api", http_class: "4xx" })]);
+    expect(facts().filter((f) => f.errors)).toEqual([{ errors: 1 }, { errors: 1 }]);
+    expect(facts().at(-1)).not.toHaveProperty("turn_ms");
+    expect(ws.sent.find((m) => m.t === "flow" && m.event.type === "error")!.event).toMatchObject({ code: "auth", aborted: false });
+    expect(accepted()).toBe(true);
+  });
+
+  it("does not report a turn the user cut off as a failure, or time it", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = [{ type: "text_delta", delta: "Opening" }, async () => { ws.client({ t: "flow_cancel", spoken: "" }); await tick(); }];
+    ws.say("open the file");
+    await until(() => turnsDone(ws) === 1);
+    expect(events("brain_error")).toEqual([]);
+    expect(facts().some((f) => f.errors)).toBe(false);
+    expect(facts().at(-1)).toMatchObject({ turns: 1, ttft_ms: expect.any(Number) });
+    expect(facts().at(-1)).not.toHaveProperty("turn_ms");
+  });
+
+  it("reports the spoken consent answer, and the step the first yes is", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+    fake.script = listWindows("c1");
+    ws.say("what is open?");
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    ws.client({ t: "permission_response", reqId: ws.sent.find((m) => m.t === "permission")!.reqId, optionId: "allow" });
+    await until(() => turnsDone(ws) === 1);
+
+    expect(events("flow_consent_result")).toEqual([{ outcome: "granted", brain_kind: "api" }]);
+    expect(events("onboarding_step")).toEqual([{ step: "flow_consent_granted" }, { step: "first_flow_reply" }, { step: "activated" }]);
+    expect(facts().at(-1)).toMatchObject({ consent: true });
+    expect(accepted()).toBe(true);
+  });
+
+  it("reports a refusal as declined, and says nothing when the turn was cut off mid-ask", async () => {
+    const ws = new FakeSocket();
+    fake.consented = false;
+    new FlowLiveSession(ws as never);
+    fake.script = listWindows("c1");
+    ws.say("what is open?");
+    await until(() => ws.sent.some((m) => m.t === "permission"));
+    fake.script = reply("Alright.");
+    ws.client({ t: "permission_response", reqId: ws.sent.find((m) => m.t === "permission")!.reqId, optionId: "deny" });
+    await until(() => turnsDone(ws) === 1);
+    expect(events("flow_consent_result")).toEqual([{ outcome: "declined", brain_kind: "api" }]);
+    expect(events("onboarding_step")).toEqual([{ step: "first_flow_reply" }, { step: "activated" }]);
+    expect(facts().at(-1)).toMatchObject({ consent: false });
+
+    sent = [];
+    fake.script = listWindows("c2");
+    ws.say("try again");
+    await until(() => ws.sent.filter((m) => m.t === "permission").length === 2);
+    ws.client({ t: "flow_cancel" });
+    await until(() => turnsDone(ws) === 2);
+    expect(events("flow_consent_result")).toEqual([]);
   });
 });

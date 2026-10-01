@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema, agentLabel, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import { makeRemember, type Emit, type OpenLiveTool } from "../tools.js";
@@ -13,6 +13,9 @@ import { serveFlowMcp, servedTool } from "../flow/mcp.js";
 import { ForwardOnlyInsertion } from "../flow/tools.js";
 import { hostedBy } from "../agents/mcp-config.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, CALL_MCP_SERVER, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
+import { emitFact, type AgentFactProps } from "../telemetry/emit.js";
+import { askOutcome, brainOf, callToolFact, permissionFact, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent, type PermissionOutcome } from "../telemetry/facts.js";
+import { resolveLive } from "../providers.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
 
@@ -89,7 +92,11 @@ export class LiveSession {
   private lastBind: Promise<void> = Promise.resolve(); // most recent applyBind, awaited by start()
   private agentReady: Promise<void> | null = null;
   private agentAc: AbortController | null = null;
-  private permPending = new Map<string, (optionId: string) => void>(); // agent permission asks awaiting the user
+  private permPending = new Map<string, (optionId: string, outcome?: PermissionOutcome) => void>(); // agent permission asks awaiting the user
+  private agentStartMs = 0; // what the bound agent took to start; 0 without one
+  // How the agent's session came up. It is known in the lobby, before the call's
+  // record opens, so each turn's fact carries it in.
+  private resumed: AgentFactProps<"call">["resumed"];
   private warmAc: AbortController | null = null; // aborts the cache-warm request on teardown
   private ac: AbortController | null = null;
   private turnActive = false;
@@ -168,7 +175,7 @@ export class LiveSession {
     // through the same permission ask the coding agents use; reads are free.
     const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
     const bridged = [this.chipped(lookTool), this.chipped(clipboardRead), this.chipped(clipboardWrite), this.chipped(openUrl, (a) => String(a?.url ?? ""))];
-    this.runner = new LiveTurnRunner([...bridged, ...fileTools]);
+    this.runner = new LiveTurnRunner([...bridged, ...fileTools], callToolFact);
     this.hosted = [...bridged, makeRemember((e) => this.toolEmit(e))];
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
@@ -245,15 +252,16 @@ export class LiveSession {
         this.cancelPendingElicitations();
         return void this.runTurn(msg.text, msg.frames ?? [], msg.lang, msg.turn, msg.wordsAt, msg.speaker, msg.aside, msg.typed);
       case "cancel":
+        emitFact("call", { interrupted: 1 });
         // A client showing an ask holds its barge-in, so a cancel means the ask never
         // reached it: the ask is refused along with the turn.
         if (this.turnActive) this.bargeSpoken = msg.spoken ?? "";
         else if (msg.spoken != null) this.cutSavedReply(msg.spoken);
         return this.interrupt();
       case "control":
-        if (msg.action === "camera_on") this.cameraOn = true;
+        if (msg.action === "camera_on") { this.cameraOn = true; emitFact("call", { camera_used: true }); }
         else if (msg.action === "camera_off") this.cameraOn = false;
-        else if (msg.action === "screen_on") this.screenOn = true;
+        else if (msg.action === "screen_on") { this.screenOn = true; emitFact("call", { screen_used: true }); }
         else if (msg.action === "screen_off") this.screenOn = false;
         else if (msg.action === "end") this.dispose();
         return;
@@ -334,7 +342,8 @@ export class LiveSession {
     const blocks: MessageBlock[] = [];
     const hosted = new Set<string>();
     const foldCtx = newFoldCtx();
-    const emit = this.blockEmit(blocks, ac.signal, foldCtx);
+    const turnStats = { timer: new TurnTimer(), failed: false };
+    const emit = this.blockEmit(blocks, ac.signal, foldCtx, turnStats);
 
     if (this.chatId) {
       await addMessage(this.chatId, "user", [{ type: "text", text, ...(wordsAt && { wordsAt }), ...(speaker && { speaker }), ...(typed && { typed }) }], true /* live */).catch((e) => log.error("live", "persist user turn:", e));
@@ -367,6 +376,7 @@ export class LiveSession {
           message: this.boundCwd
             ? `${label} isn't connected yet. Give it a moment, or switch agents and back to retry.`
             : `${label} needs a project folder before it can start. Pick one from the folder menu in the top bar, then ask again.`,
+          code: this.boundCwd ? "agent_start_failed" : "agent_no_folder",
         });
       } else {
         await this.runner.runTurn(said, frames, gate.emit, ac.signal, lang);
@@ -376,7 +386,7 @@ export class LiveSession {
       if (!ac.signal.aborted) {
         log.error("live", "turn:", e);
         // A thrown turn was invisible before — the call went quiet with no clue.
-        try { await emit({ type: "error", message: `That didn't go through: ${String((e as Error)?.message ?? e)}` }); } catch { /* emit is best-effort */ }
+        try { await emit({ type: "error", message: `That didn't go through: ${String((e as Error)?.message ?? e)}`, code: classifyError(e) }); } catch { /* emit is best-effort */ }
       }
     } finally {
       // Turn is over (normally, barge-in, watchdog cut, or error) — never leave an
@@ -397,6 +407,15 @@ export class LiveSession {
       // Snapshot live terminal output into its tool calls + settle unfinished
       // statuses (pending/in_progress → canceled) before the turn is persisted.
       finalizeToolBlocks(blocks, foldCtx);
+      const own = blocks.filter((b) => b.type === "acp_tool");
+      const ownFailed = own.filter((b) => b.call.status === "failed").length;
+      const answered = !ac.signal.aborted && !turnStats.failed;
+      emitFact("call", {
+        ...this.brain(), turns: 1, lang: lang ?? "en", agent_start_ms: this.agentStartMs, ...(this.resumed && { resumed: this.resumed }),
+        ...(own.length && { agent_tools: own.length }), ...(ownFailed && { agent_tools_failed: ownFailed }),
+        ...turnStats.timer.timings(answered),
+      });
+      if (answered) reportReply("call");
       if (this.chatId && blocks.length) {
         const saved = await addMessage(this.chatId, "assistant", blocks, true /* live */).catch((e) => { log.error("live", "persist assistant turn:", e); return null; });
         if (saved && !ac.signal.aborted) this.lastReply = { id: saved.id, blocks, byRunner };
@@ -410,9 +429,11 @@ export class LiveSession {
 
   /** An Emit that both forwards SSE to the client and records ordered blocks.
    *  The signal gate drops late events after a barge-in aborts the spoken turn. */
-  private blockEmit(blocks: MessageBlock[], signal: AbortSignal, ctx: FoldCtx): Emit {
+  private blockEmit(blocks: MessageBlock[], signal: AbortSignal, ctx: FoldCtx, stats: { timer: TurnTimer; failed: boolean }): Emit {
     return async (e: SseEvent) => {
       if (signal.aborted || this.closed) return; // barge-in → drop late events
+      if (e.type === "text_delta") stats.timer.firstText();
+      else if (e.type === "error") { stats.failed = true; reportTurnError("call", this.brain(), e); }
       foldBlock(blocks, e, ctx);
       this.send({ t: "sse", event: e, turn: this.replyTurn });
     };
@@ -524,7 +545,7 @@ export class LiveSession {
     }
     this.agentAc?.abort();
     void this.agent?.dispose();
-    this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd;
+    this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd; this.agentStartMs = 0; this.resumed = undefined;
     if (this.chatId) await setBoundAgent(this.chatId, id);
     if (epoch !== this.bindEpoch) return;
     if (!id || this.closed || !this.chatId) return;
@@ -542,6 +563,7 @@ export class LiveSession {
       // A call arriving outside a turn is refused, as the built-in brain never makes
       // one, and so is one a stopped turn made that lands in the next.
       ctx: (agentCallId) => ({ signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort(), ...UNUSED_PORTS }),
+      tally: callToolFact,
     }));
     if (epoch !== this.bindEpoch || this.closed) return;
     const agent = createBoundAgent(this.chatId, (q, o, toolCallId) => this.askPermission(q, o, toolCallId), {
@@ -552,6 +574,7 @@ export class LiveSession {
       completeElicitation: (elicitationId) => this.elicitById.get(elicitationId)?.({ action: "accept" }),
       mcp: { wire: mcp.wire, tools: this.hosted.map((t) => t.name) },
       replay: this.expectReplay,
+      onResumed: (how) => { this.resumed = how; },
     });
     if (!agent) return;
     this.agent = agent;
@@ -560,9 +583,25 @@ export class LiveSession {
     const cut = this.pendingCut();
     if (cut) agent.cut?.(cut.spoken, cut.cancelled);
     const ac = new AbortController(); this.agentAc = ac;
+    const startedAt = performance.now();
     this.agentReady = agent.start(ac.signal)
-      .then(() => { if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } }); })
-      .catch((e) => { if (!this.closed) this.send({ t: "sse", event: { type: "error", message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}` } }); });
+      .then(() => {
+        this.agentStartMs = Math.round(performance.now() - startedAt);
+        if (!this.closed) this.send({ t: "sse", event: { type: "status", text: "ready" } });
+      })
+      .catch((e) => {
+        if (this.closed) return;
+        const event = { type: "error" as const, message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}`, code: classifyError(e, "agent_start_failed") };
+        this.send({ t: "sse", event });
+        reportTurnError("call", this.brain(), event);
+      });
+  }
+
+  /** Who answers this call, as telemetry names it; nothing when settings cannot say. */
+  private brain(): BrainIdent {
+    if (this.boundId) return brainOf("acp", this.boundId);
+    try { return brainOf("api", resolveLive().provider.id); }
+    catch { return {}; }
   }
 
   /** A bridge tool with its chip in the running turn, the same whichever brain calls it. */
@@ -582,23 +621,24 @@ export class LiveSession {
    *  out to "deny" so a hung decision never wedges a turn. */
   private askPermission(question: string, options: PermissionAskOption[], toolCallId?: string): Promise<string> {
     return new Promise((resolve) => {
-      if (this.closed) return resolve("deny");
+      if (this.closed) { permissionFact("call", "cancelled"); return resolve("deny"); }
       // A cut or finished turn's late ask: its number is stale, so the client drops it,
       // and left pending here it would take the next utterance as its answer.
-      if (!this.ac || this.ac.signal.aborted) return resolve(PERMISSION_CANCELLED);
+      if (!this.ac || this.ac.signal.aborted) { permissionFact("call", "cancelled"); return resolve(PERMISSION_CANCELLED); }
       const reqId = randomUUID();
       const PERM_TIMEOUT_MS = 120_000;
       const expiresAt = Date.now() + PERM_TIMEOUT_MS; // client renders the countdown + speaks a reminder
       // Single settle path for every outcome (answered / auto-deny / cancelled): it
       // removes the pending entry AND tells the client the ask is resolved, so the
       // chip is dismissed and a later utterance isn't mis-read as a yes/no answer.
-      const settle = (optionId: string) => {
+      const settle = (optionId: string, outcome?: PermissionOutcome) => {
         if (!this.permPending.delete(reqId)) return; // already settled
         clearTimeout(timer);
+        permissionFact("call", outcome ?? askOutcome(options, optionId));
         this.send({ t: "permission_resolved", reqId });
         resolve(optionId);
       };
-      const timer = setTimeout(() => settle("deny"), PERM_TIMEOUT_MS);
+      const timer = setTimeout(() => settle("deny", "timeout"), PERM_TIMEOUT_MS);
       this.permPending.set(reqId, settle);
       this.send({ t: "permission", reqId, question, options, expiresAt, toolCallId, turn: this.replyTurn });
     });
@@ -615,6 +655,7 @@ export class LiveSession {
       // setup before any session exists. A session-scoped one then is a finished
       // turn's, and held it would take the next sentence as its answer.
       if (this.closed || this.ac?.signal.aborted || (!this.ac && !req.requestScoped)) return resolve({ action: "cancel" });
+      emitFact("call", { elicitations: 1 });
       const reqId = randomUUID();
       const ELICIT_TIMEOUT_MS = 120_000;
       const expiresAt = Date.now() + ELICIT_TIMEOUT_MS;
@@ -674,7 +715,7 @@ export class LiveSession {
     this.agentAc?.abort();
     void this.agent?.dispose();
     void this.mcp?.then((m) => m.close()).catch(() => {});
-    for (const settle of [...this.permPending.values()]) settle("deny");
+    for (const settle of [...this.permPending.values()]) settle("deny", "cancelled");
     this.cancelPendingElicitations();
     this.lookPending?.resolve(null);
     for (const r of this.bridgePending.values()) r("The session ended.");

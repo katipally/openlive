@@ -1,9 +1,8 @@
-import type { SseEvent, AgentIdWire, AgentMetaWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
+import type { SseEvent, AgentIdWire, AgentMetaWire, ErrorClass, FlowContextWire, FlowEventWire } from "@openlive/shared";
 import { reconnectDelay, useLinkStatus, type LinkState } from "./linkStatus";
 import { loadPipelineConfig } from "./pipelineConfig";
 
-// Browser side of the /live WebSocket. Same-origin (the web server proxies it to
-// the agent). THIN protocol: we send final user text + camera frames + a cancel
+// Browser side of the /live WebSocket, straight to the agent. THIN protocol: we send final user text + camera frames + a cancel
 // signal, and receive the LLM's reply as chat SSE events. No audio on the wire —
 // the browser runs the voice models on-device.
 const TAG_FRAME_IN = 0x02;
@@ -17,7 +16,7 @@ export type ElicitationWire = { reqId: string; mode: "url" | "form"; message: st
 export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device";
 
 /** Where the live socket is. The desktop app hands over the agent's port, chosen
- *  at launch; the web build uses its baked URL (dev) or same-origin (container proxy). */
+ *  at launch; the web build uses its baked URL (dev), else its own host. */
 export function liveWsBase(): string {
   const port = (window as { openlive?: { agentPort?: number } }).openlive?.agentPort;
   if (port) return `ws://localhost:${port}`;
@@ -42,7 +41,7 @@ export interface LiveHandlers {
   /** Authoritative bind echo: what agent + folder the server session is ACTUALLY
    *  using, and whether the coding agent is running. */
   onBoundState?: (agentId: AgentId | null, cwd: string, agentActive: boolean) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, code?: ErrorClass) => void;
 }
 
 /** The session language a turn carries, read as it is sent; English is left
@@ -115,9 +114,8 @@ export class LiveClient {
       if (this.queue.length && ws.readyState === WebSocket.OPEN) {
         for (const s of this.queue.splice(0)) ws.send(s);
       }
-      // Do NOT zero `attempts` here: on the container path the socket can open and
-      // then instantly flap closed, and resetting on every open made "Reconnecting…"
-      // loop forever. Only a connection that SURVIVES counts as recovered.
+      // Do NOT zero `attempts` here: the socket can open and then instantly flap
+      // closed, and resetting on every open made "Reconnecting…" loop forever. Only a connection that SURVIVES counts as recovered.
       this.healthyTimer = setTimeout(() => { this.attempts = 0; }, LiveClient.HEALTHY_MS);
     };
     ws.onclose = (ev) => {
@@ -157,7 +155,7 @@ export class LiveClient {
         case "agent_meta": return this.h.onAgentMeta?.(m);
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
-        case "error": return this.h.onError?.(m.message);
+        case "error": return this.h.onError?.(m.message, m.code);
       }
     };
     this.ws = ws;

@@ -3,9 +3,8 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Same-origin proxy for the agent service's /voice REST surface. One path for
-// every deployment: dev and desktop hop over localhost, and the container gets
-// the shared secret injected server-side (browsers can't set that header).
+// Same-origin proxy for the agent service's /voice REST surface. It hops over
+// localhost and injects the shared secret server-side (browsers can't set that header).
 const AGENT = `http://localhost:${process.env.AGENT_PORT || 8787}`;
 const SECRET = process.env.OPENLIVE_AGENT_SECRET?.trim() || "";
 

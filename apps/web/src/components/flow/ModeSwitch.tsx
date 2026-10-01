@@ -2,6 +2,7 @@
 
 import { MessageSquare, Waves } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
 import { Segmented } from "@/components/ui";
 
 // The app-level switch. Chat is the OpenLive you already know; Flow is the same
@@ -19,5 +20,5 @@ const MODES = [
 export function ModeSwitch({ className }: { className?: string }) {
   const mode = useUi((s) => s.mode);
   const setMode = useUi((s) => s.setMode);
-  return <Segmented options={MODES} value={mode} onChange={setMode} label="What this window shows" className={className} />;
+  return <Segmented options={MODES} value={mode} onChange={(m) => { if (m !== mode) featureUsed(m === "flow" ? "n_mode_to_flow" : "n_mode_to_chat"); setMode(m); }} label="What this window shows" className={className} />;
 }

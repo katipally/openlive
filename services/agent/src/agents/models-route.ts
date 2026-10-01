@@ -35,6 +35,7 @@ async function probe(id: AgentId): Promise<Models> {
   const seen: AgentMeta[] = [];
   const agent = new AcpAgent(id, async () => PERMISSION_CANCELLED, {
     cwd: flowAgentCwd(),
+    probe: true,
     onMeta: (m) => { seen.push(m); },
   });
   const ac = new AbortController();
@@ -95,7 +96,7 @@ async function onPath(bin: string): Promise<boolean> {
 
 async function listProbe(id: AgentId): Promise<Listed> {
   if (!(await Promise.all(AGENT_REGISTRY[id].bins.map(onPath))).some(Boolean)) return { supported: false, sessions: [] };
-  const agent = new AcpAgent(id, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), connectOnly: true });
+  const agent = new AcpAgent(id, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), connectOnly: true, probe: true });
   const ac = new AbortController();
   const bell = setTimeout(() => ac.abort(), PROBE_MS);
   try {

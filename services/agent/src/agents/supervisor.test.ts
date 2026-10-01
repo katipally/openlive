@@ -3,6 +3,7 @@
 import assert from "node:assert";
 import { test } from "vitest";
 import { AgentSupervisor } from "./supervisor.ts";
+import { limits } from "../telemetry/limits.ts";
 
 const agent = (over: object) => ({ id: "claude-code" as const, start: async () => {}, seed: () => {}, runTurn: async () => {}, dispose: async () => {}, ...over });
 const collect = () => { const events: any[] = []; return { events, emit: (e: any) => { events.push(e); } }; };
@@ -75,4 +76,59 @@ test("a cut reaches the running agent and the history a restarted one is seeded 
   crash = true;
   await sup.runTurn({ text: "Go on.", frames: [] }, emit, new AbortController().signal);
   assert.deepEqual(seeded, [{ role: "user", text: "Count." }, { role: "assistant", text: "One." }]);
+});
+
+// What the supervisor reports, and to which session: the incident with whether the restart worked, and each restart.
+const reporting = async (run: (sent: any[]) => Promise<void>) => {
+  const sent: any[] = [];
+  (process as any).parentPort = { postMessage: (m: unknown) => sent.push(m) };
+  limits.clear();
+  try { await run(sent); } finally { delete (process as any).parentPort; }
+};
+const brainErrors = (sent: any[]) => sent.filter((m) => m.name === "brain_error").map((m) => m.props);
+const restarts = (sent: any[]) => sent.filter((m) => m.kind === "fact" && m.props.agent_restarts).length;
+
+test("a crash is reported as recovered when the restart took, and the notice carries the same class", () => reporting(async (sent) => {
+  const sup = new AgentSupervisor(() => agent({ runTurn: async () => { throw new Error("boom"); } }) as any, noAsk, undefined, "call");
+  const { events, emit } = collect();
+  await sup.runTurn({ text: "hi", frames: [] }, emit, new AbortController().signal);
+  assert.deepEqual(events.filter((e) => e.type === "error").map((e) => e.code), ["agent_crashed"]);
+  assert.deepEqual(brainErrors(sent), [{ surface: "call", brain_kind: "acp", brain_id: "claude-code", class: "agent_crashed", http_class: "none", recovered: true }]);
+  assert.equal(restarts(sent), 1);
+  assert.deepEqual(sent.filter((m) => m.scope === "call" && m.props.errors).length, 1);
+}));
+
+test("a restart that fails is reported as not recovered, and counts no restart", () => reporting(async (sent) => {
+  let built = 0;
+  const sup = new AgentSupervisor(() => { built++; return agent({ start: async () => { if (built > 1) throw new Error("gone"); }, runTurn: async () => { throw new Error("boom"); } }) as any; }, noAsk, undefined, "flow");
+  await sup.runTurn({ text: "hi", frames: [] }, collect().emit, new AbortController().signal);
+  assert.deepEqual(brainErrors(sent).map((p) => [p.surface, p.recovered]), [["flow", false]]);
+  assert.equal(restarts(sent), 0);
+}));
+
+test("a silent agent and a stalled one are told apart", () => reporting(async (sent) => {
+  const quiet = new AgentSupervisor(() => agent({ runTurn: (_i: unknown, _e: unknown, signal: AbortSignal) => new Promise<void>((res) => signal.addEventListener("abort", () => res())) }) as any, noAsk, { firstOutputMs: 30 }, "flow");
+  const a = collect();
+  await quiet.runTurn({ text: "hi", frames: [] }, a.emit, new AbortController().signal);
+  const stalls = new AgentSupervisor(() => agent({ runTurn: (_i: unknown, emit: (e: unknown) => void, signal: AbortSignal) => new Promise<void>((res) => { emit({ type: "text_delta", text: "One" }); signal.addEventListener("abort", () => res()); }) }) as any, noAsk, { stallMs: 30 }, "call");
+  const b = collect();
+  await stalls.runTurn({ text: "hi", frames: [] }, b.emit, new AbortController().signal);
+  assert.deepEqual([a.events.at(-1).code, b.events.at(-1).code], ["agent_no_output", "agent_stalled"]);
+  assert.deepEqual(brainErrors(sent).map((p) => [p.surface, p.class]), [["flow", "agent_no_output"], ["call", "agent_stalled"]]);
+}));
+
+test("a supervisor made for no session reports nothing, and a barge-in is never an incident", () => reporting(async (sent) => {
+  const sup = new AgentSupervisor(() => agent({ runTurn: async () => { throw new Error("boom"); } }) as any, noAsk);
+  await sup.runTurn({ text: "hi", frames: [] }, collect().emit, new AbortController().signal);
+  const parent = new AbortController();
+  const barged = new AgentSupervisor(() => agent({ runTurn: (_i: unknown, _e: unknown, signal: AbortSignal) => new Promise<void>((res) => signal.addEventListener("abort", () => res())) }) as any, noAsk, undefined, "call");
+  const turn = barged.runTurn({ text: "hi", frames: [] }, collect().emit, parent.signal);
+  setTimeout(() => parent.abort(), 10);
+  await turn;
+  assert.deepEqual(sent, []);
+}));
+
+test("a start that runs out of time carries its own class", async () => {
+  const sup = new AgentSupervisor(() => agent({ start: () => new Promise(() => {}) }) as any, noAsk, { startMs: 20 });
+  await assert.rejects(sup.start(new AbortController().signal), (e: any) => e.errorClass === "agent_start_timeout");
 });

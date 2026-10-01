@@ -4,13 +4,20 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FlowConfig } from "@openlive/flow-store";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
+import { flowConfigChanged } from "@/lib/settingChanges";
 import { flowBridge } from "./bridge";
 import { settleTurnOverride } from "./wait";
 
 // Flow's settings, as every Flow screen reads and writes them. One query key, so
 // a switch flipped on one screen is already true on the next.
 
-export interface FlowConfigReply { config: FlowConfig; brainReady: boolean }
+export interface FlowConfigReply {
+  config: FlowConfig;
+  brainReady: boolean;
+  /** Which brain Flow runs on, as closed ids: `api` with a provider id, or `acp` with an agent id. */
+  brainKind: "api" | "acp";
+  brainId: string;
+}
 
 /** A partial edit. Sections merge, so a screen sends only what it owns. */
 export type FlowConfigPatch = {
@@ -39,7 +46,8 @@ export function useFlowConfig() {
     },
     // The server's parse is the authority: it clamps, defaults and refuses, so
     // the screen shows what was actually written rather than what was asked for.
-    onSuccess: (reply) => {
+    onSuccess: (reply, { settle }) => {
+      flowConfigChanged(qc.getQueryData<FlowConfigReply>(KEY)?.config, reply.config, settle);
       qc.setQueryData(KEY, reply);
       // The runtime lives in another renderer and reads this file itself. Telling
       // it is what makes a rebind, a new hold threshold or a changed quiet rule

@@ -6,7 +6,7 @@ import { flowTurn } from "@openlive/flow-store/shared";
 import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 import { Keycap, Switch, Select, Slider, Button, linkClass, ListGroup, ListRow, Segmented, Advanced } from "@/components/ui";
-import { flowBridge, type FlowPermissionName } from "@/lib/flow/bridge";
+import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { effectiveWait } from "@/lib/flow/wait";
@@ -164,13 +164,13 @@ function SharedLink({ onGo, children }: { onGo: () => void; children: React.Reac
 
 /** The four grants Flow runs on. Shared with the first run so both screens
  *  describe the same switches in the same words. */
-export function AccessRows({ config, save }: { config: FlowConfig | null; save: (patch: FlowConfigPatch) => void }) {
+export function AccessRows({ config, save, askedFrom = "flow_settings" }: { config: FlowConfig | null; save: (patch: FlowConfigPatch) => void; askedFrom?: PermissionAskedFrom }) {
   // Polled while shown: macOS never calls back when a grant is given.
   const { caps, error, refresh } = useFlowCapabilities(true);
   if (!isDesktop) return <p className="text-label text-muted-foreground">Available in the desktop app.</p>;
 
   const perms = caps?.permissions ?? null;
-  const ask = (what: FlowPermissionName) => () => void flowBridge()?.request(what).then(refresh);
+  const ask = (what: FlowPermissionName) => () => void flowBridge()?.request(what, askedFrom).then(refresh);
   // Where the platform has a settings page for the grant: all three on macOS, the microphone on Windows.
   const settings = (what: FlowPermissionName) =>
     isMac || (desktopPlatform === "win32" && what === "microphone") ? () => void flowBridge()?.openSettings(what) : undefined;

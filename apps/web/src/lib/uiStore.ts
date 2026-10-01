@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { featureUsed } from "@/lib/featureUse";
 
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `chat-${Date.now()}`);
 
@@ -55,19 +56,34 @@ function settingsOrigin(s: UiState): string {
   return s.mode === "flow" ? "Flow" : "Chat";
 }
 
-export const useUi = create<UiState>((set) => ({
+export const useUi = create<UiState>((set, get) => ({
   settingsOpen: false,
   settingsTab: null,
   settingsOrigin: "Chat",
   // A fresh open starts at General; opening again while open keeps the tab.
-  openSettings: () => set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), ...(s.settingsOpen ? {} : { settingsTab: "general" }) })),
-  openSettingsTab: (tab) => set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), settingsTab: tab })),
+  openSettings: () => {
+    if (!get().settingsOpen) featureUsed("n_settings_open");
+    set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), ...(s.settingsOpen ? {} : { settingsTab: "general" }) }));
+  },
+  openSettingsTab: (tab) => {
+    if (!get().settingsOpen) featureUsed("n_settings_open");
+    set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), settingsTab: tab }));
+  },
   closeSettings: () => set({ settingsOpen: false }),
   liveOpen: false,
-  setLiveOpen: (v) => set({ liveOpen: v }),
+  setLiveOpen: (v) => {
+    if (v && !get().liveOpen) featureUsed("n_lobby_open");
+    set({ liveOpen: v });
+  },
   historyOpen: false,
-  toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
-  setHistoryOpen: (v) => set({ historyOpen: v }),
+  toggleHistory: () => {
+    if (!get().historyOpen) featureUsed("n_history_open");
+    set((s) => ({ historyOpen: !s.historyOpen }));
+  },
+  setHistoryOpen: (v) => {
+    if (v && !get().historyOpen) featureUsed("n_history_open");
+    set({ historyOpen: v });
+  },
   activeChatId: newId(),
   resumeChat: (id) => set({ activeChatId: id }),
   newConversation: () => set({ activeChatId: newId() }),
@@ -77,7 +93,13 @@ export const useUi = create<UiState>((set) => ({
     try { localStorage.setItem(MODE_KEY, mode); } catch { /* private mode */ }
   },
   paletteOpen: false,
-  setPaletteOpen: (v) => set(v ? { paletteOpen: true, shortcutsOpen: false } : { paletteOpen: false }),
+  setPaletteOpen: (v) => {
+    if (v && !get().paletteOpen) featureUsed("n_palette_open");
+    set(v ? { paletteOpen: true, shortcutsOpen: false } : { paletteOpen: false });
+  },
   shortcutsOpen: false,
-  setShortcutsOpen: (v) => set(v ? { shortcutsOpen: true, paletteOpen: false } : { shortcutsOpen: false }),
+  setShortcutsOpen: (v) => {
+    if (v && !get().shortcutsOpen) featureUsed("n_shortcuts_sheet");
+    set(v ? { shortcutsOpen: true, paletteOpen: false } : { shortcutsOpen: false });
+  },
 }));

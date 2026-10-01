@@ -17,6 +17,7 @@ import { flowBridge, type FlowCapabilities } from "@/lib/flow/bridge";
 import { usePendingDeletes } from "@/lib/deferredDelete";
 import { CONTROL, isMac } from "@/lib/platform";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
@@ -104,7 +105,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
           {needsAccess ? (
-            <ChipButton onClick={() => void flowBridge()?.request("accessibility")}
+            <ChipButton onClick={() => void flowBridge()?.request("accessibility", "flow_home")}
               tip={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${CONTROL} ${CONTROL} in every app`}>
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
               <span className="min-w-0 truncate">{isMac ? "Allow Accessibility" : "Allow input access"}</span>
@@ -150,7 +151,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
             )}
             </AnimatePresence>
           </div>
-          <Input type="search" icon={<Search />} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search what you said" aria-label="Search what you said"
+          <Input type="search" icon={<Search />} value={typed} onChange={(e) => { if (!typed && e.target.value) featureUsed("n_flow_history_search"); setTyped(e.target.value); }} placeholder="Search what you said" aria-label="Search what you said"
             className="min-w-[10rem] flex-[0_1_15rem]"
             trailing={isFetching && !isFetchingNextPage && <Loader2 className="animate-spin motion-reduce:animate-none" aria-label="Looking" />} />
           <Button variant="ghost" size="sm" onClick={selecting ? done : () => setSelecting(true)} disabled={!selecting && !sessions.length}>
@@ -171,7 +172,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           <motion.h3 key={`day:${g.rows[0]!.id}`} {...CROSSFADE} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }} transition={fade}
             className={cn("overflow-hidden px-3 pb-1.5 pt-5", groupLabel)}>{g.day}</motion.h3>,
           ...g.rows.map((s) => (
-            <SessionRow key={s.id} session={s} onOpen={() => onOpen(s.id)}
+            <SessionRow key={s.id} session={s} onOpen={() => { featureUsed("n_flow_history_open"); onOpen(s.id); }}
               delay={staggerDelay(order.get(s.id) ?? 0)}
               selecting={selecting} picked={picked.has(s.id)} onToggle={() => toggle(s.id)} />
           )),

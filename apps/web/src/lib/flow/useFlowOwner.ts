@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { FlowContextWire, FlowEventWire } from "@openlive/shared";
+import type { ErrorClass, FlowCloseReason, FlowContextWire, FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
@@ -11,11 +11,18 @@ import { agentToolLabel, toolMeta } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
+import { featureUsed } from "@/lib/featureUse";
+import { noteLastFailure } from "@/lib/reportProblem";
+import { telemetry } from "@/lib/telemetry";
+import { brainIdOf } from "@/lib/telemetryIds";
+import { perf } from "@/lib/live/perf";
+import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
-import { IDLE_FLOW, type FlowPhase, type FlowSnapshot } from "./types";
+import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
+import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
 import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
 import type { FlowConfig } from "@openlive/flow-store";
 
@@ -95,6 +102,22 @@ export function useFlowOwner(): void {
       patch({ phase, detail });
     };
 
+    // What this open interval reports about itself, sent once as Flow closes.
+    let fact = openFact("gesture", 0);
+    // The provider or agent Flow thinks with, as /api/flow/config last said.
+    let brain: { kind?: "api" | "acp"; id?: string } = {};
+    const cards = cardWatch();
+    const raise = (failure: FlowFailure | null, origin: FailureOrigin) => {
+      const code = cards.appears(failure?.code ?? null);
+      // Health also runs while Flow is closed, when no card is on screen.
+      if (!code || !summoned.current) return;
+      fact.failureCards++;
+      fact.lastFailure = code;
+      noteLastFailure(code);
+      const id = brainIdOf(brain.id);
+      telemetry.track("flow_failure_card", { code, origin, ...(brain.kind && { brain_kind: brain.kind }), ...(id && { brain_id: id }) });
+    };
+
     const stopAnswerWatchdog = () => {
       if (!answerTimer.current) return;
       clearTimeout(answerTimer.current);
@@ -106,7 +129,7 @@ export function useFlowOwner(): void {
       answerTimer.current = setTimeout(() => {
         answerTimer.current = null;
         if (!turnActive.current) return;
-        loseTurn("That answer never came back", "Nothing more arrived for a minute and a half, so the turn was let go. Just say it again.");
+        loseTurn("That answer never came back", "Nothing more arrived for a minute and a half, so the turn was let go. Just say it again.", "silence");
       }, ANSWER_SILENCE_MS);
     };
 
@@ -115,8 +138,12 @@ export function useFlowOwner(): void {
      * is gone, or the brain stopped saying anything. Named on the orb, because
      * silence that looks like thinking is the one state a person cannot act on.
      */
-    const loseTurn = (title: string, detail: string) => {
-      patch({ failure: { code: "answer_lost", title, detail, actionLabel: "" } });
+    const loseTurn = (title: string, detail: string, cause: "silence" | "link") => {
+      if (cause === "silence") fact.lostSilence++;
+      else fact.lostLink++;
+      const failure: FlowFailure = { code: "answer_lost", title, detail, actionLabel: "" };
+      patch({ failure });
+      raise(failure, cause === "silence" ? "lost_answer" : "link");
       failTurn("");
     };
 
@@ -125,18 +152,19 @@ export function useFlowOwner(): void {
     // switching the mic on behind an orb that is already gone.
     let openTicket = 0;
 
-    const summon = () => {
+    const summon = (by: OpenedBy = "gesture") => {
       stopIdleRetire();
-      if (!summoned.current) { summoned.current = true; api.summon(); }
+      if (!summoned.current) { summoned.current = true; fact = openFact(by, perf.mark()); api.summon(); }
       publish();
     };
-    const dismiss = () => {
+    const dismiss = (reason: FlowCloseReason = "other") => {
       if (!summoned.current) return;
       summoned.current = false;
       openTicket++;
       stopIdleRetire();
       stopAnswerWatchdog();
-      api.dismiss();
+      telemetry.fact("flow_owner", ownerFactProps(fact, speechFacts(fact.mark)));
+      api.dismiss(reason);
       // The orb is gone, so whatever was running is over. Clearing this BEFORE
       // teardownMic is what lets the microphone actually close: it declines to
       // close one a turn still claims.
@@ -157,11 +185,13 @@ export function useFlowOwner(): void {
      * because an error is not a reason to keep recording or to stop answering
      * the key. Without this a quiet turn that failed wedged both forever.
      */
-    const failTurn = (message: string) => {
+    const failTurn = (message: string, code?: ErrorClass) => {
       turnActive.current = false;
       stopAnswerWatchdog();
       // The orb draws a failure, never `reply`, so a reason has to become one.
-      patch(message ? { reply: message, failure: turnFailure(message, !!settings.current && flowBrain(settings.current).kind === "acp") } : { reply: message });
+      const failure = message ? turnFailure(message, !!settings.current && flowBrain(settings.current).kind === "acp", code) : null;
+      patch(failure ? { reply: message, failure } : { reply: message });
+      if (failure) raise(failure, "turn");
       setPhase("error");
       teardownMic();
       armIdleRetire();
@@ -179,7 +209,7 @@ export function useFlowOwner(): void {
       idleTimer.current = setTimeout(() => {
         idleTimer.current = null;
         if (turnActive.current) return;
-        dismiss();
+        dismiss("idle");
       }, settings.current?.idleWindowMs ?? IDLE_RETIRE_MS);
     };
 
@@ -190,20 +220,20 @@ export function useFlowOwner(): void {
     const refreshHealth = async () => {
       await loadSettings();
       const c = valueOr(await api.capabilities(), null);
-      patch({
-        failure: deriveFailure({
-          platform: c?.platform ?? "",
-          accessibility: c?.permissions ? c.permissions.accessibility : null,
-          secureInput: !!c?.secureInput?.active,
-          hookError: c?.hookError ?? null,
-          addonError: c?.addonError ?? null,
-          packaged: !!c?.packaged,
-          brainReady: brainReady.current,
-          online: typeof navigator === "undefined" || navigator.onLine,
-          modelsCached: modelsCached(),
-          voiceModels: browserModels(loadPipelineConfig()),
-        }),
+      const failure = deriveFailure({
+        platform: c?.platform ?? "",
+        accessibility: c?.permissions ? c.permissions.accessibility : null,
+        secureInput: !!c?.secureInput?.active,
+        hookError: c?.hookError ?? null,
+        addonError: c?.addonError ?? null,
+        packaged: !!c?.packaged,
+        brainReady: brainReady.current,
+        online: typeof navigator === "undefined" || navigator.onLine,
+        modelsCached: modelsCached(),
+        voiceModels: browserModels(loadPipelineConfig()),
       });
+      patch({ failure });
+      raise(failure, "health");
     };
 
     // ── arming ────────────────────────────────────────────────────────────
@@ -227,9 +257,10 @@ export function useFlowOwner(): void {
       try {
         const r = await fetch("/api/flow/config", { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean };
+        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string };
         settings.current = body.config;
         brainReady.current = body.brainReady;
+        brain = { kind: body.brainKind, id: body.brainId };
         if (!armed.current) await arm();
       } catch (e) { log.error("flow", "config:", e); }
     };
@@ -255,6 +286,7 @@ export function useFlowOwner(): void {
           onBargeIn: (spokenSoFar) => {
             // The only thing that stops a turn: the abort travels to the server,
             // which aborts the run's signal, and only what was voiced is kept.
+            fact.bargeIns++;
             client.current?.flowCancel(spokenSoFar);
             turnActive.current = false;
             patch({ reply: "" });
@@ -294,14 +326,15 @@ export function useFlowOwner(): void {
       } catch (e) {
         log.error("flow", "mic lost:", e);
         if (engine.current !== eng) return;
-        patch({
-          failure: {
-            code: "mic_failed",
-            title: "The microphone went away",
-            detail: "It was unplugged or its access was turned off. Nothing was lost; try again once it is back.",
-            actionLabel: "Try again",
-          },
-        });
+        const failure: FlowFailure = {
+          code: "mic_failed",
+          title: "The microphone went away",
+          detail: "It was unplugged or its access was turned off. Nothing was lost; try again once it is back.",
+          actionLabel: "Try again",
+        };
+        fact.micLost++;
+        patch({ failure });
+        raise(failure, "mic");
         setPhase("error");
         teardownMic();
         armIdleRetire();
@@ -338,11 +371,12 @@ export function useFlowOwner(): void {
     // microphone stays on and Smart-Turn decides where each sentence ends, so
     // talking to Flow is talking, with no key in the way.
 
-    const onOpen = async () => {
+    const onOpen = async (by: OpenedBy = "gesture") => {
       if (disarmed.current) return;
+      const startedAt = performance.now();
       // A failure left from the last session is not news; health re-derives the live one.
-      if (!summoned.current) patch({ failure: null });
-      summon();
+      if (!summoned.current) { patch({ failure: null }); cards.clear(); }
+      summon(by);
       const ticket = ++openTicket;
       setPhase("listening");
       const health = refreshHealth();
@@ -357,6 +391,7 @@ export function useFlowOwner(): void {
       // Nothing to think with, so listening would only take words to nowhere. The
       // failure health just set stays up with its fix instead.
       if (!brainReady.current) {
+        fact.ready = "no_brain";
         setPhase("error");
         teardownMic();
         armIdleRetire();
@@ -368,19 +403,22 @@ export function useFlowOwner(): void {
       // The microphone never opened. Flow IS open — the orb is on screen saying
       // so — it just cannot hear, which is a thing to show rather than to undo.
       if (!engine.current) {
-        patch({
-          failure: {
-            code: "mic_failed",
-            title: "I could not open the microphone",
-            detail: "Something else may still be holding it. Nothing was lost; try again in a moment.",
-            actionLabel: "Try again",
-          },
-        });
+        const failure: FlowFailure = {
+          code: "mic_failed",
+          title: "I could not open the microphone",
+          detail: "Something else may still be holding it. Nothing was lost; try again in a moment.",
+          actionLabel: "Try again",
+        };
+        fact.ready = "mic_failed";
+        patch({ failure });
+        raise(failure, "mic");
         setPhase("error");
         armIdleRetire();
         return;
       }
       engine.current.setMuted(false);
+      fact.ready = "ok";
+      fact.readyMs = performance.now() - startedAt;
       armIdleRetire();
     };
 
@@ -398,6 +436,7 @@ export function useFlowOwner(): void {
       const rules = settings.current ? asRules(settings.current) : null;
       const quiet = rules ? decideQuiet(signals, rules) : "";
       patch({ speaking: !quiet });
+      return quiet;
     };
 
     /** Ends the turn on the server, keeping only the part of the reply the person got. */
@@ -411,13 +450,13 @@ export function useFlowOwner(): void {
 
     /** The gesture again, or the orb's close button. Whatever was in flight is
      *  let go: the person asked for Flow to be gone, not to finish first. */
-    const onClose = () => {
+    const onClose = (reason: FlowCloseReason) => {
       cancelTurn(true);
       // The server refuses the open ask on close, so the chip goes with it rather
       // than waiting on a resolution that may never reach a closed orb.
       permission.current = null;
       turnActive.current = false;
-      dismiss();
+      dismiss(reason);
     };
 
     /**
@@ -429,6 +468,7 @@ export function useFlowOwner(): void {
      * only thing standing between the model and the machine mid-turn.
      */
     const onStop = () => {
+      fact.stops++;
       cancelTurn();
       // The server refuses the open ask on Stop, as on close.
       permission.current = null;
@@ -445,8 +485,10 @@ export function useFlowOwner(): void {
       // if the transcription outlived the dismissal it was racing.
       turnActive.current = true;
       stopIdleRetire();
-      summon();
-      await decideVoice();
+      summon("late_speech");
+      const quiet = await decideVoice();
+      if (quiet) fact.quiet[quiet] = (fact.quiet[quiet] ?? 0) + 1;
+      telemetry.track("onboarding_step", { step: "first_flow_turn" });
       patch({ reply: "" });
       setPhase("thinking", client.current?.ready ? "" : "Waiting for the connection. This sends as soon as it is back.");
       armAnswerWatchdog();
@@ -458,7 +500,7 @@ export function useFlowOwner(): void {
     // shown for it: the utterance is captured either way and transcribed once
     // the worker is ready, so the wait is invisible rather than reported.
     const warm = async () => {
-      try { await loadModels(() => {}); }
+      try { await loadModels(() => {}, "flow_open"); }
       catch (e) { log.debug("flow", "warm:", e); }
     };
 
@@ -482,7 +524,7 @@ export function useFlowOwner(): void {
           return;
         case "error":
           if (e.aborted) { turnActive.current = false; backToListening(); return; }
-          return failTurn(e.message);
+          return failTurn(e.message, e.code);
         case "done":
           turnActive.current = false;
           stopAnswerWatchdog();
@@ -575,6 +617,7 @@ export function useFlowOwner(): void {
     };
     const answerByVoice = (text: string) => {
       const verdict = classifyYesNo(text);
+      if (verdict) fact.permByVoice++;
       if (!verdict) {
         if (snap.current.speaking) engine.current?.say("Say yes to allow, or no to cancel.");
         else setPhase("confirming", "Say yes to allow, or no to cancel.");
@@ -587,14 +630,15 @@ export function useFlowOwner(): void {
     const offCmd = panel.onPanelCmd?.((c: PanelCmd) => {
       switch (c.t) {
         case "permission": return answer(c.optionId);
-        case "flowCancel": return onClose();
+        case "flowCancel": return onClose("orb_button");
         case "flowStop": return onStop();
         case "flowSendAside": {
           const a = aside.current;
-          if (a && snap.current.aside) engine.current?.sendAside(a.text, a.speaker, a.judged);
+          if (a && snap.current.aside) { featureUsed("n_send_aside"); engine.current?.sendAside(a.text, a.speaker, a.judged); }
           return;
         }
         case "flowFix": {
+          fact.fixes++;
           if (c.code === "no_accessibility") void api.init().then(refreshHealth);
           else if (c.code === "mic_failed") void onOpen();
           else if (c.code === "models_missing") void warm().then(refreshHealth);
@@ -620,7 +664,7 @@ export function useFlowOwner(): void {
         armed.current = false;
         void api.suspend();
         // A close, not a stop: a stop would leave the orb up through sleep.
-        onClose();
+        onClose("sleep_or_lock");
         teardownMic();
       } else {
         disarmed.current = false;
@@ -630,29 +674,35 @@ export function useFlowOwner(): void {
     });
 
     // ── wiring ────────────────────────────────────────────────────────────
+    const tray = trayAsk();
     const offEffect = api.onEffect((e) => {
-      if (e.kind === "start") void onOpen();
-      else if (e.kind === "stop") onClose();
+      const by = tray.opener();
+      if (e.kind === "start") void onOpen(by);
+      else if (e.kind === "stop") onClose("gesture");
     });
     const offSecure = api.onSecureInput(() => void refreshHealth());
     // The tray's quick disarm hides the orb from the main process, so the session
     // behind it has to close here too or the microphone stays open.
-    const offArmed = api.onArmed((on) => { if (!on) onClose(); });
+    const offArmed = api.onArmed((on) => { if (!on) onClose("disarmed"); });
 
+    let linkUp = false;
     client.current = new LiveClient({
       // Reconnecting mid-turn means the reply was streaming to a socket that is
       // gone. Nothing will finish it, so say so instead of thinking forever.
       onOpen: () => {
+        linkUp = true;
         if (!turnActive.current) return;
         // Said while the link was down: it is still queued and goes out right after this.
         if (client.current?.queued) return setPhase("thinking");
-        loseTurn("The connection dropped mid-answer", "The reply was on its way when the link to OpenLive went down. Just ask again.");
+        loseTurn("The connection dropped mid-answer", "The reply was on its way when the link to OpenLive went down. Just ask again.", "link");
       },
+      // Every failed retry after a drop is the same outage: only open to reconnecting is a drop.
+      onReconnecting: () => { if (linkUp) { linkUp = false; fact.linkDrops++; } },
       onFlow: onFlowEvent,
       onToolBridge: (reqId, op, arg) => void onToolBridge(reqId, op, arg),
       onPermission,
       onPermissionResolved: () => { permission.current = null; publish(); },
-      onError: (message) => failTurn(message),
+      onError: (message, code) => failTurn(message, code),
     }, { flow: true });
     client.current.connect("");
 
@@ -683,16 +733,18 @@ export function useFlowOwner(): void {
     const offResume = api.onResumeSession?.((sessionId) => {
       if (!sessionId || turnActive.current) return;
       client.current?.flowResume(sessionId);
-      void onOpen();
+      void onOpen("carry_on");
       setPhase("listening", "Carrying on from that session.");
     });
 
-    // The tray's "New Flow session" with Flow already open. A turn still running
-    // or a question waiting on an answer is left to finish.
-    const offNew = api.onNewSession?.(() => {
+    // The tray's "New Flow session". Closed, main fires the gesture and this only
+    // says whose it was. Open, the gesture would close it, so the fresh session
+    // starts here; a turn still running or a question waiting is left to finish.
+    const offNew = api.onNewSession?.((wasOpen) => {
+      if (!wasOpen) return tray.ask();
       if (turnActive.current || permission.current) return;
       client.current?.flowNew();
-      void onOpen();
+      void onOpen("tray_new");
       setPhase("listening", "Started a new session.");
     });
 

@@ -1,0 +1,572 @@
+{
+  "version": 1,
+  "common": {
+    "app_version": { "k": "str", "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$", "max": 20 },
+    "platform": { "k": "enum", "values": ["darwin", "win32", "linux"] },
+    "arch": { "k": "enum", "values": ["arm64", "x64"] },
+    "arch_translated": { "k": "bool" },
+    "os_major": { "k": "str", "pattern": "^([0-9]{1,2}|linux)$", "max": 8 },
+    "username": { "k": "str", "pattern": "^[a-z]{3,12}-[a-z]{3,12}-[0-9a-f]{8}$", "max": 40 }
+  },
+  "events": {
+    "app_first_open": {
+      "props": {
+        "origin": { "k": "enum", "values": ["fresh", "existing_install"] },
+        "launch_kind": { "k": "enum", "values": ["manual", "login"] }
+      },
+      "limit": { "oncePerInstall": true }
+    },
+    "app_launch": {
+      "props": {
+        "launch_kind": { "k": "enum", "values": ["manual", "login"] },
+        "boot_result": { "k": "enum", "values": ["ok", "ports_blocked", "servers_timeout"] },
+        "boot_ms": { "k": "int", "max": 600000, "step": 100, "opt": true },
+        "agent_port_moved": { "k": "bool", "opt": true },
+        "prev_exit_clean": { "k": "bool", "opt": true },
+        "login_item": { "k": "bool", "opt": true },
+        "linux_session": { "k": "enum", "values": ["x11", "wayland", "n/a"], "opt": true },
+        "look": { "k": "enum", "values": ["glass", "flat"], "opt": true },
+        "glass_blocked_by": { "k": "enum", "values": ["none", "unsupported-os", "no-gpu", "reduce-transparency", "slow"], "opt": true },
+        "theme": { "k": "enum", "values": ["system", "light", "dark"], "opt": true }
+      },
+      "limit": { "perLaunch": 1 }
+    },
+    "app_active_day": {
+      "props": {
+        "first_surface": { "k": "enum", "values": ["main_window", "flow", "call", "tray"] }
+      },
+      "limit": { "perDay": 1 }
+    },
+    "app_updated": {
+      "props": {
+        "from_version": { "k": "str", "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$", "max": 20 },
+        "to_version": { "k": "str", "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$", "max": 20 }
+      },
+      "limit": { "perLaunch": 1 }
+    },
+    "update_result": {
+      "props": {
+        "stage": { "k": "enum", "values": ["available", "downloaded", "restart_now", "restart_later", "up_to_date", "failed"] },
+        "to_version": { "k": "str", "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$", "max": 20, "opt": true },
+        "manual": { "k": "bool", "opt": true },
+        "error_kind": { "k": "enum", "values": ["feed_missing", "asset_missing", "signature_invalid", "network", "other"], "opt": true }
+      },
+      "limit": { "perDayPerKey": 1, "dayKey": ["stage", "error_kind", "manual"] }
+    },
+    "app_quit": {
+      "props": {
+        "via": { "k": "enum", "values": ["tray_menu", "app_menu", "update_restart", "no_tray", "os_shutdown", "boot_failed", "other"] },
+        "uptime_h": { "k": "dec", "max": 999, "places": 1, "opt": true }
+      },
+      "limit": { "perLaunch": 1 }
+    },
+    "flow_session": {
+      "props": {
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true },
+        "duration_s": { "k": "int", "max": 86400 },
+        "ended_by": { "k": "enum", "values": ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "quit", "other"] },
+        "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "opt": true },
+        "ready": { "k": "enum", "values": ["ok", "no_brain", "mic_failed"], "opt": true },
+        "ready_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "turns": { "k": "int", "max": 999 },
+        "acted": { "k": "bool" },
+        "consent": { "k": "bool", "opt": true },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true },
+        "steered": { "k": "int", "max": 999, "opt": true },
+        "quiet_turns": { "k": "int", "max": 999, "opt": true },
+        "stops": { "k": "int", "max": 999, "opt": true },
+        "barge_ins": { "k": "int", "max": 999, "opt": true },
+        "top_quiet_reason": { "k": "enum", "values": ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"], "opt": true },
+        "tool_calls": { "k": "int", "max": 999, "opt": true },
+        "tool_errors": { "k": "int", "max": 999, "opt": true },
+        "t_insert": { "k": "int", "max": 999, "opt": true },
+        "t_words": { "k": "int", "max": 999, "opt": true },
+        "t_see": { "k": "int", "max": 999, "opt": true },
+        "t_point": { "k": "int", "max": 999, "opt": true },
+        "t_keys": { "k": "int", "max": 999, "opt": true },
+        "t_window": { "k": "int", "max": 999, "opt": true },
+        "t_open": { "k": "int", "max": 999, "opt": true },
+        "t_shell": { "k": "int", "max": 999, "opt": true },
+        "t_memory": { "k": "int", "max": 999, "opt": true },
+        "perm_asks": { "k": "int", "max": 999, "opt": true },
+        "perm_allowed": { "k": "int", "max": 999, "opt": true },
+        "perm_denied": { "k": "int", "max": 999, "opt": true },
+        "perm_timeout": { "k": "int", "max": 999, "opt": true },
+        "perm_auto": { "k": "int", "max": 999, "opt": true },
+        "perm_by_voice": { "k": "int", "max": 999, "opt": true },
+        "failure_cards": { "k": "int", "max": 999, "opt": true },
+        "fixes_clicked": { "k": "int", "max": 999, "opt": true },
+        "last_failure": { "k": "enum", "values": ["none", "no_provider", "no_accessibility", "secure_input", "offline", "models_missing", "hook_failed", "addon_missing", "mic_failed", "answer_lost", "brain_setup", "turn_failed"], "opt": true },
+        "lost_silence": { "k": "int", "max": 999, "opt": true },
+        "lost_link": { "k": "int", "max": 999, "opt": true },
+        "link_drops": { "k": "int", "max": 999, "opt": true },
+        "mic_lost": { "k": "int", "max": 999, "opt": true },
+        "agent_tools": { "k": "int", "max": 999, "opt": true },
+        "agent_tools_failed": { "k": "int", "max": 999, "opt": true },
+        "errors": { "k": "int", "max": 999, "opt": true },
+        "ttft_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "ttft_ms_p95": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "turn_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "agent_start_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "agent_restarts": { "k": "int", "max": 999, "opt": true },
+        "stt_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "tts_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "v2v_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "v2v_turns": { "k": "int", "max": 999, "opt": true },
+        "stt_family": { "k": "enum", "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"], "opt": true },
+        "tts_family": { "k": "enum", "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"], "opt": true },
+        "webgpu": { "k": "bool", "opt": true }
+      },
+      "derive": { "acted": ["t_insert", "t_keys", "t_point", "t_window", "t_open", "t_shell"] }
+    },
+    "call_session": {
+      "props": {
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true },
+        "duration_s": { "k": "int", "max": 86400 },
+        "ended_by": { "k": "enum", "values": ["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"] },
+        "start_result": { "k": "enum", "values": ["ok", "mic_denied", "start_failed"], "opt": true },
+        "start_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "turns": { "k": "int", "max": 999 },
+        "typed_turns": { "k": "int", "max": 999, "opt": true },
+        "interrupted": { "k": "int", "max": 999, "opt": true },
+        "barge_ins": { "k": "int", "max": 999, "opt": true },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true },
+        "camera_used": { "k": "bool", "opt": true },
+        "screen_used": { "k": "bool", "opt": true },
+        "ptt_used": { "k": "bool", "opt": true },
+        "has_folder": { "k": "bool", "opt": true },
+        "mic_lost": { "k": "int", "max": 999, "opt": true },
+        "camera_failed": { "k": "int", "max": 999, "opt": true },
+        "screen_failed": { "k": "int", "max": 999, "opt": true },
+        "t_look": { "k": "int", "max": 999, "opt": true },
+        "t_clipboard": { "k": "int", "max": 999, "opt": true },
+        "t_open_url": { "k": "int", "max": 999, "opt": true },
+        "t_files": { "k": "int", "max": 999, "opt": true },
+        "t_web": { "k": "int", "max": 999, "opt": true },
+        "t_plan": { "k": "int", "max": 999, "opt": true },
+        "t_memory": { "k": "int", "max": 999, "opt": true },
+        "perm_asks": { "k": "int", "max": 999, "opt": true },
+        "perm_allowed": { "k": "int", "max": 999, "opt": true },
+        "perm_denied": { "k": "int", "max": 999, "opt": true },
+        "perm_timeout": { "k": "int", "max": 999, "opt": true },
+        "perm_by_voice": { "k": "int", "max": 999, "opt": true },
+        "elicitations": { "k": "int", "max": 999, "opt": true },
+        "resumed": { "k": "enum", "values": ["none", "resumed", "loaded", "fell_back"], "opt": true },
+        "link_drops": { "k": "int", "max": 999, "opt": true },
+        "agent_tools": { "k": "int", "max": 999, "opt": true },
+        "agent_tools_failed": { "k": "int", "max": 999, "opt": true },
+        "errors": { "k": "int", "max": 999, "opt": true },
+        "ttft_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "ttft_ms_p95": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "turn_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "agent_start_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "agent_restarts": { "k": "int", "max": 999, "opt": true },
+        "stt_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "tts_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "v2v_ms_p50": { "k": "int", "max": 600000, "step": 10, "opt": true },
+        "v2v_turns": { "k": "int", "max": 999, "opt": true },
+        "stt_family": { "k": "enum", "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"], "opt": true },
+        "tts_family": { "k": "enum", "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"], "opt": true },
+        "webgpu": { "k": "bool", "opt": true }
+      }
+    },
+    "brain_error": {
+      "props": {
+        "surface": { "k": "enum", "values": ["flow", "call"] },
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true },
+        "class": { "k": "enum", "values": ["no_key", "no_model", "auth", "model_not_found", "quota", "rate_limited", "unreachable", "server_error", "bad_request", "stream_error", "other", "agent_no_folder", "agent_start_failed", "agent_start_timeout", "agent_no_output", "agent_stalled", "agent_crashed", "agent_rejected", "agent_refused"] },
+        "recovered": { "k": "bool", "opt": true },
+        "http_class": { "k": "enum", "values": ["4xx", "5xx", "none"], "opt": true }
+      },
+      "limit": { "dedupeMs": 300000, "dedupeKey": ["class", "brain_id"] }
+    },
+    "flow_failure_card": {
+      "props": {
+        "code": { "k": "enum", "values": ["no_provider", "no_accessibility", "secure_input", "offline", "models_missing", "hook_failed", "addon_missing", "mic_failed", "answer_lost", "brain_setup", "turn_failed"] },
+        "origin": { "k": "enum", "values": ["health", "turn", "mic", "lost_answer", "link"], "opt": true },
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true }
+      },
+      "limit": { "dedupeMs": 600000, "dedupeKey": ["code"] }
+    },
+    "crash_detected": {
+      "props": {
+        "source": { "k": "enum", "values": ["renderer", "gpu", "utility", "main_previous_run"] },
+        "reason": { "k": "enum", "values": ["crashed", "oom", "killed", "abnormal-exit", "launch-failed", "integrity-failure", "memory-eviction", "unclean_exit"] },
+        "target": { "k": "enum", "values": ["main_window", "flow_owner", "flow_orb", "cursor_overlay", "splash", "other", "none"], "opt": true },
+        "exit_code": { "k": "int", "max": 999, "min": -1, "opt": true }
+      },
+      "limit": { "perLaunch": 3 }
+    },
+    "service_crashed": {
+      "props": {
+        "service": { "k": "enum", "values": ["agent", "web"] },
+        "exit_code": { "k": "int", "max": 999, "min": -1, "opt": true },
+        "respawn_n": { "k": "int", "max": 99, "opt": true },
+        "outcome": { "k": "enum", "values": ["respawning", "gave_up", "port_taken_by_other"] },
+        "uptime_s": { "k": "int", "max": 604800, "opt": true }
+      },
+      "limit": { "perLaunch": 12 }
+    },
+    "main_exception": {
+      "props": {
+        "process": { "k": "enum", "values": ["main", "agent"] },
+        "kind": { "k": "enum", "values": ["uncaught", "unhandled_rejection"] }
+      },
+      "limit": { "perLaunch": 3, "launchKey": ["process"] }
+    },
+    "voice_engine_fault": {
+      "props": {
+        "engine_family": { "k": "enum", "values": ["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "supertonic", "matcha", "voiceprint", "addressee"] },
+        "kind": { "k": "enum", "values": ["worker_crash", "accel_fallback", "bench_timeout", "bench_failed"] },
+        "provider": { "k": "enum", "values": ["cpu", "coreml", "cuda", "directml", "webgpu"], "opt": true }
+      },
+      "limit": { "perLaunch": 3, "launchKey": ["engine_family"] }
+    },
+    "voice_bench_result": {
+      "props": {
+        "engine_family": { "k": "enum", "values": ["nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "pocket", "kitten", "piper", "kokoro-native", "supertonic", "matcha", "voiceprint", "addressee"] },
+        "engine_kind": { "k": "enum", "values": ["asr", "tts", "speaker", "addressee"] },
+        "chosen_provider": { "k": "enum", "values": ["cpu", "coreml", "cuda", "directml", "webgpu"] },
+        "cpu_rtf": { "k": "dec", "max": 999, "places": 2, "opt": true },
+        "chosen_rtf": { "k": "dec", "max": 999, "places": 2, "opt": true },
+        "tier": { "k": "enum", "values": ["low", "mid", "high"], "opt": true },
+        "apple_silicon": { "k": "bool", "opt": true },
+        "providers_available": { "k": "int", "max": 9, "opt": true }
+      },
+      "limit": { "oncePerValueOf": "engine_family" }
+    },
+    "flow_readiness_changed": {
+      "props": {
+        "from": { "k": "enum", "values": ["unknown", "ready", "stopped", "access", "off"] },
+        "to": { "k": "enum", "values": ["ready", "stopped", "access", "off"] },
+        "perm_accessibility": { "k": "bool", "opt": true },
+        "perm_post_events": { "k": "bool", "opt": true },
+        "perm_screen": { "k": "bool", "opt": true },
+        "perm_microphone": { "k": "enum", "values": ["granted", "denied", "undetermined", "restricted", "unknown"], "opt": true },
+        "linux_session": { "k": "enum", "values": ["x11", "wayland", "n/a"], "opt": true }
+      },
+      "limit": { "perLaunch": 6 }
+    },
+    "os_permission_request": {
+      "props": {
+        "permission": { "k": "enum", "values": ["accessibility", "microphone", "screen", "post_events"] },
+        "granted_now": { "k": "bool" },
+        "asked_from": { "k": "enum", "values": ["onboarding", "flow_settings", "flow_home", "other"], "opt": true }
+      },
+      "limit": { "perDayPerKey": 3, "dayKey": ["permission"] }
+    },
+    "onboarding_step": {
+      "props": {
+        "step": { "k": "enum", "values": ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "flow_onboarding_shown", "flow_onboarding_step2", "flow_onboarding_done", "flow_onboarding_skipped", "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted", "first_call_turn", "first_flow_turn", "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume", "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message", "first_ptt_on", "first_mode_switch", "first_shortcuts_sheet"] },
+        "hours_since_first_open": { "k": "dec", "max": 99999, "places": 1, "opt": true },
+        "tour_exit": { "k": "enum", "values": ["done", "skipped", "left"], "opt": true },
+        "tour_step": { "k": "int", "max": 9, "min": 1, "opt": true }
+      },
+      "limit": { "oncePerValueOf": "step" }
+    },
+    "flow_consent_result": {
+      "props": {
+        "outcome": { "k": "enum", "values": ["granted", "declined", "unanswered"] },
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true }
+      },
+      "limit": { "perDay": 3 }
+    },
+    "setting_changed": {
+      "props": {
+        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "flow_idle_window", "voice_input_mode", "ptt_enabled"] },
+        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "90s", "5m", "30m", "hold", "toggle"] },
+        "subject": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "none"], "opt": true },
+        "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
+      },
+      "limit": { "perDayPerKey": 3, "dayKey": ["setting"] }
+    },
+    "tray_action": {
+      "props": {
+        "action": { "k": "enum", "values": ["open", "new_flow", "allow_accessibility", "arm_toggle", "settings", "flow_settings", "quit"] }
+      }
+    },
+    "remote_ollama_prompt": {
+      "props": {
+        "outcome": { "k": "enum", "values": ["accepted", "cancelled", "error"] },
+        "scheme": { "k": "enum", "values": ["http", "https"], "opt": true }
+      }
+    },
+    "agent_action_result": {
+      "props": {
+        "agent_id": { "k": "enum", "values": ["claude-code", "codex", "cursor", "opencode", "hermes"] },
+        "action": { "k": "enum", "values": ["install", "uninstall", "update", "login", "logout"] },
+        "result": { "k": "enum", "values": ["ok", "failed", "terminal_opened", "terminal_launch_failed", "npm_eacces", "error", "signed_in", "wait_timeout"] },
+        "duration_s": { "k": "int", "max": 3600, "opt": true }
+      },
+      "limit": { "perDayPerKey": 5, "dayKey": ["agent_id"] }
+    },
+    "lobby_blocked": {
+      "props": {
+        "gap": { "k": "enum", "values": ["agent_not_installed", "agent_signed_out", "no_api_key", "folder_missing", "folder_unset", "models_not_downloaded", "no_mic"] },
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true },
+        "left_via": { "k": "enum", "values": ["back", "settings", "other"], "opt": true }
+      },
+      "limit": { "perDayPerKey": 1, "dayKey": ["gap"] }
+    },
+    "voice_models_result": {
+      "props": {
+        "trigger": { "k": "enum", "values": ["lobby_button", "call_start", "flow_open", "launch_warm", "settings"] },
+        "result": { "k": "enum", "values": ["ok", "failed", "offline"] },
+        "duration_s": { "k": "int", "max": 86400, "opt": true },
+        "mb": { "k": "int", "max": 99990, "step": 10, "opt": true },
+        "stt_family": { "k": "enum", "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"], "opt": true },
+        "tts_family": { "k": "enum", "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"], "opt": true },
+        "webgpu": { "k": "bool", "opt": true }
+      }
+    },
+    "renderer_error": {
+      "props": {
+        "surface": { "k": "enum", "values": ["main", "owner"] },
+        "kind": { "k": "enum", "values": ["render_crash", "uncaught", "unhandled_rejection"] },
+        "during": { "k": "enum", "values": ["call", "flow", "other"], "opt": true }
+      },
+      "limit": { "perLaunch": 3, "launchKey": ["surface"], "dedupeMs": 600000, "dedupeKey": ["kind"] }
+    },
+    "feature_usage": {
+      "props": {
+        "n_settings_open": { "k": "int", "max": 999, "opt": true },
+        "n_settings_search": { "k": "int", "max": 999, "opt": true },
+        "n_palette_open": { "k": "int", "max": 999, "opt": true },
+        "n_palette_run": { "k": "int", "max": 999, "opt": true },
+        "n_shortcuts_sheet": { "k": "int", "max": 999, "opt": true },
+        "n_history_open": { "k": "int", "max": 999, "opt": true },
+        "n_history_search": { "k": "int", "max": 999, "opt": true },
+        "n_history_resume": { "k": "int", "max": 999, "opt": true },
+        "n_history_resume_cli_session": { "k": "int", "max": 999, "opt": true },
+        "n_flow_history_open": { "k": "int", "max": 999, "opt": true },
+        "n_flow_history_search": { "k": "int", "max": 999, "opt": true },
+        "n_flow_carry_on": { "k": "int", "max": 999, "opt": true },
+        "n_mode_to_flow": { "k": "int", "max": 999, "opt": true },
+        "n_mode_to_chat": { "k": "int", "max": 999, "opt": true },
+        "n_lobby_open": { "k": "int", "max": 999, "opt": true },
+        "n_camera_on": { "k": "int", "max": 999, "opt": true },
+        "n_screen_on": { "k": "int", "max": 999, "opt": true },
+        "n_typed_msg": { "k": "int", "max": 999, "opt": true },
+        "n_ptt_toggle": { "k": "int", "max": 999, "opt": true },
+        "n_not_for_you": { "k": "int", "max": 999, "opt": true },
+        "n_send_aside": { "k": "int", "max": 999, "opt": true },
+        "n_call_shortcut": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_general": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_models": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_voice": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_engine": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_agents": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_chat": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_flow": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_privacy": { "k": "int", "max": 999, "opt": true },
+        "n_settings_tab_about": { "k": "int", "max": 999, "opt": true }
+      },
+      "limit": { "perDay": 3 }
+    },
+    "feedback_given": {
+      "props": {
+        "surface": { "k": "enum", "values": ["flow", "call", "main"] },
+        "kind": { "k": "enum", "values": ["session_rating", "nps"] },
+        "outcome": { "k": "enum", "values": ["answered", "dismissed", "ignored", "never_again"] },
+        "rating": { "k": "enum", "values": ["up", "down"], "opt": true },
+        "score": { "k": "int", "max": 10, "opt": true },
+        "reason": { "k": "enum", "values": ["wrong_answer", "too_slow", "misheard_me", "didnt_do_it", "other"], "opt": true },
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "opt": true },
+        "turns_bucket": { "k": "enum", "values": ["2", "3_5", "6_10", "11_plus"], "opt": true }
+      },
+      "limit": { "perDay": 1 }
+    },
+    "telemetry_disabled": {
+      "props": {
+        "from": { "k": "enum", "values": ["notice", "settings"] },
+        "days_since_first_open": { "k": "int", "max": 999 }
+      }
+    }
+  },
+  "facts": {
+    "flow_owner": {
+      "event": "flow_session",
+      "props": {
+        "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "fold": "last" },
+        "ready": { "k": "enum", "values": ["ok", "no_brain", "mic_failed"], "fold": "last" },
+        "ready_ms": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "stops": { "k": "int", "max": 999, "fold": "sum" },
+        "barge_ins": { "k": "int", "max": 999, "fold": "sum" },
+        "top_quiet_reason": { "k": "enum", "values": ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"], "fold": "last" },
+        "failure_cards": { "k": "int", "max": 999, "fold": "sum" },
+        "fixes_clicked": { "k": "int", "max": 999, "fold": "sum" },
+        "last_failure": { "k": "enum", "values": ["none", "no_provider", "no_accessibility", "secure_input", "offline", "models_missing", "hook_failed", "addon_missing", "mic_failed", "answer_lost", "brain_setup", "turn_failed"], "fold": "last" },
+        "lost_silence": { "k": "int", "max": 999, "fold": "sum" },
+        "lost_link": { "k": "int", "max": 999, "fold": "sum" },
+        "link_drops": { "k": "int", "max": 999, "fold": "sum" },
+        "mic_lost": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_by_voice": { "k": "int", "max": 999, "fold": "sum" },
+        "stt_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "tts_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "v2v_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "v2v_turns": { "k": "int", "max": 999, "fold": "sum" },
+        "stt_family": { "k": "enum", "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"], "fold": "last" },
+        "tts_family": { "k": "enum", "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"], "fold": "last" },
+        "webgpu": { "k": "bool", "fold": "or" }
+      }
+    },
+    "call_renderer": {
+      "event": "call_session",
+      "props": {
+        "ended_by": { "k": "enum", "values": ["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"], "fold": "last" },
+        "start_result": { "k": "enum", "values": ["ok", "mic_denied", "start_failed"], "fold": "last" },
+        "start_ms": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "barge_ins": { "k": "int", "max": 999, "fold": "sum" },
+        "typed_turns": { "k": "int", "max": 999, "fold": "sum" },
+        "camera_used": { "k": "bool", "fold": "or" },
+        "screen_used": { "k": "bool", "fold": "or" },
+        "ptt_used": { "k": "bool", "fold": "or" },
+        "has_folder": { "k": "bool", "fold": "last" },
+        "mic_lost": { "k": "int", "max": 999, "fold": "sum" },
+        "camera_failed": { "k": "int", "max": 999, "fold": "sum" },
+        "screen_failed": { "k": "int", "max": 999, "fold": "sum" },
+        "link_drops": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_by_voice": { "k": "int", "max": 999, "fold": "sum" },
+        "stt_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "tts_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "v2v_ms_p50": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "v2v_turns": { "k": "int", "max": 999, "fold": "sum" },
+        "stt_family": { "k": "enum", "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"], "fold": "last" },
+        "tts_family": { "k": "enum", "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"], "fold": "last" },
+        "webgpu": { "k": "bool", "fold": "or" }
+      }
+    },
+    "agent_flow": {
+      "event": "flow_session",
+      "props": {
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "fold": "last" },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "fold": "last" },
+        "turns": { "k": "int", "max": 999, "fold": "sum" },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },
+        "steered": { "k": "int", "max": 999, "fold": "sum" },
+        "quiet_turns": { "k": "int", "max": 999, "fold": "sum" },
+        "tool_calls": { "k": "int", "max": 999, "fold": "sum" },
+        "tool_errors": { "k": "int", "max": 999, "fold": "sum" },
+        "t_insert": { "k": "int", "max": 999, "fold": "sum" },
+        "t_words": { "k": "int", "max": 999, "fold": "sum" },
+        "t_see": { "k": "int", "max": 999, "fold": "sum" },
+        "t_point": { "k": "int", "max": 999, "fold": "sum" },
+        "t_keys": { "k": "int", "max": 999, "fold": "sum" },
+        "t_window": { "k": "int", "max": 999, "fold": "sum" },
+        "t_open": { "k": "int", "max": 999, "fold": "sum" },
+        "t_shell": { "k": "int", "max": 999, "fold": "sum" },
+        "t_memory": { "k": "int", "max": 999, "fold": "sum" },
+        "agent_tools": { "k": "int", "max": 999, "fold": "sum" },
+        "agent_tools_failed": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_asks": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_allowed": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_denied": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_timeout": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_auto": { "k": "int", "max": 999, "fold": "sum" },
+        "errors": { "k": "int", "max": 999, "fold": "sum" },
+        "ttft_ms": {
+          "k": "int",
+          "max": 600000,
+          "fold": "samples",
+          "into": { "p50": "ttft_ms_p50", "p95": "ttft_ms_p95" }
+        },
+        "turn_ms": {
+          "k": "int",
+          "max": 600000,
+          "fold": "samples",
+          "into": { "p50": "turn_ms_p50" }
+        },
+        "agent_start_ms": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "agent_restarts": { "k": "int", "max": 999, "fold": "sum" },
+        "consent": { "k": "bool", "fold": "last" }
+      }
+    },
+    "agent_call": {
+      "event": "call_session",
+      "props": {
+        "brain_kind": { "k": "enum", "values": ["api", "acp"], "fold": "last" },
+        "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes"], "fold": "last" },
+        "turns": { "k": "int", "max": 999, "fold": "sum" },
+        "interrupted": { "k": "int", "max": 999, "fold": "sum" },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },
+        "camera_used": { "k": "bool", "fold": "or" },
+        "screen_used": { "k": "bool", "fold": "or" },
+        "t_look": { "k": "int", "max": 999, "fold": "sum" },
+        "t_clipboard": { "k": "int", "max": 999, "fold": "sum" },
+        "t_open_url": { "k": "int", "max": 999, "fold": "sum" },
+        "t_files": { "k": "int", "max": 999, "fold": "sum" },
+        "t_web": { "k": "int", "max": 999, "fold": "sum" },
+        "t_plan": { "k": "int", "max": 999, "fold": "sum" },
+        "t_memory": { "k": "int", "max": 999, "fold": "sum" },
+        "agent_tools": { "k": "int", "max": 999, "fold": "sum" },
+        "agent_tools_failed": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_asks": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_allowed": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_denied": { "k": "int", "max": 999, "fold": "sum" },
+        "perm_timeout": { "k": "int", "max": 999, "fold": "sum" },
+        "elicitations": { "k": "int", "max": 999, "fold": "sum" },
+        "resumed": { "k": "enum", "values": ["none", "resumed", "loaded", "fell_back"], "fold": "last" },
+        "errors": { "k": "int", "max": 999, "fold": "sum" },
+        "ttft_ms": {
+          "k": "int",
+          "max": 600000,
+          "fold": "samples",
+          "into": { "p50": "ttft_ms_p50", "p95": "ttft_ms_p95" }
+        },
+        "turn_ms": {
+          "k": "int",
+          "max": 600000,
+          "fold": "samples",
+          "into": { "p50": "turn_ms_p50" }
+        },
+        "agent_start_ms": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
+        "agent_restarts": { "k": "int", "max": 999, "fold": "sum" }
+      }
+    }
+  },
+  "settings": {
+    "login_item": { "values": ["on", "off"] },
+    "end_on_lock": { "values": ["on", "off"] },
+    "flow_armed": { "values": ["on", "off"] },
+    "theme": { "values": ["system", "light", "dark"] },
+    "look": { "values": ["glass", "flat"] },
+    "custom_instructions": { "values": ["set", "cleared"] },
+    "narrate_progress": { "values": ["on", "off"] },
+    "api_provider": { "values": ["none"], "subject": "provider" },
+    "api_model": { "values": ["changed", "cleared"], "subject": "provider" },
+    "vision_model": { "values": ["changed", "cleared"], "subject": "provider" },
+    "api_effort": { "values": ["auto", "low", "medium", "high", "xhigh", "max"] },
+    "ollama_address": { "values": ["default", "local", "remote"] },
+    "agent_hidden": { "values": ["on", "off"], "subject": "agent" },
+    "provider_key": { "values": ["added", "removed"], "subject": "provider" },
+    "agent_model": { "values": ["changed"], "subject": "agent" },
+    "language": { "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] },
+    "stt_family": { "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"] },
+    "tts_family": { "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"] },
+    "wait_preset": { "values": ["patient", "even", "quick", "custom"] },
+    "voiceprint": { "values": ["off", "label", "gate"] },
+    "side_talk": { "values": ["off", "shadow", "ignore"] },
+    "allow_restricted": { "values": ["on", "off"] },
+    "flow_own_brain": { "values": ["on", "off"] },
+    "flow_brain": { "values": ["api", "acp"], "subject": "agent" },
+    "flow_speak_replies": { "values": ["on", "off"] },
+    "flow_own_wait": { "values": ["on", "off"] },
+    "flow_quiet_meeting": { "values": ["on", "off"] },
+    "flow_quiet_mic": { "values": ["on", "off"] },
+    "flow_quiet_dnd": { "values": ["on", "off"] },
+    "flow_consent": { "values": ["on", "off"] },
+    "flow_insertion": { "values": ["paste", "type"] },
+    "flow_idle_window": { "values": ["90s", "5m", "30m", "custom"] },
+    "voice_input_mode": { "values": ["hold", "toggle"] },
+    "ptt_enabled": { "values": ["on", "off"] }
+  },
+  "subjects": { "provider": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity"], "agent": ["claude-code", "codex", "cursor", "opencode", "hermes"] },
+  "counters": ["n_settings_open", "n_settings_search", "n_palette_open", "n_palette_run", "n_shortcuts_sheet", "n_history_open", "n_history_search", "n_history_resume", "n_history_resume_cli_session", "n_flow_history_open", "n_flow_history_search", "n_flow_carry_on", "n_mode_to_flow", "n_mode_to_chat", "n_lobby_open", "n_camera_on", "n_screen_on", "n_typed_msg", "n_ptt_toggle", "n_not_for_you", "n_send_aside", "n_call_shortcut", "n_settings_tab_general", "n_settings_tab_models", "n_settings_tab_voice", "n_settings_tab_engine", "n_settings_tab_agents", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_privacy", "n_settings_tab_about"],
+  "feedback": { "minDaysAfterFirstOpen": 2, "minDaysBetweenPrompts": 7, "minDaysBetweenSessionRatings": 7, "minDaysBetweenNps": 90, "npsMinActiveDays": 7, "ignoredInARowForBackoff": 2, "backoffDays": 30, "sessionMinAnsweredTurns": 2, "sessionFreshHours": 12 }
+}

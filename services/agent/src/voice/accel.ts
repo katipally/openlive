@@ -23,6 +23,8 @@ export type BenchResult =
 /** `results` is empty while a benchmark is under way; `attempts` counts the starts it took. */
 export interface AccelEntry { key: string; chosen: Provider; results: BenchResult[]; at: string; attempts?: number }
 export type Override = Provider | "auto";
+/** How a benchmark that ran out of time begins its error, for whoever tells it from the rest. */
+export const BENCH_TIMEOUT_TEXT = "benchmark timed out";
 interface Store { device?: DeviceProfile; engines: Record<string, AccelEntry>; overrides: Record<string, Provider> }
 
 // An accelerator must cut the steady-state real-time factor by this much to be

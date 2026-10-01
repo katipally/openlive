@@ -3,12 +3,12 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "chat" | "flow" | "about";
+export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "chat" | "flow" | "privacy" | "about";
 
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
 const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice" };
-const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "chat", "flow", "about"] satisfies SettingsTabId[];
+const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
 
 export function resolveSettingsTab(id: string | null | undefined): SettingsTabId | null {
   if (!id) return null;
@@ -28,6 +28,8 @@ export interface SettingsEntry {
   reveal?: string;
   /** Only rendered in the desktop app. */
   desktop?: boolean;
+  /** Only rendered when the desktop OS is one of these ("darwin", "win32", "linux"). */
+  os?: readonly string[];
 }
 
 /** Each family's name and the parts of its variant ids ("80ms", "fp16",
@@ -42,6 +44,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Your assistant's style", keywords: "custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
   { label: "Keyboard shortcuts", keywords: "keys hotkeys", tab: "general", anchor: "set-general-shortcuts" },
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },
+  { label: "End Flow and calls when the screen locks", keywords: "lock locked sleep suspend keep going close hang up", tab: "general", anchor: "set-general-lock", desktop: true, os: ["darwin", "win32"] },
 
   { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
   { label: "Model", keywords: "llm live model vision reasoning default", tab: "models", anchor: "set-models-model" },
@@ -78,6 +81,15 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "How text goes in", keywords: "typing paste type insertion clipboard timing", tab: "flow", anchor: "set-flow-typing" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent", tab: "flow", anchor: "set-flow-access" },
 
+  { label: "Share anonymous usage", keywords: "telemetry analytics usage data tracking diagnostics opt out collect send privacy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "What is shared", keywords: "events list telemetry data collected transparency", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Privacy policy", keywords: "legal gdpr terms data protection policy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Ask for feedback", keywords: "survey rating nps thumbs prompt questions stop asking don't ask again", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Install ID", keywords: "uuid", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Your anonymous name", keywords: "username random profile identifier install id", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Request deletion", keywords: "delete erase remove my data gdpr ccpa right to be forgotten privacy email", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Report a problem", keywords: "bug issue github feedback broken help", tab: "privacy", anchor: "set-privacy-report", desktop: true },
+
   { label: "Links", keywords: "github releases changelog issue", tab: "about", anchor: "set-about-links" },
   { label: "Replay tours", keywords: "walkthrough onboarding tips help reset", tab: "about", anchor: "set-about-tours" },
 ];
@@ -85,13 +97,14 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 /** Every whitespace-separated term must appear in the label, keywords or tab
  *  name. Label hits sort ahead of keyword-only hits; each bucket keeps index
  *  order. One pass over the index: O(n · terms) per query. */
-export function searchSettings(query: string, tabLabel: (t: SettingsTabId) => string, desktop: boolean, index = SETTINGS_INDEX): SettingsEntry[] {
+export function searchSettings(query: string, tabLabel: (t: SettingsTabId) => string, desktop: boolean, index = SETTINGS_INDEX, os = ""): SettingsEntry[] {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return [];
   const strong: SettingsEntry[] = [];
   const weak: SettingsEntry[] = [];
   for (const e of index) {
     if (e.desktop && !desktop) continue;
+    if (e.os && os && !e.os.includes(os)) continue;
     const label = e.label.toLowerCase();
     const hay = `${label} ${e.keywords ?? ""} ${tabLabel(e.tab)}`.toLowerCase();
     if (!terms.every((t) => hay.includes(t))) continue;

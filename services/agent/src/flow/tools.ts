@@ -220,6 +220,9 @@ export function validateArgs(tool: Tool, args: Record<string, unknown>): { ok: t
 /** An answered consent check. Kept by whoever asked first, so nobody is asked twice about one call. */
 export type Verdict = Awaited<ReturnType<Approve>>;
 
+/** Told of each dispatched call once it settles: the tool it resolved to (null when none) and whether it failed. */
+export type ToolTally = (tool: string | null, failed: boolean) => void;
+
 // ── dispatch ────────────────────────────────────────────────────────────────
 
 interface Prepared {
@@ -257,7 +260,7 @@ export async function* dispatch(
   calls: FlowToolCall[],
   tools: Tool[],
   ctx: Omit<ToolCtx, "callId">,
-  opts: { approve: Approve; parallel?: boolean; preflighted?: Map<string, Promise<Verdict>> },
+  opts: { approve: Approve; parallel?: boolean; preflighted?: Map<string, Promise<Verdict>>; tally?: ToolTally },
 ): AsyncGenerator<DispatchResult, DispatchResult[]> {
   const prepared = calls.map((c) => prepare(c, tools));
 
@@ -273,7 +276,7 @@ export async function* dispatch(
     }
   }
 
-  const run = async (p: Prepared): Promise<DispatchResult> => {
+  const execute = async (p: Prepared): Promise<DispatchResult> => {
     if (p.error || !p.tool) return errResult(p.call, p.error ?? "Tool unavailable.");
     if (ctx.signal.aborted) return errResult(p.call, "Cancelled before it ran.");
     try {
@@ -282,6 +285,14 @@ export async function* dispatch(
     } catch (e) {
       return errResult(p.call, errText(e));
     }
+  };
+
+  // The one place a result is counted, whichever brain called: only a tool that
+  // resolved is named, and a stopped turn's cancellations are not failures.
+  const run = async (p: Prepared): Promise<DispatchResult> => {
+    const r = await execute(p);
+    opts.tally?.(p.tool?.name ?? null, r.isError && !ctx.signal.aborted);
+    return r;
   };
 
   const results = new Array<DispatchResult>(prepared.length);

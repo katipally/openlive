@@ -6,11 +6,12 @@ import { Worker } from "node:worker_threads";
 import { WebSocketServer } from "ws";
 import { join } from "node:path";
 import { engineDir, engineInstalled, langCode, nativeEngine, sherpaConfig, type EngineKind, type EngineVoice, type NativeEngine } from "./native-models.js";
-import { accelFor, accelTimeoutMs, benchAudio, BENCH_TEXT, currentDevice, finishBench, markFailed, needsBench, providersFor, skipReason, startBench, type BenchResult } from "./accel.js";
+import { accelFor, accelTimeoutMs, benchAudio, BENCH_TEXT, BENCH_TIMEOUT_TEXT, currentDevice, finishBench, markFailed, needsBench, providersFor, skipReason, startBench, type BenchResult } from "./accel.js";
 import { threadsFor, type Provider } from "./device.js";
 import { pcmFromBytes } from "./pcm.js";
 import type { Heard, ModelRef, WorkerEvent, WorkerRequest } from "./native-worker.js";
 import { log } from "../log.js";
+import { reportBench, voiceFault } from "../telemetry/voice.js";
 
 // Main-thread side of the native speech engines: every model call is a message
 // to a worker thread (one for ASR, one for TTS, so a long synthesis never
@@ -19,24 +20,27 @@ import { log } from "../log.js";
 const WORKER_URL = new URL(import.meta.url.endsWith(".ts") ? "./native-worker.ts" : "./native-worker.mjs", import.meta.url);
 
 type Listener = (e: WorkerEvent) => void;
-interface Pool { worker: Worker; listeners: Map<number, Listener> }
+/** `families`: which engine family each in-flight job belongs to, so a crash can say whose. */
+interface Pool { worker: Worker; listeners: Map<number, Listener>; families: Map<number, string> }
 const pools = new Map<EngineKind, Pool>();
 let nextId = 0;
 
 function pool(kind: EngineKind): Pool {
   const existing = pools.get(kind);
   if (existing) return existing;
-  const p: Pool = { worker: new Worker(WORKER_URL), listeners: new Map() };
+  const p: Pool = { worker: new Worker(WORKER_URL), listeners: new Map(), families: new Map() };
   p.worker.unref();
   p.worker.on("message", (e: WorkerEvent) => {
     p.listeners.get(e.id)?.(e);
-    if (e.type === "done" || e.type === "error" || e.type === "closed" || e.type === "embedding") p.listeners.delete(e.id);
+    if (e.type === "done" || e.type === "error" || e.type === "closed" || e.type === "embedding") { p.listeners.delete(e.id); p.families.delete(e.id); }
   });
   // A crashed worker fails everything in flight; the next call spawns a fresh one.
   const fail = (err: Error) => {
     if (pools.get(kind) === p) pools.delete(kind);
+    for (const family of new Set(p.families.values())) voiceFault(family, "worker_crash");
     for (const [id, l] of p.listeners) l({ id, type: "error", message: err.message });
     p.listeners.clear();
+    p.families.clear();
   };
   p.worker.on("error", (err) => { log.error("voice", `${kind} worker:`, err); fail(err); });
   p.worker.on("exit", (code) => fail(new Error(`voice worker exited (${code})`)));
@@ -57,8 +61,9 @@ function send(e: NativeEngine, req: WorkerRequest, listener?: Listener, transfer
   if (listener && "id" in req) {
     // A failure on an accelerator retires it for this engine: the next load runs on CPU.
     const provider = ("provider" in req && req.provider) || "cpu";
+    p.families.set(req.id, e.family);
     p.listeners.set(req.id, provider !== "cpu" ? (ev) => {
-      if (ev.type === "error") { markFailed(e, provider, ev.message); unloadNative(e); log.warn("voice", `${e.id} failed on ${provider}, using CPU from now on:`, ev.message); }
+      if (ev.type === "error") { markFailed(e, provider, ev.message); voiceFault(e.family, "accel_fallback", provider); unloadNative(e); log.warn("voice", `${e.id} failed on ${provider}, using CPU from now on:`, ev.message); }
       listener(ev);
     } : listener);
   }
@@ -148,7 +153,7 @@ export function benchInChild(req: BenchRequest, signal?: AbortSignal, timeoutMs 
     };
     const end = (r: BenchResult) => { stop(); resolve(r); };
     const onAbort = () => { stop(); reject(new Error("aborted")); };
-    const timer = setTimeout(() => end({ provider, error: `benchmark timed out after ${timeoutMs / 1000} s` }), timeoutMs);
+    const timer = setTimeout(() => end({ provider, error: `${BENCH_TIMEOUT_TEXT} after ${timeoutMs / 1000} s` }), timeoutMs);
     signal?.addEventListener("abort", onAbort, { once: true });
     process.once("exit", kill);
     child.on("message", (ev: WorkerEvent) => {
@@ -213,7 +218,9 @@ async function runBenches() {
   if (!engineInstalled(e) || !needsBench(e) || !startBench(e)) return armBench(0);
   bench = { id: e.id, abort: new AbortController() };
   try {
-    const entry = finishBench(e, await benchEngine(e, providersFor(e, currentDevice()), undefined, bench.abort.signal))!;
+    const results = await benchEngine(e, providersFor(e, currentDevice()), undefined, bench.abort.signal);
+    const entry = finishBench(e, results)!;
+    reportBench(e, results, entry, currentDevice());
     log.debug("voice", `${e.id} benchmarked, runs on ${entry.chosen}:`, JSON.stringify(entry.results));
     if (entry.chosen !== "cpu") unloadNative(e);
   } catch {

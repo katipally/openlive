@@ -1,4 +1,4 @@
-import type { FlowContextWire } from "@openlive/shared";
+import type { FlowCloseReason, FlowContextWire, TelemetryEventProps } from "@openlive/shared";
 import type { QuietSignals } from "./quiet";
 import type { FlowSettingsPage } from "./types";
 
@@ -59,6 +59,8 @@ export interface FlowCapabilities {
 export const FLOW_TRIGGER = "ctrl";
 
 export type FlowPermissionName = "accessibility" | "microphone" | "screen";
+/** Which screen asked for a permission, for the onboarding funnel. */
+export type PermissionAskedFrom = NonNullable<TelemetryEventProps<"os_permission_request">["asked_from"]>;
 export type HookEffect = { kind: string; bindingId?: string };
 
 export interface FlowBridge {
@@ -66,14 +68,14 @@ export interface FlowBridge {
   permissions(): Promise<Guarded<FlowPermissions>>;
   /** Shows the system prompt, even after an earlier refusal. macOS never calls
    *  back, so the caller polls. */
-  request(what: FlowPermissionName): Promise<Guarded<boolean | string>>;
+  request(what: FlowPermissionName, askedFrom?: PermissionAskedFrom): Promise<Guarded<boolean | string>>;
   /** Opens the system settings page for `what`. False where there is none. */
   openSettings(what: FlowPermissionName): Promise<Guarded<boolean>>;
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): () => void;
-  /** The tray's "New Flow session" while Flow is already open. */
-  onNewSession?(cb: () => void): () => void;
+  /** The tray's "New Flow session", and whether Flow was already open when it was chosen. */
+  onNewSession?(cb: (wasOpen: boolean) => void): () => void;
   /** Flow's settings were written, so the runtime should re-read them. */
   settingsChanged?(): void;
   onSettingsChanged?(cb: () => void): () => void;
@@ -98,7 +100,8 @@ export interface FlowBridge {
   device(fn: string, args: unknown): Promise<Guarded<unknown>>;
   warmOcr(): Promise<Guarded<void>>;
   summon(): void;
-  dismiss(): void;
+  /** `reason` is why it closed, for the session's summary. Omitted, it counts as "other". */
+  dismiss(reason?: FlowCloseReason): void;
   /** The orb window is about to hide: play the exit, then call `hidden`. */
   onHiding?(cb: () => void): void;
   hidden?(): void;

@@ -3,16 +3,19 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { Search, Plus, MessageSquare, Waves, Keyboard, SunMoon, History, type LucideIcon } from "lucide-react";
+import { Search, Plus, MessageSquare, Waves, Keyboard, SunMoon, History, LifeBuoy, type LucideIcon } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { isTextTarget } from "@/lib/live/keyTargets";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { filterCommands, type Command } from "@/lib/commandPalette";
+import { featureUsed } from "@/lib/featureUse";
 import { MOD } from "@/lib/platform";
+import { reportProblem } from "@/lib/reportProblem";
+import { useBrainId } from "@/lib/useBrainId";
 import { cn } from "@/lib/cn";
 import { useMotionTokens } from "@/lib/motion";
-import { SECTIONS } from "@/components/settings/SettingsPage";
+import { shownSections } from "@/components/settings/SettingsPage";
 import { Keycap, groupLabel, sidePanel } from "@/components/ui";
 
 type PaletteCommand = Command & { icon: LucideIcon };
@@ -63,6 +66,7 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
   const mode = useUi((s) => s.mode);
   const liveOpen = useUi((s) => s.liveOpen);
   const inCall = useLiveStore((s) => s.active);
+  const brainId = useBrainId();
   const { smooth, snappy, fade, exit: leave } = useMotionTokens();
   const highlightId = useId();
   // Let go of focus as the exit starts, not when it ends: a command that opens
@@ -81,8 +85,8 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
       run: () => { leaveSettings(); onNewChat(); } });
     // The switch is hidden while the lobby or a call is up; so is this.
     if (!liveOpen) out.push(mode === "flow"
-      ? { id: "mode", label: "Switch to Chat", group: "Actions", icon: MessageSquare, keywords: "mode", run: () => { leaveSettings(); ui.setMode("chat"); } }
-      : { id: "mode", label: "Switch to Flow", group: "Actions", icon: Waves, keywords: "mode", run: () => { leaveSettings(); ui.setMode("flow"); } });
+      ? { id: "mode", label: "Switch to Chat", group: "Actions", icon: MessageSquare, keywords: "mode", run: () => { leaveSettings(); featureUsed("n_mode_to_chat"); ui.setMode("chat"); } }
+      : { id: "mode", label: "Switch to Flow", group: "Actions", icon: Waves, keywords: "mode", run: () => { leaveSettings(); featureUsed("n_mode_to_flow"); ui.setMode("flow"); } });
     out.push({ id: "shortcuts", label: "Show shortcuts", group: "Actions", icon: Keyboard, keywords: "keyboard keys help", keys: ["?"],
       run: () => ui.setShortcutsOpen(true) });
     out.push({ id: "theme", label: "Toggle theme", group: "Actions", icon: SunMoon, keywords: "dark light appearance",
@@ -90,10 +94,12 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
     // The History drawer lives in the Chat view.
     if (!flowShown) out.push({ id: "history", label: "Open history", group: "Actions", icon: History, keywords: "sessions resume past conversations",
       run: () => { leaveSettings(); ui.setHistoryOpen(true); } });
-    for (const s of SECTIONS) out.push({ id: `settings-${s.id}`, label: s.label, group: "Settings", icon: s.icon, keywords: s.sub, hint: s.sub,
+    out.push({ id: "report", label: "Report a problem", group: "Actions", icon: LifeBuoy, keywords: "bug issue github feedback broken help",
+      hint: "Opens a GitHub issue", run: () => void reportProblem(brainId) });
+    for (const s of shownSections()) out.push({ id: `settings-${s.id}`, label: s.label, group: "Settings", icon: s.icon, keywords: s.sub, hint: s.sub,
       run: () => ui.openSettingsTab(s.id) });
     return out;
-  }, [mode, liveOpen, inCall, resolvedTheme, setTheme, onNewChat]);
+  }, [mode, liveOpen, inCall, resolvedTheme, setTheme, onNewChat, brainId]);
 
   const groups = useMemo(() => filterCommands(commands, query), [commands, query]);
   const flat = useMemo(() => groups.flatMap((g) => g.items) as PaletteCommand[], [groups]);
@@ -106,7 +112,7 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
   }, [current]);
 
   // Close first: the trap hands focus back before the command opens whatever it opens.
-  const run = (c: Command) => { onClose(); c.run(); };
+  const run = (c: Command) => { featureUsed("n_palette_run"); onClose(); c.run(); };
 
   const onInputKey = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;

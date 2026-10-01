@@ -1,5 +1,5 @@
-import { isUnreachable, streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
-import { mergeToolCall, withReplyLanguage, type LanguageCode, type SseEvent, type ToolCallState } from "@openlive/shared";
+import { streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
+import { classifyError, ClassedError, mergeToolCall, withReplyLanguage, type LanguageCode, type SseEvent, type ToolCallState } from "@openlive/shared";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
 import type { Agent, TurnInput } from "../agents/types.js";
@@ -90,7 +90,7 @@ export class LocalBrain implements Brain {
       const live = this.resolve();
       const { model, apiKey } = live;
       provider = live.provider;
-      if (!apiKey && !provider.keyless) throw new Error(`No API key for ${provider.name}. Add one in Settings > Models.`);
+      if (!apiKey && !provider.keyless) throw new ClassedError(`No API key for ${provider.name}. Add one in Settings > Models.`, "no_key");
       const messages = [{ role: "system" as const, text: req.systemPrompt }, ...await this.prepare(req.messages, live, signal, this.described)];
       const gen = streamProvider(provider, apiKey ?? undefined, { model, messages, tools: req.tools, ...liveReasoning(live) }, signal);
       const map = createProviderMapper();
@@ -102,8 +102,9 @@ export class LocalBrain implements Brain {
       }
       if (!sawDone) yield { type: "turn_done", stop: "stop" };
     } catch (e) {
-      const unreachable = !!provider && !signal.aborted && isUnreachable(e);
-      yield { type: "turn_error", message: unreachable ? unreachableMessage(provider!) : message(e), aborted: signal.aborted };
+      const code = classifyError(e);
+      const unreachable = !!provider && !signal.aborted && code === "unreachable";
+      yield { type: "turn_error", message: unreachable ? unreachableMessage(provider!) : message(e), aborted: signal.aborted, code };
     }
   }
 }
@@ -138,7 +139,7 @@ export function acpTurnInput(req: TurnRequest): TurnInput {
  */
 export function acpEventToBrain(e: SseEvent): BrainEvent | null {
   if (e.type === "text_delta") return { type: "text_delta", delta: e.text };
-  if (e.type === "error") return { type: "turn_error", message: e.message, aborted: false };
+  if (e.type === "error") return { type: "turn_error", message: e.message, aborted: false, ...(e.code && { code: e.code }) };
   return null;
 }
 
@@ -206,7 +207,7 @@ export class AcpBrain implements Brain {
         if (ev.type === "turn_error") failed = true;
         ch.push(ev);
       }, signal)
-      .catch((e: unknown) => { failed = true; ch.push({ type: "turn_error", message: message(e), aborted: signal.aborted }); })
+      .catch((e: unknown) => { failed = true; ch.push({ type: "turn_error", message: message(e), aborted: signal.aborted, code: classifyError(e) }); })
       .finally(() => {
         for (const call of calls.values()) if (call) this.onTool({ ...call, status: "canceled" }, true);
         ch.close();

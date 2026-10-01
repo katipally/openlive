@@ -3,6 +3,9 @@
 import { useEffect } from "react";
 import { useLiveStore } from "./liveStore";
 import { isControlTarget, isTextTarget } from "./keyTargets";
+import { featureUsed } from "../featureUse";
+import { reportSetting } from "../settingChanges";
+import { telemetry } from "../telemetry";
 
 
 /** In-app Space behavior (Settings → General): "hold" = press-and-hold to talk;
@@ -13,6 +16,7 @@ export function voiceInputMode(): VoiceInputMode {
   try { return localStorage.getItem(MODE_KEY) === "toggle" ? "toggle" : "hold"; } catch { return "hold"; }
 }
 export function setVoiceInputMode(m: VoiceInputMode): void {
+  if (m !== voiceInputMode()) reportSetting({ setting: "voice_input_mode", value: m });
   try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
 }
 
@@ -20,6 +24,12 @@ export function setVoiceInputMode(m: VoiceInputMode): void {
  *  hands-free VAD listening is the normal mode; Space only drives talking once
  *  the user opts in. Persisted across calls. */
 export function setPttEnabled(on: boolean): void {
+  if (on !== useLiveStore.getState().pttEnabled) {
+    reportSetting({ setting: "ptt_enabled", value: on ? "on" : "off" });
+    // Only turning it on is the discovery; an old install may already have it on and be turning it off.
+    if (on) featureUsed("n_ptt_toggle");
+    else telemetry.count("n_ptt_toggle");
+  }
   useLiveStore.getState().set({ pttEnabled: on });
   try { localStorage.setItem("openlive-ptt-enabled", on ? "1" : ""); } catch { /* private mode */ }
   // Disarming mid-hold is the caller's job (it has the session's pttUp) — the

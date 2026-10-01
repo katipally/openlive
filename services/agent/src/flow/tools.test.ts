@@ -231,6 +231,39 @@ describe("dispatch", () => {
   });
 });
 
+describe("dispatch tally", () => {
+  const ok: Tool = { name: "screenshot", description: "", parameters: { type: "object", properties: {} }, async execute() { return { content: [], details: null }; } };
+  const bad: Tool = { name: "shell", description: "", parameters: { type: "object", properties: {} }, async execute() { throw new Error("nope"); } };
+  const run = async (calls: { id: string; name: string; args: Record<string, unknown> }[], ctx = ctxOf()) => {
+    const seen: [string | null, boolean][] = [];
+    await drain(dispatch(calls, [ok, bad, ...tools], ctx, { approve: allowAll, tally: (tool, failed) => { seen.push([tool, failed]); } }));
+    return seen;
+  };
+
+  it("hears every call once, by the tool it resolved to and never the model's own name", async () => {
+    const seen = await run([
+      { id: "1", name: "screenshot", args: {} },
+      { id: "2", name: "takeScreenshot", args: {} },
+      { id: "3", name: "launch_missiles", args: {} },
+      { id: "4", name: "shell", args: {} },
+      { id: "5", name: "insert_text", args: {} },
+    ]);
+    expect(seen).toHaveLength(5);
+    expect(seen).toEqual(expect.arrayContaining([["screenshot", false], ["screenshot", false], [null, true], ["shell", true], ["insert_text", true]]));
+  });
+
+  it("does not call a stopped turn's cancellations failures", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    expect(await run([{ id: "1", name: "screenshot", args: {} }], ctxOf({ signal: ac.signal }))).toEqual([["screenshot", false]]);
+  });
+
+  it("is optional", async () => {
+    const { results } = await drain(dispatch([{ id: "1", name: "screenshot", args: {} }], [ok], ctxOf(), { approve: allowAll }));
+    expect(results[0]!.isError).toBe(false);
+  });
+});
+
 // ── the device actions in the repair table ──────────────────────────────────
 
 describe("normalizing a device call", () => {

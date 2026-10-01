@@ -7,6 +7,7 @@ import { Check, Copy, Pencil, Play, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button, ConfirmButton, SidePanelHeader, Swap, Tooltip, sidePanel } from "@/components/ui";
 import { flowBridge } from "@/lib/flow/bridge";
+import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration, stamp } from "@/lib/flow/format";
 import { deleteWithUndo, refreshFlowSessions, renameFlowSession, useFlowSession } from "@/lib/flow/sessions";
 import { flowTimeline, startsTurn, timelineText } from "@/lib/flow/sessionTimeline";
@@ -115,7 +116,7 @@ export function FlowSessionModal({ id, live, onClose }: { id: string; live: bool
               <Pencil aria-hidden /> Rename
             </Button>
           </Tooltip>
-          <Button variant="primary" size="sm" onClick={() => flowBridge()?.resumeSession(id)}>
+          <Button variant="primary" size="sm" onClick={() => { featureUsed("n_flow_carry_on"); flowBridge()?.resumeSession(id); }}>
             <Play aria-hidden /> Carry on
           </Button>
         </footer>

@@ -1,7 +1,8 @@
-import { dispatch, resolveToolName, toolSpecs, type FlowToolCall, type Verdict } from "./tools.js";
+import { dispatch, resolveToolName, toolSpecs, type FlowToolCall, type ToolTally, type Verdict } from "./tools.js";
 import { allowAll } from "./approval.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
+import type { ErrorClass } from "@openlive/shared";
 import type {
   Approve, Brain, ClipboardPort, ContextProvider, FlowEvent, InsertionSink, Msg, TextPart, Tool, Usage,
 } from "./types.js";
@@ -25,6 +26,8 @@ export interface FlowRun {
   approve?: Approve;
   /** False runs tools one at a time. Approval is sequential either way. */
   parallel?: boolean;
+  /** Told of every call that ran. Must not throw. */
+  tally?: ToolTally;
   /** Utterances that arrived mid-run, drained between turns. Must not throw. */
   pollSteering?: () => Msg[];
   /** Host policy: every limit Flow has lives here. Must not throw. */
@@ -166,7 +169,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       const preflighted = new Map<string, Promise<Verdict>>();
       let usage: Usage | undefined;
       let stop: "stop" | "tools" | "length" = "stop";
-      let failure: { message: string; aborted: boolean } | null = null;
+      let failure: { message: string; aborted: boolean; code?: ErrorClass } | null = null;
 
       /**
        * May this call's text go into the user's document as it arrives?
@@ -210,7 +213,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
           continue;
         }
         if (ev.type === "turn_done") { stop = ev.stop; usage = ev.usage; continue; }
-        failure = { message: ev.message, aborted: ev.aborted };
+        failure = { message: ev.message, aborted: ev.aborted, code: ev.code };
       }
 
       // Whatever the model managed to say before the cut is part of the
@@ -221,7 +224,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
 
       if (failure || signal.aborted) {
         const aborted = failure?.aborted || signal.aborted;
-        yield { type: "error", message: failure?.message ?? "Cancelled.", aborted };
+        yield { type: "error", message: failure?.message ?? "Cancelled.", aborted, ...(failure?.code && { code: failure.code }) };
         yield { type: "done", reason: aborted ? "aborted" : "error" };
         return;
       }
@@ -245,7 +248,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
         }
         terminate = false;
       } else {
-        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel, preflighted });
+        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel, preflighted, tally: run.tally });
         for (;;) {
           const next = await running.next();
           if (next.done) {

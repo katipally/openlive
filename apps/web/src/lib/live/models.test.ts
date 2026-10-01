@@ -404,3 +404,57 @@ describe("downloadModel", () => {
     await expect(models.downloadModel("/api/voice/engines/x/download", () => {})).rejects.toThrow("download ended early");
   });
 });
+
+describe("voice models result", () => {
+  const track = vi.fn();
+  const store: Record<string, string> = {};
+  const uiStorage = () => vi.stubGlobal("localStorage", { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; } });
+  const results = () => track.mock.calls.filter(([name]) => name === "voice_models_result").map(([, props]) => props);
+  const steps = () => track.mock.calls.filter(([name]) => name === "onboarding_step").map(([, props]) => props);
+  beforeEach(() => {
+    track.mockReset();
+    for (const k of Object.keys(store)) delete store[k];
+    vi.stubGlobal("window", { openlive: { telemetry: { track } } });
+    uiStorage();
+  });
+
+  /** A worker that reports `bytes` of downloading, then is ready. */
+  const downloading = (bytes: number) => class extends FakeWorker {
+    override postMessage(m: { type: string; id?: number }) {
+      if (m.type === "load") queueMicrotask(() => this.onmessage?.({ data: { type: "progress", data: { file: "a.onnx", model: "stt", loaded: bytes, total: bytes } }, target: this } as { data: unknown }));
+      super.postMessage(m);
+    }
+  };
+
+  it("reports a download with its size in 10 MB steps, and the voice models becoming ready", async () => {
+    vi.stubGlobal("Worker", downloading(293_000_000));
+    await models.loadModels(() => {}, "lobby_button");
+    expect(results()).toEqual([{ trigger: "lobby_button", result: "ok", duration_s: 0, mb: 290, stt_family: "whisper", tts_family: "kokoro", webgpu: false }]);
+    expect(steps()).toEqual([{ step: "voice_models_ready" }]);
+  });
+
+  it("stays silent about a warm-up of weights already in the cache, but still marks the models ready", async () => {
+    await models.loadModels(() => {});
+    track.mockClear();
+    vi.resetModules();
+    models = await import("./models");
+    await models.loadModels(() => {}, "launch_warm");
+    expect(results()).toEqual([]);
+    expect(steps()).toEqual([{ step: "voice_models_ready" }]);
+  });
+
+  it("reports a failure, as offline when the network is gone", async () => {
+    class Broken extends FakeWorker {
+      override postMessage(m: { type: string }) { if (m.type === "load") queueMicrotask(() => this.onmessage?.({ data: { type: "error", message: "fetch failed for https://host/secret" }, target: this } as { data: unknown })); }
+    }
+    vi.stubGlobal("Worker", Broken);
+    await expect(models.loadModels(() => {}, "settings")).rejects.toThrow();
+    vi.stubGlobal("navigator", { onLine: false });
+    vi.resetModules();
+    models = await import("./models");
+    await expect(models.loadModels(() => {}, "call_start")).rejects.toThrow();
+    expect(results().map((r) => [r.trigger, r.result])).toEqual([["settings", "failed"], ["call_start", "offline"]]);
+    expect(steps()).toEqual([]);
+    expect(JSON.stringify(track.mock.calls)).not.toMatch(/secret|host/);
+  });
+});

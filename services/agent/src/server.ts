@@ -6,6 +6,7 @@ import { ensureSeedProviders } from "./providers.js";
 import { attachLiveWs } from "./live/ws.js";
 import type { Server } from "node:http";
 import { log } from "./log.js";
+import { reportException } from "./telemetry/facts.js";
 
 loadEnv();
 await ensureSeedProviders(); // top-level await: seed before serving so first requests see keys
@@ -39,8 +40,8 @@ app.route("/agents", agentRoutes);
 
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
-// reaches it over localhost, and the container web-proxy reaches it over localhost
-// too. A split container deployment (web and agent on different hosts) can widen
+// reaches it over localhost, and the web app's proxy routes reach it over localhost
+// too. A split deployment (web and agent on different hosts) can widen
 // this via AGENT_HOST — but only alongside OPENLIVE_AGENT_SECRET, which the startup
 // guard below enforces so a widened bind can never be unauthenticated.
 const host = process.env.AGENT_HOST?.trim() || "127.0.0.1";
@@ -72,5 +73,5 @@ process.on("SIGTERM", shutdown);
 // A stray rejection/exception in one live session (e.g. an ACP call the agent
 // rejects) must NEVER take down the whole service — that would drop every live
 // socket, surfacing as "Couldn't connect to live mode". Log and keep serving.
-process.on("unhandledRejection", (e) => log.error("agent", "unhandledRejection:", e));
-process.on("uncaughtException", (e) => log.error("agent", "uncaughtException:", e));
+process.on("unhandledRejection", (e) => { log.error("agent", "unhandledRejection:", e); reportException("unhandled_rejection"); });
+process.on("uncaughtException", (e) => { log.error("agent", "uncaughtException:", e); reportException("uncaught"); });

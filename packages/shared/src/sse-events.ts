@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { toolCallDeltaSchema, toolCallStateSchema } from "./tool-call";
+import { errorClassSchema } from "./error-class";
 
 // The wire protocol between the agent service and the browser. One JSON object
 // per SSE `data:` line. In OpenLive these are wrapped by the live WS server
@@ -38,7 +39,8 @@ export const sseEventSchema = z.discriminatedUnion("type", [
   // spoken errors). foldBlock ignores it by design, so it can't contaminate the reply.
   z.object({ type: z.literal("say"), text: z.string() }),
   z.object({ type: z.literal("done") }),
-  z.object({ type: z.literal("error"), message: z.string() }),
+  // `code` is the closed reason, so a client never has to read `message` to tell one failure from another.
+  z.object({ type: z.literal("error"), message: z.string(), code: errorClassSchema.optional() }),
 ]);
 
 export type SseEvent = z.infer<typeof sseEventSchema>;

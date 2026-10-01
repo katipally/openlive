@@ -2,7 +2,7 @@
 // resume, slash commands and a boolean config option, and echoes each prompt's
 // blocks back as its reply so the test can see exactly what was sent.
 import { Readable, Writable } from "node:stream";
-import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 
 const SESSIONS = Array.from({ length: 5 }, (_, i) => ({
   sessionId: `s${i}`, cwd: "/work", title: i === 2 ? null : `Session ${i}`, updatedAt: new Date(Date.UTC(2026, 8, 1 + i)).toISOString(),
@@ -27,11 +27,12 @@ conn = new AgentSideConnection(() => ({
   }),
   newSession: async () => { setTimeout(() => void commands("new"), 0); return { sessionId: "new", configOptions: config() }; },
   resumeSession: async (p) => {
-    if (p.sessionId === "gone") throw new Error("no such session");
+    if (p.sessionId === "gone" || p.sessionId === "lost") throw new Error("no such session");
     setTimeout(() => void commands(p.sessionId), 0);
     return { configOptions: config(), _meta: { how: "resume" } };
   },
   loadSession: async (p) => {
+    if (p.sessionId === "lost") throw new Error("no such session");
     await conn.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "loaded" } } });
     return { configOptions: config() };
   },
@@ -45,6 +46,9 @@ conn = new AgentSideConnection(() => ({
   },
   authenticate: async () => ({}),
   prompt: async (p) => {
+    const first = p.prompt[0]?.text ?? "";
+    if (first.includes("[refuse]")) return { stopReason: "refusal" };
+    if (first.includes("[reject]")) throw new RequestError(-32000, "model not allowed");
     await text(p.sessionId, JSON.stringify(p.prompt.map((b) => b.text ?? b.type)));
     return { stopReason: "end_turn" };
   },

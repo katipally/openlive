@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessagesSquare, Plus, MoreHorizontal, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
 import { setConversationBind, setConversationFolder, setConversationResume } from "@/lib/live/useLiveSession";
 import { AgentIcon } from "./live/AgentIcon";
 import { OpenLiveOrb } from "./OpenLiveOrb";
@@ -105,6 +106,7 @@ export function HistorySidebar() {
     // conversation that loadSession-s the agent's own prior thread. Either way, set
     // agent + workspace so the lobby shows the right setup and pre-connects.
     let chatId = c.id;
+    featureUsed(c.source === "external" ? "n_history_resume_cli_session" : "n_history_resume");
     if (c.source === "external") {
       useUi.getState().newConversation();
       chatId = useUi.getState().activeChatId;
@@ -172,7 +174,7 @@ export function HistorySidebar() {
         </SidePanelHeader>
 
         <div className="flex shrink-0 flex-col gap-2.5 px-3 pb-2" data-tour="history-actions">
-          <Input type="search" icon={<Search />} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats & folders" spellCheck={false}
+          <Input type="search" icon={<Search />} value={query} onChange={(e) => { if (!query && e.target.value) featureUsed("n_history_search"); setQuery(e.target.value); }} placeholder="Search chats & folders" spellCheck={false}
             aria-label="Search sessions" onKeyDown={(e) => { if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); } }} />
           <Segmented label="Which sessions to show" size="sm" className="grid w-full"
             value={filter} onChange={setFilter} options={SESSION_FILTERS} />

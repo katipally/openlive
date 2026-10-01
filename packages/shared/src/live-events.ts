@@ -2,6 +2,7 @@ import { z } from "zod";
 import { sseEventSchema } from "./sse-events";
 import { toolKindSchema } from "./tool-call";
 import { AGENT_IDS } from "./agent-registry";
+import { errorClassSchema } from "./error-class";
 
 // The live-mode wire protocol between the browser and the agent's /live
 // WebSocket. THICK CLIENT: the browser runs the whole voice stack (VAD, STT,
@@ -82,7 +83,7 @@ export const flowEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("context"), context: flowContextSchema }),
   z.object({ type: z.literal("turn_end"), stop: z.enum(["stop", "tools", "length"]), usage: z.object({ input: z.number(), output: z.number() }).optional() }),
-  z.object({ type: z.literal("error"), message: z.string(), aborted: z.boolean() }),
+  z.object({ type: z.literal("error"), message: z.string(), aborted: z.boolean(), code: errorClassSchema.optional() }),
   z.object({ type: z.literal("done"), reason: z.enum(["no_tools", "terminate", "host_stop", "error", "aborted"]) }),
 ]);
 export type FlowEventWire = z.infer<typeof flowEventSchema>;
@@ -168,7 +169,7 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // One event of a Flow turn. Wrapped rather than inlined so the client routes
   // Flow to its owner window and chat to the chat store, unchanged.
   z.object({ t: z.literal("flow"), event: flowEventSchema, turn: turnIdSchema.optional() }),
-  z.object({ t: z.literal("error"), message: z.string() }),
+  z.object({ t: z.literal("error"), message: z.string(), code: errorClassSchema.optional() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 

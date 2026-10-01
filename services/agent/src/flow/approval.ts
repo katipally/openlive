@@ -17,6 +17,8 @@ export interface ConsentOpts {
   ask: (question: string, signal: AbortSignal) => Promise<boolean>;
   /** Remember the yes, so this is the last time it is asked. Must not throw. */
   remember: () => Promise<void>;
+  /** How the ask ended. Not called when the turn was cut off first. Must not throw. */
+  onResult?: (outcome: "granted" | "declined" | "unanswered") => void;
   /** An unanswered ask is a no: silence is not consent. */
   timeoutMs?: number;
 }
@@ -59,6 +61,7 @@ export function consentApprove(opts: ConsentOpts): Approve {
           opts.ask(CONSENT_QUESTION, inner.signal),
           new Promise<null>((resolve) => { timer = setTimeout(() => { inner.abort(); resolve(null); }, timeoutMs); }),
         ]);
+        if (!signal.aborted) opts.onResult?.(yes === null ? "unanswered" : yes ? "granted" : "declined");
         if (yes) await opts.remember();
         return yes;
       } finally {

@@ -17,6 +17,11 @@ const listen = (channel, cb) => {
   return () => ipcRenderer.removeListener(channel, fn);
 };
 
+/** One-way, and never a throw into the page: a payload that will not clone is dropped. */
+const sendTelemetry = (msg) => {
+  try { ipcRenderer.send("openlive:telemetry", msg); } catch { /* telemetry never breaks the page */ }
+};
+
 contextBridge.exposeInMainWorld("openlive", {
   platform: process.platform,
   // Custom window controls — the window is frameless (no native traffic lights).
@@ -31,6 +36,9 @@ contextBridge.exposeInMainWorld("openlive", {
   notify: (title, body) => ipcRenderer.send("openlive:notify", { title, body }),
   // Settings → General: launch-at-login (boolean sets, undefined reads).
   loginItem: (v) => ipcRenderer.invoke("openlive:login-item", v),
+  // Settings → General: whether locking the screen ends Flow and calls, as sleep
+  // does (boolean sets, undefined reads). Resolves to what main now holds.
+  endOnLock: (v) => ipcRenderer.invoke("openlive:end-on-lock", v),
   // Settings → Models: an Ollama address off this computer. Main asks in a native
   // dialog and writes it itself. Resolves to { settings } | { cancelled } | { error }.
   confirmOllamaUrl: (url) => ipcRenderer.invoke("openlive:confirm-ollama-url", url),
@@ -41,6 +49,23 @@ contextBridge.exposeInMainWorld("openlive", {
     get: () => ipcRenderer.sendSync("openlive:appearance"),
     set: (patch) => ipcRenderer.invoke("openlive:appearance-set", patch),
     onChange: (cb) => listen("openlive:appearance-changed", cb),
+  },
+  // Product-usage telemetry. Main checks every message against its schema and keeps
+  // nothing else; only the main window and Flow's owner are heard. get() resolves to
+  // { active, enabled, noticeSeen, installIdTail, username, feedback, appVersion, osName, osMajor }, and
+  // set(enabled, "notice" | "settings") to nothing. feedbackNext() resolves to the
+  // prompt main allows now, { kind, surface }, or null; feedbackAnswer({ outcome, rating?, score?, reason? })
+  // reports what the person did; setFeedback(false) is "don't ask again".
+  telemetry: {
+    track: (name, props) => sendTelemetry({ t: "track", name, props }),
+    fact: (scope, props) => sendTelemetry({ t: "fact", scope, props }),
+    count: (key) => sendTelemetry({ t: "count", key }),
+    noticeShown: () => sendTelemetry({ t: "notice" }),
+    get: () => ipcRenderer.invoke("openlive:telemetry-get"),
+    set: (enabled, from) => ipcRenderer.invoke("openlive:telemetry-set", enabled, from),
+    feedbackNext: () => ipcRenderer.invoke("openlive:telemetry-feedback-next"),
+    feedbackAnswer: (answer) => sendTelemetry({ ...answer, t: "feedback" }),
+    setFeedback: (allowed) => ipcRenderer.invoke("openlive:telemetry-feedback-allow", allowed),
   },
   // True when running inside the desktop app.
   isDesktop: true,
@@ -55,8 +80,9 @@ contextBridge.exposeInMainWorld("openlive", {
   agentPort: Number((process.argv.find((a) => a.startsWith("--openlive-agent-port=")) || "").split("=")[1]) || 0,
   // The bound project folder — main scopes the agent's reveal/open file ops to it.
   setWorkspace: (dir) => ipcRenderer.send("openlive:workspace", dir),
-  // System sleep/wake. "suspend" → pause the mic/VAD cleanly; "resume" → offer
-  // reconnect. Same replace-on-subscribe rule as the other handlers.
+  // System sleep/wake, and screen lock/unlock while endOnLock is on. "suspend" →
+  // pause the mic/VAD cleanly; "resume" → offer reconnect. Same
+  // replace-on-subscribe rule as the other handlers.
   onPower: (cb) => listen("openlive:power", cb),
   // The native menu (⌘,) asks the UI to open Settings. Single listener, same
   // replace-on-subscribe rule as the handlers below: the renderer re-subscribes on
@@ -85,7 +111,9 @@ contextBridge.exposeInMainWorld("openlive", {
   flow: {
     init: () => ipcRenderer.invoke("openlive:flow-init"),
     permissions: () => ipcRenderer.invoke("openlive:flow-permissions"),
-    request: (what) => ipcRenderer.invoke("openlive:flow-request", what),
+    // `askedFrom`, optional: which screen asked, for the onboarding funnel (onboarding,
+    // flow_settings, flow_home, other).
+    request: (what, askedFrom) => ipcRenderer.invoke("openlive:flow-request", what, typeof askedFrom === "string" ? askedFrom : undefined),
     openSettings: (what) => ipcRenderer.invoke("openlive:flow-open-settings", what),
     register: (id, binding) => ipcRenderer.invoke("openlive:flow-register", id, binding),
     unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
@@ -113,7 +141,8 @@ contextBridge.exposeInMainWorld("openlive", {
     // The orb: docked bottom-centre above the dock, summoned by the gesture and
     // gone on the gesture again. The window never resizes; only its content moves.
     summon: () => ipcRenderer.send("openlive:flow-summon"),
-    dismiss: () => ipcRenderer.send("openlive:flow-dismiss"),
+    // `reason`, optional: why it closes (gesture, orb_button, idle, disarmed, sleep_or_lock, other).
+    dismiss: (reason) => ipcRenderer.send("openlive:flow-dismiss", typeof reason === "string" ? reason : undefined),
     // Closing: the main process asks, the orb plays its exit, then answers.
     onHiding: (cb) => { ipcRenderer.removeAllListeners("openlive:flow-hiding"); ipcRenderer.on("openlive:flow-hiding", () => cb()); },
     hidden: () => ipcRenderer.send("openlive:flow-hidden"),
@@ -134,8 +163,10 @@ contextBridge.exposeInMainWorld("openlive", {
     // only one holding the Flow socket) does it, so this has to cross windows.
     resumeSession: (sessionId) => ipcRenderer.send("openlive:flow-resume-session", sessionId),
     onResumeSession: (cb) => listen("openlive:flow-resume-session", cb),
-    // The tray's "New Flow session" while Flow is open: the gesture would close it.
-    onNewSession: (cb) => listen("openlive:flow-new-session", () => cb()),
+    // The tray's "New Flow session". While Flow is open the gesture would close it,
+    // so the owner starts the session itself; closed, main fires the gesture and
+    // this only says the tray was the one that did.
+    onNewSession: (cb) => listen("openlive:flow-new-session", (wasOpen) => cb(!!wasOpen)),
     // Flow's settings were written. The owner renderer holds the registration and
     // the auto-quiet rules, so it has to be told or every change needs a relaunch.
     settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),

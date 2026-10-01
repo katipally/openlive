@@ -4,7 +4,8 @@
 // servers can't start (a dropped node_modules, a missing traced file) fails the
 // build instead of shipping a "service keeps crashing" loop. Also checks every
 // node_modules dist/ holds made it into the package, since the agent loads its
-// native deps lazily and would boot without them. Skips builds this host can't run.
+// native deps lazily and would boot without them, and that the telemetry runtime files
+// main requires at launch are in app.asar. Skips builds this host can't run.
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -43,6 +44,35 @@ async function boot(exe, script, env, url, timeoutMs = 60000) {
   }
 }
 
+/** The paths inside an asar, read from its header (a size pickle, then the JSON tree) so no asar tool is needed. */
+function asarTree(file) {
+  const fd = fs.openSync(file, "r");
+  try {
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const json = Buffer.alloc(head.readUInt32LE(12));
+    fs.readSync(fd, json, 0, json.length, 16);
+    return JSON.parse(json.toString());
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** main.cjs requires these at start-up, so one that electron-builder's `files` missed is a crash on launch. */
+function assertTelemetryPackaged(resources) {
+  const asar = path.join(resources, "app.asar");
+  if (!fs.existsSync(asar)) return;
+  const desktop = path.join(__dirname, "..");
+  const wanted = [
+    "telemetry-map.cjs",
+    ...fs.readdirSync(path.join(desktop, "telemetry")).filter((f) => f.endsWith(".cjs") || f === "schema.json").map((f) => `telemetry/${f}`),
+    ...(fs.existsSync(path.join(desktop, "telemetry-config.json")) ? ["telemetry-config.json"] : []),
+  ];
+  const tree = asarTree(asar);
+  const missing = wanted.filter((rel) => !rel.split("/").reduce((node, part) => node?.files?.[part], tree));
+  if (missing.length) throw new Error(`[smoke-servers] app.asar is missing: ${missing.join(", ")}`);
+}
+
 exports.default = async function smokeServers({ appOutDir, electronPlatformName, arch, packager }) {
   if (electronPlatformName !== process.platform || (arch !== Arch.universal && Arch[arch] !== process.arch)) {
     console.log(`[smoke-servers] skipped: can't run ${electronPlatformName}-${Arch[arch]} here`);
@@ -63,6 +93,7 @@ exports.default = async function smokeServers({ appOutDir, electronPlatformName,
     const missing = fs.existsSync(got) ? fs.readdirSync(want).filter((p) => !p.startsWith(".") && !fs.existsSync(path.join(got, p))) : ["node_modules"];
     if (missing.length) throw new Error(`[smoke-servers] packaged ${server} is missing: ${missing.join(", ")}`);
   }
+  assertTelemetryPackaged(resources);
 
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "openlive-smoke-"));
   try {

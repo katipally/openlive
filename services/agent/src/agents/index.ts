@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { getSetting, setSetting, setChatAgentSession } from "@openlive/db";
 import { isAgentId } from "@openlive/shared";
-import { AcpAgent, callPreamble } from "./acp-agent.js";
+import { AcpAgent, callPreamble, type AcpOpts } from "./acp-agent.js";
 import type { McpServerWire } from "./mcp-config.js";
 import { AgentSupervisor } from "./supervisor.js";
 import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
@@ -27,6 +27,8 @@ export interface BoundHooks {
   mcp?: { wire: McpServerWire; tools: string[] };
   /** A resumed session's transcript is wanted back (the chat is empty). */
   replay?: boolean;
+  /** How the agent's session came up, each time it starts. */
+  onResumed?: AcpOpts["onResumed"];
 }
 export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean };
 export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
@@ -77,8 +79,9 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
     askElicitation: hooks.askElicitation,
     completeElicitation: hooks.completeElicitation,
     replay: hooks.replay,
+    onResumed: hooks.onResumed,
     ...(hooks.mcp && { mcpServers: [hooks.mcp.wire], preamble: callPreamble(hooks.mcp.tools) }),
-  }), askPermission, { startMs: 60_000 });
+  }), askPermission, { startMs: 60_000 }, "call");
 }
 
 /** The folder a Flow-driven coding agent starts in.

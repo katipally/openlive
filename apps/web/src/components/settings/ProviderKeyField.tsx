@@ -7,6 +7,7 @@ import { KeyRound, Check, Trash2, Server, RotateCcw } from "lucide-react";
 // bundle into a client component.
 import { BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, normalizeOllamaUrl } from "@openlive/harness/registry";
 import { api, type AppSettings } from "@/lib/api";
+import { serverSettingsChanged } from "@/lib/settingChanges";
 import { cn } from "@/lib/cn";
 import { Button, Tooltip, Input, fieldTrigger } from "@/components/ui";
 import { cancelDelete, deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
@@ -96,6 +97,7 @@ function OllamaAddressField({ name }: { name: string }) {
     onSuccess: (s) => {
       if (!s) return;
       setUrl("");
+      serverSettingsChanged(s); // an address off this computer is saved by the desktop app, not through api.updateSettings
       qc.setQueryData(["settings"], s);
       void qc.invalidateQueries({ queryKey: ["models"] });
       void qc.invalidateQueries({ queryKey: ["flow-config"] });

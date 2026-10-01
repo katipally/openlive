@@ -3,6 +3,7 @@
 import { createLucideIcon, ExternalLink, RotateCcw } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { resetTours } from "@/components/SpotlightTour";
+import { REPO_URL } from "@/lib/repo";
 import { toast } from "@/lib/toast";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { Section } from "./Section";
@@ -17,8 +18,8 @@ const Github = createLucideIcon("github", [
 export function AboutSettings() {
   const version = useAppVersion();
   const links = [
-    { href: "https://github.com/katipally/openlive", label: "GitHub repository", icon: Github },
-    { href: "https://github.com/katipally/openlive/releases", label: "Releases & changelog", icon: ExternalLink },
+    { href: REPO_URL, label: "GitHub repository", icon: Github },
+    { href: `${REPO_URL}/releases`, label: "Releases & changelog", icon: ExternalLink },
   ];
   return (
     <div className="flex flex-col gap-7">

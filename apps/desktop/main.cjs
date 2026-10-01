@@ -10,11 +10,15 @@ const http = require("node:http");
 const net = require("node:net");
 const crypto = require("node:crypto");
 const os = require("node:os");
-const { powerMonitor } = require("electron");
+const { powerMonitor, net: electronNet } = require("electron");
 const flowInput = require("./flow-input.cjs");
 const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
+const { isExternalUrl } = require("./external-url.cjs");
+const { createTelemetry } = require("./telemetry/index.cjs");
+const { writeAtomic } = require("./telemetry/state.cjs");
+const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 // The app keeps running after one, so the heads-up is a silent notification,
@@ -44,7 +48,8 @@ const DEV = process.env.ELECTRON_DEV === "1";
 // agent prefers 47823 but moves to any free port (ensurePortsFree); the renderer is
 // told which at launch. The web port never moves: its origin keys localStorage and
 // the cached model weights.
-let AGENT_PORT = DEV ? Number(process.env.AGENT_PORT) || 47833 : 47823;
+const AGENT_PORT_PREFERRED = 47823;
+let AGENT_PORT = DEV ? Number(process.env.AGENT_PORT) || 47833 : AGENT_PORT_PREFERRED;
 const WEB_PORT = Number(process.env.WEB_PORT) || (DEV ? 47834 : 47824);
 // MUST be "localhost", not "127.0.0.1": Next dev's HMR websocket rejects a
 // 127.0.0.1 origin (ERR_INVALID_HTTP_RESPONSE), and with Turbopack a dead HMR
@@ -74,6 +79,18 @@ const children = [];
 // would silently quit (exit 0) whenever the installed app is open.
 if (DEV) app.setPath("userData", `${app.getPath("userData")}-dev`);
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
+const telemetry = createTelemetry({
+  userDataDir: app.getPath("userData"),
+  configPath: path.join(__dirname, "telemetry-config.json"),
+  appVersion: app.getVersion(), platform: process.platform, arch: process.arch,
+  archTranslated: !!app.runningUnderARM64Translation,
+  osMajor: osMajor(process.platform, process.getSystemVersion(), os.release()),
+  isPackaged: app.isPackaged, env: process.env, argv: process.argv,
+  electronNet,
+});
+process.on("uncaughtException", () => telemetry.track("main_exception", { process: "main", kind: "uncaught" }));
+process.on("unhandledRejection", () => telemetry.track("main_exception", { process: "main", kind: "unhandled_rejection" }));
+const trackSetting = (setting, value) => telemetry.track("setting_changed", { setting, value });
 // Before the servers are up there is no page to show; boot opens the window itself.
 let serversUp = false;
 app.on("second-instance", () => { if (serversUp) restoreMainWindow(); });
@@ -177,11 +194,13 @@ const pidFile = () => path.join(app.getPath("userData"), "server-pids.json");
 function recordServerPids() {
   try { fs.writeFileSync(pidFile(), JSON.stringify(children.map((c) => c.pid).filter(Boolean))); } catch { /* best-effort */ }
 }
+/** True when the last run left pids behind: it did not get to shut down cleanly. */
 function reapRecordedPids() {
   let pids = [];
-  try { pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return; }
+  try { pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return false; }
   for (const pid of pids) if (alive(pid)) { console.error(`[main] reaping stale server pid ${pid}`); killTree(pid, "SIGKILL"); }
   try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
+  return pids.length > 0;
 }
 
 // Make both ports bindable before we spawn, or explain why we can't. Reap our own
@@ -189,8 +208,9 @@ function reapRecordedPids() {
 // ours. A foreign app on the agent's port just moves the agent; on the web port it
 // gets ONE clear message (respawning can't fix that; issue #6's "web service keeps
 // crashing" loop was exactly this case).
+let uncleanPrevExit = false;
 async function ensurePortsFree() {
-  reapRecordedPids();
+  uncleanPrevExit = reapRecordedPids();
   for (const port of [AGENT_PORT, WEB_PORT]) {
     const h = portHolder(port);
     if (h && h.ours) { console.error(`[main] killing stale ${h.name} (pid ${h.pid}) on port ${port}`); killTree(h.pid, "SIGKILL"); }
@@ -223,33 +243,44 @@ async function ensurePortsFree() {
 // with its own Dock tile, while the Helper these run under is LSUIElement. They
 // also die with this process.
 const restarts = {}; // name → { count, first }
+const serviceLabel = (name) => `${app.getName()} ${name}`;
+const OWN_SERVICES = new Set(["agent", "web"].map(serviceLabel));
 function spawnServer(name, scriptRel, env) {
   const script = path.join(process.resourcesPath, scriptRel);
   const child = utilityProcess.fork(script, [], {
     env: { ...process.env, ...env },
     stdio: "inherit",
-    serviceName: `${app.getName()} ${name}`,
+    serviceName: serviceLabel(name),
   });
+  const spawnedAt = Date.now();
   child.once("spawn", recordServerPids);
+  // Only the agent reports this way; web-side results reach main from the renderer.
+  if (name === "agent") child.on("message", (msg) => telemetry.handleAgentMessage(msg));
   child.on("exit", (code) => {
     const i = children.indexOf(child); if (i >= 0) children.splice(i, 1);
     recordServerPids();
     if (app.isQuitting || !code) return;
     console.error(`[${name}] exited with ${code}`);
+    const crashed = (outcome, respawn_n) => telemetry.track("service_crashed", {
+      service: name, exit_code: exitCode(code), respawn_n, outcome, uptime_s: (Date.now() - spawnedAt) / 1000,
+    });
     // A dead server whose port is now held by a FOREIGN app can't be fixed by
     // respawning — say so once instead of the 5×-crash loop.
     const port = name === "agent" ? AGENT_PORT : WEB_PORT;
     const h = portHolder(port);
     if (h && !h.ours) {
+      crashed("port_taken_by_other");
       dialog.showErrorBox("OpenLive can't start", `Port ${port} is being used by another program${h.name ? ` (${h.name})` : ""}. Close it and relaunch OpenLive.`);
       return;
     }
     const r = (restarts[name] ||= { count: 0, first: Date.now() });
     if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
     if (++r.count > 5) {
+      crashed("gave_up", r.count);
       dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Relaunch the app; if it keeps happening, check that nothing else is using ports ${AGENT_PORT} and ${WEB_PORT}, and please attach any console output to a GitHub issue.`);
       return;
     }
+    crashed("respawning", r.count);
     setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
   });
   children.push(child);
@@ -391,6 +422,8 @@ function glassSupportNow() {
 
 const pageBg = () => (nativeTheme.shouldUseDarkColors ? PAGE_BG.dark : PAGE_BG.light);
 const isMainWc = (wc) => !!mainWin && !mainWin.isDestroyed() && wc === mainWin.webContents;
+/** Whether an IPC message came from `win`'s page. */
+const sentBy = (e, win) => !!win && !win.isDestroyed() && e.sender === win.webContents;
 
 /** What a page needs to draw itself. Only the main window wears the look: the
  *  owner is never shown and the orb keeps its own. `probe` asks the renderer to
@@ -451,11 +484,14 @@ function wireAppearance() {
   ipcMain.handle("openlive:appearance-set", (e, patch) => {
     let changed = false;
     if (THEMES.has(patch?.theme) && patch.theme !== appearance.theme) {
+      // The page reports its theme on every mount, so the first report is a sync, not a choice.
+      if (appearance.theme) trackSetting("theme", patch.theme);
       appearance.theme = patch.theme;
       nativeTheme.themeSource = patch.theme;
       changed = true;
     }
     if ((patch?.look === "glass" || patch?.look === "flat") && patch.look !== appearance.look) {
+      trackSetting("look", patch.look);
       appearance.look = patch.look;
       changed = true;
     }
@@ -533,11 +569,12 @@ function createMainWindow() {
   for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
   // A backstop for OS settings that change without telling nativeTheme.
   mainWin.on("focus", refreshLook);
+  mainWin.on("focus", () => telemetry.markActiveDay("main_window"));
 
   // Open external http(s) links (docs, etc.) in the real browser; DENY every other
   // popup (file:, data:, etc.) rather than letting it open an in-app window.
   mainWin.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    if (isExternalUrl(url)) shell.openExternal(url);
     return { action: "deny" };
   });
   // Keep the main frame pinned to our own UI: an in-page navigation to anywhere
@@ -545,7 +582,7 @@ function createMainWindow() {
   mainWin.webContents.on("will-navigate", (e, url) => {
     if (url.startsWith(WEB_URL)) return;
     e.preventDefault();
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    if (isExternalUrl(url)) shell.openExternal(url);
   });
 
   mainWin.loadURL(WEB_URL);
@@ -555,6 +592,7 @@ function createMainWindow() {
     refreshTray();
     // DevTools available via View menu / Cmd+Opt+I — not auto-opened (it covered the UI).
   });
+  mainWin.on("session-end", onSessionEnd);
   // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
   // has to re-read this (its "Open OpenLive" is now the only way back).
   // Flow is ambient: it belongs to the machine, not to this window. Closing or
@@ -565,12 +603,13 @@ function createMainWindow() {
   // orb must not keep showing a call that is gone.
   mainWin.on("closed", () => {
     mainWin = null;
+    if (callState) telemetry.closeCall("window_closed");
     callState = null;
     syncCallOrb();
     refreshTray();
     syncDock();
     // No tray (some Linux desktops have none): nothing would be left to quit from.
-    if (!tray && process.platform !== "darwin") quitApp();
+    if (!tray && process.platform !== "darwin") quitApp("no_tray");
   });
   for (const ev of ["show", "hide"]) mainWin.on(ev, () => { refreshTray(); syncDock(); });
   for (const ev of ["show", "hide", "minimize", "restore"]) mainWin.on(ev, syncCallOrb);
@@ -623,6 +662,9 @@ const FLOW_EXIT_MS = 300;
 let ownerWin = null;
 let flowWin = null;
 let flowHiding = null;
+// Why the open Flow ends, as the dismiss that starts the exit says. Later dismisses
+// of the same exit (the renderer answering a tray disarm) are ignored.
+let flowEndedBy = "other";
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
@@ -664,6 +706,7 @@ function createOwnerWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, additionalArguments: agentArgs() },
   });
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
+  ownerWin.on("session-end", onSessionEnd);
   ownerWin.on("closed", () => { ownerWin = null; });
   return ownerWin;
 }
@@ -705,6 +748,13 @@ function createFlowWindow() {
 
 function summonFlow() {
   const win = createFlowWindow();
+  // A summon of an open Flow (a resumed session, a new turn) is the same open.
+  if (!flowSummoned) {
+    telemetry.openFlow();
+    telemetry.markActiveDay("flow");
+    telemetry.reportOnboardingStep("first_flow_summon");
+  }
+  flowEndedBy = "other";
   flowSummoned = true;
   // The window may be up showing a call; Flow's own orb takes over from it.
   win.webContents.send("openlive:call-orb", null);
@@ -727,9 +777,10 @@ function summonFlow() {
 }
 
 /** The renderer plays its exit, then says so; the timeout hides it regardless. */
-function dismissFlow() {
+function dismissFlow(reason) {
   if (!flowWin || flowWin.isDestroyed() || !flowSummoned || flowHiding) return;
-  if (!flowWin.isVisible()) { flowSummoned = false; syncCallOrb(); return; }
+  flowEndedBy = reason;
+  if (!flowWin.isVisible()) { flowSummoned = false; telemetry.closeFlow(flowEndedBy); syncCallOrb(); return; }
   setClickThrough(flowWin, true);
   flowWin.webContents.send("openlive:flow-hiding");
   flowHiding = setTimeout(finishDismissFlow, FLOW_EXIT_MS);
@@ -739,6 +790,7 @@ function finishDismissFlow() {
   clearTimeout(flowHiding);
   flowHiding = null;
   flowSummoned = false;
+  telemetry.closeFlow(flowEndedBy);
   if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
   syncCallOrb();
 }
@@ -775,18 +827,21 @@ async function expandFlow(to) {
  *  session there instead, and leaves a turn that is still running alone. */
 const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
 function startFlowFromTray() {
-  if (flowSummoned) {
-    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session");
-    return;
-  }
-  try { flowInput.load().triggerExternal(FLOW_BINDING, true); }
-  catch (e) { console.error("[main] tray flow:", e); }
+  const tell = (wasOpen) => {
+    if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session", wasOpen);
+  };
+  if (flowSummoned) return tell(true);
+  try {
+    flowInput.load().triggerExternal(FLOW_BINDING, true);
+    // The trigger reaches the owner as an effect from the addon's thread, later than this send.
+    tell(false);
+  } catch (e) { console.error("[main] tray flow:", e); }
 }
 
 function wireFlowIpc() {
-  flowRuntime.install();
+  flowRuntime.install(telemetry);
   ipcMain.on("openlive:flow-summon", summonFlow);
-  ipcMain.on("openlive:flow-dismiss", dismissFlow);
+  ipcMain.on("openlive:flow-dismiss", (_e, reason) => dismissFlow(flowEndReason(reason)));
   // The renderer owns the hit test: the orb and its controls take clicks, the
   // empty air around them does not.
   ipcMain.on("openlive:flow-interactive", (_e, on) => setClickThrough(flowWin, !on));
@@ -809,8 +864,10 @@ function wireFlowIpc() {
 /** The quick disarm, from the tray or from the Flow window. One state, told to
  *  everyone who draws it, so the tray and the window can never disagree. */
 function setFlowArmed(next) {
+  const was = flowInput.isArmed();
   const armed = flowInput.setArmed(next);
-  if (!armed) dismissFlow();
+  if (armed !== was) trackSetting("flow_armed", armed ? "on" : "off");
+  if (!armed) dismissFlow("disarmed");
   for (const win of [mainWin, ownerWin, flowWin]) {
     if (win && !win.isDestroyed()) win.webContents.send("openlive:flow-armed", armed);
   }
@@ -823,6 +880,7 @@ function setFlowArmed(next) {
 // so it is never out of reach. A summoned Flow takes the window over and the
 // call comes back when Flow closes.
 let callState = null;     // { muted, startedAt } while a call is live, else null
+let callEndedBy = "other"; // what main knows of why it ends; the renderer's own reason outranks it
 let flowSummoned = false;
 
 const callOrbWanted = () => !!callState && !!mainWin && !mainWin.isDestroyed()
@@ -850,6 +908,7 @@ function syncCallOrb() {
 /** Bring the app forward. Shared by the tray menu, the orb's call controls, and
  *  notification clicks. */
 async function restoreMainWindow() {
+  telemetry.markActiveDay("tray");
   await showDock();
   if (!mainWin) { // its ready-to-show shows + refreshes
     createMainWindow();
@@ -879,6 +938,7 @@ let tray = null;
 const TRAY_READINESS = { ready: "Flow: Ready", stopped: "Flow: Key listener stopped", access: "Flow: Needs Accessibility", off: "Flow: Off" };
 const TRAY_READINESS_POLL_MS = 3000;
 let trayReadiness = "off";
+let reportedReadiness = null;
 const TRAY_PLACE = process.platform === "darwin" ? "menu bar" : "tray";
 
 /** macOS: the Dock icon is there only while the main window is.
@@ -899,7 +959,7 @@ function showDock() {
 /** ⌘Q, Ctrl+Q and the Dock's Quit: close the windows, keep Flow running. The
  *  tray's Quit is the one real quit. */
 function closeToMenuBar() {
-  if (!tray) { quitApp(); return; } // nowhere to live on
+  if (!tray) { quitApp("app_menu"); return; } // nowhere to live on
   if (mainWin) mainWin.close();
   if (firstTime("closedToMenuBar") && Notification.isSupported()) {
     const n = new Notification({ title: `OpenLive is still running in the ${TRAY_PLACE}`, body: `Flow stays ready. Quit from the ${TRAY_PLACE} icon.`, silent: true });
@@ -908,9 +968,18 @@ function closeToMenuBar() {
   }
 }
 
-function quitApp() {
+/** `via` says which path asked, for app_quit: tray_menu, app_menu, no_tray or boot_failed. */
+function quitApp(via) {
+  telemetry.onQuit(via);
   app.isQuitting = true;
   app.quit();
+}
+
+/** The readiness the poll just saw, with the grants behind it. Telemetry sends only a change. */
+function reportReadiness(to) {
+  let grants = {};
+  try { grants = permissionFacts(flowInput.load().permissionStatus()); } catch { /* the addon said nothing */ }
+  telemetry.reportReadiness({ to, ...grants, linux_session: linuxSession(process.platform, ORB_POINTER) });
 }
 
 function createTray() {
@@ -923,9 +992,19 @@ function createTray() {
     refreshTray();
     // A grant, or a key listener dying, is never announced, so the label is
     // re-read and the menu rebuilt only when it would say something different.
-    setInterval(() => { if (flowInput.readiness() !== trayReadiness) refreshTray(); }, TRAY_READINESS_POLL_MS).unref();
+    setInterval(() => {
+      const readiness = flowInput.readiness();
+      if (readiness !== trayReadiness) refreshTray();
+      if (readiness !== reportedReadiness) { reportedReadiness = readiness; reportReadiness(readiness); }
+    }, TRAY_READINESS_POLL_MS).unref();
   } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
 }
+
+/** A tray menu click: counted, then run. */
+const fromTray = (action, run) => () => {
+  telemetry.track("tray_action", { action });
+  run();
+};
 
 /** Rebuild the tray menu against the CURRENT state: a menu built once at boot
  *  would quietly lie about modes you are in or out of. */
@@ -941,17 +1020,17 @@ function refreshTray() {
     // Always enabled: `isVisible()` stays true for a window that's merely BEHIND
     // another app, so gating on it would grey out the one control that brings
     // OpenLive forward — the commonest reason to reach for the tray at all.
-    { label: "Open OpenLive", click: () => restoreMainWindow() },
+    { label: "Open OpenLive", click: fromTray("open", restoreMainWindow) },
     // Enabled only when a double tap would work, and says why not otherwise.
     { label: trayReadiness === "ready" ? "New Flow session" : `New Flow session (${TRAY_READINESS[trayReadiness].replace("Flow: ", "")})`,
-      enabled: trayReadiness === "ready", click: startFlowFromTray },
-    ...(trayReadiness === "access" ? [{ label: "Allow Accessibility…", click: () => void flowInput.request("accessibility").catch((e) => console.error("[main] tray access:", e)) }] : []),
-    { label: "Flow armed", type: "checkbox", checked: armed, click: () => setFlowArmed(!armed) },
+      enabled: trayReadiness === "ready", click: fromTray("new_flow", startFlowFromTray) },
+    ...(trayReadiness === "access" ? [{ label: "Allow Accessibility…", click: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))) }] : []),
+    { label: "Flow armed", type: "checkbox", checked: armed, click: fromTray("arm_toggle", () => setFlowArmed(!armed)) },
     { type: "separator" },
-    { label: "Settings…", click: () => openSettings() },
-    { label: "Flow settings…", click: () => expandFlow("flow-settings") },
+    { label: "Settings…", click: fromTray("settings", openSettings) },
+    { label: "Flow settings…", click: fromTray("flow_settings", () => expandFlow("flow-settings")) },
     { type: "separator" },
-    { label: "Quit OpenLive", click: quitApp },
+    { label: "Quit OpenLive", click: fromTray("quit", () => quitApp("tray_menu")) },
   ]));
 }
 
@@ -971,7 +1050,6 @@ function wireNotifyIpc() {
 
 function wirePanelIpc() {
   // Flow's owner renderer publishes to the orb; the orb's commands go back to it.
-  const sentBy = (e, win) => !!win && !win.isDestroyed() && e.sender === win.webContents;
   ipcMain.on("openlive:panel-state", (e, s) => {
     if (sentBy(e, ownerWin) && flowWin && !flowWin.isDestroyed()) flowWin.webContents.send("openlive:panel-state", s);
   });
@@ -981,14 +1059,24 @@ function wirePanelIpc() {
   // The main window's call, for the orb: null once it ends.
   ipcMain.on("openlive:call-state", (e, s) => {
     if (!sentBy(e, mainWin)) return;
+    const was = callState;
     callState = s ? { muted: !!s.muted, startedAt: Number(s.startedAt) || Date.now() } : null;
+    if (!was && callState) {
+      callEndedBy = "other";
+      telemetry.openCall();
+      telemetry.markActiveDay("call");
+      telemetry.reportOnboardingStep("first_call");
+    } else if (was && !callState) telemetry.closeCall(callEndedBy);
     syncCallOrb();
   });
   // The orb's call controls. Open is the window's business, the rest the call's.
   ipcMain.on("openlive:call-cmd", (e, c) => {
     if (!sentBy(e, flowWin)) return;
     if (c?.t === "expand") restoreMainWindow();
-    else if ((c?.t === "mute" || c?.t === "end") && mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:panel-cmd", c);
+    else if ((c?.t === "mute" || c?.t === "end") && mainWin && !mainWin.isDestroyed()) {
+      if (c.t === "end") callEndedBy = "orb_end";
+      mainWin.webContents.send("openlive:panel-cmd", c);
+    }
   });
 }
 
@@ -1030,8 +1118,14 @@ function wireWindowIpc() {
     // Rebuild the menu: the same switch lives in Settings → General AND the app
     // menu, and the menu's checkbox is captured when it's built — flipping it here
     // left the two disagreeing until the next launch.
-    if (typeof v === "boolean") { loginItem(v); buildMenu(); }
+    if (typeof v === "boolean") { loginItem(v); buildMenu(); trackSetting("login_item", v ? "on" : "off"); }
     return loginItem();
+  });
+  // Settings → General: whether a screen lock ends Flow and calls. Invoke with a
+  // boolean to set; with undefined to just read.
+  ipcMain.handle("openlive:end-on-lock", (_e, v) => {
+    if (typeof v === "boolean") setEndOnLock(v);
+    return endOnLock;
   });
   // Settings → Models: an Ollama address off this computer. Page script can call
   // this too, so the person answers a native dialog naming the host, and only
@@ -1046,6 +1140,7 @@ function wireWindowIpc() {
     try { u = new URL(value); } catch {}
     if (u?.protocol !== "http:" && u?.protocol !== "https:") return { error: "Enter an http:// or https:// address, like http://localhost:11434." };
     confirmingOllama = true;
+    let outcome = "error";
     try {
       const win = BrowserWindow.fromWebContents(e.sender);
       const opts = {
@@ -1058,18 +1153,20 @@ function wireWindowIpc() {
         detail: `${u.protocol}//${u.host} is not on this computer. Flow and Chat will send it what you say and type, and screen content, including screenshots from tools.`,
       };
       const { response } = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts));
-      if (response !== 1) return { cancelled: true };
+      if (response !== 1) { outcome = "cancelled"; return { cancelled: true }; }
       const res = await fetch(`${WEB_URL}/api/settings`, {
         method: "PUT",
         headers: { "content-type": "application/json", "x-openlive-confirmed": SETTINGS_TOKEN },
         body: JSON.stringify({ ollamaBaseUrl: value }),
       });
       const body = await res.json().catch(() => ({}));
+      if (res.ok) outcome = "accepted";
       return res.ok ? { settings: body } : { error: body.error || "Couldn't save the address." };
     } catch {
       return { error: "Couldn't save the address." };
     } finally {
       confirmingOllama = false;
+      telemetry.track("remote_ollama_prompt", { outcome, scheme: u.protocol === "https:" ? "https" : "http" });
     }
   });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
@@ -1086,19 +1183,77 @@ function wireWindowIpc() {
   });
 }
 
+// ── screen lock: does it end Flow and calls the way sleep does? ──────────────
+// On by default; a person who keeps working across a lock (a long call, a running
+// task) can turn it off. Sleep is never up to them. Electron emits lock-screen and
+// unlock-screen on macOS and Windows only, so on Linux this has no effect.
+const preferencesFile = () => path.join(app.getPath("userData"), "preferences.json");
+let endOnLock = true;
+
+function loadPreferences() {
+  try { endOnLock = JSON.parse(fs.readFileSync(preferencesFile(), "utf8")).endOnLock !== false; } catch { /* first run: the default */ }
+}
+function setEndOnLock(on) {
+  if (on === endOnLock) return;
+  endOnLock = on;
+  try { writeAtomic(fs, preferencesFile(), JSON.stringify({ endOnLock })); } catch { /* best-effort */ }
+  trackSetting("end_on_lock", on ? "on" : "off");
+}
+
 // ── power events → renderer (pause the mic/VAD cleanly instead of waking up
 // with a stuck pipeline after the laptop slept mid-call) ──────────────────────
 function wirePowerEvents() {
-  const send = (state) => {
-    for (const win of [mainWin, ownerWin]) if (win && !win.isDestroyed()) win.webContents.send("openlive:power", state);
+  const send = (event) => {
+    const state = powerSignal(event, endOnLock);
+    if (state) for (const win of [mainWin, ownerWin]) if (win && !win.isDestroyed()) win.webContents.send("openlive:power", state);
   };
-  powerMonitor.on("suspend", () => send("suspend"));
-  powerMonitor.on("lock-screen", () => send("suspend"));
-  powerMonitor.on("resume", () => send("resume"));
-  powerMonitor.on("unlock-screen", () => send("resume"));
+  for (const event of ["suspend", "lock-screen", "resume", "unlock-screen"]) powerMonitor.on(event, () => send(event));
   // Logout / restart / shutdown (macOS, Linux) must never be held up by
   // before-quit's close-to-menu-bar. Windows skips before-quit for these anyway.
-  powerMonitor.on("shutdown", () => { app.isQuitting = true; });
+  powerMonitor.on("shutdown", () => { app.isQuitting = true; telemetry.onQuit("os_shutdown"); });
+}
+
+// Windows ends the session on logoff, restart and shutdown without before-quit, and gives
+// no time after this: all of it is synchronous. Our servers die with the session, so
+// their pids are not stale and the next launch must not read them as a crash.
+let sessionEnded = false;
+function onSessionEnd() {
+  if (sessionEnded) return;
+  sessionEnded = true;
+  app.isQuitting = true;
+  telemetry.onQuit("os_shutdown");
+  try { fs.writeFileSync(pidFile(), "[]"); } catch { /* best-effort */ }
+}
+
+// ── telemetry: what pages and Chromium report ────────────────────────────────
+// Only the main window and Flow's owner may speak (the orb only draws), and each
+// message is checked against the schema in telemetry before it is kept.
+function wireTelemetryIpc() {
+  const fromApp = (e) => sentBy(e, mainWin) || sentBy(e, ownerWin);
+  ipcMain.on("openlive:telemetry", (e, msg) => { if (fromApp(e)) telemetry.handleRendererMessage(msg); });
+  ipcMain.handle("openlive:telemetry-get", (e) => (fromApp(e) ? telemetry.getStatus() : null));
+  ipcMain.handle("openlive:telemetry-set", (e, enabled, from) => {
+    if (fromApp(e) && typeof enabled === "boolean") return telemetry.setEnabled(enabled, from === "notice" ? "notice" : "settings");
+  });
+  ipcMain.handle("openlive:telemetry-feedback-next", (e) => (fromApp(e) ? telemetry.feedbackNext() : null));
+  ipcMain.handle("openlive:telemetry-feedback-allow", (e, allowed) => { if (fromApp(e) && typeof allowed === "boolean") telemetry.setFeedback(allowed); });
+}
+
+// A quit tears processes down on purpose, so nothing here counts while one runs. Our own
+// servers are left to service_crashed. No crash reporter runs: these events are the whole story.
+function wireCrashReports() {
+  const wcOf = (win) => (win && !win.isDestroyed() ? win.webContents : null);
+  app.on("render-process-gone", (_e, wc, details) => {
+    const reason = crashReason(details?.reason);
+    if (!reason || app.isQuitting) return;
+    const target = renderTarget(wc, { main_window: wcOf(mainWin), flow_owner: wcOf(ownerWin), flow_orb: wcOf(flowWin), splash: wcOf(splashWin) });
+    telemetry.track("crash_detected", { source: "renderer", reason, target, exit_code: exitCode(details.exitCode) });
+  });
+  app.on("child-process-gone", (_e, details) => {
+    const reason = crashReason(details?.reason);
+    if (!reason || app.isQuitting || OWN_SERVICES.has(details.name) || OWN_SERVICES.has(details.serviceName)) return;
+    telemetry.track("crash_detected", { source: childSource(details.type), reason, target: "none", exit_code: exitCode(details.exitCode) });
+  });
 }
 
 // ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
@@ -1151,7 +1306,7 @@ function buildMenu() {
   // ⌘Q keeps OpenLive (and Flow) in the menu bar; quitting is a deliberate act.
   const closeItems = [
     { label: `Close to ${isMac ? "Menu Bar" : "Tray"}`, accelerator: "CmdOrCtrl+Q", click: closeToMenuBar },
-    { label: "Quit OpenLive", click: quitApp },
+    { label: "Quit OpenLive", click: () => quitApp("app_menu") },
   ];
   const template = [
     ...(isMac ? [{ role: "appMenu", submenu: [
@@ -1160,7 +1315,7 @@ function buildMenu() {
       { type: "separator" },
       { label: "Settings…", accelerator: "CmdOrCtrl+,", click: () => openSettings() },
       { label: "Open at Login", type: "checkbox", checked: loginItem(),
-        click: (mi) => loginItem(mi.checked) },
+        click: (mi) => { loginItem(mi.checked); trackSetting("login_item", mi.checked ? "on" : "off"); } },
       { type: "separator" },
       { role: "hide" }, { role: "hideOthers" }, { role: "unhide" },
       { type: "separator" }, ...closeItems,
@@ -1194,13 +1349,21 @@ function initAutoUpdate() {
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true; // if they pick "Later", install on next quit
   updater.on("checking-for-update", () => console.log("[updater] checking…"));
-  updater.on("update-available", (i) => console.log("[updater] update available:", i?.version));
+  updater.on("update-available", (i) => {
+    console.log("[updater] update available:", i?.version);
+    telemetry.track("update_result", { stage: "available", to_version: i?.version, manual: manualCheck });
+    manualCheck = false;
+  });
   updater.on("update-not-available", () => {
     console.log("[updater] up to date");
-    if (manualCheck) { manualCheck = false; if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: "You're up to date", detail: `OpenLive ${app.getVersion()} is the latest version.` }); }
+    if (!manualCheck) return;
+    manualCheck = false;
+    telemetry.track("update_result", { stage: "up_to_date", manual: true });
+    if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: "You're up to date", detail: `OpenLive ${app.getVersion()} is the latest version.` });
   });
   updater.on("download-progress", (p) => console.log(`[updater] downloading ${Math.round(p?.percent || 0)}%`));
   updater.on("update-downloaded", async ({ version }) => {
+    telemetry.track("update_result", { stage: "downloaded", to_version: version });
     // Menu-bar-only there is no window to hang the ask on, and a parentless
     // dialog from a background app opens behind whatever is in front.
     if (process.platform === "darwin" && !mainWin?.isVisible()) app.focus({ steal: true });
@@ -1208,10 +1371,18 @@ function initAutoUpdate() {
       type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
       message: `OpenLive ${version} is ready`, detail: "Restart to finish updating.",
     });
-    if (response === 0) { app.isQuitting = true; await killChildren(); updater.quitAndInstall(); }
+    telemetry.track("update_result", { stage: response === 0 ? "restart_now" : "restart_later", to_version: version });
+    if (response === 0) {
+      telemetry.onQuit("update_restart");
+      app.isQuitting = true;
+      await killChildren();
+      try { updater.quitAndInstall(); } catch (e) { console.error("[updater]", e?.message || e); telemetry.resume(); }
+    }
   });
   updater.on("error", (e) => {
     console.error("[updater]", e?.message || e);
+    telemetry.resume(); // an install that fails after "Restart now" leaves the app running
+    telemetry.track("update_result", { stage: "failed", error_kind: updaterErrorKind(e), manual: manualCheck });
     if (manualCheck) { manualCheck = false; if (mainWin) dialog.showMessageBox(mainWin, { type: "warning", message: "Couldn't check for updates", detail: String(e?.message || e) }); }
   });
   updater.checkForUpdates().catch(() => {});
@@ -1225,12 +1396,35 @@ function checkForUpdatesNow() {
   updater.checkForUpdates().catch((e) => console.error("[updater] manual check:", e?.message || e));
 }
 
+/** app_launch, once boot has an answer. boot_ms runs from process start to both servers answering, so only a good boot has one. */
+function reportLaunch(launchKind, bootResult, startedAt) {
+  telemetry.track("app_launch", {
+    launch_kind: launchKind,
+    boot_result: bootResult,
+    ...(bootResult === "ok" && { boot_ms: Date.now() - startedAt }),
+    agent_port_moved: !DEV && AGENT_PORT !== AGENT_PORT_PREFERRED,
+    prev_exit_clean: !uncleanPrevExit,
+    login_item: loginItem(),
+    linux_session: linuxSession(process.platform, ORB_POINTER),
+    look,
+    glass_blocked_by: glassSupportNow().reason ?? "none",
+    theme: THEMES.has(appearance.theme) ? appearance.theme : "system",
+  });
+}
+
 async function boot() {
+  const startedAt = process.getCreationTime() ?? Date.now();
+  const openedAtLogin = process.argv.includes(HIDDEN_ARG)
+    || (process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin);
+  const launchKind = openedAtLogin ? "login" : "manual";
+  // Before anything creates once.json: what userData already holds is how a new install tells from an upgrade.
+  telemetry.start({ launchKind });
   // The packaged app takes its dock icon from icon.icns; the dev binary would show Electron's.
   if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, "build", "icon.png"));
   buildMenu();
   createTray();
   loadAppearance();
+  loadPreferences();
   wireAppearance();
   wirePermissions();
   wirePanelIpc();
@@ -1238,25 +1432,30 @@ async function boot() {
   wireWindowIpc();
   wireBridgeIpc();
   wirePowerEvents();
+  wireTelemetryIpc();
+  wireCrashReports();
   wireFlowIpc();
   // Hook effects drive Flow's cascade, which lives in the owner renderer.
-  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null));
+  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry);
   // Open at login by default, once, for the installed app only (never the dev
   // binary). After that the person's choice in Settings stands.
   if (app.isPackaged && firstTime("loginItemDefault") && !loginItem()) loginItem(true);
   // A login launch comes up as just the tray, with Flow ready.
-  const hidden = !!tray && (process.argv.includes(HIDDEN_ARG)
-    || (process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin));
+  const hidden = !!tray && openedAtLogin;
   if (hidden && process.platform === "darwin") app.dock.hide();
   if (!hidden) createSplash();
-  if (!(await startServers())) { quitApp(); return; } // ensurePortsFree already explained why
+  const started = await startServers();
+  if (uncleanPrevExit) telemetry.track("crash_detected", { source: "main_previous_run", reason: "unclean_exit", target: "none" });
+  if (!started) { reportLaunch(launchKind, "ports_blocked", startedAt); quitApp("boot_failed"); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
   if (!ok) {
+    reportLaunch(launchKind, "servers_timeout", startedAt);
     dialog.showErrorBox("OpenLive couldn't start", `The local servers didn't come up. Try relaunching.`);
-    quitApp();
+    quitApp("boot_failed");
     return;
   }
   serversUp = true;
+  reportLaunch(launchKind, "ok", startedAt);
   if (!hidden && !mainWin) createMainWindow();
   // Flow is armed whenever the app runs, with or without a visible window.
   createOwnerWindow();
@@ -1270,7 +1469,7 @@ app.whenReady().then(boot);
 app.on("activate", () => { if (serversUp && !mainWin) restoreMainWindow(); });
 // With a tray, OpenLive lives on in it on every platform; without one, closing
 // everything has to quit or the process is left invisible and unquittable.
-app.on("window-all-closed", () => { if (!tray) quitApp(); });
+app.on("window-all-closed", () => { if (!tray) quitApp("no_tray"); });
 
 // Tear the server children (and their whole trees) down cleanly on quit: SIGTERM the
 // servers (the agent takes its own children down as it exits), give them up to 2s to exit gracefully, then SIGKILL any survivor. Without
@@ -1298,6 +1497,7 @@ app.on("before-quit", (e) => {
     return;
   }
   app.isQuitting = true;
+  telemetry.onQuit("other"); // a quit no path above named; a no-op after one that did
   if (cleanedUp || DEV || children.length === 0) return; // nothing of ours to reap
   e.preventDefault();               // hold the quit until the trees are gone…
   killChildren().finally(() => app.quit()); // …then let it through (cleanedUp now short-circuits)

@@ -10,6 +10,7 @@ import { toolMeta } from "@/lib/live/toolMeta";
 import { captionWindow } from "@/lib/live/voiceText";
 import { captionWords, wordsHeard } from "@openlive/shared/speech/timing";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
 import { Orb } from "./Orb";
 import { CameraPiP } from "./CameraPiP";
 import { ScreenTile } from "./ScreenTile";
@@ -117,7 +118,7 @@ export function InCall(props: InCallProps) {
       const t = e.target as HTMLElement | null;
       const { permission, elicitation } = useLiveStore.getState();
       if (useUi.getState().settingsOpen || permission || elicitation || document.querySelector('[aria-modal="true"]') || isTextTarget(t)) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); handleEnd(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); featureUsed("n_call_shortcut"); handleEnd(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       switch (e.key) {
         case "m": case "M": toggleMute(); break;
@@ -127,6 +128,7 @@ export function InCall(props: InCallProps) {
         case "h": case "H": toggleHistory(); break;
         default: return;
       }
+      featureUsed("n_call_shortcut");
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);

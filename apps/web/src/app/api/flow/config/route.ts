@@ -6,14 +6,15 @@ import { envKeyFor, resolveApiMode } from "@openlive/harness";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Flow's settings, plus the one thing the runtime cannot work out for itself:
-// whether there is a brain to think with.
+// Flow's settings, plus what the runtime cannot work out for itself: whether
+// there is a brain to think with, and which one (its kind and the provider or
+// agent id, for a failure's report).
 
-function brainReady(config: FlowConfig): boolean {
+function brainOf(config: FlowConfig) {
   const brain = flowBrain(config);
-  return brain.kind === "acp"
-    ? !!brain.agentId
-    : resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p)).ready;
+  if (brain.kind === "acp") return { brainReady: !!brain.agentId, brainKind: "acp" as const, brainId: brain.agentId };
+  const mode = resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p));
+  return { brainReady: mode.ready, brainKind: "api" as const, brainId: mode.provider.id };
 }
 
 const failed = (e: unknown) =>
@@ -22,7 +23,7 @@ const failed = (e: unknown) =>
 export function GET() {
   try {
     const config = readFlowConfig();
-    return NextResponse.json({ config, brainReady: brainReady(config) });
+    return NextResponse.json({ config, ...brainOf(config) });
   } catch (e) { return failed(e); }
 }
 
@@ -52,6 +53,6 @@ export async function PATCH(req: Request) {
   try {
     const config = await updateFlowConfig((cur) => settle && cur.voice.turnOverride !== null ? cur
       : merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
-    return NextResponse.json({ config, brainReady: brainReady(config) });
+    return NextResponse.json({ config, ...brainOf(config) });
   } catch (e) { return failed(e); }
 }

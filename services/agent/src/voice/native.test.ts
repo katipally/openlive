@@ -11,12 +11,16 @@ const w = vi.hoisted(() => {
   const { EventEmitter } = require("node:events") as typeof import("node:events");
   const posted: Array<{ op: string; id?: number; [k: string]: unknown }> = [];
   let current: InstanceType<typeof EventEmitter> | null = null;
+  const all: Array<InstanceType<typeof EventEmitter> & { ops: string[] }> = [];
   class Worker extends EventEmitter {
-    constructor() { super(); current = this; }
-    postMessage(m: { op: string; id?: number }) { posted.push(m); }
+    ops: string[] = [];
+    constructor() { super(); current = this; all.push(this); }
+    postMessage(m: { op: string; id?: number }) { posted.push(m); this.ops.push(m.op); }
     unref() {}
   }
-  return { posted, Worker, reply: (e: object) => current!.emit("message", e) };
+  /** The newest worker that was sent `op`: each kind has a worker of its own, and `current` is only the last built. */
+  const holding = (op: string) => all.filter((x) => x.ops.includes(op)).at(-1)!;
+  return { posted, Worker, reply: (e: object) => current!.emit("message", e), holding };
 });
 vi.mock("node:worker_threads", () => ({ Worker: w.Worker }));
 
@@ -233,5 +237,43 @@ describe("the streaming ASR socket", () => {
     expect(messages).toContain(JSON.stringify({ type: "error", error: "boom" }));
     await new Promise((r) => setTimeout(r, 100)); // the server side's own close event
     expect(w.posted.filter((m) => m.id === id).map((m) => m.op)).toEqual(["open"]);
+  });
+});
+
+describe("what a failing voice engine reports to main", () => {
+  const sent: any[] = [];
+  const faults = () => sent.filter((m) => m.name === "voice_engine_fault").map((m) => m.props);
+  beforeEach(() => { sent.length = 0; (process as any).parentPort = { postMessage: (m: unknown) => sent.push(m) }; });
+  afterAll(() => { delete (process as any).parentPort; });
+
+  it("names the family and provider of an accelerator that failed in a real call", async () => {
+    await accel.refreshDevice(async () => ({ ...accel.currentDevice(), os: "darwin", runtime: "test (cpu, coreml)", providers: ["cpu", "coreml"] }));
+    const e = models.nativeEngine("kitten")!;
+    accel.finishBench(e, [{ provider: "cpu", loadMs: 1, warmMs: 1, firstMs: 1, rtf: 0.2 }, { provider: "coreml", loadMs: 1, warmMs: 1, firstMs: 1, rtf: 0.1 }]);
+    const job = native.speak(e, "hi", e.voices![0]!, 1, () => {});
+    w.holding("tts").emit("message", { id: w.posted.find((m) => m.op === "tts")!.id, type: "error", message: "Unable to get shape for output" });
+    await expect(job.started).rejects.toThrow();
+    await expect(job.done).rejects.toThrow();
+    expect(faults()).toEqual([{ engine_family: "kitten", kind: "accel_fallback", provider: "coreml" }]);
+  });
+
+  it("names the family of the jobs a crashed worker had in flight, once, and nothing when it had none", async () => {
+    // Fresh pools: jobs the tests above left waiting would be in flight too.
+    vi.resetModules();
+    const fresh = await import("./native.js");
+    const e = models.nativeEngine("parakeet")!;
+    const heard = fresh.transcribe(e, new Float32Array(4));
+    const failed = expect(heard).rejects.toThrow("segfault");
+    w.holding("stt").emit("error", new Error("segfault"));
+    await failed;
+    w.holding("stt").emit("exit", 139);
+    expect(faults()).toEqual([{ engine_family: "parakeet", kind: "worker_crash" }]);
+
+    sent.length = 0;
+    const next = fresh.transcribe(e, new Float32Array(4));
+    w.holding("stt").emit("message", { id: w.posted.filter((m) => m.op === "stt").at(-1)!.id, type: "done", text: "" });
+    await next;
+    w.holding("stt").emit("exit", 1);
+    expect(faults()).toEqual([]);
   });
 });

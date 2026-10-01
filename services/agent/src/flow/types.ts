@@ -1,5 +1,5 @@
 import type { Message, ToolDef } from "@openlive/harness";
-import type { FlowContentWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
+import type { ErrorClass, FlowContentWire, FlowContextWire, FlowEventWire } from "@openlive/shared";
 // The Flow harness speaks the canonical harness message shape so a transcript
 // goes to a provider, to disk and over ACP unchanged.
 export type Msg = Message;
@@ -102,7 +102,7 @@ export type BrainEvent =
   | { type: "reasoning"; delta: string }
   | { type: "reasoning_signature"; signature: string }
   | { type: "turn_done"; stop: "stop" | "tools" | "length"; usage?: Usage }
-  | { type: "turn_error"; message: string; aborted: boolean };
+  | { type: "turn_error"; message: string; aborted: boolean; code?: ErrorClass };
 
 /**
  * One turn of thinking, whatever is doing the thinking.

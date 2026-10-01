@@ -63,6 +63,16 @@ jobs:
           pnpm --filter @openlive/desktop pack:agent
           pnpm --filter @openlive/desktop pack:native
 
+      # Stamps where usage telemetry goes into the build. These are public values,
+      # so repository variables, not secrets. If any of the three is unset nothing
+      # is written and this release sends no telemetry (see RELEASING.md).
+      - name: Stamp telemetry settings
+        run: pnpm --filter @openlive/desktop pack:telemetry
+        env:
+          OPENLIVE_TELEMETRY_ENDPOINT: ${{ vars.OPENLIVE_TELEMETRY_ENDPOINT }}
+          OPENLIVE_TELEMETRY_CLIENT_ID: ${{ vars.OPENLIVE_TELEMETRY_CLIENT_ID }}
+          OPENLIVE_TELEMETRY_ORIGIN: ${{ vars.OPENLIVE_TELEMETRY_ORIGIN }}
+
       # Apple's notary service is intermittently flaky (returns empty/unexpected
       # results). Retry a few times so a transient notarization blip doesn't fail
       # the whole release; electron-builder overwrites its own assets on republish.

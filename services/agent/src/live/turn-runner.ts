@@ -1,5 +1,5 @@
-import { isUnreachable, streamProvider, unreachableMessage, type Message } from "@openlive/harness";
-import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
+import { streamProvider, unreachableMessage, type Message } from "@openlive/harness";
+import { classifyError, replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
 import { cancelledText, collectTurn, safeParseArgs } from "../turn.js";
 import { buildLivePrompt } from "../prompt.js";
@@ -54,7 +54,8 @@ export class LiveTurnRunner {
   /** Always messages[0]: seeding and the history cap keep it. */
   private readonly system = { role: "system" as const, text: this.prompt };
 
-  constructor(private extraTools: OpenLiveTool[]) {
+  /** `tally` hears each tool this runner executes, by name. */
+  constructor(private extraTools: OpenLiveTool[], private tally?: (tool: string) => void) {
     this.messages = [this.system];
   }
 
@@ -118,8 +119,8 @@ export class LiveTurnRunner {
   async runTurn(userText: string, frames: Frame[], emit: Emit, signal: AbortSignal, lang?: LanguageCode): Promise<void> {
     const live = resolveLive();
     const { provider, model, apiKey, effort } = live;
-    if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model." }); return; }
-    if (!apiKey && !provider.keyless) { await emit({ type: "error", message: `No API key for ${provider.name}. Add one in Settings.` }); return; }
+    if (!model) { await emit({ type: "error", message: "No model selected. Open Settings and pick a provider + model.", code: "no_model" }); return; }
+    if (!apiKey && !provider.keyless) { await emit({ type: "error", message: `No API key for ${provider.name}. Add one in Settings.`, code: "no_key" }); return; }
     // Attach frames from any active visual source (camera and/or screen — both can
     // be on). We do NOT gate on a hardcoded vision list: the frames go to whatever
     // model is picked, and if the provider genuinely can't take images it surfaces
@@ -199,6 +200,7 @@ export class LiveTurnRunner {
         const runOne = async (tc: (typeof turn.toolCalls)[number]) => {
           const tool = tools.find((t) => t.name === tc.name);
           if (!tool) return { tc, res: { output: `Unknown tool "${tc.name}".`, isError: true as const } };
+          this.tally?.(tool.name);
           try { return { tc, res: await tool.execute(safeParseArgs(tc.arguments)) }; }
           catch (e: any) { return { tc, res: { output: `Error: ${String(e?.message ?? e)}`, isError: true as const } }; }
         };
@@ -219,13 +221,14 @@ export class LiveTurnRunner {
         return;
       }
       const raw = String(e?.message ?? e);
-      const msg = isUnreachable(e) ? unreachableMessage(provider)
-        : /quota|insufficient|billing/i.test(raw)
+      const code = classifyError(e);
+      const msg = code === "unreachable" ? unreachableMessage(provider)
+        : code === "quota"
         ? `${provider.name}: API quota exhausted — add billing, or pick a different model in Settings.`
-        : /invalid api key|authentication|401|403|unauthor|x-api-key|forbidden/i.test(raw)
+        : code === "auth"
           ? `${provider.name} rejected the API key — update it in Settings.`
           : `Live model error: ${raw}`;
-      await emit({ type: "error", message: msg });
+      await emit({ type: "error", message: msg, code });
     } finally {
       if (signal.aborted) asked.text = cancelledText(asked.text);
     }

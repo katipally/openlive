@@ -6,7 +6,7 @@ import type { AgentCapabilities, AvailableCommand, Client, RequestPermissionRequ
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import {
-  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, mergeToolCall, toolKindSchema,
+  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, toolKindSchema,
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
@@ -17,6 +17,7 @@ import { TerminalManager } from "./terminal-manager.js";
 import { killTree, track } from "./proc.js";
 import { hostedBy, readProjectMcpServers, type McpServerWire } from "./mcp-config.js";
 import { log } from "../log.js";
+import { emitEvent } from "../telemetry/emit.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames, frameSources } from "../live/turn-runner.js";
 import { ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
@@ -100,6 +101,10 @@ export interface AcpOpts {
   replay?: boolean;
   /** Initialize only, no session: enough to ask the agent for its session list. */
   connectOnly?: boolean;
+  /** A look at the agent (its model list, its session list), not a session that serves anyone: starting it is not a first start. */
+  probe?: boolean;
+  /** How the session came up: `none` when no earlier one was asked for, `fell_back` when it was and a fresh one started. */
+  onResumed?: (how: "none" | "resumed" | "loaded" | "fell_back") => void;
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -166,11 +171,11 @@ export class AcpAgent implements Agent {
     const cfg = adapterFor(this.id, this.opts.cwd);
     // A real project folder is required: it's where the agent files its session
     // (so `claude --resume` etc. can reopen it) and the only place it reads/writes.
-    if (!cfg.cwd) throw new Error(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`);
+    if (!cfg.cwd) throw new ClassedError(`Pick a project folder for ${labelFor(this.id)} — it's where its sessions live and the only place it can read and write.`, "agent_no_folder");
     // Spawning into a missing directory fails as a baffling "spawn npx ENOENT"
     // that reads like the agent isn't installed — name the real problem instead.
     try { if (!statSync(cfg.cwd).isDirectory()) throw new Error("not a directory"); }
-    catch { throw new Error(`The project folder ${cfg.cwd} doesn't exist — pick a different one.`); }
+    catch { throw new ClassedError(`The project folder ${cfg.cwd} doesn't exist — pick a different one.`, "agent_no_folder"); }
     const isWin = process.platform === "win32";
     const child = spawn(cfg.command, cfg.args, {
       cwd: cfg.cwd,
@@ -209,11 +214,11 @@ export class AcpAgent implements Agent {
     let ready = false;
     let exitCode: number | null = null;
     const died = new Promise<never>((_, reject) => {
-      child.once("error", (e) => reject(new Error(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`)));
+      child.once("error", (e) => reject(new ClassedError(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`, "agent_start_failed")));
       child.once("exit", (code) => {
         this.alive = false;
         exitCode = code;
-        if (!ready) reject(new Error(startError(this.id, code, stderr)));
+        if (!ready) reject(new ClassedError(startError(this.id, code, stderr), "agent_start_failed"));
         else if (code) log.error(`agent:${this.id}`, `${cfg.command} exited ${code}`);
       });
     });
@@ -232,9 +237,10 @@ export class AcpAgent implements Agent {
       // event — give the exit a moment, and if the child is dead tell the actionable
       // story (exit + stderr + per-agent hint), not the transport's.
       const dead = await Promise.race([died.catch(() => true), new Promise<false>((r) => setTimeout(() => r(false), 500))]);
-      throw dead || !this.alive ? new Error(startError(this.id, exitCode, stderr)) : e;
+      throw dead || !this.alive ? new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed") : e;
     }
     ready = true;
+    if (!this.opts.probe) emitEvent("onboarding_step", { step: "first_agent_start_ok" });
     if (this.sessionId) this.opts.onSession?.(this.sessionId);
   }
 
@@ -281,6 +287,7 @@ export class AcpAgent implements Agent {
     ];
 
     let resumed = false;
+    let how: "none" | "resumed" | "loaded" | "fell_back" = this.opts.resumeSessionId ? "fell_back" : "none";
     // session/resume restores the session without replaying it, so it is the
     // cheap path whenever nobody needs the transcript back. A failure falls
     // through to session/load, and that to a fresh session, as before.
@@ -289,6 +296,7 @@ export class AcpAgent implements Agent {
         this.sessionId = this.opts.resumeSessionId;
         this.reportMeta(await this.conn!.resumeSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
         resumed = true;
+        how = "resumed";
         this.seedText = "";
       } catch (e) {
         log.debug(`agent:${this.id}`, `session/resume failed (${extractAcpError(e)})`);
@@ -310,6 +318,7 @@ export class AcpAgent implements Agent {
         this.replaying = false;
         this.reportMeta(r);
         resumed = true;
+        how = "loaded";
         // The agent restored the FULL conversation itself — drop our text recap
         // so the first turn isn't prefixed with a redundant "[Context — earlier…]".
         this.seedText = "";
@@ -336,6 +345,7 @@ export class AcpAgent implements Agent {
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }
+    this.opts.onResumed?.(how);
   }
 
   /** Surface the agent's modes + config options (from session/new|load) to the UI. */
@@ -725,7 +735,7 @@ export class AcpAgent implements Agent {
       // turn is fully settled before the finally drains the next utterance.
       const res = await this.conn.prompt({ sessionId: this.sessionId, prompt });
       switch (res.stopReason) {
-        case "refusal": await emit({ type: "error", message: `${labelFor(this.id)} refused this request.` }); break;
+        case "refusal": await emit({ type: "error", message: `${labelFor(this.id)} refused this request.`, code: "agent_refused" }); break;
         case "max_tokens": await emit({ type: "text_delta", text: " …(I hit the response length limit — say “continue” to keep going.)" }); break;
         case "max_turn_requests": await emit({ type: "text_delta", text: " …(I hit my step limit for this turn — say “continue” to keep going.)" }); break;
         default: break; // end_turn, cancelled — nothing extra to say
@@ -736,7 +746,7 @@ export class AcpAgent implements Agent {
       // (e.g. an outdated Codex hitting a model its backend won't allow). Surface
       // the REAL, actionable message instead of a generic "crashed"; don't recycle.
       if (typeof (e as { code?: unknown } | null)?.code === "number") {
-        await emit({ type: "error", message: `${labelFor(this.id)}: ${extractAcpError(e)}` });
+        await emit({ type: "error", message: `${labelFor(this.id)}: ${extractAcpError(e)}`, code: "agent_rejected" });
       } else {
         throw e; // transport failure / agent died → let the supervisor recycle it
       }

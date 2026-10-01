@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import { Monitor, Sun, Moon, Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
-import { isDesktop } from "@/lib/platform";
+import { desktopPlatform, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { Switch, Button, ListGroup, ListRow, Segmented, type SegOption, Textarea } from "@/components/ui";
 import { GLASS_REASON, setLook, useAppearance, type Look } from "@/lib/look";
@@ -45,6 +45,7 @@ function LookRow() {
 
 type Desk = {
   loginItem?: (v?: boolean) => Promise<boolean>;
+  endOnLock?: (v?: boolean) => Promise<boolean>;
 };
 const desk = (): Desk => (typeof window !== "undefined" ? ((window as unknown as { openlive?: Desk }).openlive ?? {}) : {});
 
@@ -57,6 +58,20 @@ function LoginItemToggle() {
   return (
     <ListGroup>
       <ListRow asLabel label="Open at login" detail="Starts in the background when you log in, so Flow is ready without opening a window.">
+        <Switch on={on} onFlip={flip} />
+      </ListRow>
+    </ListGroup>
+  );
+}
+
+function EndOnLockToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => { void desk().endOnLock?.().then(setOn).catch(() => setOn(null)); }, []);
+  if (on === null) return null;
+  const flip = () => { const next = !on; setOn(next); void desk().endOnLock?.(next).then(setOn).catch(() => setOn(!next)); };
+  return (
+    <ListGroup>
+      <ListRow asLabel label="End Flow and calls when the screen locks" detail="Flow closes and a call ends on lock. Sleep always ends them. Turn this off to keep going while the screen is locked. Flow keeps listening then and can still act on this computer.">
         <Switch on={on} onFlip={flip} />
       </ListRow>
     </ListGroup>
@@ -119,6 +134,12 @@ export function GeneralSettings() {
       {isDesktop && (
         <Section id="set-general-startup" title="Startup" desc="Have OpenLive ready the moment you sit down.">
           <LoginItemToggle />
+        </Section>
+      )}
+
+      {isDesktop && (desktopPlatform === "darwin" || desktopPlatform === "win32") && (
+        <Section id="set-general-lock" title="Screen lock" desc="Whether Flow and calls keep going while your screen is locked.">
+          <EndOnLockToggle />
         </Section>
       )}
     </div>

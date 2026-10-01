@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     // The desktop shell is plain CJS with no src/, so its tests sit beside it.
-    include: ["{apps,services,packages,tools}/*/src/**/*.test.ts", "apps/desktop/*.test.ts", "native/*/scripts/*.test.ts"],
+    include: ["{apps,services,packages,tools}/*/src/**/*.test.ts", "apps/desktop/*.test.ts", "apps/desktop/telemetry/*.test.ts", "native/*/scripts/*.test.ts"],
     environment: "node",
   },
 });

@@ -8,6 +8,8 @@ import { Button, Input, SidePanelHeader, sidePanel, Tooltip, notice } from "@/co
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
+import { lobbyGap, useLobbyBlocked } from "@/lib/live/lobbyGap";
+import { brainIdOf } from "@/lib/telemetryIds";
 import { loadPipelineConfig, isNativeVariant, browserModels } from "@/lib/live/pipelineConfig";
 import { missingEngines, engineName } from "@/lib/live/engineMenu";
 import { useNativeEngines, variantStatus, downloadEngine, NoticeDownload } from "@/components/settings/PipelineSettings";
@@ -89,6 +91,11 @@ export function Lobby(props: LobbyProps) {
   // No audio input at all (nothing enumerated) — the call can't hear you. Warn, don't
   // block: a transiently-empty list right after mount shouldn't dead-lock Start.
   const micGap = mics.length === 0;
+  const leaveVia = useLobbyBlocked(
+    lobbyGap({ modelsMissing: !modelsDownloaded, agentGap, needFolder, folderGap, keyGap, micGap }),
+    boundAgent ? "acp" : "api", brainIdOf(boundAgent ?? choice.providerId),
+  );
+  const openSettings = () => { leaveVia("settings"); onOpenSettings(); };
   const root = useRef<HTMLDivElement>(null);
 
   const t = useMotionTokens();
@@ -110,6 +117,7 @@ export function Lobby(props: LobbyProps) {
   // Back to home: the entrance in reverse (the panel slides back out, the stage
   // falls back tail-first, the surface fades), then unmount.
   const handleBack = async () => {
+    leaveVia("back");
     const el = root.current;
     // Under glass the home comes back first, so this fade-out shows it.
     el?.removeAttribute("data-covering");
@@ -154,7 +162,7 @@ export function Lobby(props: LobbyProps) {
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start — not as a confusing failure after. */}
       {agentGap && (
-        <button onClick={() => useUi.getState().openSettingsTab("agents")} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+        <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("agents"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
           <Wrench aria-hidden />
           {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed. Set it up` : `${agentLabel(boundAgent)} needs a sign-in. Open Settings`}
         </button>
@@ -166,7 +174,7 @@ export function Lobby(props: LobbyProps) {
         </p>
       )}
       {keyGap && provDef && (
-        <button onClick={() => useUi.getState().openSettingsTab("models")} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+        <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("models"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
           <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
         </button>
       )}
@@ -230,7 +238,7 @@ export function Lobby(props: LobbyProps) {
             own controls sit over this corner. */}
         <SidePanelHeader title="Set up your call" className={cn("pt-6", isDesktop && "[-webkit-app-region:drag]")}>
           <div className={cn("flex items-center gap-1", isDesktop && "[-webkit-app-region:no-drag]")}>
-            <Tooltip label="Settings" keys={SETTINGS_KEYS}><Button variant="ghost" size="sm" icon onClick={onOpenSettings} aria-label="Settings"><Settings2 /></Button></Tooltip>
+            <Tooltip label="Settings" keys={SETTINGS_KEYS}><Button variant="ghost" size="sm" icon onClick={openSettings} aria-label="Settings"><Settings2 /></Button></Tooltip>
             <Tooltip label="Back to home"><Button variant="ghost" size="sm" icon onClick={handleBack} aria-label="Back to home"><X /></Button></Tooltip>
           </div>
         </SidePanelHeader>
@@ -238,7 +246,7 @@ export function Lobby(props: LobbyProps) {
           <Section title="Talk to">
             <AgentQuickPick />
           </Section>
-          {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={onOpenSettings} />}
+          {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={openSettings} />}
         </div>
       </aside>
       </div>

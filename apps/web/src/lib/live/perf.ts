@@ -14,7 +14,11 @@ export type Turn = { sttEndpoint: number; model: number; tts: number; total: num
 type Pct = { p50: number; p95: number };
 export type PerfStats = { turns: number; sttEndpoint: Pct; model: Pct; tts: Pct; voiceToVoice: Pct };
 
+// A window open for days would otherwise grow this, and the sort in `changed`, without end.
+const CAP = 200;
 const turns: Turn[] = [];
+/** Turns ever recorded: `turns` holds the newest CAP, and a mark counts from here. */
+let recorded = 0;
 let cur: { committedAt: number; sttEndpoint: number; firstTokenAt: number } | null = null;
 let stats: PerfStats | null = null;
 const listeners = new Set<() => void>();
@@ -30,6 +34,15 @@ export function perfStats(list: Turn[]): PerfStats | null {
   if (!list.length) return null;
   const col = (k: keyof Turn) => { const v = list.map((t) => t[k]); return { p50: pct(v, 50), p95: pct(v, 95) }; };
   return { turns: list.length, sttEndpoint: col("sttEndpoint"), model: col("model"), tts: col("tts"), voiceToVoice: col("total") };
+}
+
+/** Telemetry reports latency to 10 ms. */
+export const roundMs = (ms: number) => Math.round(ms / 10) * 10;
+
+/** The medians of one Flow open or one call, from its own slice of turns. Empty when no turn was measured. */
+export function latencyFact(list: Turn[]) {
+  const s = perfStats(list);
+  return s ? { stt_ms_p50: roundMs(s.sttEndpoint.p50), tts_ms_p50: roundMs(s.tts.p50), v2v_ms_p50: roundMs(s.voiceToVoice.p50), v2v_turns: s.turns } : {};
 }
 
 const changed = () => { stats = perfStats(turns); for (const l of listeners) l(); };
@@ -50,10 +63,16 @@ export const perf = {
     const tts = Math.round(now - (cur.firstTokenAt || cur.committedAt));
     const t: Turn = { sttEndpoint: cur.sttEndpoint, model, tts, total: cur.sttEndpoint + model + tts };
     turns.push(t);
-    console.debug(`[live:perf] turn ${turns.length}: stt+endpoint ${t.sttEndpoint}ms · model ${t.model}ms · tts ${t.tts}ms · voice-to-voice ${t.total}ms`);
+    recorded++;
+    if (turns.length > CAP) turns.shift();
+    console.debug(`[live:perf] turn ${recorded}: stt+endpoint ${t.sttEndpoint}ms · model ${t.model}ms · tts ${t.tts}ms · voice-to-voice ${t.total}ms`);
     cur = null;
     changed();
   },
+  /** Where the turn count stands now, to take `since` from later. */
+  mark: () => recorded,
+  /** The turns recorded after `mark`, as many as the cap still holds. */
+  since: (mark: number): Turn[] => turns.slice(Math.max(0, turns.length - (recorded - mark))),
   /** The session's stats, the same object until the next turn (useSyncExternalStore). */
   stats: () => stats,
   subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
@@ -62,7 +81,7 @@ export const perf = {
     console.table(stats);
     return stats;
   },
-  reset() { turns.length = 0; cur = null; changed(); },
+  reset() { turns.length = 0; recorded = 0; cur = null; changed(); },
 };
 
 if (typeof window !== "undefined") {
