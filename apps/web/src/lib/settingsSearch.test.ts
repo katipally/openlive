@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSettingsTab, searchSettings, SETTINGS_INDEX, type SettingsEntry } from "./settingsSearch";
+import { CAPABILITY_TABS, capabilityReveal, capabilityTab, resolveSettingsTab, searchSettings, SETTINGS_INDEX, type SettingsEntry } from "./settingsSearch";
 
 const label = (t: string) => t[0]!.toUpperCase() + t.slice(1);
 const find = (q: string, desktop = true, index?: SettingsEntry[]) => searchSettings(q, label, desktop, index).map((e) => e.label);
@@ -90,13 +90,28 @@ describe("settings search", () => {
   });
 
   it("a row inside a speech engine stage has its own anchor and opens its stage first", () => {
-    const staged = SETTINGS_INDEX.filter((e) => e.reveal);
+    const staged = SETTINGS_INDEX.filter((e) => e.reveal && e.tab !== "capabilities");
     expect(staged.map((e) => e.label)).toEqual(expect.arrayContaining(["Voiceprint", "Side talk"]));
     for (const e of staged) {
       expect(e.tab).toBe("engine");
       expect(e.reveal).toMatch(/^set-engine-stage-(mic|stt|turn|tts)$/);
       expect(SETTINGS_INDEX.filter((o) => o.anchor === e.anchor)).toHaveLength(1);
     }
+  });
+});
+
+describe("capabilities settings", () => {
+  it("indexes every subtab, each row opening its subtab first", () => {
+    const rows = SETTINGS_INDEX.filter((e) => e.tab === "capabilities");
+    expect(new Set(rows.map((e) => e.reveal))).toEqual(new Set(CAPABILITY_TABS.map(capabilityReveal)));
+    for (const e of rows) expect(e.anchor.startsWith(`${e.reveal}-`) || e.anchor.startsWith("set-capabilities-")).toBe(true);
+  });
+
+  it("finds each subtab by its old page's words", () => {
+    expect(find("mcp")).toContain("Connectors");
+    expect(find("skill.md")).toEqual(["Skills"]);
+    expect(find("shell")).toContain("Tools");
+    expect(find("exa")).toEqual(["Web search key"]);
   });
 });
 
@@ -123,6 +138,13 @@ describe("resolveSettingsTab", () => {
     for (const id of ["engine", "chat", "flow", "voice", "privacy"]) expect(resolveSettingsTab(id)).toBe(id);
     expect(resolveSettingsTab("pipeline")).toBe("engine");
     expect(resolveSettingsTab("voices")).toBe("voice");
+  });
+  it("lands the old Connectors and Skills pages, the orb's links included, on their Capabilities subtab", () => {
+    for (const id of ["tools", "skills", "connectors", "capabilities"]) expect(resolveSettingsTab(id)).toBe("capabilities");
+    expect(capabilityTab("connectors")).toBe("connectors");
+    expect(capabilityTab("skills")).toBe("skills");
+    expect(capabilityTab("capabilities")).toBeNull();
+    expect(capabilityTab(/^([a-z]+)-settings$/.exec("connectors-settings")?.[1])).toBe("connectors");
   });
   it("drops unknown or empty ids", () => {
     expect(resolveSettingsTab("nope")).toBeNull();

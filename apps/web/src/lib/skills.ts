@@ -2,7 +2,18 @@
 // new one before it is sent, and which import candidates start checked. No
 // React, no DOM, so it tests on its own.
 
-import { SKILL_DESCRIPTION_MAX, skillNameProblem, type SkillImportSource, type SkillWire } from "@openlive/shared";
+import { SKILL_DESCRIPTION_MAX, skillNameProblem, type SkillImportSource, type SkillSource, type SkillWire } from "@openlive/shared";
+
+/** What a skill's card offers. Only OpenLive's own folder is edited or removed;
+ *  a built-in one and a project's are read in place, and every one switches. */
+export const skillRole = (source: SkillSource) => ({ builtIn: source === "bundled", own: source === "user" });
+
+/** Built-in skills, then everything else, each in the order given. O(skills). */
+export function splitSkills(skills: readonly SkillWire[]): { builtIn: SkillWire[]; yours: SkillWire[] } {
+  const builtIn: SkillWire[] = [], yours: SkillWire[] = [];
+  for (const s of skills) (skillRole(s.source).builtIn ? builtIn : yours).push(s);
+  return { builtIn, yours };
+}
 
 /** Skills whose name or description holds the query, case-insensitive. O(skills). */
 export function filterSkills(skills: readonly SkillWire[], query: string): SkillWire[] {

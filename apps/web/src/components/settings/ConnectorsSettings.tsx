@@ -2,26 +2,22 @@
 
 import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Download, ExternalLink, Loader2, LogIn, LogOut, Pencil, Plus, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Loader2, LogIn, LogOut, Pencil, Plus, RotateCcw, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import type { ConnectorImportSource, ConnectorWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import {
-  STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine,
+  STATUS, bulkTools, draftOf, editPatch, initialPicks, monogram, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine,
   type EditDraft, type KeyRow,
 } from "@/lib/connectors";
-import { Badge, Button, Checkbox, Chip, ConfirmButton, Input, ListGroup, Segmented, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
-import { Section } from "./Section";
+import { Badge, Button, Checkbox, Chip, ConfirmButton, Disclosure, Input, ListGroup, Notice, Segmented, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
+import { BuiltInBadge, EmptyState, FILTER_AT, NoMatch, OneLine, QueryState, field, inset, msg, panel, tile } from "./common";
+import { capabilitiesQuery, useFlipGroup } from "./ToolsSettings";
 
-const KEY = ["connectors"];
-// Past this many connectors or tools a filter appears, as in Pronunciation.
-const FILTER_AT = 8;
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const field = "flex min-w-0 flex-col gap-1 text-label text-muted-foreground";
-const panel = "flex flex-col gap-3 rounded-xl bg-card p-3 shadow-card";
-const inset = "flex flex-col gap-3 rounded-lg border border-border p-3";
+export const connectorsQuery = { queryKey: ["connectors"], queryFn: api.connectors };
+const KEY = connectorsQuery.queryKey;
 
 type SignIn = { url: string; since: number };
 
@@ -34,17 +30,17 @@ function openPage(url: string, tab?: Window | null) {
   else window.open(url, "_blank", "noopener");
 }
 
-/** MCP servers every brain can use, in Chat and Flow. The agent pushes nothing,
- *  so this page refreshes itself: on focus, while a connector is connecting,
- *  and while any sign-in is open in the browser. */
+/** MCP servers every brain can use, in Chat and Flow, under the built-in web
+ *  search. The agent pushes nothing, so this page refreshes itself: on focus,
+ *  while a connector is connecting, and while any sign-in is open in the browser. */
 export function ConnectorsSettings() {
   const qc = useQueryClient();
   // Keyed by connector id, so a second sign-in never ends the first one's watch.
   const [signIns, setSignIns] = useState<ReadonlyMap<string, SignIn>>(new Map());
   const [adding, setAdding] = useState<"add" | "import" | null>(null);
   const [filter, setFilter] = useState("");
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: KEY, queryFn: api.connectors, retry: 1, refetchOnWindowFocus: true,
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
+    ...connectorsQuery, retry: 1, refetchOnWindowFocus: true,
     refetchInterval: (q) => {
       if (signIns.size) return signInsPollMs([...signIns.values()].map((s) => s.since), Date.now());
       return q.state.data?.connectors.some((c) => c.status === "connecting") ? 2000 : false;
@@ -93,63 +89,135 @@ export function ConnectorsSettings() {
   const q = filter.trim().toLowerCase();
   const all = list ?? [];
   const shown = q ? all.filter((c) => `${c.name} ${transportLine(c.transport)}`.toLowerCase().includes(q)) : all;
-  const actions = !adding && (
-    <span className="flex flex-wrap gap-1.5">
-      <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-      <Button size="sm" onClick={() => setAdding("add")}><Plus /> Add connector</Button>
-    </span>
-  );
+  const exaShown = !q || "web search exa mcp.exa.ai".includes(q);
 
   return (
-    <div className="flex flex-col gap-7">
-      <Section id="set-connectors-list" title="Connectors" action={actions}
-        desc={<>MCP servers that give every brain more tools, in Chat and Flow, for API models and coding agents alike. A tool that changes something asks you first. Changes apply from the next call or Flow run.</>}>
-        <div className="flex flex-col gap-2">
-          {adding === "add" && <AddPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
-          {adding === "import" && <ImportPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
-          {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
-          {!!data?.problems?.length && (
-            <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-border px-card-x py-3">
-              <p className="text-label text-foreground">mcp.json has a problem. Fix it in a text editor, then check again.</p>
-              {data.problems.map((p) => <p key={p} className="break-words font-mono text-caption text-destructive">{p}</p>)}
-              <span>
-                <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
-                  {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Check again
-                </Button>
-              </span>
-            </div>
-          )}
-          {isError && (
-            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t reach OpenLive&apos;s agent. {msg(error)}</span>
-              <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
-                {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry
-              </Button>
-            </div>
-          )}
-          {list && all.length === 0 && !adding && (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-card-x py-5 text-center">
-              <p className="text-label text-muted-foreground">No connectors yet. Add an MCP server by its URL, paste a config, or bring over the ones you set up in Claude, Codex, Cursor, Gemini CLI or VS Code.</p>
-              <span className="flex flex-wrap justify-center gap-1.5">
-                <Button size="sm" variant="primary" onClick={() => setAdding("add")}><Plus /> Add connector</Button>
-                <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-              </span>
-            </div>
-          )}
-          {all.length > FILTER_AT && (
-            <Input type="search" size="md" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Find among ${all.length} connectors`} aria-label="Find a connector" />
-          )}
-          {q && shown.length === 0 && <p className="text-label text-muted-foreground">No connector matches &ldquo;{filter.trim()}&rdquo;.</p>}
-          {shown.length > 0 && (
-            <ListGroup>
-              {shown.map((c) => (
-                <ConnectorRow key={c.id} c={c} put={put} refresh={refresh} onSignIn={() => void startSignIn(c)}
-                  waiting={signIns.get(c.id)?.url ?? null} />
-              ))}
-            </ListGroup>
-          )}
+    <div id="set-capabilities-connectors-list" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a connector" aria-label="Find a connector" className="min-w-0 flex-1 basis-40" />
+        <span className="flex flex-wrap gap-1.5">
+          <Button onClick={() => setAdding("import")} disabled={adding === "import"}><Download /> Import</Button>
+          <Button variant="primary" onClick={() => setAdding("add")} disabled={adding === "add"}><Plus /> Add connector</Button>
+        </span>
+      </div>
+      {adding === "add" && <AddPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
+      {adding === "import" && <ImportPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
+      {!!data?.problems?.length && (
+        <Notice role="alert" tone="danger" className="flex-col">
+          <p className="text-foreground">mcp.json has a problem. Fix it in a text editor, then check again.</p>
+          {data.problems.map((p) => <p key={p} className="break-words font-mono text-caption">{p}</p>)}
+          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
+            {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Check again
+          </Button>
+        </Notice>
+      )}
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} />
+      {(exaShown || shown.length > 0) && (
+        <ListGroup className="px-0">
+          {exaShown && <ExaRow />}
+          {shown.map((c) => (
+            <ConnectorRow key={c.id} c={c} put={put} refresh={refresh} onSignIn={() => void startSignIn(c)}
+              waiting={signIns.get(c.id)?.url ?? null} />
+          ))}
+        </ListGroup>
+      )}
+      {q && !exaShown && shown.length === 0 && <NoMatch what="connector" query={filter} />}
+      {list && all.length === 0 && !q && !adding && (
+        <EmptyState actions={<>
+          <Button size="sm" variant="primary" onClick={() => setAdding("add")}><Plus /> Add connector</Button>
+          <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
+        </>}>No connectors of your own yet. Add an MCP server by its URL, paste a config, or bring over the ones from Claude, Codex, Cursor, Gemini CLI or VS Code.</EmptyState>
+      )}
+      <p className="text-caption text-muted-foreground">Changes apply from the next call or Flow run.</p>
+    </div>
+  );
+}
+
+/** The parts every connector row shares: its tile, name, status, transport, and the switch and disclosure on the right. */
+function RowHead({ name, status, badge, line, problem, action, count, on, onFlip, switchTip, open, onOpen, bodyId }: {
+  name: string; status: React.ReactNode; badge?: React.ReactNode; line: string; problem?: string; action?: React.ReactNode; count: string;
+  on: boolean; onFlip: () => void; switchTip?: string; open: boolean; onOpen: () => void; bodyId: string;
+}) {
+  const flip = (
+    <label className="flex cursor-pointer items-center">
+      <span className="sr-only">Use {name}</span>
+      <Switch on={on} onFlip={onFlip} />
+    </label>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-card-x py-3">
+      <div className={cn("flex min-w-[min(14rem,100%)] flex-1 items-center gap-3", !on && "opacity-60")}>
+        <span aria-hidden className={cn(tile, "font-mono text-label font-semibold text-foreground")}>{monogram(name)}</span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="min-w-0 break-words text-body font-semibold text-foreground">{name}</span>
+            {status}
+            {badge}
+          </span>
+          <OneLine text={line} className="font-mono text-caption text-faint" />
+          {problem && <OneLine text={problem} className="text-caption text-destructive-text" />}
         </div>
-      </Section>
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        {action}
+        <span className="whitespace-nowrap text-caption tabular-nums text-muted-foreground">{count}</span>
+        {switchTip ? <Tooltip label={switchTip}>{flip}</Tooltip> : flip}
+        <Button variant="ghost" icon onClick={onOpen} aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Hide" : "Show"} details for ${name}`}>
+          <ChevronDown className={cn("transition-transform duration-fast motion-reduce:transition-none", open && "rotate-180")} />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+const asksDot = <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />;
+
+/** The built-in web search: Exa's hosted server, keyless on its free tier. Its
+ *  switch is the Web research group's, and a key of your own lifts the limit. */
+function ExaRow() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ ...capabilitiesQuery, retry: 1 });
+  const flip = useFlipGroup();
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const bodyId = useId();
+  const web = data?.groups.find((g) => g.id === "web");
+  if (!data || !web) return null;
+  const save = async (next: string) => {
+    setBusy(true);
+    try { qc.setQueryData(capabilitiesQuery.queryKey, await api.setExaKey(next)); setKey(""); }
+    catch (e) { toast(`Couldn’t ${next ? "save" : "remove"} the Exa key. ${msg(e)}`); }
+    finally { setBusy(false); }
+  };
+  const status = data.exaKey === "saved" ? "Your key" : data.exaKey === "env" ? "Key from EXA_API_KEY" : "Free tier";
+  return (
+    <div id="set-capabilities-exa">
+      <RowHead name="Web search (Exa)" line="mcp.exa.ai" status={<Chip dot={web.enabled ? "success" : "muted"}>{web.enabled ? status : "Off"}</Chip>} badge={<BuiltInBadge />}
+        count={`${web.tools.length} tools`} on={web.enabled} onFlip={() => flip(web)} switchTip="Same switch as Web research in Tools"
+        open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} />
+      <Disclosure open={open}>
+        <div id={bodyId} className="flex flex-col gap-3 px-card-x pb-3">
+          <span className="flex flex-wrap gap-1.5">
+            {web.tools.map((t) => (
+              <Tooltip key={t.name} label={t.description}>
+                <span tabIndex={0} className="rounded-full"><Chip className="font-mono">{t.name}</Chip></span>
+              </Tooltip>
+            ))}
+          </span>
+          <div className={field}>
+            <span>Exa API key (optional)</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <Input size="sm" type="password" value={key} onChange={(e) => setKey(e.target.value)} aria-label="Exa API key"
+                placeholder={data.exaKey === "saved" ? "Saved. Type to replace it" : "Lifts the free tier's limit"}
+                onKeyDown={(e) => { if (e.key === "Enter" && key.trim()) void save(key); }}
+                autoComplete="off" spellCheck={false} className="min-w-0 flex-1 basis-48 font-mono" />
+              <Button size="sm" variant="primary" onClick={() => void save(key)} disabled={!key.trim() || busy}>{busy && <Loader2 className="animate-spin" />} Save</Button>
+              {data.exaKey === "saved" && <ConfirmButton label="Remove key" confirm="Remove it?" disabled={busy} onConfirm={() => save("")} />}
+            </span>
+          </div>
+        </div>
+      </Disclosure>
     </div>
   );
 }
@@ -162,9 +230,8 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [consentError, setConsentError] = useState("");
-  const toolsId = useId();
+  const bodyId = useId();
   const status = STATUS[c.status];
-  const line = transportLine(c.transport);
   const off = c.tools.filter((t) => !t.enabled).length;
 
   const run = async (what: string, call: () => Promise<ConnectorWire | unknown>, fail: string) => {
@@ -187,93 +254,77 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
     finally { setBusy(null); }
   };
   const spin = (what: string, Icon: typeof LogIn) => (busy === what ? <Loader2 className="animate-spin" /> : <Icon />);
+  const reconnect = () => void run("reconnect", () => api.reconnectConnector(c.id), `Couldn’t reconnect ${c.name}.`);
+
+  const action = c.status === "needs_auth" ? <Button variant="primary" size="sm" onClick={onSignIn}><LogIn /> Sign in</Button>
+    : c.status === "needs_consent" ? <Button size="sm" onClick={() => { setReviewing(true); setOpen(true); }}><ShieldCheck /> Review</Button>
+    : c.status === "error" || c.status === "disconnected" ? <Button variant="ghost" size="sm" onClick={reconnect} disabled={!!busy}>{spin("reconnect", RotateCcw)} Retry</Button>
+    : null;
 
   return (
-    <div className={cn("py-3 transition", !c.enabled && "opacity-60")}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 break-words text-body font-medium text-foreground">{c.name}</span>
-            <Chip dot={status.dot}>{status.text}</Chip>
-          </div>
-          <Tooltip label={<span className="break-all">{line}</span>} truncated className="flex min-w-0 max-w-full">
-            <p className="mt-0.5 min-w-0 truncate font-mono text-caption text-faint">{line}</p>
-          </Tooltip>
-        </div>
-        <label className="flex cursor-pointer items-center">
-          <span className="sr-only">Use {c.name}</span>
-          <Switch on={c.enabled} onFlip={() => flip({ ...c, enabled: !c.enabled }, () => api.setConnectorEnabled(c.id, !c.enabled), `Couldn’t turn ${c.name} ${c.enabled ? "off" : "on"}.`)} />
-        </label>
-      </div>
-
-      {c.status === "error" && c.error && <p role="alert" className="mt-2 break-words text-caption text-destructive">{c.error}</p>}
-
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {c.tools.length > 0 ? (
-          <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={toolsId}>
-            <ChevronRight className={cn("transition-transform motion-reduce:transition-none", open && "rotate-90")} />
-            {c.tools.length} {c.tools.length === 1 ? "tool" : "tools"}{off > 0 && ` · ${off} off`}
-          </Button>
-        ) : <span className="px-1 text-caption text-faint">No tools yet</span>}
-        {c.status === "needs_auth" && <Button variant="primary" size="sm" onClick={onSignIn}><LogIn /> Sign in</Button>}
-        {c.status === "needs_consent" && !reviewing && <Button variant="primary" size="sm" onClick={() => setReviewing(true)}><ShieldCheck /> Review and allow</Button>}
-        {(c.status === "error" || c.status === "disconnected") && (
-          <Button size="sm" onClick={() => void run("reconnect", () => api.reconnectConnector(c.id), `Couldn’t reconnect ${c.name}.`)} disabled={!!busy}>
-            {spin("reconnect", RotateCcw)} Reconnect
-          </Button>
-        )}
-        {c.signedIn && (
-          <Button size="sm" onClick={() => void run("signout", () => api.signOutConnector(c.id), `Couldn’t sign out of ${c.name}.`)} disabled={!!busy}>
-            {spin("signout", LogOut)} Sign out
-          </Button>
-        )}
-        <span className="ml-auto flex flex-wrap gap-1.5">
-          {!editing && <Button variant="ghost" size="sm" onClick={() => setEditing(true)} aria-label={`Edit ${c.name}`}><Pencil /> Edit</Button>}
-          <ConfirmButton label="Remove" confirm="Remove it?" disabled={!!busy}
-            onConfirm={() => run("remove", () => api.removeConnector(c.id), `Couldn’t remove ${c.name}.`)} />
-        </span>
-      </div>
+    <div>
+      <RowHead name={c.name} line={transportLine(c.transport)} status={<Chip dot={status.dot}>{status.text}</Chip>}
+        problem={c.status === "error" ? c.error : undefined} action={action}
+        count={c.tools.length ? `${c.tools.length} ${c.tools.length === 1 ? "tool" : "tools"}${off ? ` · ${off} off` : ""}` : "No tools yet"}
+        on={c.enabled} onFlip={() => flip({ ...c, enabled: !c.enabled }, () => api.setConnectorEnabled(c.id, !c.enabled), `Couldn’t turn ${c.name} ${c.enabled ? "off" : "on"}.`)}
+        open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} />
 
       {waiting && c.status !== "connected" && (
-        <p role="status" className="mt-2 flex flex-wrap items-center gap-1.5 text-caption text-muted-foreground">
+        <p role="status" className="flex flex-wrap items-center gap-1.5 px-card-x pb-3 text-caption text-muted-foreground">
           <Loader2 className="size-3 animate-spin" /> Finish signing in in your browser. This updates by itself.
           <Button variant="accent" size="sm" onClick={() => openPage(waiting)}><ExternalLink /> Open the page again</Button>
         </p>
       )}
 
-      {reviewing && c.status === "needs_consent" && c.transport.type === "stdio" && (
-        <div className={cn(inset, "mt-2.5")}>
-          <p className="text-label text-foreground">OpenLive will start this program on your computer, with your access. Allow it only if you trust where it came from.</p>
-          <dl className="grid grid-cols-1 gap-2 text-label">
-            <Fact term="Command"><code className="break-all font-mono">{c.transport.command}</code></Fact>
-            <Fact term="Arguments">
-              {c.transport.args.length ? (
-                <ol className="flex flex-col gap-0.5">{c.transport.args.map((a, i) => <li key={i} className="break-all font-mono">{a}</li>)}</ol>
-              ) : "None"}
-            </Fact>
-            <Fact term="Folder">{c.transport.cwd ? <code className="break-all font-mono">{c.transport.cwd}</code> : "Not set"}</Fact>
-            <Fact term="Environment">
-              {Object.keys(c.transport.env).length + c.transport.secretEnv.length ? (
-                <span className="flex flex-wrap gap-1">
-                  {Object.keys(c.transport.env).map((k) => <Chip key={k} className="break-all font-mono">{k}</Chip>)}
-                  {c.transport.secretEnv.map((k) => <Chip key={k} className="break-all font-mono">{k} · secret</Chip>)}
-                </span>
-              ) : "None"}
-            </Fact>
-          </dl>
-          {consentError && <p role="alert" className="break-words text-label text-destructive">{consentError}</p>}
-          <span className="flex flex-wrap gap-1.5">
-            <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void allow()}>
-              {spin("consent", ShieldCheck)} Allow
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setReviewing(false); setConsentError(""); }}>Cancel</Button>
+      <Disclosure open={open}>
+        <div id={bodyId} className="flex flex-col gap-3 px-card-x pb-3">
+          {reviewing && c.status === "needs_consent" && c.transport.type === "stdio" && (
+            <div className={inset}>
+              <p className="text-label text-foreground">OpenLive will start this program on your computer, with your access. Allow it only if you trust where it came from.</p>
+              <dl className="grid grid-cols-1 gap-2 text-label">
+                <Fact term="Command"><code className="break-all font-mono">{c.transport.command}</code></Fact>
+                <Fact term="Arguments">
+                  {c.transport.args.length ? (
+                    <ol className="flex flex-col gap-0.5">{c.transport.args.map((a, i) => <li key={i} className="break-all font-mono">{a}</li>)}</ol>
+                  ) : "None"}
+                </Fact>
+                <Fact term="Folder">{c.transport.cwd ? <code className="break-all font-mono">{c.transport.cwd}</code> : "Not set"}</Fact>
+                <Fact term="Environment">
+                  {Object.keys(c.transport.env).length + c.transport.secretEnv.length ? (
+                    <span className="flex flex-wrap gap-1">
+                      {Object.keys(c.transport.env).map((k) => <Chip key={k} className="break-all font-mono">{k}</Chip>)}
+                      {c.transport.secretEnv.map((k) => <Chip key={k} className="break-all font-mono">{k} · secret</Chip>)}
+                    </span>
+                  ) : "None"}
+                </Fact>
+              </dl>
+              {consentError && <p role="alert" className="break-words text-label text-destructive-text">{consentError}</p>}
+              <span className="flex flex-wrap gap-1.5">
+                <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void allow()}>
+                  {spin("consent", ShieldCheck)} Allow
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { setReviewing(false); setConsentError(""); }}>Cancel</Button>
+              </span>
+            </div>
+          )}
+          {c.status === "error" && c.error && <p role="alert" className="break-words text-caption text-destructive-text">{c.error}</p>}
+          {editing && <EditPanel c={c} onSaved={(next) => { put(next); setEditing(false); }} onCancel={() => setEditing(false)} />}
+          {c.tools.length > 0 && <Tools c={c} flip={flip} />}
+          <span className="flex flex-wrap items-center gap-1.5">
+            {c.tools.length > 0 && <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">{asksDot} asks first</span>}
+            <span className="ml-auto flex flex-wrap gap-1.5">
+              {c.signedIn && (
+                <Button variant="ghost" size="sm" onClick={() => void run("signout", () => api.signOutConnector(c.id), `Couldn’t sign out of ${c.name}.`)} disabled={!!busy}>
+                  {spin("signout", LogOut)} Sign out
+                </Button>
+              )}
+              {!editing && <Button variant="ghost" size="sm" onClick={() => setEditing(true)} aria-label={`Edit ${c.name}`}><Pencil /> Edit</Button>}
+              <ConfirmButton label={`Remove ${c.name}`} icon={<Trash2 />} confirm="Remove it?" disabled={!!busy}
+                onConfirm={() => run("remove", () => api.removeConnector(c.id), `Couldn’t remove ${c.name}.`)} />
+            </span>
           </span>
         </div>
-      )}
-
-      {editing && <EditPanel c={c} onSaved={(next) => { put(next); setEditing(false); }} onCancel={() => setEditing(false)} />}
-
-      {open && c.tools.length > 0 && <Tools id={toolsId} c={c} flip={flip} />}
+      </Disclosure>
     </div>
   );
 }
@@ -287,8 +338,9 @@ function Fact({ term, children }: { term: string; children: React.ReactNode }) {
   );
 }
 
-function Tools({ id, c, flip }: {
-  id: string; c: ConnectorWire; flip: (next: ConnectorWire, call: () => Promise<ConnectorWire>, fail: string) => void;
+/** A connector's tools as chips you press to turn on or off. */
+function Tools({ c, flip }: {
+  c: ConnectorWire; flip: (next: ConnectorWire, call: () => Promise<ConnectorWire>, fail: string) => void;
 }) {
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
@@ -305,39 +357,34 @@ function Tools({ id, c, flip }: {
     );
   };
   return (
-    <div id={id} className="mt-2.5 flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       {c.tools.length > FILTER_AT && (
         <Input type="search" size="sm" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Find among ${c.tools.length} tools`} aria-label={`Find a tool in ${c.name}`} />
       )}
-      {c.tools.length > 1 && shown.length > 0 && <span className="flex flex-wrap gap-1.5">{bulk(true)}{bulk(false)}</span>}
-      {q && shown.length === 0 && <p className="text-label text-muted-foreground">No tool matches &ldquo;{filter.trim()}&rdquo;.</p>}
+      {q && shown.length === 0 && <NoMatch what="tool" query={filter} />}
       {shown.length > 0 && (
-        <div className="flex flex-col divide-y divide-border rounded-lg border border-border px-3">
-          {shown.map((t) => (
-            <div key={t.name} className="flex items-start gap-3 py-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="min-w-0 break-all font-mono text-label text-foreground">{t.exposedName}</span>
-                  {t.readOnly ? <Badge>Read-only</Badge> : <Badge tone="arc">Asks first</Badge>}
-                </div>
-                {t.description && (
-                  <Tooltip label={t.description} truncated className="flex min-w-0 max-w-full">
-                    <p className="mt-0.5 line-clamp-2 min-w-0 break-words text-caption text-muted-foreground">{t.description}</p>
-                  </Tooltip>
-                )}
-              </div>
-              <label className="mt-0.5 flex cursor-pointer items-center">
-                <span className="sr-only">Use {t.name}</span>
-                <Switch on={t.enabled} onFlip={() => flip(
-                  { ...c, tools: c.tools.map((x) => (x.name === t.name ? { ...x, enabled: !t.enabled } : x)) },
-                  () => api.setConnectorToolEnabled(c.id, t.name, !t.enabled),
-                  `Couldn’t turn ${t.name} ${t.enabled ? "off" : "on"}.`,
-                )} />
-              </label>
-            </div>
-          ))}
-        </div>
+        <span className="flex flex-wrap gap-1.5">
+          {shown.map((t) => {
+            const tip = [t.description, t.readOnly ? "" : "Asks first."].filter(Boolean).join(" ");
+            return (
+              <Tooltip key={t.name} label={tip}>
+                <button type="button" aria-pressed={t.enabled} className="rounded-full"
+                  onClick={() => flip(
+                    { ...c, tools: c.tools.map((x) => (x.name === t.name ? { ...x, enabled: !t.enabled } : x)) },
+                    () => api.setConnectorToolEnabled(c.id, t.name, !t.enabled),
+                    `Couldn’t turn ${t.name} ${t.enabled ? "off" : "on"}.`,
+                  )}>
+                  <Chip dot={t.enabled ? "success" : "muted"} className={cn("font-mono transition hover:bg-foreground/10", !t.enabled && "line-through opacity-60")}>
+                    {t.exposedName}
+                    {!t.readOnly && <>{asksDot}<span className="sr-only">, asks first</span></>}
+                  </Chip>
+                </button>
+              </Tooltip>
+            );
+          })}
+        </span>
       )}
+      {c.tools.length > 1 && shown.length > 0 && <span className="flex flex-wrap gap-1.5">{bulk(true)}{bulk(false)}</span>}
     </div>
   );
 }
@@ -454,7 +501,7 @@ function EditPanel({ c, onSaved, onCancel }: { c: ConnectorWire; onSaved: (c: Co
     finally { setBusy(false); }
   };
   return (
-    <div className={cn(inset, "mt-2.5")}>
+    <div className={inset}>
       <label className={field}>Name
         <Input size="md" autoFocus value={d.name} onChange={(e) => set({ name: e.target.value })} />
       </label>
@@ -501,7 +548,7 @@ function EditPanel({ c, onSaved, onCancel }: { c: ConnectorWire; onSaved: (c: Co
 }
 
 function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const { data: sources, isError, error, refetch, isFetching } = useQuery({
+  const { data: sources, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["connector-imports"], queryFn: api.connectorImports, retry: 1, staleTime: 0, gcTime: 0,
   });
   const [picks, setPicks] = useState<Set<string>>(new Set());
@@ -527,13 +574,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
   return (
     <div className={panel}>
       <p className="text-label text-foreground">MCP servers found in the apps on this computer. Only the setup comes over, never a sign-in.</p>
-      {!sources && !isError && <p className="text-label text-muted-foreground">Looking…</p>}
-      {isError && (
-        <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t look for servers. {msg(error)}</span>
-          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>{isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry</Button>
-        </div>
-      )}
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="look for servers" />
       {withServers.map((s) => <ImportSource key={s.source} s={s} picks={picks} flip={flip} />)}
       {sources && !withServers.length && <p className="text-label text-muted-foreground">No MCP servers found.</p>}
       {empty.length > 0 && <p className="break-words text-caption text-faint">Nothing in {empty.join(", ")}.</p>}

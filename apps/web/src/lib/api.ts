@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -112,6 +112,11 @@ export const api = {
     fetch("/api/skills/import", { method: "POST", body: JSON.stringify({ items }) })
       .then(j<{ imported: string[]; skipped: { source: string; name: string; reason: string }[] }>),
   /** Every change to the notes answers with the whole list, since the budget's cutoff moves. */
+  capabilities: () => fetch("/api/capabilities").then(j<CapabilitiesWire>),
+  setToolGroupEnabled: (id: string, enabled: boolean) =>
+    fetch(`/api/capabilities/groups/${encodeURIComponent(id)}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<CapabilitiesWire>),
+  /** Write-only: "" clears it, and the reply only says whether one is saved. */
+  setExaKey: (key: string) => fetch("/api/capabilities/exa-key", { method: "POST", body: JSON.stringify({ key }) }).then(j<CapabilitiesWire>),
   memory: () => fetch("/api/memory").then(j<MemoryWire>),
   addNote: (text: string) => fetch("/api/memory", { method: "POST", body: JSON.stringify({ text }) }).then(j<MemoryWire>),
   saveNote: (id: string, text: string) => fetch(`/api/memory/note/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ text }) }).then(j<MemoryWire>),

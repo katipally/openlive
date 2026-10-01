@@ -48,7 +48,7 @@ export function Composer({ ref, onSent }: { ref?: Ref<ComposerHandle>; onSent: (
   const agentCommands = useLiveStore((s) => s.agentMeta?.commands ?? NO_COMMANDS);
   const agent = useLiveStore((s) => s.boundAgent);
   const workspace = useLiveStore((s) => s.boundCwd);
-  // The same list, and cache, as Settings > Skills. A failed read only means no skills here.
+  // The same list, and cache, as the Skills subtab in Settings. A failed read only means no skills here.
   const { data: skillList } = useQuery({ queryKey: ["skills", workspace], queryFn: () => api.skills(workspace), retry: 1, staleTime: 30_000 });
   const skills = skillList?.skills;
   const commands = useMemo(() => (skills ? withSkills(agentCommands, skills) : agentCommands), [agentCommands, skills]);

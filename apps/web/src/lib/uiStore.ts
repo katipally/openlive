@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { featureUsed } from "@/lib/featureUse";
+import { capabilityTab, type CapabilityTab } from "@/lib/settingsSearch";
 
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `chat-${Date.now()}`);
 
@@ -14,6 +15,9 @@ interface UiState {
   openSettings: () => void;
   openSettingsTab: (tab: string) => void; // open Settings straight to a tab
   closeSettings: () => void;
+  /** The Capabilities subtab: the one a deep link or this viewer last chose. */
+  capabilitiesTab: CapabilityTab;
+  setCapabilitiesTab: (t: CapabilityTab) => void;
   liveOpen: boolean;
   setLiveOpen: (v: boolean) => void;
   historyOpen: boolean;               // the left History sidebar (agent → workspace → session)
@@ -35,14 +39,17 @@ interface UiState {
 export type AppMode = "chat" | "flow";
 
 const MODE_KEY = "openlive-mode";
+const CAPABILITIES_KEY = "openlive-capabilities-tab";
 
-/** The saved mode, or "chat". Read on mount rather than at module load: this
+/** The saved mode, or "chat", and the last Capabilities subtab. Read on mount rather than at module load: this
  *  store is evaluated during SSR too, and seeding it from localStorage there is
  *  a hydration mismatch waiting to happen. */
 export function restoreMode(): void {
   try {
     const saved = localStorage.getItem(MODE_KEY);
     if (saved === "flow" || saved === "chat") useUi.setState({ mode: saved });
+    const tab = capabilityTab(localStorage.getItem(CAPABILITIES_KEY));
+    if (tab) useUi.setState({ capabilitiesTab: tab });
   } catch { /* private mode */ }
 }
 
@@ -70,6 +77,11 @@ export const useUi = create<UiState>((set, get) => ({
     set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), settingsTab: tab }));
   },
   closeSettings: () => set({ settingsOpen: false }),
+  capabilitiesTab: "tools",
+  setCapabilitiesTab: (t) => {
+    try { localStorage.setItem(CAPABILITIES_KEY, t); } catch { /* private mode: kept for this run only */ }
+    set({ capabilitiesTab: t });
+  },
   liveOpen: false,
   setLiveOpen: (v) => {
     if (v && !get().liveOpen) featureUsed("n_lobby_open");

@@ -622,8 +622,10 @@ Limit: at most 3 per day.
 | `n_settings_tab_voice` | Times the Voice page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_engine` | Times the Speech engine page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_agents` | Times the Agents page of Settings was shown. | whole number, 0 to 999 | sometimes |
-| `n_settings_tab_connectors` | Times the Connectors page of Settings was shown. | whole number, 0 to 999 | sometimes |
-| `n_settings_tab_skills` | Times the Skills page of Settings was shown. | whole number, 0 to 999 | sometimes |
+| `n_settings_tab_capabilities` | Times the Capabilities page of Settings was shown. | whole number, 0 to 999 | sometimes |
+| `n_settings_tab_tools` | Times the Tools part of the Capabilities page was shown. | whole number, 0 to 999 | sometimes |
+| `n_settings_tab_connectors` | Times the Connectors part of the Capabilities page was shown. | whole number, 0 to 999 | sometimes |
+| `n_settings_tab_skills` | Times the Skills part of the Capabilities page was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_memory` | Times the Memory page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_chat` | Times the Chat page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_flow` | Times the Flow page of Settings was shown. | whole number, 0 to 999 | sometimes |

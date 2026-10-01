@@ -2,40 +2,32 @@
 
 import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, FolderOpen, Loader2, Pencil, Plus, RotateCcw, Search } from "lucide-react";
+import { Download, Eye, FolderOpen, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
 import { SKILL_DESCRIPTION_MAX, type SkillImportSource, type SkillListWire, type SkillWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems } from "@/lib/skills";
-import { Badge, Button, Checkbox, ConfirmButton, Input, ListGroup, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
-import { Section } from "./Section";
+import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems, skillRole, splitSkills } from "@/lib/skills";
+import { Badge, Button, Checkbox, ConfirmButton, Input, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
+import { BuiltInBadge, EmptyState, NoMatch, QueryState, card, field, grid3, inset, msg, panel } from "./common";
 
-const KEY = ["skills"];
-// Past this many skills a filter appears, as on Connectors.
-const FILTER_AT = 8;
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const field = "flex min-w-0 flex-col gap-1 text-label text-muted-foreground";
-const panel = "flex flex-col gap-3 rounded-xl bg-card p-3 shadow-card";
-const inset = "flex flex-col gap-3 rounded-lg border border-border p-3";
+export const skillsQuery = (workspace: string) => ({ queryKey: ["skills", workspace], queryFn: () => api.skills(workspace) });
 
 /** Agent Skills every brain can load, in Chat and Flow. The agent pushes
- *  nothing, so the list refreshes on focus and on Rescan. A call's bound
- *  folder adds that project's skills, shown read-only. */
+ *  nothing, so the list refreshes on focus and on Rescan. Built-in skills and
+ *  a call's bound folder's are read in place; only your own folder's edit. */
 export function SkillsSettings() {
   const qc = useQueryClient();
   const workspace = useLiveStore((s) => s.boundCwd);
-  const key = [...KEY, workspace];
+  const { queryKey: key } = skillsQuery(workspace);
   const [adding, setAdding] = useState<"new" | "import" | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: key, queryFn: () => api.skills(workspace), retry: 1, refetchOnWindowFocus: true,
-  });
-  const put = (s: SkillWire) => qc.setQueryData<SkillListWire>(key, (l) => l && { ...l, skills: l.skills.map((x) => (x.name === s.name ? s : x)) });
-  const refresh = () => qc.invalidateQueries({ queryKey: KEY });
+  const { data, isLoading, error, refetch, isFetching } = useQuery({ ...skillsQuery(workspace), retry: 1, refetchOnWindowFocus: true });
+  const put = (s: SkillWire) => qc.setQueryData<SkillListWire>(key, (l) => l && { ...l, skills: l.skills.map((x) => (x.name === s.name && x.source === s.source ? s : x)) });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["skills"] });
 
   const rescan = async () => {
     setBusy(true);
@@ -52,69 +44,63 @@ export function SkillsSettings() {
   };
 
   const all = data?.skills ?? [];
-  const shown = filterSkills(all, filter);
-  const actions = !adding && (
-    <span className="flex flex-wrap gap-1.5">
-      <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-      <Button size="sm" onClick={() => setAdding("new")}><Plus /> New skill</Button>
-    </span>
+  const { builtIn, yours } = splitSkills(filterSkills(all, filter));
+  const q = filter.trim();
+  const section = (label: string, list: SkillWire[], extra?: React.ReactNode) => (
+    <section className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <h3 className={cn(groupLabel, "flex items-center gap-2")}>{label}<span className="tabular-nums">{list.length}</span></h3>
+        {extra}
+      </div>
+      {list.length > 0 && (
+        <div className={grid3}>
+          {list.map((s) => <SkillCard key={`${s.source}:${s.name}`} s={s} workspace={workspace} put={put} refresh={refresh} />)}
+        </div>
+      )}
+    </section>
   );
 
   return (
-    <div className="flex flex-col gap-7">
-      <Section id="set-skills-list" title="Skills" action={actions}
-        desc={<>Instructions for specific kinds of tasks, in the open Agent Skills format. Every brain can load one when a task calls for it, in Chat and Flow, for API models and coding agents alike. Type /name in a call&apos;s text box to load one yourself. Changes apply from the next call or Flow session.</>}>
-        <div className="flex flex-col gap-2">
-          {data && (
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <Tooltip label={<span className="break-all">{data.dir}</span>} truncated className="flex min-w-0 flex-1 basis-48">
-                <span className="min-w-0 truncate font-mono text-caption text-faint">{data.dir}</span>
-              </Tooltip>
-              <span className="flex flex-wrap gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen /> Open folder</Button>
-                <Button variant="ghost" size="sm" onClick={() => void rescan()} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <RotateCcw />} Rescan</Button>
-              </span>
-            </div>
-          )}
-          {adding === "new" && <NewPanel taken={all.map((s) => s.name)} onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
-          {adding === "import" && <ImportPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
-          {isLoading && <p className="text-label text-muted-foreground">Looking…</p>}
-          {isError && (
-            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t reach OpenLive&apos;s agent. {msg(error)}</span>
-              <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
-                {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry
-              </Button>
-            </div>
-          )}
-          {data && all.length === 0 && !adding && (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-card-x py-5 text-center">
-              <p className="text-label text-muted-foreground">No skills yet. Write one, drop a skill folder into the folder above, or bring over the ones you use in Claude Code, Codex or Gemini CLI.</p>
-              <span className="flex flex-wrap justify-center gap-1.5">
-                <Button size="sm" variant="primary" onClick={() => setAdding("new")}><Plus /> New skill</Button>
-                <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-              </span>
-            </div>
-          )}
-          {all.length > FILTER_AT && (
-            <Input type="search" size="md" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Find among ${all.length} skills`} aria-label="Find a skill" />
-          )}
-          {filter.trim() && shown.length === 0 && <p className="text-label text-muted-foreground">No skill matches &ldquo;{filter.trim()}&rdquo;.</p>}
-          {shown.length > 0 && (
-            <ListGroup>
-              {shown.map((s) => <SkillRow key={`${s.source}:${s.name}`} s={s} workspace={workspace} put={put} refresh={refresh} />)}
-            </ListGroup>
-          )}
-          {data && data.problems.length > 0 && <Problems problems={data.problems} />}
-        </div>
-      </Section>
+    <div id="set-capabilities-skills-list" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a skill" aria-label="Find a skill" className="min-w-0 flex-1 basis-40" />
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Tooltip label="Open the skills folder">
+            <Button variant="ghost" icon onClick={() => void reveal()} aria-label="Open the skills folder"><FolderOpen /></Button>
+          </Tooltip>
+          <Tooltip label="Look for new or changed skill folders">
+            <Button variant="ghost" icon onClick={() => void rescan()} disabled={busy} aria-label="Rescan">{busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}</Button>
+          </Tooltip>
+          <Button onClick={() => setAdding("import")} disabled={adding === "import"}><Download /> Import</Button>
+          <Tooltip label="Every brain loads a skill when a task calls for it. Type /name in a call to load one yourself.">
+            <Button variant="primary" onClick={() => setAdding("new")} disabled={adding === "new"}><Plus /> New skill</Button>
+          </Tooltip>
+        </span>
+      </div>
+      {adding === "new" && <NewPanel taken={all.map((s) => s.name)} onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
+      {adding === "import" && <ImportPanel onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} />
+      {q && data && builtIn.length + yours.length === 0 && <NoMatch what="skill" query={filter} />}
+      {builtIn.length > 0 && section("Built in", builtIn)}
+      {data && (!q || yours.length > 0) && section("Yours", yours, (
+        <Tooltip label={<span className="break-all">{data.dir}</span>} truncated className="flex min-w-0 flex-1 basis-32">
+          <span className="min-w-0 truncate font-mono text-caption text-faint">{data.dir}</span>
+        </Tooltip>
+      ))}
+      {data && !q && yours.length === 0 && !adding && (
+        <EmptyState actions={<>
+          <Button size="sm" variant="primary" onClick={() => setAdding("new")}><Plus /> New skill</Button>
+          <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
+        </>}>No skills of your own yet. Write one, drop a skill folder into the folder above, or bring over the ones from Claude Code, Codex or Gemini CLI.</EmptyState>
+      )}
+      {data && data.problems.length > 0 && <Problems problems={data.problems} />}
     </div>
   );
 }
 
-function SkillRow({ s, workspace, put, refresh }: { s: SkillWire; workspace: string; put: (s: SkillWire) => void; refresh: () => Promise<void> }) {
+function SkillCard({ s, workspace, put, refresh }: { s: SkillWire; workspace: string; put: (s: SkillWire) => void; refresh: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
-  const own = s.source === "user";
+  const { builtIn, own } = skillRole(s.source);
   const flip = () => {
     put({ ...s, enabled: !s.enabled });
     api.setSkillEnabled(s.name, !s.enabled, workspace).then(put).catch((e) => { put(s); toast(`Couldn’t turn ${s.name} ${s.enabled ? "off" : "on"}. ${msg(e)}`); });
@@ -123,30 +109,40 @@ function SkillRow({ s, workspace, put, refresh }: { s: SkillWire; workspace: str
     try { await api.removeSkill(s.name); await refresh(); }
     catch (e) { toast(`Couldn’t remove ${s.name}. ${msg(e)}`); }
   };
+  const files = s.resources ? `${s.resources + 1} files` : "SKILL.md";
 
   return (
-    <div className={cn("py-3 transition", !s.enabled && "opacity-60")}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 break-all font-mono text-body font-medium text-foreground">{s.name}</span>
-            {!own && <Badge tone="accent">Workspace</Badge>}
-          </div>
-          <Tooltip label={s.description} truncated className="flex min-w-0 max-w-full">
-            <p className="mt-0.5 line-clamp-2 min-w-0 break-words text-caption text-muted-foreground">{s.description}</p>
-          </Tooltip>
-        </div>
+    <div className={cn(card, "gap-2 p-3", open && "col-span-full")}>
+      <div className="flex items-center gap-2">
+        <Tooltip label={s.name} truncated className="flex min-w-0 flex-1">
+          <span className={cn("min-w-0 truncate font-mono text-body font-medium text-foreground", !s.enabled && "opacity-60")}>{s.name}</span>
+        </Tooltip>
         <label className="flex cursor-pointer items-center">
           <span className="sr-only">Use {s.name}</span>
           <Switch on={s.enabled} onFlip={flip} />
         </label>
       </div>
-      {s.warnings.map((w, i) => <p key={i} className="mt-1 break-words text-caption text-arc-text">{w}</p>)}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="px-1 text-caption text-faint">{s.resources ? `${s.resources} ${s.resources === 1 ? "file" : "files"} beside SKILL.md` : "SKILL.md only"}</span>
-        <span className="ml-auto flex flex-wrap gap-1.5">
-          {!open && <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={`${own ? "Edit" : "View"} ${s.name}`}>{own ? <Pencil /> : <Eye />} {own ? "Edit" : "View"}</Button>}
-          {own && <ConfirmButton label="Remove" confirm="Remove its folder?" onConfirm={remove} />}
+      <Tooltip label={s.description} truncated className={cn("flex min-w-0 max-w-full flex-1", !s.enabled && "opacity-60")}>
+        <p className="line-clamp-2 min-w-0 break-words text-label text-muted-foreground">{s.description}</p>
+      </Tooltip>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {builtIn && <BuiltInBadge />}
+        {s.source === "workspace" && <Badge tone="accent">Workspace</Badge>}
+        {s.warnings.length > 0 && (
+          <Tooltip label={s.warnings.join(" ")}>
+            <span tabIndex={0} className="inline-flex rounded-sm">
+              <Badge tone="arc"><TriangleAlert aria-hidden /> {s.warnings.length === 1 ? "1 warning" : `${s.warnings.length} warnings`}</Badge>
+            </span>
+          </Tooltip>
+        )}
+        <span className="text-caption text-faint">{files}</span>
+        <span className="ml-auto flex items-center gap-0.5">
+          {!open && (
+            <Tooltip label={own ? "Edit" : "View"}>
+              <Button variant="ghost" size="sm" icon onClick={() => setOpen(true)} aria-label={`${own ? "Edit" : "View"} ${s.name}`}>{own ? <Pencil /> : <Eye />}</Button>
+            </Tooltip>
+          )}
+          {own && <ConfirmButton label={`Remove ${s.name}`} icon={<Trash2 />} confirm="Remove its folder?" onConfirm={remove} />}
         </span>
       </div>
       {open && <Editor s={s} workspace={workspace} onSaved={(next) => { put(next); setOpen(false); }} onClose={() => setOpen(false)} />}
@@ -154,10 +150,10 @@ function SkillRow({ s, workspace, put, refresh }: { s: SkillWire; workspace: str
   );
 }
 
-/** SKILL.md as written, editable for OpenLive's own skills and read-only for a workspace's. */
+/** SKILL.md as written, editable for OpenLive's own skills and read-only for the rest. */
 function Editor({ s, workspace, onSaved, onClose }: { s: SkillWire; workspace: string; onSaved: (s: SkillWire) => void; onClose: () => void }) {
-  const own = s.source === "user";
-  const { data, isError, error, refetch, isFetching } = useQuery({
+  const { builtIn, own } = skillRole(s.source);
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["skill", s.source, s.name, workspace], queryFn: () => api.skill(s.name, workspace), retry: 1, staleTime: 0, gcTime: 0,
   });
   const [text, setText] = useState<string | null>(null);
@@ -174,24 +170,18 @@ function Editor({ s, workspace, onSaved, onClose }: { s: SkillWire; workspace: s
     finally { setBusy(false); }
   };
   return (
-    <div className={cn(inset, "mt-2.5")}>
+    <div className={inset}>
       <Tooltip label={<span className="break-all">{s.dir}</span>} truncated className="flex min-w-0 max-w-full">
         <span className="min-w-0 truncate font-mono text-caption text-faint">{s.dir}</span>
       </Tooltip>
-      {isError && (
-        <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t read SKILL.md. {msg(error)}</span>
-          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>{isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry</Button>
-        </div>
-      )}
-      {text == null && !isError && <p className="text-label text-muted-foreground">Reading…</p>}
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="read SKILL.md" />
       {text != null && (
         <label className={field}>SKILL.md
           <Textarea rows={Math.min(24, Math.max(6, text.split("\n").length))} value={text} readOnly={!own} onChange={(e) => setText(e.target.value)}
             spellCheck={false} className="font-mono text-label" />
         </label>
       )}
-      {!own && <p className="text-caption text-muted-foreground">This skill is read from the project folder. Edit it there.</p>}
+      {!own && <p className="text-caption text-muted-foreground">{builtIn ? "Built into OpenLive. Turn it off if you do not want it." : "Read from the project folder. Edit it there."}</p>}
       {problem && <p role="alert" className="break-words text-label text-destructive">{problem}</p>}
       <span className="flex flex-wrap gap-1.5">
         {own && <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy || text == null}>{busy && <Loader2 className="animate-spin" />} Save</Button>}
@@ -265,7 +255,7 @@ function Problems({ problems }: { problems: SkillListWire["problems"] }) {
 }
 
 function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const { data: sources, isError, error, refetch, isFetching } = useQuery({
+  const { data: sources, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["skill-imports"], queryFn: api.skillImports, retry: 1, staleTime: 0, gcTime: 0,
   });
   const [picks, setPicks] = useState<Set<string>>(new Set());
@@ -290,13 +280,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
   return (
     <div className={panel}>
       <p className="text-label text-foreground">Skills found in the other tools on this computer. Each one is copied into OpenLive&apos;s folder; the original stays where it is.</p>
-      {!sources && !isError && <p className="text-label text-muted-foreground">Looking…</p>}
-      {isError && (
-        <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="min-w-0 flex-1 basis-48 break-words text-label text-muted-foreground">Couldn&apos;t look for skills. {msg(error)}</span>
-          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>{isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry</Button>
-        </div>
-      )}
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="look for skills" />
       {withSkills.map((s) => <ImportSource key={s.source} s={s} picks={picks} flip={flip} />)}
       {sources && !withSkills.length && <p className="text-label text-muted-foreground">No skills found.</p>}
       {empty.length > 0 && <p className="break-words text-caption text-faint">Nothing in {empty.join(", ")}.</p>}

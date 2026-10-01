@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectorImportSource, ConnectorStatus, ConnectorWire } from "@openlive/shared";
-import { STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine } from "./connectors";
+import { STATUS, bulkTools, draftOf, editPatch, initialPicks, monogram, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine } from "./connectors";
 
 const base = { enabled: true, source: "manual", createdAt: "", spawnConsent: true, signedIn: false, status: "connected", tools: [] } as const;
 const stdio: ConnectorWire = {
@@ -142,5 +142,17 @@ describe("bulk tool switches", () => {
   it("says when a filter narrows it to the tools shown", () => {
     expect(bulkTools(tools.slice(0, 2), true, true)).toEqual({ names: ["b"], label: "Turn the 2 shown on" });
     expect(bulkTools([], true, false).names).toEqual([]);
+  });
+});
+
+describe("monogram", () => {
+  it("stands for a connector in two letters, whatever its name", () => {
+    expect(monogram("GitHub")).toBe("GH");
+    expect(monogram("Linear")).toBe("Li");
+    expect(monogram("web search")).toBe("WS");
+    expect(monogram("api.example.com")).toBe("AE");
+    expect(monogram("x")).toBe("X");
+    expect(monogram("Ünïcode")).toBe("Ün");
+    expect(monogram("***")).toBe("?");
   });
 });

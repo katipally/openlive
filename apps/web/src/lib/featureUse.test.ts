@@ -1,7 +1,7 @@
 import { telemetrySchema } from "@openlive/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { featureUsed, tourClosed, tourRun } from "./featureUse";
-import { resolveSettingsTab } from "./settingsSearch";
+import { CAPABILITY_TABS, SETTINGS_TABS } from "./settingsSearch";
 
 const install = () => {
   const bridge = { track: vi.fn(), count: vi.fn() };
@@ -50,11 +50,11 @@ describe("featureUsed", () => {
 });
 
 describe("settings page counters", () => {
-  it("has one for each page Settings shows, named by the page's own id", () => {
+  it("has one for each page and Capabilities subtab Settings shows, named by its own id", () => {
     const prefix = "n_settings_tab_";
     const pages = telemetrySchema.counters.filter((c) => c.startsWith(prefix)).map((c) => c.slice(prefix.length));
-    expect(pages).toHaveLength(12);
-    expect(pages.map(resolveSettingsTab)).toEqual(pages);
+    expect(new Set(pages)).toEqual(new Set([...SETTINGS_TABS, ...CAPABILITY_TABS]));
+    expect(pages).toHaveLength(SETTINGS_TABS.length + CAPABILITY_TABS.length);
   });
 });
 

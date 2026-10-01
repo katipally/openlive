@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SkillImportSource, SkillWire } from "@openlive/shared";
-import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems } from "./skills";
+import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems, skillRole, splitSkills } from "./skills";
 
 const s = (name: string, description: string): SkillWire => ({ name, description, source: "user", dir: `/s/${name}`, enabled: true, resources: 0, warnings: [] });
 
@@ -44,5 +44,20 @@ describe("import picks", () => {
   it("sends one pick per name, the first listed", () => {
     const all = new Set([pickKey("claude-code", "pdf"), pickKey("agents", "pdf"), pickKey("claude-code", "notes")]);
     expect(pickedItems(sources, all)).toEqual([{ source: "claude-code", name: "pdf" }, { source: "claude-code", name: "notes" }]);
+  });
+});
+
+describe("built-in and your own skills", () => {
+  it("lets only OpenLive's own folder be edited or removed", () => {
+    expect(skillRole("user")).toEqual({ builtIn: false, own: true });
+    expect(skillRole("workspace")).toEqual({ builtIn: false, own: false });
+    expect(skillRole("bundled")).toEqual({ builtIn: true, own: false });
+  });
+
+  it("puts built-in skills in their own section, keeping the order", () => {
+    const k = (name: string, source: SkillWire["source"]) => ({ ...s(name, ""), source });
+    const { builtIn, yours } = splitSkills([k("a", "user"), k("b", "bundled"), k("c", "workspace"), k("d", "bundled")]);
+    expect(builtIn.map((x) => x.name)).toEqual(["b", "d"]);
+    expect(yours.map((x) => x.name)).toEqual(["a", "c"]);
   });
 });

@@ -111,7 +111,7 @@ const COUNTER_KEYS = [
   "n_flow_history_search", "n_flow_carry_on", "n_mode_to_flow", "n_mode_to_chat", "n_lobby_open", "n_camera_on",
   "n_screen_on", "n_typed_msg", "n_ptt_toggle", "n_not_for_you", "n_send_aside", "n_call_shortcut",
   "n_settings_tab_general", "n_settings_tab_models", "n_settings_tab_voice", "n_settings_tab_engine",
-  "n_settings_tab_agents", "n_settings_tab_connectors", "n_settings_tab_skills", "n_settings_tab_memory", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_privacy", "n_settings_tab_about",
+  "n_settings_tab_agents", "n_settings_tab_capabilities", "n_settings_tab_tools", "n_settings_tab_connectors", "n_settings_tab_skills", "n_settings_tab_memory", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_privacy", "n_settings_tab_about",
 ] as const;
 
 /** When the app may ask how it is doing, enforced in one place (telemetry/feedback.cjs). Days are whole days, hours whole hours. */

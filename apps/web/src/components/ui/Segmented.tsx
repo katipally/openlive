@@ -37,6 +37,8 @@ export interface SegOption<T extends string> {
   title?: string;
   /** Marks the recommended choice with a ✦. */
   starred?: boolean;
+  /** How many things the option holds, quiet beside its label (Tools 34). */
+  count?: number;
   /** Why this option can't be picked right now: greys it out and says so on hover. */
   unavailable?: string;
 }
@@ -118,6 +120,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
               ? <o.icon aria-hidden className={o.sub ? "size-4" : "size-3.5"} />
               : o.icon && <span className="grid size-3.5 shrink-0 place-items-center">{o.icon}</span>}
             <span className={cn(o.sub && "leading-tight")}>{o.label}</span>
+            {o.count !== undefined && <span className="shrink-0 text-caption tabular-nums text-faint">{o.count}</span>}
             {o.starred && <span aria-hidden className="shrink-0 text-micro text-accent">✦</span>}
             {o.sub && <span className="text-micro font-normal leading-tight text-faint">{o.sub}</span>}
             {off && <><Info aria-hidden className="size-3 shrink-0" /><span className="sr-only">{`. ${o.unavailable}`}</span></>}

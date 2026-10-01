@@ -3,18 +3,29 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "connectors" | "skills" | "memory" | "chat" | "flow" | "privacy" | "about";
+export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "capabilities" | "memory" | "chat" | "flow" | "privacy" | "about";
 
+/** The subtabs of Capabilities. Each was, or could have been, a tab of its own. */
+export const CAPABILITY_TABS = ["tools", "skills", "connectors"] as const;
+export type CapabilityTab = (typeof CAPABILITY_TABS)[number];
+
+export const SETTINGS_TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "capabilities", "memory", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
-const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice" };
-const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "connectors", "skills", "memory", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
+const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice", tools: "capabilities", skills: "capabilities", connectors: "capabilities" };
 
 export function resolveSettingsTab(id: string | null | undefined): SettingsTabId | null {
   if (!id) return null;
-  if (TABS.includes(id)) return id as SettingsTabId;
+  if (SETTINGS_TABS.includes(id)) return id as SettingsTabId;
   return LEGACY_TABS[id] ?? null;
 }
+
+/** The Capabilities subtab a deep link names ("connectors", "skills"), or null. */
+export const capabilityTab = (id: string | null | undefined): CapabilityTab | null =>
+  CAPABILITY_TABS.find((t) => t === id) ?? null;
+
+/** The subtab's own button, which a search result clicks first. */
+export const capabilityReveal = (t: CapabilityTab) => `set-capabilities-${t}`;
 
 export interface SettingsEntry {
   label: string;
@@ -23,7 +34,7 @@ export interface SettingsEntry {
   tab: SettingsTabId;
   /** DOM id of the row (or its section) to scroll to. */
   anchor: string;
-  /** DOM id of the speech engine stage tab that holds the row, clicked first.
+  /** DOM id of the stage tab or subtab that holds the row, clicked first.
    *  A row folded under Advanced is unfolded on the way. */
   reveal?: string;
   /** Only rendered in the desktop app. */
@@ -70,11 +81,14 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   { label: "Coding agents", keywords: "install sign in sign out hide claude codex cursor acp", tab: "agents", anchor: "set-agents-list" },
 
-  { label: "Connectors", keywords: "mcp servers tools plugins integrations add url json oauth sign in github slack notion", tab: "connectors", anchor: "set-connectors-list" },
-  { label: "Skills", keywords: "agent skills skill.md instructions slash command new create edit folder", tab: "skills", anchor: "set-skills-list" },
+  { label: "Tools", keywords: "built-in builtin tools computer use screen click files folder web research search fetch text type clipboard selection assistant todos shell command terminal turn off disable groups", tab: "capabilities", anchor: "set-capabilities-tools-list", reveal: capabilityReveal("tools") },
+  { label: "Load connector tools on demand", keywords: "auto lazy prompt size many connectors tools", tab: "capabilities", anchor: "set-capabilities-on-demand", reveal: capabilityReveal("tools") },
+  { label: "Skills", keywords: "agent skills skill.md instructions slash command new create edit folder built-in", tab: "capabilities", anchor: "set-capabilities-skills-list", reveal: capabilityReveal("skills") },
+  { label: "Import skills", keywords: "skills import claude code codex gemini agents copy", tab: "capabilities", anchor: "set-capabilities-skills-list", reveal: capabilityReveal("skills") },
+  { label: "Connectors", keywords: "mcp servers tools plugins integrations add url json oauth sign in github slack notion", tab: "capabilities", anchor: "set-capabilities-connectors-list", reveal: capabilityReveal("connectors") },
+  { label: "Import connectors", keywords: "mcp import claude desktop claude code codex cursor gemini vs code vscode mcpServers", tab: "capabilities", anchor: "set-capabilities-connectors-list", reveal: capabilityReveal("connectors") },
+  { label: "Web search key", keywords: "exa api key web search rate limit free tier built-in connector", tab: "capabilities", anchor: "set-capabilities-exa", reveal: capabilityReveal("connectors") },
   { label: "Memory", keywords: "remember notes facts forget delete clear edit add budget prompt saved what it knows about me", tab: "memory", anchor: "set-memory-list" },
-  { label: "Import skills", keywords: "skills import claude code codex gemini agents copy", tab: "skills", anchor: "set-skills-list" },
-  { label: "Import connectors", keywords: "mcp import claude desktop claude code codex cursor gemini vs code vscode mcpServers", tab: "connectors", anchor: "set-connectors-list" },
 
   { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
   { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },

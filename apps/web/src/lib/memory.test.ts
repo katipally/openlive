@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemoryWire, NoteWire } from "@openlive/shared";
-import { budgetMeter, filterNotes, noteProblem } from "./memory";
+import { budgetMeter, budgetSegments, filterNotes, noteProblem } from "./memory";
 
 const n = (text: string, inUse = true, id = text): NoteWire => ({ id, text, inUse });
 const wire = (notes: NoteWire[], used: number, budget = 2000): MemoryWire => ({ notes, used, budget, max: 300 });
@@ -44,5 +44,32 @@ describe("the budget meter", () => {
   });
   it("never reads past 100%", () => {
     expect(budgetMeter(wire([n("a")], 9000)).pct).toBe(100);
+  });
+});
+
+describe("the budget bar", () => {
+  it("draws each note in use by its cost, what is left, then each note past the budget", () => {
+    const segs = budgetSegments(wire([n("abc"), n("de"), n("old", false)], 9, 20));
+    expect(segs).toEqual([
+      { key: "abc", weight: 6, kind: "used" },
+      { key: "de", weight: 5, kind: "used" },
+      { key: "free", weight: 11, kind: "free" },
+      { key: "old", weight: 6, kind: "unused" },
+    ]);
+  });
+
+  it("is all free with no notes, and has no free part once the budget is spent", () => {
+    expect(budgetSegments(wire([], 0))).toEqual([{ key: "free", weight: 2000, kind: "free" }]);
+    expect(budgetSegments(wire([n("a")], 2000)).map((x) => x.kind)).toEqual(["used"]);
+  });
+
+  it("folds hundreds of notes into a bounded bar, keeping the total", () => {
+    const many = Array.from({ length: 300 }, (_, i) => n(`note ${i}`, i < 100, `id${i}`));
+    const segs = budgetSegments(wire(many, 2000), 40);
+    expect(segs.filter((x) => x.kind === "used")).toHaveLength(40);
+    expect(segs.filter((x) => x.kind === "unused")).toHaveLength(40);
+    expect(segs.at(-1)).toMatchObject({ key: "unused-rest" });
+    const cost = (list: NoteWire[]) => list.reduce((w, x) => w + x.text.length + 3, 0);
+    expect(segs.filter((x) => x.kind === "used").reduce((w, x) => w + x.weight, 0)).toBe(cost(many.slice(0, 100)));
   });
 });

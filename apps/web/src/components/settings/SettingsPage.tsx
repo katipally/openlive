@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, motion, stagger } from "motion/react";
-import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Plug, BookOpen, Brain } from "lucide-react";
+import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Blocks, Brain } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -14,9 +14,8 @@ import { ChatSettings } from "./ChatSettings";
 import { SettingsNav, type SettingsGo } from "./nav";
 import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsSettings } from "./AgentsSettings";
-import { ConnectorsSettings } from "./ConnectorsSettings";
-import { SkillsSettings } from "./SkillsSettings";
-import { MemorySettings } from "./MemorySettings";
+import { CapabilitiesSettings } from "./CapabilitiesSettings";
+import { MemoryClearAll, MemorySettings } from "./MemorySettings";
 import { AboutSettings } from "./AboutSettings";
 import { PrivacySettings } from "./PrivacySettings";
 import { FlowSettings } from "@/components/flow/FlowSettings";
@@ -25,7 +24,7 @@ import { animateAll, EXIT, FADE, GENTLE, SMOOTH, useMotionTokens } from "@/lib/m
 import { cn } from "@/lib/cn";
 import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop, MOD } from "@/lib/platform";
 import { SpotlightTour } from "@/components/SpotlightTour";
-import { resolveSettingsTab, searchSettings, type SettingsEntry, type SettingsTabId } from "@/lib/settingsSearch";
+import { capabilityTab, resolveSettingsTab, searchSettings, type SettingsEntry, type SettingsTabId } from "@/lib/settingsSearch";
 
 // `group` heads a run of the nav: what Chat and Flow share, then what each mode
 // keeps for itself. `desc` is the page's own line when it says more than `sub`.
@@ -35,9 +34,8 @@ export const SECTIONS = [
   { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, shared: true },
   { id: "engine", label: "Speech engine", sub: "VAD · STT · turns · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, shared: true, fresh: true },
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
-  { id: "connectors", label: "Connectors", sub: "MCP servers & tools", desc: "Tools from MCP servers, for every brain in Chat and Flow.", icon: Plug, Comp: ConnectorsSettings, shared: true, fresh: true },
-  { id: "skills", label: "Skills", sub: "Agent Skills for every brain", desc: "Instructions for kinds of tasks, loaded by every brain in Chat and Flow.", icon: BookOpen, Comp: SkillsSettings, shared: true, fresh: true },
-  { id: "memory", label: "Memory", sub: "What it remembers about you", desc: "The notes every brain carries into Chat and Flow.", icon: Brain, Comp: MemorySettings, shared: true, fresh: true },
+  { id: "capabilities", label: "Capabilities", sub: "Tools, skills & connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, shared: true, fresh: true, wide: true },
+  { id: "memory", label: "Memory", sub: "What it remembers about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, shared: true, fresh: true, wide: true },
   { id: "chat", label: "Chat", sub: "Push-to-talk & narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "flow", label: "Flow", sub: "Trigger, typing & access", icon: Waves, Comp: FlowSettings },
   { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "", desktop: true },
@@ -47,6 +45,10 @@ type TabId = (typeof SECTIONS)[number]["id"];
 interface Sec {
   id: SettingsTabId; label: string; sub: string; icon: typeof Info; Comp: () => React.ReactNode;
   group?: string; desc?: string; shared?: boolean; fresh?: boolean;
+  /** The one action beside the page's title. */
+  Action?: () => React.ReactNode;
+  /** Cards side by side: a wider column than the reading width. */
+  wide?: boolean;
   /** Needs the desktop shell: left out of a browser tab. */
   desktop?: boolean;
 }
@@ -94,10 +96,15 @@ export function SettingsPage() {
   // `searching` has to be reset here or the rail stays unfolded next time.
   useEffect(() => { if (!visible) { setQuery(""); setActive(0); setSearching(false); } }, [visible]);
   // Honor a deep-link (e.g. "Sessions →" opens straight to Agents), then clear it.
-  // Ids of merged tabs ("pipeline", "voices") resolve to the tab that holds them now.
+  // Ids of merged tabs ("pipeline", "voices") resolve to the tab that holds them
+  // now; "connectors" and "skills" also pick their Capabilities subtab.
   useEffect(() => {
     const want = resolveSettingsTab(wantTab);
-    if (openStore && want) { setTab(want); useUi.setState({ settingsTab: null }); }
+    if (!openStore || !want) return;
+    const sub = capabilityTab(wantTab);
+    if (sub) useUi.getState().setCapabilitiesTab(sub);
+    setTab(want);
+    useUi.setState({ settingsTab: null });
   }, [openStore, wantTab]);
 
   // ⌘F / Ctrl+F while Settings is up goes to its search, not the page's find.
@@ -305,13 +312,16 @@ export function SettingsPage() {
         <main className="openlive-scroll ol-set-pane min-h-0 flex-1 overflow-y-auto">
           {/* A narrow reading column that stays fluid: it fills a small window
               and stops growing past a comfortable line length. */}
-          <div ref={body} className="mx-auto w-full max-w-[35rem] px-10 pb-12 pt-14 @max-3xl/settings:px-5 @max-3xl/settings:pt-8">
-            <div className="mb-10">
-              <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-title-lg font-semibold tracking-tight text-foreground">
-                {Active.label}
-                {Active.shared && <Chip className="bg-accent-soft font-normal text-link-foreground"><Link2 aria-hidden /> Used by Chat and Flow</Chip>}
-              </h1>
-              <p className="mt-1.5 text-body text-muted-foreground">{Active.desc ?? Active.sub}</p>
+          <div ref={body} className={cn("mx-auto w-full px-10 pb-12 pt-14 @max-3xl/settings:px-5 @max-3xl/settings:pt-8", Active.wide ? "max-w-[47.5rem]" : "max-w-[35rem]")}>
+            <div className="mb-10 flex flex-wrap items-start gap-x-3 gap-y-2">
+              <div className="min-w-0 flex-1 basis-56">
+                <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-title-lg font-semibold tracking-tight text-foreground">
+                  {Active.label}
+                  {Active.shared && <Chip className="bg-accent-soft font-normal text-link-foreground"><Link2 aria-hidden /> Used by Chat and Flow</Chip>}
+                </h1>
+                <p className="mt-1.5 text-body text-muted-foreground">{Active.desc ?? Active.sub}</p>
+              </div>
+              {Active.Action && <Active.Action />}
             </div>
             <SettingsNav.Provider value={goTo}>
               <Active.Comp />
@@ -321,7 +331,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine, Agents, Connectors, Skills and Memory are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
+        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine, Agents, Capabilities and Memory are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>

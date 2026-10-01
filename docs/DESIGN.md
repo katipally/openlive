@@ -61,13 +61,13 @@ Everything below comes from `@/components/ui`.
 | Component | Use it for | Props and variants |
 | --- | --- | --- |
 | `Button`, `buttonClass()` | Every button, and a link that must look like one | `variant` primary, secondary (default), ghost, accent (Undo, Retry), destructive; `size` sm, md, lg; `icon` for a circle (give it `aria-label`) |
-| `ConfirmButton` | A delete that asks once in place | `label`, `confirm`, `onConfirm`; `role="menuitem"` inside a menu |
+| `ConfirmButton` | A delete that asks once in place | `label`, `confirm`, `onConfirm`; `icon` rests as an icon circle; `role="menuitem"` inside a menu |
 | `linkClass` | A word you press inside a sentence | class string |
 | `Input`, `Textarea` | Text fields | `size` sm, field, md, lg; `invalid`; `icon`, `trailing`; `type="search"` is recessed |
 | `Select`, `fieldTrigger` | A native dropdown (long lists, OS keyboard) and its closed look | native `<select>` props |
 | `SearchSelect` | A dropdown you type to filter | `options` with `hint` |
 | `Menu`: `useMenu`, `menuPanel`, `menuItem`, `menuLabel`, `MenuCheck` | Popover menus and listboxes | `useMenu(root, panel)` handles open, keys, Esc |
-| `Segmented` | A choice of 2 to 5 short options | `options`, `size`, `wrap`, `unavailable` greys one out with a reason |
+| `Segmented` | A choice of 2 to 5 short options | `options`, `size`, `wrap`, `unavailable` greys one out with a reason, `count` beside a label |
 | `Switch`, `Checkbox`, `Radio`, `RadioGroup` | On/off, multi and single choice | `Switch` for settings that apply at once |
 | `Slider`, `Range` | A labelled setting value; a bare track (seek bar) | `commitOnRelease` for slow writes; `small` thumb |
 | `Chip`, `Badge`, `pill` | A status capsule with a dot; a tag beside a title; a capsule you press | `dot` success, arc, accent, muted, danger; `tone` neutral, accent, arc, danger |

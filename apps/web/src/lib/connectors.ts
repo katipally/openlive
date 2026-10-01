@@ -18,6 +18,17 @@ export const STATUS: Record<ConnectorStatus, { text: string; dot: "success" | "a
 export const transportLine = (t: ConnectorTransportWire) =>
   t.type === "http" ? t.url : [t.command, ...t.args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a))].join(" ");
 
+/** Two letters that stand for a connector in its tile: a two-word name's
+ *  initials, a CamelCase name's capitals (GitHub, GH), else its first two letters. */
+export function monogram(name: string): string {
+  const words = name.match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length >= 2) return (words[0]![0]! + words[1]![0]!).toUpperCase();
+  const word = words[0] ?? "";
+  const caps = word.match(/\p{Lu}/gu) ?? [];
+  if (caps.length >= 2) return caps[0]! + caps[1]!;
+  return word.slice(0, 1).toUpperCase() + word.slice(1, 2).toLowerCase() || "?";
+}
+
 /** How long to wait before looking again while a sign-in is open in the
  *  browser: quick at first, slower as it drags on, and done after five minutes. */
 export function signInPollMs(elapsedMs: number): number | false {
