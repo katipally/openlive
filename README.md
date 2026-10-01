@@ -44,8 +44,8 @@ watching all run on-device (WebGPU). You bring the brain, and any brain works:
 - **A model you have a key for.** Anthropic, OpenAI, Google, xAI, DeepSeek, Groq,
   Ollama (fully local), and a dozen more. No per-minute audio fees; you pay only
   the model costs you'd pay anyway.
-- **The coding agent you already use.** Claude Code, Codex, Cursor, OpenCode, or
-  Hermes, driven locally over the
+- **The coding agent you already use.** Claude Code, Codex, Cursor, OpenCode,
+  Hermes, Gemini CLI, GitHub Copilot, Kiro, or Pi, driven locally over the
   [Agent Client Protocol](https://agentclientprotocol.com) (JSON-RPC over stdio),
   under your own login. Talk to your agent, watch it work, answer its permission
   asks by voice.
@@ -105,7 +105,7 @@ The core, the ears / mouth / eyes:
 The integrations that serve it:
 
 - **Voice-drive your coding agent.** Pick Claude Code / Codex / Cursor / OpenCode /
-  Hermes per conversation, pick its project folder, and talk. Model, mode
+  Hermes / Gemini CLI / GitHub Copilot / Kiro / Pi per conversation, pick its project folder, and talk. Model, mode
   (ask / accept edits / bypass), and the agent's other options switch mid-call, all
   reported by the agent itself over ACP.
 - **Sessions are the agent's own.** A call with Claude Code lands in

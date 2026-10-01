@@ -185,6 +185,7 @@ const PARSERS: Record<AgentDef["sessionParser"], () => ExternalSession[]> = {
   "cursor-meta": cursorSessions,
   "opencode-sqlite": opencodeSessions,
   "hermes-sqlite": hermesSessions,
+  "none": () => [],
 };
 
 /** One agent's sessions from its own ACP session/list laid over the disk scan:

@@ -176,3 +176,36 @@ test("a probe (the model list, the session list) starting an agent is not a firs
   await agent({ probe: true, connectOnly: true }).a.start(new AbortController().signal);
   assert.deepEqual(sent, []);
 }, 20_000);
+
+const flagged = (flag: string) => { adapter.command = `${process.execPath} ${FIXTURE} ${flag}`; };
+const hosted = { type: "http" as const, name: "openlive", url: "http://127.0.0.1:1/mcp/x", headers: [] };
+
+test("OpenLive's tools go to an agent that is silent about http MCP, and are held back, with their preamble, from one that says it takes none", async () => {
+  const silent = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" }).a;
+  await silent.start(new AbortController().signal);
+  assert.match((await said(silent, { text: "hello" }))[0]!, /^\[HOSTED TOOLS\]/);
+  assert.deepEqual(await said(silent, { text: "[mcp]" }), ["openlive"]);
+
+  flagged("--no-http-mcp");
+  const refuses = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" }).a;
+  await refuses.start(new AbortController().signal);
+  assert.doesNotMatch((await said(refuses, { text: "hello" }))[0]!, /HOSTED TOOLS/);
+  assert.deepEqual(await said(refuses, { text: "[mcp]" }), []);
+}, 20_000);
+
+test("a model list given as session state fills the picker and is set with session/set_model", async () => {
+  flagged("--legacy-models");
+  const { a, last } = agent();
+  await a.start(new AbortController().signal);
+  assert.deepEqual(last().models, [{ id: "m1", name: "One" }, { id: "m2", name: "Two" }]);
+  assert.equal(last().currentModelId, "m1");
+  await a.setModel("m2");
+  assert.equal(last().currentModelId, "m2");
+}, 20_000);
+
+test("auth_required from session/new reads as a sign-in instruction, not a protocol error", async () => {
+  flagged("--auth-required");
+  const err = await agent().a.start(new AbortController().signal).then(() => null, (e: Error & { errorClass?: string }) => e);
+  assert.equal(err?.errorClass, "agent_start_failed");
+  assert.match(err!.message, /isn't signed in[\s\S]*signed in/);
+}, 20_000);

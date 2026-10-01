@@ -52,6 +52,12 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **Four more coding agents: Gemini CLI, GitHub Copilot, Kiro and Pi.** Install,
+  sign in, pick them per conversation or for Flow, and talk, like the others.
+  Copilot is in public preview; Pi runs through the `pi-acp` adapter and does not
+  get OpenLive's tools (screen, connectors, skills), since the adapter has no way
+  to pass them on. An agent that is not signed in now says so, with the command to
+  run, instead of a protocol error.
 - **Anonymous usage sharing, with one switch.** The desktop app shares which
   features get used, errors and speed, as numbers and fixed labels. Never what you
   say or type, your files, names, window titles, keys, model ids or error text. A

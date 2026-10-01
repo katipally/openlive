@@ -88,7 +88,17 @@ over stdio ("LSP for agents"). Design points:
 - **Models / modes / options.** The agent reports its models, modes, and other
   config options over ACP (a boolean option arrives as an On/Off pair, so it
   renders as a switch); the UI renders pickers generically and switches them
-  mid-session (`set_model` / `set_mode` / `set_option`).
+  mid-session (`set_model` / `set_mode` / `set_option`). Gemini CLI and Kiro still
+  list models as session state, so their picker is filled from that and switches
+  with `session/set_model`.
+- **Agents that cannot take OpenLive's tools.** The `openlive` server is http, and
+  an agent that says outright it takes none (`mcpCapabilities.http: false`, as Pi's
+  adapter does) is not sent it, and the preamble no longer lists its tools, so
+  the agent is not told about tools it cannot call. One that stays silent keeps
+  it, since Hermes accepts http without advertising it.
+- **Sign-in.** OpenLive never calls `authenticate`: each agent signs in through its
+  own CLI (Settings → Agents opens it in a terminal). A `session/new` answered
+  with `auth_required` is reported as "not signed in" with that agent's hint.
 - **Supervision.** Every agent runs inside `AgentSupervisor`: per-turn watchdogs
   (start / first-output / stall), restart-once-then-fail, and every failure ends as
   a *spoken* one-liner + structured error — never a session stuck listening.
@@ -98,7 +108,9 @@ over stdio ("LSP for agents"). Design points:
 History also surfaces each agent's **own** on-disk sessions
 (`apps/web/src/app/api/history/agentSessions.ts` — Claude JSONL, Codex rollouts,
 Cursor meta, OpenCode/Hermes read-only sqlite), deduped against OpenLive's chats,
-so everything you did in the CLI shows up too.
+so everything you did in the CLI shows up too. Gemini CLI, GitHub Copilot, Kiro and
+Pi have no on-disk parser: Copilot and Pi are listed through their own `session/list`,
+and Gemini's and Kiro's sessions from outside OpenLive do not appear.
 
 ## The voice loop (`apps/web/src/lib/live`)
 

@@ -77,9 +77,54 @@ test("hermes cred patterns match real setups and reject pre-setup defaults", () 
 
 test("only file-backed session stores are externally deletable", () => {
   for (const a of AGENT_LIST) {
-    const sqlite = a.sessionParser.endsWith("sqlite");
-    assert.equal(a.externalDeletable, !sqlite, `${a.id}: never delete inside a live sqlite db`);
+    const readOnly = a.sessionParser.endsWith("sqlite") || a.sessionParser === "none";
+    assert.equal(a.externalDeletable, !readOnly, `${a.id}: never delete inside a live sqlite db or a store OpenLive does not parse`);
   }
+});
+
+test("gemini, copilot, kiro and pi start through their documented ACP entry points", () => {
+  assert.equal(adapterCommand("gemini"), "gemini --acp");
+  assert.equal(adapterCommand("copilot"), "copilot --acp");
+  assert.equal(adapterCommand("kiro"), "kiro-cli acp");
+  // pi has no ACP of its own: the pinned pi-acp adapter bridges `pi --mode rpc`, so
+  // the installed-check is for pi itself.
+  assert.equal(adapterCommand("pi"), "npx -y pi-acp@0.0.34");
+  assert.deepEqual(AGENT_REGISTRY.pi.bins, ["pi"]);
+  assert.deepEqual(AGENT_REGISTRY.gemini.bins, ["gemini"]);
+  assert.deepEqual(AGENT_REGISTRY.copilot.bins, ["copilot"]);
+  assert.deepEqual(AGENT_REGISTRY.kiro.bins, ["kiro-cli"]);
+});
+
+test("npm-installed new agents use their real packages; kiro uses its official installer", () => {
+  assert.equal(AGENT_REGISTRY.gemini.install?.npm, "@google/gemini-cli");
+  assert.equal(AGENT_REGISTRY.copilot.install?.npm, "@github/copilot");
+  assert.equal(AGENT_REGISTRY.pi.install?.npm, "@earendil-works/pi-coding-agent");
+  for (const shell of [AGENT_REGISTRY.kiro.install?.posixShell, AGENT_REGISTRY.kiro.install?.winShell]) {
+    assert.match(String(shell), /cli\.kiro\.dev\/install/);
+  }
+  assert.equal(AGENT_REGISTRY.kiro.uninstall, undefined, "no documented headless uninstaller");
+});
+
+test("copilot reads .mcp.json itself, and pi's adapter takes no client terminal", () => {
+  assert.equal(AGENT_REGISTRY.copilot.acp.mcp, "native");
+  assert.equal(AGENT_REGISTRY.pi.acp.terminal, false);
+});
+
+test("copilot, gemini and kiro cred patterns match real stores and reject signed-out ones", () => {
+  const re = (a: "copilot" | "gemini" | "kiro", i: number) => {
+    const probe = AGENT_REGISTRY[a].credProbe;
+    const one = probe.kind === "anyOf" ? probe.probes[i]! : probe;
+    assert.ok(one.kind === "fileMatch");
+    return new RegExp(one.pattern, "m");
+  };
+  assert.ok(re("copilot", 0).test('{\n  "lastLoggedInUser": {\n    "host": "https://github.com"'));
+  assert.ok(!re("copilot", 0).test('{\n  "askedSetupTerminals": true\n}'));
+  assert.ok(re("gemini", 1).test('{ "security": { "auth": { "selectedType": "oauth-personal" } } }'));
+  assert.ok(!re("gemini", 1).test('{ "security": { "auth": {} } }'));
+  assert.ok(re("gemini", 2).test("export GEMINI_API_KEY=abc"));
+  assert.ok(!re("gemini", 2).test("# GEMINI_API_KEY=abc\nGEMINI_API_KEY="));
+  assert.ok(re("kiro", 0).test("\0kirocli:odic:token\0{...}"));
+  assert.ok(!re("kiro", 0).test("\0kirocli:odic:device-registration\0"));
 });
 
 test("helpers: isAgentId / agentLabel", () => {

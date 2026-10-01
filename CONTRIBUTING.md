@@ -69,7 +69,7 @@ tools/converse    scripted calls through the real turn-taking, for listening
 The voice loop (VAD, STT, end-of-turn, TTS — Kokoro, Supertonic, or a cloned
 voice — and barge-in) is in `apps/web/src/lib/live`. The model turn goes out from
 `services/agent`, which either streams a provider reply or drives a coding agent
-(Claude Code, Codex, Cursor, OpenCode, Hermes) over ACP as a child process.
+(Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi) over ACP as a child process.
 
 The UI's design system is one kit, `apps/web/src/components/ui` (import it from
 `@/components/ui`), on the tokens in `apps/web/src/app/globals.css` and

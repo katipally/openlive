@@ -719,7 +719,7 @@ The Values cells link here for the long lists.
 
 ### Coding agent ids
 
-`claude-code`, `codex`, `cursor`, `opencode`, `hermes`
+`claude-code`, `codex`, `cursor`, `opencode`, `hermes`, `gemini`, `copilot`, `kiro`, `pi`
 
 ### Languages
 

@@ -29,7 +29,7 @@ const PROVIDER_IDS = [
   "anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek",
   "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity",
 ] as const;
-const AGENT_IDS = ["claude-code", "codex", "cursor", "opencode", "hermes"] as const;
+const AGENT_IDS = ["claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"] as const;
 const BRAIN_IDS = [...PROVIDER_IDS, ...AGENT_IDS] as const;
 const LANGUAGES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] as const;
 const STT_FAMILIES = ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"] as const;

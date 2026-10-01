@@ -6,7 +6,7 @@
 // Pure serializable data: NO node imports (the browser bundles this). Node-only
 // helpers (credential probing, PATH widening, terminal launch) live in ./node.
 
-export const AGENT_IDS = ["claude-code", "codex", "cursor", "opencode", "hermes"] as const;
+export const AGENT_IDS = ["claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /** How to tell — read-only, without spawning the agent — whether it's signed in. */
@@ -47,8 +47,9 @@ export interface AgentDef {
   logout?: string;
   /** Where the agent keeps its own sessions (display + discovery root). */
   sessionsDir: string;
-  /** Which on-disk format its sessions use (drives History discovery). */
-  sessionParser: "claude-jsonl" | "codex-rollout" | "cursor-meta" | "opencode-sqlite" | "hermes-sqlite";
+  /** Which on-disk format its sessions use (drives History discovery). `none`: no
+   *  format read from disk; History relies on the agent's own ACP session/list. */
+  sessionParser: "claude-jsonl" | "codex-rollout" | "cursor-meta" | "opencode-sqlite" | "hermes-sqlite" | "none";
   /** External sessions are plain files we may delete; sqlite-backed stores are
    *  the agent's live database — never written from OpenLive. */
   externalDeletable: boolean;
@@ -252,6 +253,119 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     },
     acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
     startHint: "Hermes has no model provider selected. Run `hermes setup` (the Finish setup button in Settings → Agents) and pick a provider.",
+  },
+  "gemini": {
+    id: "gemini",
+    label: "Gemini CLI",
+    brand: {},
+    logoSrc: "/agents/gemini.svg",
+    // `--acp` replaced `--experimental-acp` in 0.33.0 (2026-03-11); verified 2026-10-01
+    // against 0.37.1 locally (initialize: loadSession, http + sse MCP, no session/list
+    // or session/resume) and 0.62.0 in the ACP registry. The model list rides the
+    // legacy `models` session state, not config options.
+    adapter: { command: "gemini", args: ["--acp"] },
+    bins: ["gemini"],
+    install: { npm: "@google/gemini-cli" },
+    uninstall: { npm: "@google/gemini-cli" },
+    // No login subcommand: sign-in is the TUI's first-run auth picker.
+    login: "gemini",
+    sessionsDir: "~/.gemini",
+    sessionParser: "none",
+    externalDeletable: false,
+    credProbe: {
+      kind: "anyOf",
+      probes: [
+        { kind: "file", path: "~/.gemini/oauth_creds.json" },
+        { kind: "fileMatch", path: "~/.gemini/settings.json", pattern: "\"selectedType\"\\s*:\\s*\"[^\"]+\"" },
+        { kind: "fileMatch", path: "~/.gemini/.env", pattern: "^(export\\s+)?(GEMINI|GOOGLE)_API_KEY=.+" },
+      ],
+    },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    startHint: "Make sure Gemini CLI 0.33 or newer is installed and signed in (run `gemini` once and pick how to sign in).",
+  },
+  "copilot": {
+    id: "copilot",
+    label: "GitHub Copilot",
+    brand: {},
+    logoSrc: "/agents/copilot.svg",
+    // Public preview; verified 2026-10-01 against 1.0.88 locally (initialize:
+    // loadSession, session/list and close, http + sse MCP, no session/resume) and
+    // 1.0.90 in the ACP registry. Reads the project's .mcp.json itself.
+    adapter: { command: "copilot", args: ["--acp"] },
+    bins: ["copilot"],
+    install: { npm: "@github/copilot" },
+    uninstall: { npm: "@github/copilot" },
+    login: "copilot login",
+    sessionsDir: "~/.copilot",
+    sessionParser: "none",
+    externalDeletable: false,
+    // The token lives in the system credential store; config.json (commented JSON)
+    // keeps the signed-in user. GH_TOKEN-style env auth is not visible here.
+    credProbe: { kind: "fileMatch", path: "~/.copilot/config.json", pattern: "^\\s*\"lastLoggedInUser\"\\s*:\\s*\\{" },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: true },
+    startHint: "Make sure GitHub Copilot CLI is installed and signed in (run `copilot login`).",
+  },
+  "kiro": {
+    id: "kiro",
+    label: "Kiro",
+    brand: {},
+    logoSrc: "/agents/kiro.svg",
+    // Plain `kiro-cli acp` is the V2 engine (V3 is opt-in via --agent-engine=v3 and
+    // moves set_model to set_config_option); initialize reports loadSession and
+    // http MCP (docs + 2.x captures, not run locally). Sign-in is `kiro-cli login`.
+    adapter: { command: "kiro-cli", args: ["acp"] },
+    bins: ["kiro-cli"],
+    // The Windows installer is a per-machine MSI, so it needs an elevated shell.
+    // No documented headless uninstaller.
+    install: {
+      posixShell: "curl -fsSL https://cli.kiro.dev/install | bash",
+      winShell: "irm 'https://cli.kiro.dev/install.ps1' | iex",
+    },
+    login: "kiro-cli login",
+    logout: "kiro-cli logout",
+    sessionsDir: "~/.kiro/sessions/cli",
+    sessionParser: "none",
+    externalDeletable: false,
+    // Tokens sit in the auth_kv table of kiro-cli's sqlite store, whose folder
+    // differs per OS. Row keys are plain text, so a pattern on the file finds them.
+    credProbe: {
+      kind: "anyOf",
+      probes: ["~/Library/Application Support/kiro-cli", "~/.local/share/kiro-cli", "~/AppData/Roaming/kiro-cli"].map((dir) => (
+        { kind: "fileMatch", path: `${dir}/data.sqlite3`, pattern: "(kirocli|codewhisperer):(odic|social):token" } as const
+      )),
+    },
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    startHint: "Make sure Kiro CLI is installed and signed in (run `kiro-cli login`).",
+  },
+  "pi": {
+    id: "pi",
+    label: "Pi",
+    brand: {},
+    logoSrc: "/agents/pi.svg",
+    // Pi has no ACP of its own: pi-acp (svkozak, MIT, listed in the ACP registry)
+    // spawns `pi --mode rpc` and bridges it, so `pi` (>= 0.81) must be on PATH too.
+    // Pinned like the other npx adapters. The adapter advertises `http: false` and never
+    // wires mcpServers through to pi, so OpenLive's tools do not reach it.
+    adapter: { command: "npx", args: ["-y", "pi-acp@0.0.34"] },
+    bins: ["pi"],
+    install: { npm: "@earendil-works/pi-coding-agent" },
+    uninstall: { npm: "@earendil-works/pi-coding-agent" },
+    // No login subcommand: pi's `/login` runs inside its TUI.
+    login: "pi",
+    sessionsDir: "~/.pi/agent/sessions",
+    sessionParser: "none",
+    externalDeletable: false,
+    credProbe: {
+      kind: "anyOf",
+      probes: [
+        { kind: "json", path: "~/.pi/agent/auth.json", rule: "nonEmptyObject" },
+        { kind: "file", path: "~/.pi/agent/models.json" }, // a custom or local endpoint needs no login
+      ],
+    },
+    // pi reads its own ~/.pi/agent/mcp.json and .pi/mcp.json, which the adapter ignores
+    // in the wire, so passing .mcp.json would only be dropped.
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: false },
+    startHint: "Make sure Pi is installed (npm i -g @earendil-works/pi-coding-agent) and has a provider (run `pi`, then /login).",
   },
 };
 

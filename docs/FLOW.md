@@ -106,7 +106,7 @@ permission up front; a call asks before each action that changes something.
 - **API mode (BYOK).** The provider, model, effort, vision model and Ollama
   address you set in Settings > Models, shared with Chat. Any provider OpenLive
   supports, including MiniMax, OpenAI, Anthropic, Google, Groq and Ollama.
-- **A coding agent** (Claude Code, Codex, Cursor, OpenCode, Hermes, whichever are
+- **A coding agent** (Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi, whichever are
   installed), driven over ACP. You can pin its model and effort, or leave the
   agent's defaults.
 

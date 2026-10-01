@@ -128,6 +128,8 @@ export class AcpAgent implements Agent {
   private sentPreamble = false;   // the voice+vision context is sent once per session
   private meta: AgentMeta = { models: [], currentModelId: null, modes: [], currentModeId: null, options: [], commands: [], resumeAcrossRestart: true };
   private modelConfigId: string | null = null; // the ACP config option id for model selection
+  private legacyModels = false;  // models arrived as session state (`models`), set with session/set_model
+  private hosted: McpServerWire[] = []; // the servers OpenLive hosts that this agent can actually reach
   private booleanIds = new Set<string>(); // config options set with a typed boolean, not a value id
   private caps: AgentCapabilities = {};
   // A message chunk the agent does not attribute to any message is a session
@@ -235,7 +237,11 @@ export class AcpAgent implements Agent {
       // event — give the exit a moment, and if the child is dead tell the actionable
       // story (exit + stderr + per-agent hint), not the transport's.
       const dead = await Promise.race([died.catch(() => true), new Promise<false>((r) => setTimeout(() => r(false), 500))]);
-      throw dead || !this.alive ? new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed") : e;
+      if (dead || !this.alive) throw new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed");
+      // ACP's auth_required: the agent runs but has no login. OpenLive signs agents in
+      // through their own CLI, never through `authenticate`.
+      if ((e as { code?: number } | null)?.code === AUTH_REQUIRED) throw new ClassedError(`${labelFor(this.id)} isn't signed in (${extractAcpError(e)}). ${AGENT_REGISTRY[this.id].startHint}`, "agent_start_failed");
+      throw e;
     }
     ready = true;
     if (!this.opts.probe) emitEvent("onboarding_step", { step: "first_agent_start_ok" });
@@ -270,17 +276,23 @@ export class AcpAgent implements Agent {
     const canLoad = !!this.caps.loadSession;
     const canResume = !!this.caps.sessionCapabilities?.resume;
     const quirks = AGENT_REGISTRY[this.id].acp;
+    // An agent that says outright it takes no http MCP (pi-acp's `http: false`) never
+    // sees the hosted servers, and the preamble stops promising their tools. One that
+    // stays silent keeps them: Hermes accepts http without advertising it.
+    const asked = this.opts.mcpServers ?? [];
+    this.hosted = asked.filter((s) => !("type" in s) || this.caps.mcpCapabilities?.[s.type] !== false);
+    if (this.hosted.length < asked.length) log.warn(`agent:${this.id}`, "it accepts no MCP over http, so OpenLive's tools are not attached");
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText(), (this.opts.mcpServers ?? []).map((s) => s.name)) : undefined;
+    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText(), this.hosted.map((s) => s.name)) : undefined;
     if (meta) this.sentPreamble = true;
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
     // MCP passthrough: the project's own .mcp.json rides along for agents that
     // don't read it themselves ("native" agents would double-register).
-    // Hosted servers ride along for every agent: they are not in the project's
-    // file, so a native-MCP agent cannot double-register them.
+    // Hosted servers ride along for every agent that accepts them: they are not in
+    // the project's file, so a native-MCP agent cannot double-register them.
     const mcpServers = [
-      ...(this.opts.mcpServers ?? []),
+      ...this.hosted,
       ...(quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : []),
     ];
 
@@ -347,9 +359,14 @@ export class AcpAgent implements Agent {
   }
 
   /** Surface the agent's modes + config options (from session/new|load) to the UI. */
-  private reportMeta(r: { modes?: SessionModeState | null; configOptions?: SessionConfigOption[] | null }) {
+  private reportMeta(r: { modes?: SessionModeState | null; configOptions?: SessionConfigOption[] | null; models?: LegacyModels | null }) {
     if (r.modes) {
       this.meta = { ...this.meta, modes: r.modes.availableModes.map((m) => ({ id: m.id, name: m.name })), currentModeId: r.modes.currentModeId ?? null };
+    }
+    // Gemini and Kiro list models as session state, not a `model` config option.
+    if (r.models?.availableModels?.length) {
+      this.legacyModels = true;
+      this.meta = { ...this.meta, models: r.models.availableModels.map((m) => ({ id: m.modelId, name: m.name || m.modelId })), currentModelId: r.models.currentModelId ?? null };
     }
     this.applyConfig(r.configOptions);
     this.opts.onMeta?.(this.meta);
@@ -376,10 +393,17 @@ export class AcpAgent implements Agent {
   }
 
   async setModel(modelId: string): Promise<void> {
-    if (!this.conn || !this.sessionId || !this.modelConfigId) return;
+    if (!this.conn || !this.sessionId || !(this.modelConfigId || this.legacyModels)) return;
     // Model selection is now an ACP session config option. Never throw: an agent
     // that rejects a value must not crash the session.
     try {
+      if (!this.modelConfigId) {
+        // The SDK has no typed call for the legacy method.
+        await this.conn.extMethod("session/set_model", { sessionId: this.sessionId, modelId });
+        this.meta = { ...this.meta, currentModelId: modelId };
+        this.opts.onMeta?.(this.meta);
+        return;
+      }
       // The response carries the FULL new config state (changing one option can
       // affect others) — fold it in rather than optimistically patching one field.
       const res = await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
@@ -668,7 +692,7 @@ export class AcpAgent implements Agent {
 
   /** The agent's call of a tool OpenLive hosts for it, which OpenLive reports itself. */
   private isHosted(title: string): boolean {
-    return !!title && (this.opts.mcpServers ?? []).some((s) => hostedBy(title, s.name));
+    return !!title && this.hosted.some((s) => hostedBy(title, s.name));
   }
 
   /** Settle a tool card's status from the client side (permission denied /
@@ -681,8 +705,12 @@ export class AcpAgent implements Agent {
     await emit({ type: "acp_tool_update", delta });
   }
 
-  /** Flow's rules where it set them, the call preamble everywhere else. */
-  private preambleText(): string { return this.opts.preamble?.trim() || preamble(); }
+  /** Flow's rules where it set them, the call preamble everywhere else, and the
+   *  call preamble without the tools when the agent could not be given them. */
+  private preambleText(): string {
+    const toolless = !!this.opts.mcpServers?.length && !this.hosted.length;
+    return (!toolless && this.opts.preamble?.trim()) || preamble();
+  }
 
   async runTurn({ text, frames, command }: TurnInput, emit: Emit, signal: AbortSignal): Promise<void> {
     if (!this.conn || !this.alive) throw new Error(`${labelFor(this.id)} is not running`);
@@ -851,6 +879,12 @@ function deltaFromAcp(u: {
 const MAX_LIST_PAGES = 10;
 
 type PromptBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+/** The JSON-RPC code ACP gives auth_required. */
+const AUTH_REQUIRED = -32000;
+
+/** The pre-config-option model list some agents still return from session/new. */
+interface LegacyModels { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string | null }
 
 /** Package version reported as clientInfo on initialize. */
 const CLIENT_VERSION = process.env.npm_package_version || "0";
