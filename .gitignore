@@ -24,3 +24,7 @@ apps/web/public/vad/
 
 assets/milestone-200.png
 assets/milestone-200.svg
+
+# agent notes next dev writes on every run
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
