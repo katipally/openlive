@@ -3,8 +3,7 @@
 // drops an Exa key in Settings (or EXA_API_KEY), we pass it to lift the rate limit.
 // One long-lived client, reconnected on failure; callers fall back to a plain
 // "couldn't reach the web" message if this throws.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { getSetting } from "@openlive/db";
 
 let client: Client | null = null;

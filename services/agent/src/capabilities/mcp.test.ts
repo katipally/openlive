@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, InMemoryTransport, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client as V1Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport as V1Transport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { MCP_SERVER_NAME, mcpServer, serveMcp } from "./mcp.js";
 import { toolSpecs, ToolSet } from "./dispatch.js";
 import { TEXT_TOOLS } from "./text.js";
@@ -145,11 +145,10 @@ describe("one server for every mode", () => {
 });
 
 // The wire is a separate thing from the server: an ACP agent reaches Flow over
-// loopback HTTP, and a streamable-HTTP MCP server is stateful. One shared
-// server answers exactly one agent and refuses everything after it with
-// "Server already initialized" — which the agent reports to the user as having
-// no tools at all. These are the two shapes that happen in practice: an agent
-// that restarts, and two Flow sessions at once.
+// loopback HTTP. A stateful server answered exactly one agent and refused every
+// one after it with "Server already initialized", which the agent reported as
+// having no tools at all. These are the shapes that happen in practice: an agent
+// that restarts, two Flow sessions at once, and an agent on either protocol era.
 describe("the wire an ACP agent connects to", () => {
   const serve = () => serveMcp({
     tools: flowTools(),
@@ -200,14 +199,30 @@ describe("the wire an ACP agent connects to", () => {
     await served.close();
   });
 
-  it("turns away a request that is not an agent opening a session", async () => {
+  it("turns away a request that does not know the session's path", async () => {
     const served = await serve();
-    const r = await fetch(served.wire.url!, {
+    const r = await fetch(new URL("/mcp/guess", served.wire.url!), {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
-    expect(r.ok).toBe(false);
+    expect(r.status).toBe(404);
     await served.close();
   });
+
+  it("serves an agent built on the 2025 SDK and one on the 2026 spec alike", async () => {
+    const served = await serve();
+    const old = new V1Client({ name: "old", version: "1" });
+    await old.connect(new V1Transport(new URL(served.wire.url!)));
+    const modern = new Client({ name: "modern", version: "1" }, { versionNegotiation: { mode: "auto" } });
+    await modern.connect(new StreamableHTTPClientTransport(new URL(served.wire.url!)));
+    expect(modern.getProtocolEra()).toBe("modern");
+    const [a, b] = await Promise.all([old.listTools(), modern.listTools()]);
+    expect(a.tools.map((t) => t.name)).toEqual(b.tools.map((t) => t.name));
+    const shot = await modern.callTool({ name: "screenshot", arguments: {} });
+    expect(shot.content).toContainEqual({ type: "image", data: "PNG", mimeType: "image/png" });
+    await Promise.all([old.close(), modern.close()]);
+    await served.close();
+  });
+
 });
