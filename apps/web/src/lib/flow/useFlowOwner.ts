@@ -668,7 +668,7 @@ export function useFlowOwner(): void {
         teardownMic();
       } else {
         disarmed.current = false;
-        // Waking must not undo the tray's disarm: the hook stays suspended for that.
+        // Waking must not undo Flow's off switch: the hook stays suspended for that.
         void api.capabilities().then((c) => (valueOr(c, null)?.armed === false ? undefined : api.resume())).then(() => arm());
       }
     });
@@ -681,7 +681,7 @@ export function useFlowOwner(): void {
       else if (e.kind === "stop") onClose("gesture");
     });
     const offSecure = api.onSecureInput(() => void refreshHealth());
-    // The tray's quick disarm hides the orb from the main process, so the session
+    // Flow's off switch hides the orb from the main process, so the session
     // behind it has to close here too or the microphone stays open.
     const offArmed = api.onArmed((on) => { if (!on) onClose("disarmed"); });
 
@@ -737,7 +737,7 @@ export function useFlowOwner(): void {
       setPhase("listening", "Carrying on from that session.");
     });
 
-    // The tray's "New Flow session". Closed, main fires the gesture and this only
+    // The tray's "Start Flow". Closed, main fires the gesture and this only
     // says whose it was. Open, the gesture would close it, so the fresh session
     // starts here; a turn still running or a question waiting is left to finish.
     const offNew = api.onNewSession?.((wasOpen) => {

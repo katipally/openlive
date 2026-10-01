@@ -228,13 +228,13 @@ describe("sender pacing", () => {
 
   it("sends at most two requests a second", async () => {
     const s = make();
-    for (const action of ["open", "quit", "settings", "new_flow", "arm_toggle", "flow_settings"]) s.queue.append(rec(action));
+    for (const action of ["open", "quit", "settings", "new_flow", "allow_accessibility", "open"]) s.queue.append(rec(action));
     s.sender.start();
     await vi.advanceTimersByTimeAsync(120_000);
     const times = s.calls.map((c) => c.at);
     expect(times).toHaveLength(6);
     for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(PACE_MS);
-    expect(s.calls.map((c) => c.action)).toEqual(["open", "quit", "settings", "new_flow", "arm_toggle", "flow_settings"]);
+    expect(s.calls.map((c) => c.action)).toEqual(["open", "quit", "settings", "new_flow", "allow_accessibility", "open"]);
   });
 
   it("sends nothing while a gate is closed, and resumes when it opens", async () => {

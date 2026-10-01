@@ -43,8 +43,8 @@ export function FlowShell() {
   useEffect(() => setOnboarding(!seen()), []);
 
   // Home's "Ready" is read here and handed down. Nothing announces a grant given
-  // in System Settings, so coming back to the window re-reads it; the tray's
-  // disarm is announced, and re-reads it too.
+  // in System Settings, so coming back to the window re-reads it; Flow's off
+  // switch is announced, and re-reads it too.
   useEffect(() => {
     window.addEventListener("focus", refresh);
     const offArmed = flowBridge()?.onArmed(refresh);

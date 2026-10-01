@@ -29,7 +29,8 @@ let hooked = false;
 // The addon only reports a hook that started and then died.
 let startError = null;
 let secureTimer = null;
-let armed = true; // the tray's quick disarm; the hook itself is suspended to match
+let armed = true; // Settings > Flow's "Listen for the Flow hotkey"; the hook itself is suspended to match
+const bindings = new Map(); // id -> the binding the renderer registered, for the tray to show
 let target = () => null; // the webContents that receives effects
 let telemetry = null;
 
@@ -96,7 +97,7 @@ function initialize() {
   return api.permissionStatus();
 }
 
-/** The tray's quick disarm. Suspending the hook is the honest implementation:
+/** Flow's off switch. Suspending the hook is the honest implementation:
  *  no effect can arrive, so nothing downstream has to remember to ignore one.
  *  A never-initialised addon is already disarmed, so a failure here is not one. */
 function setArmed(next) {
@@ -108,6 +109,9 @@ function setArmed(next) {
 }
 
 const isArmed = () => armed;
+
+/** The binding registered under `id` (ol-input's grammar, e.g. "ctrl"), or null. */
+const binding = (id) => bindings.get(id) ?? null;
 
 /** The one meaning of "Ready", shared with the Flow window: armed, granted, and
  *  a key listener that is still alive. "stopped" when that listener died,
@@ -195,8 +199,8 @@ function install(getTarget, telemetryClient) {
   ipcMain.handle("openlive:flow-request", guard(request));
   ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
-  ipcMain.handle("openlive:flow-register", guard((id, binding) => load().registerBinding(id, binding)));
-  ipcMain.handle("openlive:flow-unregister", guard((id) => load().unregisterBinding(id)));
+  ipcMain.handle("openlive:flow-register", guard((id, key) => { load().registerBinding(id, key); bindings.set(id, key); }));
+  ipcMain.handle("openlive:flow-unregister", guard((id) => { load().unregisterBinding(id); bindings.delete(id); }));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
   // Test-only: lets a page open Flow as a double Ctrl would. Released builds
@@ -217,4 +221,4 @@ function install(getTarget, telemetryClient) {
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, readiness, request, hookFailure };
+module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, request, hookFailure };

@@ -79,6 +79,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
   { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },
 
+  { label: "Listen for the Flow hotkey", keywords: "armed disarm pause turn off on control ctrl double tap trigger gesture", tab: "flow", anchor: "set-flow-listen", desktop: true },
   { label: "Flow brain", keywords: "agent model who thinks different override", tab: "flow", anchor: "set-flow-brain" },
   { label: "Say replies out loud", keywords: "speak voice", tab: "flow", anchor: "set-flow-voice" },
   { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },

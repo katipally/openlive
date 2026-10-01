@@ -16,6 +16,7 @@ const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
+const { trayTemplate } = require("./tray-menu.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
 const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
@@ -633,6 +634,10 @@ function createMainWindow() {
   });
   for (const ev of ["show", "hide"]) mainWin.on(ev, () => { refreshTray(); syncDock(); });
   for (const ev of ["show", "hide", "minimize", "restore"]) mainWin.on(ev, syncCallOrb);
+  // With backgroundThrottling off the page never reads as hidden, so it is told,
+  // and polls that only feed the screen sleep until it is back.
+  const tellShown = () => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:window-shown", mainWin.isVisible() && !mainWin.isMinimized()); };
+  for (const ev of ["show", "hide", "minimize", "restore"]) mainWin.on(ev, tellShown);
 }
 
 /** The floating orb window: chromeless, transparent, always on top, on every
@@ -683,7 +688,7 @@ let ownerWin = null;
 let flowWin = null;
 let flowHiding = null;
 // Why the open Flow ends, as the dismiss that starts the exit says. Later dismisses
-// of the same exit (the renderer answering a tray disarm) are ignored.
+// of the same exit (the renderer answering Flow being switched off) are ignored.
 let flowEndedBy = "other";
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -776,6 +781,7 @@ function summonFlow() {
   }
   flowEndedBy = "other";
   flowSummoned = true;
+  refreshTray();
   // The window may be up showing a call; Flow's own orb takes over from it.
   win.webContents.send("openlive:call-orb", null);
   // A gesture that closed Flow mid-hover would otherwise leave it clickable.
@@ -800,7 +806,7 @@ function summonFlow() {
 function dismissFlow(reason) {
   if (!flowWin || flowWin.isDestroyed() || !flowSummoned || flowHiding) return;
   flowEndedBy = reason;
-  if (!flowWin.isVisible()) { flowSummoned = false; telemetry.closeFlow(flowEndedBy); syncCallOrb(); return; }
+  if (!flowWin.isVisible()) { flowSummoned = false; telemetry.closeFlow(flowEndedBy); syncCallOrb(); refreshTray(); return; }
   setClickThrough(flowWin, true);
   flowWin.webContents.send("openlive:flow-hiding");
   flowHiding = setTimeout(finishDismissFlow, FLOW_EXIT_MS);
@@ -813,6 +819,7 @@ function finishDismissFlow() {
   telemetry.closeFlow(flowEndedBy);
   if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
   syncCallOrb();
+  refreshTray();
 }
 
 /** A display was added, removed or rearranged while the orb was up: re-dock it
@@ -822,9 +829,8 @@ function reclampFlow() {
   flowWin.setBounds(flowBounds(screen.getDisplayMatching(flowWin.getBounds())));
 }
 
-// The orb's full-screen control, and the tray's "Flow settings…". Flow is
-// ambient, so the window it opens may not exist yet, and it opens on Flow,
-// which is what the person was in.
+// The orb's full-screen control. Flow is ambient, so the window it opens may
+// not exist yet, and it opens on Flow, which is what the person was in.
 async function expandFlow(to) {
   await showDock();
   if (!mainWin || mainWin.isDestroyed()) createMainWindow();
@@ -841,7 +847,7 @@ async function expandFlow(to) {
   }
 }
 
-/** The tray's "New Flow session": the gesture itself, fired from here, so the
+/** The tray's "Start Flow": the gesture itself, fired from here, so the
  *  owner renderer opens Flow exactly as a double tap would. The addon's trigger
  *  is a toggle, so an open Flow is not sent it: the owner starts the fresh
  *  session there instead, and leaves a turn that is still running alone. */
@@ -881,8 +887,8 @@ function wireFlowIpc() {
   });
 }
 
-/** The quick disarm, from the tray or from the Flow window. One state, told to
- *  everyone who draws it, so the tray and the window can never disagree. */
+/** Flow's off switch, from Settings > Flow. One state, told to everyone who
+ *  draws it, so the tray and the windows can never disagree. */
 function setFlowArmed(next) {
   const was = flowInput.isArmed();
   const armed = flowInput.setArmed(next);
@@ -954,10 +960,10 @@ async function openSettings() {
 
 // ── menu-bar (tray) presence + notifications ─────────────────────────────────
 let tray = null;
-// Worded as the Flow window words it, from the same test.
-const TRAY_READINESS = { ready: "Flow: Ready", stopped: "Flow: Key listener stopped", access: "Flow: Needs Accessibility", off: "Flow: Off" };
 const TRAY_READINESS_POLL_MS = 3000;
-let trayReadiness = "off";
+/** What the menu says depends on. Readiness comes from the same test the Flow window uses. */
+const trayState = () => ({ readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform });
+let trayShows = "";
 let reportedReadiness = null;
 const TRAY_PLACE = process.platform === "darwin" ? "menu bar" : "tray";
 
@@ -1010,11 +1016,11 @@ function createTray() {
     tray = new Tray(img);
     tray.setToolTip("OpenLive");
     refreshTray();
-    // A grant, or a key listener dying, is never announced, so the label is
+    // A grant, or a key listener dying, is never announced, so the state is
     // re-read and the menu rebuilt only when it would say something different.
     setInterval(() => {
+      refreshTray();
       const readiness = flowInput.readiness();
-      if (readiness !== trayReadiness) refreshTray();
       if (readiness !== reportedReadiness) { reportedReadiness = readiness; reportReadiness(readiness); }
     }, TRAY_READINESS_POLL_MS).unref();
   } catch (e) { console.error("[main] tray:", e); } // no tray beats no app
@@ -1027,31 +1033,21 @@ const fromTray = (action, run) => () => {
 };
 
 /** Rebuild the tray menu against the CURRENT state: a menu built once at boot
- *  would quietly lie about modes you are in or out of. */
+ *  would quietly lie about modes you are in or out of. Only when it would say
+ *  something different, so an open menu is not swapped out from under the pointer. */
 function refreshTray() {
   if (!tray) return;
-  const armed = flowInput.isArmed();
-  trayReadiness = flowInput.readiness();
-  tray.setContextMenu(Menu.buildFromTemplate([
-    // Flow runs with no window at all, so the menu bar is the only place its
-    // state is visible and the only place to switch it off in one click.
-    { label: TRAY_READINESS[trayReadiness], enabled: false },
-    { type: "separator" },
-    // Always enabled: `isVisible()` stays true for a window that's merely BEHIND
-    // another app, so gating on it would grey out the one control that brings
-    // OpenLive forward — the commonest reason to reach for the tray at all.
-    { label: "Open OpenLive", click: fromTray("open", restoreMainWindow) },
-    // Enabled only when a double tap would work, and says why not otherwise.
-    { label: trayReadiness === "ready" ? "New Flow session" : `New Flow session (${TRAY_READINESS[trayReadiness].replace("Flow: ", "")})`,
-      enabled: trayReadiness === "ready", click: fromTray("new_flow", startFlowFromTray) },
-    ...(trayReadiness === "access" ? [{ label: "Allow Accessibility…", click: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))) }] : []),
-    { label: "Flow armed", type: "checkbox", checked: armed, click: fromTray("arm_toggle", () => setFlowArmed(!armed)) },
-    { type: "separator" },
-    { label: "Settings…", click: fromTray("settings", openSettings) },
-    { label: "Flow settings…", click: fromTray("flow_settings", () => expandFlow("flow-settings")) },
-    { type: "separator" },
-    { label: "Quit OpenLive", click: fromTray("quit", () => quitApp("tray_menu")) },
-  ]));
+  const state = trayState();
+  const shows = JSON.stringify(state);
+  if (shows === trayShows) return;
+  trayShows = shows;
+  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(state, {
+    open: fromTray("open", restoreMainWindow),
+    startFlow: fromTray("new_flow", startFlowFromTray),
+    allowAccess: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))),
+    settings: fromTray("settings", openSettings),
+    quit: fromTray("quit", () => quitApp("tray_menu")),
+  })));
 }
 
 function wireNotifyIpc() {

@@ -9,6 +9,7 @@ import { warmupOnLaunch } from "@/lib/live/warmup";
 import { useAppearanceSync } from "@/lib/look";
 import { watchRendererErrors } from "@/lib/rendererError";
 import { watchPipelineConfig } from "@/lib/settingChanges";
+import { watchWindowShown } from "@/lib/windowShown";
 
 // Inside the ThemeProvider, which it reads the theme from.
 function AppearanceSync() {
@@ -30,6 +31,7 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
   useEffect(watchRendererErrors, []);
   useEffect(watchPipelineConfig, []);
+  useEffect(() => watchWindowShown(client, (window as unknown as { openlive?: { onWindowShown?: (cb: (shown: boolean) => void) => () => void } }).openlive?.onWindowShown), [client]);
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <AppearanceSync />

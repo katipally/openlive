@@ -9,6 +9,7 @@ import { Keycap, Switch, Select, Slider, Button, linkClass, ListGroup, ListRow, 
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { useWindowShown } from "@/lib/windowShown";
 import { effectiveWait } from "@/lib/flow/wait";
 import { dndNote } from "@/lib/flow/quiet";
 import { keyListenerNote } from "@/lib/flow/failure";
@@ -49,6 +50,9 @@ export function FlowSettings() {
   useEffect(() => onPipelineConfig(setPipeline), []);
   const { caps, refresh } = useFlowCapabilities();
   const keyNote = keyListenerNote(caps);
+  // Main owns the switch and does not echo it back to this page, so a flip shows at once.
+  const [armed, setArmed] = useState<boolean | null>(null);
+  const listening = armed ?? caps?.armed ?? true;
 
   if (!config) return <p className="text-body text-muted-foreground">{error || "Reading Flow's settings…"}</p>;
 
@@ -67,6 +71,15 @@ export function FlowSettings() {
       {caps?.addonError
         ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
         : keyNote && <p className="text-label text-muted-foreground">{keyNote}</p>}
+      {caps && !caps.addonError && (
+        <div id="set-flow-listen">
+          <ListGroup>
+            <Toggle label="Listen for the Flow hotkey" on={listening}
+              detail={listening ? `Tap ${CONTROL} twice in any app to start Flow.` : `Off: tapping ${CONTROL} twice does nothing until you turn this back on or restart OpenLive.`}
+              onFlip={(on) => { setArmed(on); flowBridge()?.setArmed(on); }} />
+          </ListGroup>
+        </div>
+      )}
       {error && <p className="text-label text-destructive-text">{error}</p>}
 
       <Section id="set-flow-brain" title="Brain" desc="Who does the thinking. Swapping it keeps every other setting.">
@@ -212,14 +225,15 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
 /** The computer-use helper's grants, polled while shown for the same reason as Flow's. */
 function useComputerGrants(enabled: boolean) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
+  const shown = useWindowShown();
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !shown) return;
     let live = true;
     const read = () => api.computerPermissions().then((s) => { if (live) setStatus(s); }).catch(() => {});
     void read();
     const timer = setInterval(read, 2000);
     return () => { live = false; clearInterval(timer); };
-  }, [enabled]);
+  }, [enabled, shown]);
   const request = (id: ComputerGrant["id"]) => void api.requestComputerPermission(id).then(setStatus).catch(() => {});
   return { status, request };
 }

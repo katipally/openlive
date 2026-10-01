@@ -84,6 +84,9 @@ contextBridge.exposeInMainWorld("openlive", {
   // pause the mic/VAD cleanly; "resume" → offer reconnect. Same
   // replace-on-subscribe rule as the other handlers.
   onPower: (cb) => listen("openlive:power", cb),
+  // The main window was hidden or minimised (false), or shown again (true). The
+  // page cannot tell for itself: background throttling is off so calls keep running.
+  onWindowShown: (cb) => listen("openlive:window-shown", (shown) => cb(!!shown)),
   // The native menu (⌘,) asks the UI to open Settings. Single listener, same
   // replace-on-subscribe rule as the handlers below: the renderer re-subscribes on
   // every remount (and on every hot reload in dev), so a plain `.on` stacked a new
@@ -163,7 +166,7 @@ contextBridge.exposeInMainWorld("openlive", {
     // only one holding the Flow socket) does it, so this has to cross windows.
     resumeSession: (sessionId) => ipcRenderer.send("openlive:flow-resume-session", sessionId),
     onResumeSession: (cb) => listen("openlive:flow-resume-session", cb),
-    // The tray's "New Flow session". While Flow is open the gesture would close it,
+    // The tray's "Start Flow". While Flow is open the gesture would close it,
     // so the owner starts the session itself; closed, main fires the gesture and
     // this only says the tray was the one that did.
     onNewSession: (cb) => listen("openlive:flow-new-session", (wasOpen) => cb(!!wasOpen)),
@@ -171,8 +174,8 @@ contextBridge.exposeInMainWorld("openlive", {
     // the auto-quiet rules, so it has to be told or every change needs a relaunch.
     settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),
     onSettingsChanged: (cb) => listen("openlive:flow-settings-changed", () => cb()),
-    // The tray's quick disarm. Main owns the state (it suspends the hook itself)
-    // and broadcasts it, so the tray, the orb and the Flow window never disagree.
+    // Flow's off switch, in Settings > Flow. Main owns the state (it suspends the
+    // hook itself) and broadcasts it, so the tray, the orb and the windows never disagree.
     setArmed: (armed) => ipcRenderer.send("openlive:flow-armed", !!armed),
     onArmed: (cb) => listen("openlive:flow-armed", (v) => cb(!!v)),
     // Single listener each, same replace-on-subscribe rule as the handlers above.

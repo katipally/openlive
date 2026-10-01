@@ -29,6 +29,7 @@ files:
   - look.cjs
   - external-url.cjs
   - orb-pointer.cjs
+  - tray-menu.cjs
   - flow-cursor.cjs
   - flow-cursor-preload.cjs
   - flow-cursor.html

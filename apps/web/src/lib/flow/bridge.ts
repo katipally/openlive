@@ -49,7 +49,7 @@ export interface FlowCapabilities {
   /** An installed app, where the fix is a reinstall rather than a build. */
   packaged: boolean;
   report: CapabilityReport | null;
-  /** False while the tray's quick disarm is on: the hook is suspended on purpose. */
+  /** False while Flow's off switch (Settings > Flow) is off: the hook is suspended on purpose. */
   armed: boolean;
 }
 /** Flow's one gesture: two quick taps of this key, alone, anywhere on the
@@ -74,12 +74,12 @@ export interface FlowBridge {
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): () => void;
-  /** The tray's "New Flow session", and whether Flow was already open when it was chosen. */
+  /** The tray's "Start Flow", and whether Flow was already open when it was chosen. */
   onNewSession?(cb: (wasOpen: boolean) => void): () => void;
   /** Flow's settings were written, so the runtime should re-read them. */
   settingsChanged?(): void;
   onSettingsChanged?(cb: () => void): () => void;
-  /** The tray's quick disarm, and a subscription to it. */
+  /** Flow's off switch, and a subscription to it. */
   setArmed(armed: boolean): void;
   onArmed(cb: (armed: boolean) => void): () => void;
   /** Watch for the gesture. The key is never swallowed. */
