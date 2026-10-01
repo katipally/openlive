@@ -103,7 +103,7 @@ const voiceKey = (v: ReplyVoice) => `${v.engine}|${v.voice}|${v.speed}|${v.lang}
 // of the voice even under load (measured 2026-09-30: 0.002-0.05 s a character), so
 // on most machines text waits until it fills a chunk; where synthesis barely keeps
 // up, every sentence goes as it ends, as before. PACE_WEIGHT: an EWMA's weight for
-// each new timing, so a cold start's slow first chunk fades within a few.
+// each new timing.
 const FEED_MARGIN = 2;
 const FEED_FLOOR_S = 1;
 const PACE_WEIGHT = 0.3;
@@ -174,6 +174,9 @@ export class VoiceEngine {
   private replyVoice: ReplyVoice | null = null;
   // Per voice (voiceKey) on this machine: synthesis seconds and audio seconds per character.
   private paces = new Map<string, { synth: number; audio: number }>();
+  // A voice's first synthesis carries its cold start (Kokoro native: 6 s against 1-2 s warm),
+  // which kept its pace too slow to ever hold text, so it never sets the pace.
+  private warmed = new Set<string>();
   // Chunks enqueued and not yet all synthesized: characters, and audio seconds still to come.
   private synthing = new Set<Job>();
   // The last reply chunk enqueued, until its synthesis begins: a later one joins it while that is safe.
@@ -1028,8 +1031,10 @@ export class VoiceEngine {
               voice: { engine: v.engine, family: v.family, voice: v.voice, speed: v.speed, lang: v.lang } }, audio, played);
           }, abort.signal);
           if (this.epoch !== epoch || !heard.length) continue;
-          const old = this.paces.get(voiceKey(v)), synth = (Date.now() - askedAt) / 1000 / piece.length, audio = (samples - before) / rate / piece.length;
-          this.paces.set(voiceKey(v), old ? { synth: old.synth + PACE_WEIGHT * (synth - old.synth), audio: old.audio + PACE_WEIGHT * (audio - old.audio) } : { synth, audio });
+          const key = voiceKey(v), old = this.paces.get(key), synth = (Date.now() - askedAt) / 1000 / piece.length, audio = (samples - before) / rate / piece.length;
+          if (old) this.paces.set(key, { synth: old.synth + PACE_WEIGHT * (synth - old.synth), audio: old.audio + PACE_WEIGHT * (audio - old.audio) });
+          else if (this.warmed.has(key)) this.paces.set(key, { synth, audio });
+          else this.warmed.add(key);
           const i0 = words.filter((w) => w.start < start).length, i1 = words.filter((w) => w.start < end).length;
           const pcm = new Float32Array(samples - before);
           heard.reduce((o, a) => (pcm.set(a, o), o + a.length), 0);

@@ -184,6 +184,15 @@ it("voices each sentence as it ends where synthesis barely keeps up, or is not t
   cold.stop();
 });
 
+it("never times a voice on its first synthesis, which carries the cold start", async () => {
+  const eng = replyWith(() => 30);
+  await fed(eng, `${opening} `);
+  expect((eng as any).paces.has("kitten-nano-int8||1|en")).toBe(false);
+  await fed(eng, `${middle} `);
+  expect((eng as any).paces.get("kitten-nano-int8||1|en").audio).toBeCloseTo(0.3 / middle.length, 5);
+  eng.stop();
+});
+
 it("voices held text once the audio ahead runs low, and times the voice on what it synthesized", async () => {
   const t0 = performance.now();
   const eng = replyWith(() => Math.max(0, 1.3 - (performance.now() - t0) / 1000), 0.001);
