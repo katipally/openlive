@@ -30,10 +30,27 @@ brain you pick: a model you have a key for, or a coding agent you already use.
 | Way in | What it does |
 |---|---|
 | Double tap `Control` (`Ctrl` on Windows and Linux) | Opens Flow. The same gesture closes it. |
-| Tray / menu bar > **New Flow session** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
-| Tray / menu bar > **Flow armed** | Quick on/off switch for the key listener. Off closes Flow and ignores the gesture. |
-| Tray / menu bar > **Flow settings...** | Opens Settings > Flow. |
+| Tray / menu bar > **Start Flow** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
+| Settings > Flow > **Listen for the Flow hotkey** | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on or restart OpenLive. |
 | Flow tab in the OpenLive window | Home for Flow: readiness, the brain in use, and your session history. |
+
+The tray (menu bar) menu is short:
+
+```
+ Flow is ready  ·  Double-tap ⌃       status, in plain words
+ ─────────────────────────────
+ Open OpenLive
+ Start Flow
+ Settings…                    ⌘,
+ ─────────────────────────────
+ Quit OpenLive
+```
+
+The status line reads **Flow is ready** (with the gesture, `Double-tap Ctrl`
+on Windows and Linux), **Flow is open**, **Flow needs permission** (with
+**Allow Accessibility…** under it, **Allow input access…** off macOS),
+**Flow stopped listening** (the key listener died) or **Flow is off** (the
+switch in Settings > Flow is off).
 
 The trigger is fixed to the double `Control` tap; there is no setting to rebind it.
 Flow only listens to the keyboard for that key, has no wake word, and opens the
@@ -44,8 +61,8 @@ with nothing said. It also closes when the computer sleeps, and by default when
 the screen locks (macOS and Windows); see [Settings](#settings).
 
 Flow belongs to the machine, not to the OpenLive window. Closing the window (or
-`Cmd+Q`, which closes to the menu bar) keeps Flow running; only the tray's **Quit**
-ends it. A login launch can start as just the tray with Flow ready.
+`Cmd+Q`, which closes to the menu bar) keeps Flow running; only the tray's **Quit
+OpenLive** ends it. A login launch can start as just the tray with Flow ready.
 
 ## The orb
 
@@ -95,7 +112,11 @@ answer you out loud, or do something on the machine.
 
 Every action hands back a fresh screenshot, so the model checks that the step
 worked before the next one. Only the newest three screenshots stay in the model's
-context.
+context. With the computer-use helper (below), only the newest window state, its
+element tree and picture, goes to the model at all: it rides after the
+conversation on each request and is never stored in it, so earlier messages stay
+byte-identical and the provider's prompt cache keeps serving them. A coding agent
+keeps its own history and gets every state as an ordinary tool result.
 
 These are the same tools a call has: Chat and Flow draw on one tool registry,
 and a call in the desktop app can reach the machine too. Flow takes its one
@@ -174,6 +195,7 @@ Settings > Flow ("Trigger, voice & typing"):
 
 | Section | Setting | Options |
 |---|---|---|
+| (top) | Listen for the Flow hotkey | On / off. Off ignores the double tap until it is back on or OpenLive restarts |
 | Brain | Who does the thinking | API mode, or an installed coding agent (model and effort) |
 | Voice | Say replies out loud | On / off |
 | | Wait before answering | Patient, Even, Quick |
@@ -281,8 +303,8 @@ PipeWire (installed by default on current GNOME and KDE), and pasting needs
 ## Troubleshooting
 
 - **The double tap does nothing.** Check the Flow tab: the chip should say
-  **Ready**. **Off** means Accessibility is missing or **Flow armed** is off in
-  the tray; **Key listener stopped** means the hook died (the failure card's
+  **Ready**. **Off** means Accessibility is missing or **Listen for the Flow
+  hotkey** is off in Settings > Flow; **Key listener stopped** means the hook died (the failure card's
   **Try again** restarts it). In a password field secure input hides every key.
 - **Flow hears me but never types.** Grant Accessibility, then press **Open
   settings** on the card. Windows running as administrator refuse input from a

@@ -224,8 +224,8 @@ Limit: none.
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
 | `duration_s` | How long the orb was open, in seconds. | whole number, 0 to 86400 | always |
-| `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (the Stay open time ran out), `disarmed` (Flow armed was switched off), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `quit`, `other` | always |
-| `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (New Flow session in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
+| `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (the Stay open time ran out), `disarmed` (Listen for the Flow hotkey was switched off), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `quit`, `other` | always |
+| `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (Start Flow in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
 | `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `mic_failed` | sometimes |
 | `ready_ms` | Time from the open gesture until the microphone was ready, to 10 ms. | whole number, 0 to 600000, rounded to 10 | sometimes |
 | `turns` | Finished turns: Flow heard you, worked and answered. | whole number, 0 to 999 | always |
@@ -585,7 +585,7 @@ Limit: none.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `action` | Which item: `new_flow` is New Flow session, `arm_toggle` is the Flow armed switch. | `open`, `new_flow`, `allow_accessibility`, `arm_toggle`, `settings`, `flow_settings`, `quit` | always |
+| `action` | Which item: `new_flow` is Start Flow. | `open`, `new_flow`, `allow_accessibility`, `settings`, `quit` | always |
 
 ### `feature_usage`
 
@@ -677,7 +677,7 @@ These are the settings `setting_changed` can report, with the values each one ca
 | --- | --- | --- | --- |
 | `login_item` | Open at login, on or off. | `on`, `off` | none |
 | `end_on_lock` | End Flow and calls when the screen locks, on or off. On is the default. | `on`, `off` | none |
-| `flow_armed` | Flow armed, on or off. It is also the tray switch. | `on`, `off` | none |
+| `flow_armed` | Listen for the Flow hotkey (Settings > Flow), on or off. | `on`, `off` | none |
 | `theme` | The theme. | `system`, `light`, `dark` | none |
 | `look` | The window look. | `glass`, `flat` | none |
 | `custom_instructions` | Custom instructions saved or emptied. The text is never sent. | `set`, `cleared` | none |

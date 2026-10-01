@@ -130,7 +130,7 @@ The integrations that serve it:
 
 Flow, the assistant for the whole machine:
 
-- **Summoned anywhere.** Double tap `Control` in any app, or pick New Flow session
+- **Summoned anywhere.** Double tap `Control` in any app, or pick Start Flow
   from the tray. A small orb rises over the dock and listens; the same gesture
   closes it.
 - **Acts on your machine.** Types at your cursor, opens apps and links, clicks,
@@ -153,7 +153,7 @@ Flow is the voice assistant that lives over your dock, not in a window.
 ```
 
 - **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
-  tray > **New Flow session**. Hover the orb for close and open-OpenLive buttons.
+  tray > **Start Flow**. Hover the orb for close and open-OpenLive buttons.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
   screen, move and close windows, run shell commands.

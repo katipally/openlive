@@ -15,6 +15,19 @@ Releases before 0.1.9 predate this file — see the
   Saved settings that still carry it load as before.
 
 ### Changed
+- **A shorter tray menu.** It reads: the status in plain words with the Flow
+  hotkey (**Flow is ready · Double-tap ⌃**), **Open OpenLive**, **Start Flow**,
+  **Settings…** and **Quit OpenLive**. **Flow armed** moved to Settings > Flow
+  as **Listen for the Flow hotkey**; **Flow settings…** is gone, and
+  **Settings…** opens Settings.
+- **Computer use keeps the prompt cache warm.** Only the newest window state
+  (element tree and picture) goes to the model, after the conversation and
+  never into it, and the app in front no longer rides in the system prompt, so
+  every step reuses the cached conversation instead of resending it. Window
+  pictures go as JPEG when that is smaller, about half the bytes.
+- **Hidden windows stop polling.** Settings' permission checks and refreshing
+  lists wait while the OpenLive window is hidden or minimised and catch up the
+  moment it is back.
 - **Released builds no longer let a page open Flow.** The page trigger that
   opens Flow as a double Ctrl would is registered only in dev builds, where
   tests use it, so no script in the app window can turn the mic on.
