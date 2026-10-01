@@ -52,6 +52,10 @@ jobs:
       # The ol-input native addon is Rust; without it Flow can't load in the build.
       - uses: dtolnay/rust-toolchain@stable
 
+      # The computer-use helper's core, and this OS's backend (a stub until it lands).
+      - name: Test computer-use helper
+        run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
+
       - name: Pack web + agent + native
         run: |
           pnpm --filter @openlive/desktop pack:web
@@ -88,6 +92,10 @@ jobs:
 
       # The ol-input native addon is Rust; without it Flow can't load in the build.
       - uses: dtolnay/rust-toolchain@stable
+
+      # The computer-use helper's core, and this OS's backend (a stub until it lands).
+      - name: Test computer-use helper
+        run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
 
       - name: Pack web + agent + native
         run: |
