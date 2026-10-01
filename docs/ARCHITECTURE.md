@@ -127,6 +127,17 @@ One turn, end to end:
    before the full answer exists. A chunk only ever ends at a sentence end (or
    at the 200-character cap): every engine voices the end of its text as the
    end of an utterance, so a cut at a comma would pause and restart the voice.
+   Every engine's pitch and pace also move with how much text one call gets,
+   so after the reply's first sentence the chunker holds finished sentences
+   back: they go once they fill a chunk, once the audio queued ahead falls to
+   about twice what synthesizing them is measured to take on this machine
+   (`feed` in `voiceEngine.ts`), or before a tool runs and at the reply's end.
+   A short last line joins the chunk before it while that one has not begun
+   synthesizing. Where synthesis barely keeps up, every sentence goes as it ends.
+   The player stops each chunk exactly at its end (Chromium otherwise sometimes
+   repeats a resampled buffer's last 128 frames as a buzz) and runs the whole
+   stream through one 30 Hz highpass, which removes the DC offset Kokoro and
+   Kitten output carries.
    The worker trims each Kokoro or Supertonic render to its speech, keeping the
    pause that engine makes between sentences inside one render, so chunks
    played back to back join like one render (`KEEP_S` in

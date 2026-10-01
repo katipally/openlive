@@ -1,13 +1,13 @@
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { extract } from "tar";
 import unbzip2 from "unbzip2-stream";
-import { listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
+import { DATA_DIR, listVoiceProfiles, createVoiceProfile, deleteVoiceProfile, renameVoiceProfile } from "@openlive/db";
 import { modelInstalled, modelDiskBytes, synthesize, unloadEngine, VOICE_MODEL_DIR, VOICE_PROFILE_DIR } from "./engine.js";
 import { NATIVE_ENGINES, NATIVE_FAMILIES, nativeEngine, onOrt, engineInstalled, engineDiskBytes, engineDir, downloadEngine, langCode, speakable, type EngineVoice, type NativeEngine } from "./native-models.js";
 import { pcmBytes, pcmFromBytes, SAMPLE_RATE } from "./pcm.js";
@@ -186,6 +186,22 @@ voiceRoutes.post("/tts", async (c) => {
     log.error("voice", "tts:", e);
     return c.json({ error: String((e as Error)?.message ?? e) }, 500);
   }
+});
+
+// ── TTS playback capture (debug) ─────────────────────────────────────────────
+// The web app's ttsCapture.ts PUTs each played piece's PCM and a manifest per
+// reply here, only while localStorage["openlive-debug"] holds "tts". Loopback
+// binds only; tools/voice-regress/src/capture.ts reads the folder.
+const CAPTURE_DIR = resolve(DATA_DIR, "debug", "tts-capture");
+const captureLoopback = ["127.0.0.1", "localhost", "::1"].includes(process.env.AGENT_HOST?.trim() || "127.0.0.1");
+voiceRoutes.put("/debug/tts-capture/:run/:reply/:file", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
+  const { run, reply, file } = c.req.param();
+  if (!captureLoopback) return c.json({ error: "capture is for a local agent only" }, 403);
+  if (!/^[\w-]{1,40}$/.test(run!) || !/^[\w-]{1,40}$/.test(reply!) || !/^(manifest\.json|p\d{1,5}\.f32)$/.test(file!)) return c.json({ error: "bad capture path" }, 400);
+  const dir = join(CAPTURE_DIR, run!, reply!);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, file!), Buffer.from(await c.req.arrayBuffer()));
+  return c.json({ ok: true });
 });
 
 // ── native engines (see native-models.ts) ────────────────────────────────────

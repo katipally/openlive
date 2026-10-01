@@ -336,3 +336,23 @@ describe("POST /tts (native)", () => {
     expect(speak).not.toHaveBeenCalled();
   });
 });
+
+describe("PUT /debug/tts-capture", () => {
+  const put = (path: string, body: string | Uint8Array) => app.request(`/debug/tts-capture/${path}`, { method: "PUT", body, headers: { "content-type": "application/octet-stream" } });
+
+  it("keeps a piece's PCM and a reply's manifest under the data dir", async () => {
+    const pcm = new Float32Array([0.5, -0.25]);
+    expect((await put("run-1/reply-001/p0000.f32", new Uint8Array(pcm.buffer))).status).toBe(200);
+    expect((await put("run-1/reply-001/manifest.json", "{}")).status).toBe(200);
+    const base = join(dir, "debug", "tts-capture", "run-1", "reply-001");
+    const saved = readFileSync(join(base, "p0000.f32"));
+    expect(new Float32Array(saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.length))).toEqual(pcm);
+    expect(readFileSync(join(base, "manifest.json"), "utf8")).toBe("{}");
+  });
+
+  it("refuses a path that leaves the capture folder or names another file", async () => {
+    expect((await put("run-1/reply-001/other.txt", "x")).status).toBe(400);
+    expect((await put("run.1/..%2Fescape/p0000.f32", "x")).status).toBe(400);
+    expect((await put("%2E%2E/reply-001/p0000.f32", "x")).status).toBeGreaterThanOrEqual(400);
+  });
+});

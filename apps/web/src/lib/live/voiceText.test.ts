@@ -2,7 +2,7 @@
 // junk filtering (turn detection), and TTS scrubbing.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isJunk, isBackchannel, endsMidThought, stripMarkdown, toSpeech, speechPieces, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, estimateSpeechMs, captionWindow, LISTENING, asksQuestion } from "./voiceText.ts";
+import { isJunk, isBackchannel, endsMidThought, stripMarkdown, toSpeech, speechPieces, SentenceChunker, MIN_TTS_CHARS, FIRST_TTS_CHARS, MAX_CHUNK_CHARS, splitLong, joinChunks, estimateSpeechMs, captionWindow, LISTENING, asksQuestion } from "./voiceText.ts";
 import type { LanguageCode } from "@openlive/shared";
 import { captionWords } from "@openlive/shared/speech/timing";
 
@@ -63,10 +63,11 @@ test("toSpeech: paths, file names and URLs are said as plain words", () => {
 });
 
 // Streams `text` in pieces of `size` and returns every chunk the chunker emits.
-function chunked(text: string, size: number, lang = "en"): string[] {
+// `starving`: the voice is about to run dry after every piece, so held text is taken at once.
+function chunked(text: string, size: number, lang = "en", starving = false): string[] {
   const c = new SentenceChunker();
   const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), lang));
+  for (let i = 0; i < text.length; i += size) out.push(...c.push(text.slice(i, i + size), lang), ...(starving ? c.take(lang) : []));
   const tail = c.flush();
   return tail ? [...out, tail] : out;
 }
@@ -116,10 +117,10 @@ test("speechPieces: a chunk that grows past what one engine call takes is cut at
   assert.deepEqual(speechPieces("Short.", "ja"), ["Short."]);
 });
 
-test("SentenceChunker: real sentence boundaries still split for streaming", () => {
+test("SentenceChunker: real sentence boundaries still split for streaming when the voice runs dry", () => {
   const text = "The first sentence is long enough to be spoken by itself right away. The second one follows it and is also long enough to go. Then the end.";
   for (const size of [1, 4, 9, 200]) {
-    const out = chunked(text, size);
+    const out = chunked(text, size, "en", true);
     assert.equal(out.join(" "), text);
     assert.ok(out.length >= 2, `size ${size} should stream in several chunks`);
     assert.ok(out.includes("The second one follows it and is also long enough to go."), `size ${size}`);
@@ -129,7 +130,7 @@ test("SentenceChunker: real sentence boundaries still split for streaming", () =
 test("SentenceChunker: a stray backtick does not hold back the rest of the reply", () => {
   const text = "Here is a ` stray tick in a sentence that is long enough to go. " + "Then another sentence arrives that is well over the bar in length. ".repeat(3);
   const c = new SentenceChunker();
-  assert.ok(c.push(text).length >= 2);
+  assert.ok([...c.push(text), ...c.take()].length >= 2);
 });
 
 test("SentenceChunker: full sentences emit; tiny trailing fragments merge, never alone", () => {
@@ -222,9 +223,47 @@ test("SentenceChunker: the opening waits for a sentence of 24+ characters, then 
   assert.deepEqual(new SentenceChunker().push("Sure thing, okay. "), []); // held for the next sentence
 });
 
+test("SentenceChunker: after the opening, sentences are held and go out as whole chunks up to the cap", () => {
+  const sentences = Array.from({ length: 12 }, (_, i) => `Sentence number ${i} says a little more about the plan.`);
+  const text = "Sure, here is the plan for today. " + sentences.join(" ") + " Anything else?";
+  for (const size of [1, 5, 40, 2000]) {
+    const out = chunked(text, size);
+    assert.equal(out.join(" "), text, `size ${size}`);
+    assert.equal(out[0], "Sure, here is the plan for today.", `size ${size}`); // the opening is as fast as ever
+    assert.ok(out.slice(1).every((x) => x.length <= MAX_CHUNK_CHARS + MIN_TTS_CHARS && /[.!?]$/.test(x)), `size ${size}: ${JSON.stringify(out)}`);
+    assert.ok(out.slice(1, -1).every((x) => x.length > MAX_CHUNK_CHARS - 60), `size ${size}: ${JSON.stringify(out.map((x) => x.length))}`);
+    assert.ok(out.at(-1)!.endsWith("Anything else?") && out.at(-1)!.length > MIN_TTS_CHARS, "the short last line goes with the held text, never alone");
+  }
+});
+
+test("SentenceChunker: take() lets held text go, never under the MIN bar, and nothing at all from nothing", () => {
+  const c = new SentenceChunker();
+  assert.deepEqual(c.push(""), []);
+  assert.deepEqual(c.take(), []);
+  assert.equal(c.flush(), "");
+  c.push("Okay, here we go with the answer. ");          // the opening
+  assert.deepEqual(c.push("Yes. "), []);
+  assert.equal(c.held(), 4);
+  assert.deepEqual(c.take(), []);                      // under the bar: still held
+  c.push("The second sentence is long enough to go. ");
+  assert.deepEqual(c.take(), ["Yes. The second sentence is long enough to go."]);
+  assert.equal(c.held(), 0);
+  c.push("Then a tool runs. ");
+  assert.equal(c.flush(), "Then a tool runs.");        // a flush before a tool voices all of it
+});
+
+test("joinChunks: one chunk while it fits the cap, joined as the language writes", () => {
+  assert.equal(joinChunks("All done.", "Anything else?"), "All done. Anything else?");
+  assert.equal(joinChunks("a".repeat(MAX_CHUNK_CHARS), "Anything else?"), `${"a".repeat(MAX_CHUNK_CHARS)} Anything else?`);
+  assert.equal(joinChunks("a".repeat(MAX_CHUNK_CHARS), "b".repeat(MIN_TTS_CHARS)), null);
+  assert.equal(joinChunks("好的。", "谢谢！", "zh"), "好的。谢谢！");
+  assert.equal(joinChunks("好".repeat(120), "谢谢谢谢谢谢谢谢谢谢谢！", "zh"), null);
+});
+
 test("SentenceChunker: line breaks end a chunk, so a list without periods still streams", () => {
   const c = new SentenceChunker();
   const out = c.push("Here is what changed:\n- the parser handles empty input\n- the cache expires after an hour\n- logs are quieter\n");
+  out.push(...c.take());
   assert.ok(out.length >= 2, `got ${JSON.stringify(out)}`);
   assert.ok(out.every((x) => x.length <= MAX_CHUNK_CHARS));
 });

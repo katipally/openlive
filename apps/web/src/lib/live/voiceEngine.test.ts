@@ -2,12 +2,13 @@ import { expect, it, vi } from "vitest";
 
 vi.mock("@ricky0123/vad-web", () => ({ MicVAD: class {} }));
 // A streaming engine: the sentence's audio in two chunks, a tick apart.
-const tts = vi.hoisted(() => ({ chunks: [] as Float32Array[], calls: 0, heard: "", at: [] as number[], gate: Promise.resolve(), complete: false }));
+const tts = vi.hoisted(() => ({ chunks: [] as Float32Array[], calls: 0, texts: [] as string[], heard: "", at: [] as number[], gate: Promise.resolve(), complete: false }));
 // Speech-to-text hears `tts.heard` at `tts.at`, and the turn model calls it unfinished.
 vi.mock("./models", () => ({
   resetNativeFallbacks() {},
-  async ttsStream(_text: string, _o: unknown, onChunk: (a: Float32Array, rate: number) => void, signal?: AbortSignal) {
+  async ttsStream(text: string, _o: unknown, onChunk: (a: Float32Array, rate: number) => void, signal?: AbortSignal) {
     tts.calls++;
+    tts.texts.push(text);
     for (const c of tts.chunks) { if (signal?.aborted) return; onChunk(c, 24000); await new Promise((r) => setTimeout(r, 5)); }
   },
   stt: async () => { await tts.gate; return { text: tts.heard, at: tts.at }; },
@@ -92,7 +93,7 @@ it("sends no new timing for a sentence cut off by barge-in", async () => {
   expect(retimed).toEqual([]);
 });
 
-const playNow = { level: () => 0, playing: () => true, flush() {}, close() {}, hold() {}, release() {}, play: (_a: unknown, _e: unknown, _r: unknown, onStart?: () => void) => onStart?.() };
+const playNow = { level: () => 0, playing: () => true, ahead: () => 0, flush() {}, close() {}, hold() {}, release() {}, play: (_a: unknown, _e: unknown, _r: unknown, onStart?: () => void) => onStart?.() };
 
 // What is saved on a cut is what the caption revealed: the sentences before, then
 // the words of the playing one begun by the cut.
@@ -117,6 +118,97 @@ it("voices all of a question the reply waits on, its last sentence too", async (
   eng.ask("Claude Code wants permission: Write notes.txt. Allow it?");
   await (eng as any).ttsChain;
   expect(spoken.join(" ")).toBe("Claude Code wants permission: Write notes.txt. Allow it?");
+});
+
+// After the opening, reply text waits while the voice has audio well ahead, so
+// the engine gets fewer, longer chunks; it goes when the audio runs low, at the
+// turn's end, or at once where synthesis barely keeps up or is not timed yet.
+const opening = "Sure, here is what I found today.";
+const middle = "The first thing is long enough to go alone. The second thing is also long enough.";
+const replyWith = (ahead: () => number, synth?: number) => {
+  const eng = new VoiceEngine({ onPhase() {}, onAgentText() {}, onBargeIn() {} } as never, { ...playNow, ahead } as never);
+  tts.chunks = [tone([[0, 300]], 300)];
+  tts.texts = [];
+  Object.assign(eng, { replyVoice: voice, acceptingReply: true });
+  if (synth !== undefined) (eng as any).paces.set("kitten-nano-int8||1|en", { synth, audio: 0.06 });
+  return eng;
+};
+const fed = async (eng: InstanceType<typeof VoiceEngine>, ...deltas: string[]) => {
+  for (const d of deltas) { eng.feedAgentDelta(d); await (eng as any).ttsChain; }
+};
+
+it("holds later sentences while audio is well ahead, and voices them with the short last line", async () => {
+  const eng = replyWith(() => 30, 0.01);
+  await fed(eng, `${opening} `, `${middle} `);
+  expect(tts.texts).toEqual([opening]);
+  eng.feedAgentDelta("Anything else?");
+  eng.endAgentTurn();
+  await (eng as any).ttsChain;
+  expect(tts.texts).toEqual([opening, `${middle} Anything else?`]);
+  eng.stop();
+});
+
+it("joins a short last line to a chunk still waiting to be synthesized, never to an opening or a line said out of band", async () => {
+  const eng = replyWith(() => 30, 0.01);
+  eng.feedAgentDelta(`${opening} `);
+  await new Promise((r) => setTimeout(r, 0));          // the opening is synthesizing
+  eng.feedAgentDelta(`${middle} `);
+  eng.endAgentStep();                                  // a tool: the middle is voiced now, and waits behind the opening
+  eng.feedAgentDelta("Anything else?");
+  eng.endAgentTurn();
+  await (eng as any).ttsChain;
+  expect(tts.texts).toEqual([opening, `${middle} Anything else?`]);
+  const said = replyWith(() => 30, 0.01);
+  said.feedAgentDelta(`${opening} `);
+  await new Promise((r) => setTimeout(r, 0));
+  said.say("The agent stopped responding.");
+  said.feedAgentDelta("Anything else?");
+  said.endAgentTurn();
+  await (said as any).ttsChain;
+  expect(tts.texts).toEqual([opening, "The agent stopped responding.", "Anything else?"]);
+  const asked = replyWith(() => 30, 0.01);
+  asked.ask(`${opening} Shall I go on?`);             // the opening has not begun synthesizing, and is never held up
+  await (asked as any).ttsChain;
+  expect(tts.texts).toEqual([opening, "Shall I go on?"]);
+  eng.stop(); said.stop(); asked.stop();
+});
+
+it("voices each sentence as it ends where synthesis barely keeps up, or is not timed yet", async () => {
+  const slow = replyWith(() => 30, 0.5);
+  await fed(slow, `${opening} `, `${middle} `);
+  expect(tts.texts).toEqual([opening, middle]);
+  slow.stop();
+  const cold = replyWith(() => 30); // both lines in one delta: nothing timed yet
+  await fed(cold, `${opening} ${middle} `);
+  expect(tts.texts).toEqual([opening, middle]);
+  cold.stop();
+});
+
+it("voices held text once the audio ahead runs low, and times the voice on what it synthesized", async () => {
+  const t0 = performance.now();
+  const eng = replyWith(() => Math.max(0, 1.3 - (performance.now() - t0) / 1000), 0.001);
+  await fed(eng, `${opening} `);
+  const pace = (eng as any).paces.get("kitten-nano-int8||1|en");
+  expect(pace.audio).toBeCloseTo(0.7 * 0.06 + 0.3 * (0.3 / opening.length), 5);
+  (eng as any).paces.set("kitten-nano-int8||1|en", { ...pace, synth: 0.001 });
+  await fed(eng, `${middle} `);
+  expect(tts.texts).toEqual([opening]);
+  await new Promise((r) => setTimeout(r, 400));
+  await (eng as any).ttsChain;
+  expect(tts.texts).toEqual([opening, middle]);
+  eng.stop();
+});
+
+it("drops held text on a barge-in, and voices nothing of it later", async () => {
+  const t0 = performance.now();
+  const eng = replyWith(() => Math.max(0, 1.5 - (performance.now() - t0) / 1000), 0.001);
+  await fed(eng, `${opening} `, `${middle} `);
+  eng.cutReply();
+  eng.endAgentTurn();
+  await new Promise((r) => setTimeout(r, 400));
+  await (eng as any).ttsChain;
+  expect(tts.texts).toEqual([opening]);
+  eng.stop();
 });
 
 it("voices nothing, and asks no engine, once stopped", async () => {

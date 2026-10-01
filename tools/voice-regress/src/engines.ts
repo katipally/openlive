@@ -171,9 +171,10 @@ const kokoroJs: Engine = {
 // pinned files on disk, so the app's class loads them unchanged.
 const SUPERTONIC_REPO = "https://huggingface.co/Supertone/supertonic-3/resolve";
 const SUPERTONIC_REV = "3cadd1ee6394adea1bd021217a0e650ede09a323";
-// As kokoro-js, more so (measured 2026-09-25: 3.7 st pitch steps, 2.5 st
-// start pitch, 83% of joins rough).
-const SUPERTONIC_LIMITS = { f0JumpSt: 4.5, startPitchSt: 3, roughJoins: 0.95 };
+// As kokoro-js, more so (measured 2026-09-30, with the chunker's held
+// sentences, 0.8 noise and the short-chunk stretch: 3.4 st pitch steps, 1.8 st
+// start pitch, 81% of joins rough; 3.7, 2.5 and 83% before).
+const SUPERTONIC_LIMITS = { f0JumpSt: 4, startPitchSt: 2.2, roughJoins: 0.9 };
 const SUPERTONIC_SUMS: Record<string, string> = {
   "onnx/duration_predictor.onnx": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db",
   "onnx/text_encoder.onnx": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff",
@@ -217,6 +218,9 @@ export const ENGINES: Engine[] = [
   // drift allowance that leaves 0.13 the gate. The old comma-cut first chunk
   // has 5 joins rough in every run, 5-6 of 30 in all (0.167-0.2), so it fails
   // 0.13 in every pooling.
+  // Since the chunker holds sentences after the opening (2026-09-30) a render
+  // has 16 joins; one (reply 2's opening, a line ending in a colon) is rough in
+  // every run, 0.063 pooled.
   {
     ...native("kitten", "kitten-nano-int8", "kitten", "Apache-2.0", "pr", 1.5, {
       "model.int8.onnx": "0ba1e21eda9c8bcc4a70ada7e0d27fefc9ba775aaa037547248ec71f9a3d9b7d",

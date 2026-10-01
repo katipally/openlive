@@ -1,9 +1,10 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { AudioPlayer } from "./audioPlayback";
 import { stt, tts, timedOn, type Heard, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines } from "./models";
-import { isJunk, isBackchannel, endsMidThought, stripMarkdown, speechPieces, estimateSpeechMs, SentenceChunker, LISTENING, asksQuestion } from "./voiceText";
+import { isJunk, isBackchannel, endsMidThought, stripMarkdown, speechPieces, estimateSpeechMs, SentenceChunker, LISTENING, asksQuestion, joinChunks } from "./voiceText";
 import { octaveBands } from "./spectrum";
 import { perf } from "./perf";
+import { capturePart, nextCaptureReply } from "./ttsCapture";
 import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
 import type { LanguageCode } from "@openlive/shared";
 import { compileLexicon, type Lexicon } from "@openlive/shared/speech/lexicon";
@@ -96,6 +97,19 @@ const CUE_AFTER_MS = 3000;
 const CUE_GAP_MS = 8000;
 const CUE_GAIN = 0.4;
 const voiceKey = (v: ReplyVoice) => `${v.engine}|${v.voice}|${v.speed}|${v.lang}`;
+// Held reply text (SentenceChunker) goes to the voice once the audio queued ahead
+// falls to FEED_MARGIN times the time to synthesize everything not yet voiced, plus
+// FEED_FLOOR_S for a hiccup (a busy agent, a GC pause). Synthesis runs 10-30 s ahead
+// of the voice even under load (measured 2026-09-30: 0.002-0.05 s a character), so
+// on most machines text waits until it fills a chunk; where synthesis barely keeps
+// up, every sentence goes as it ends, as before. PACE_WEIGHT: an EWMA's weight for
+// each new timing, so a cold start's slow first chunk fades within a few.
+const FEED_MARGIN = 2;
+const FEED_FLOOR_S = 1;
+const PACE_WEIGHT = 0.3;
+
+/** A chunk in the TTS chain: its text, characters, and audio seconds still to come. */
+type Job = { text: string; epoch: number; chars: number; sec: number };
 
 /** The TTS settings one reply is spoken with, the pronunciation dictionary compiled once for it. */
 type ReplyVoice = { engine: string; family: string; voice: string; speed: number; lang: LanguageCode; lexicon: Lexicon | null };
@@ -158,6 +172,17 @@ export class VoiceEngine {
   // Fixed at the reply's first delta, so a settings change mid-reply applies
   // from the next one instead of switching voice between two sentences.
   private replyVoice: ReplyVoice | null = null;
+  // Per voice (voiceKey) on this machine: synthesis seconds and audio seconds per character.
+  private paces = new Map<string, { synth: number; audio: number }>();
+  // Chunks enqueued and not yet all synthesized: characters, and audio seconds still to come.
+  private synthing = new Set<Job>();
+  // The last reply chunk enqueued, until its synthesis begins: a later one joins it while that is safe.
+  // Never the opening of a reply or of the step after a tool (`openingDue`), so it starts as fast as ever.
+  private waiting: Job | null = null;
+  private openingDue = true;
+  private feedTimer: ReturnType<typeof setTimeout> | undefined;
+  private captureReply = 0;  // the debug capture's id for this reply (ttsCapture.ts), and the chunks it has had so far
+  private captureChunks = 0;
   // After a barge-in, IGNORE the interrupted reply's late deltas/done (they cross the
   // wire after the local cancel) until the next user turn re-arms — otherwise a
   // straggler delta gets the new epoch and is blurted over the user. Re-opened when a
@@ -864,8 +889,30 @@ export class VoiceEngine {
     this.replyFed = true;
     this.replyOpen = true;
     perf.firstToken(); // no-op after the first delta of a turn
+    if (!this.replyVoice) { this.captureReply = nextCaptureReply(); this.captureChunks = 0; this.openingDue = true; }
     const v = this.replyVoice ??= voiceNow();
     for (const s of this.chunker.push(text, v.lang)) this.enqueueSpeak(s, this.epoch, v);
+    this.feed();
+  }
+  /** Voice the held reply text if the audio ahead is about to run out, else check
+   *  again when it will be. Before a voice is timed, it goes at once. O(chunks queued). */
+  private feed() {
+    clearTimeout(this.feedTimer);
+    const v = this.replyVoice;
+    if (!v || !this.chunker.held()) return;
+    // Under 0.1 s it goes now: while the voice is paused its queue does not drain,
+    // and a check that close would only spin.
+    const slack = this.slack(v, 0);
+    if (slack > 0.1) this.feedTimer = setTimeout(() => this.feed(), slack * 1000);
+    else for (const s of this.chunker.take(v.lang)) this.enqueueSpeak(s, this.epoch, v);
+  }
+  /** Seconds the voice can wait before the held text and `extra` more characters
+   *  must be on their way to synthesis; 0 before `v` is timed. O(chunks queued). */
+  private slack(v: ReplyVoice, extra: number): number {
+    const pace = this.paces.get(voiceKey(v));
+    let ahead = this.player.ahead(), todo = this.chunker.held() + extra;
+    for (const j of this.synthing) { ahead += j.sec; todo += j.chars; }
+    return pace ? ahead - FEED_MARGIN * pace.synth * todo - FEED_FLOOR_S : 0;
   }
   /** A question the reply now waits on (a permission ask, an elicitation): all
    *  of it voiced now, never its last sentence held for text that comes only
@@ -880,11 +927,13 @@ export class VoiceEngine {
     if (!this.acceptingReply) return;
     const said = this.chunker.flush();
     if (said) this.enqueueSpeak(said, this.epoch, this.replyVoice ?? voiceNow());
+    this.openingDue = true;
   }
   endAgentTurn() {
     if (!this.acceptingReply) return; // the barged reply's `done` — no tail to flush/voice
     const tail = this.chunker.flush();
     if (tail) this.enqueueSpeak(tail, this.epoch, this.replyVoice ?? voiceNow());
+    this.waiting = null; // the next reply's first line never joins this one's last
     this.replyVoice = null;
     this.replyOpen = false;
     // When the TTS chain drains and audio finishes, drop back to idle.
@@ -904,10 +953,26 @@ export class VoiceEngine {
 
   private enqueueSpeak(sentence: string, epoch: number, v: ReplyVoice, outOfBand = false) {
     if (this.stopped) return;
+    const audioPerChar = this.paces.get(voiceKey(v))?.audio ?? 0;
+    // A chunk whose synthesis has not begun takes this one too, where the two fit
+    // one chunk and the voice can wait for the longer synthesis: a short line
+    // (a reply's last, the one before a tool) is not voiced alone.
+    const w = this.waiting, joined = !outOfBand && w?.epoch === epoch ? joinChunks(w.text, sentence, v.lang) : null;
+    if (w && joined && this.slack(v, sentence.length) > 0) {
+      Object.assign(w, { text: joined, chars: joined.length, sec: w.sec + sentence.length * audioPerChar });
+      if (this.replyOpen && this.h.holdBargeIn?.()) void this.ttsChain.then(() => this.waitDrainThenIdle(epoch));
+      return;
+    }
+    const reply = this.captureReply, chunk = this.captureChunks++;
+    const job: Job = { text: sentence, epoch, chars: sentence.length, sec: sentence.length * audioPerChar };
+    this.synthing.add(job);
+    this.waiting = outOfBand || this.openingDue ? null : job;
+    if (!outOfBand) this.openingDue = false;
     this.ttsChain = this.ttsChain.then(async () => {
+      if (this.waiting === job) this.waiting = null;
       if (this.epoch !== epoch) return; // barged-in → drop stale speech
       // The caption shows `spoken`, as the model wrote it; the voice says `said`.
-      const spoken = stripMarkdown(sentence);
+      const spoken = stripMarkdown(job.text);
       if (!spoken) return;
       const { said, from } = normalizeAligned(spoken, v.lang, v.lexicon);
       const abort = new AbortController();
@@ -920,15 +985,17 @@ export class VoiceEngine {
       // A streaming engine hands over the sentence in pieces; the chain still waits
       // for all of them, so sentences play in order while the next one synthesizes
       // under the current one's playback.
-      let samples = 0, rate = 24000, first = true, end = 0;
+      let samples = 0, rate = 24000, first = true, end = 0, pieces = 0;
       try {
         for (const piece of speechPieces(said, v.lang)) {
           if (this.epoch !== epoch || abort.signal.aborted) break;
+          const pieceNo = pieces++, askedAt = Date.now();
           const start = said.indexOf(piece, end), heard: Float32Array[] = [], before = samples;
           end = start + piece.length;
-          await ttsStream(piece, { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate) => {
+          await ttsStream(piece, { engine: v.engine, voice: v.voice, speed: v.speed, lang: v.lang }, (audio, sampleRate, source) => {
             if (this.epoch !== epoch) return;
             samples += audio.length; rate = sampleRate;
+            job.sec = Math.max(0, job.sec - audio.length / sampleRate);
             heard.push(audio);
             // Over the user's sentence the phase stays listening, which is what keeps
             // gathering their words; setPhase hands it over when the sentence ends.
@@ -956,9 +1023,13 @@ export class VoiceEngine {
               this.h.onAgentText(spoken, onsets);
             } : undefined;
             first = false;
-            this.player.play(audio, epoch, sampleRate, onStart);
+            const played = this.player.play(audio, epoch, sampleRate, onStart);
+            capturePart({ reply, chunk, piece: pieceNo, epoch, outOfBand, said: piece, spoken, askedAt, sampleRate, source,
+              voice: { engine: v.engine, family: v.family, voice: v.voice, speed: v.speed, lang: v.lang } }, audio, played);
           }, abort.signal);
           if (this.epoch !== epoch || !heard.length) continue;
+          const old = this.paces.get(voiceKey(v)), synth = (Date.now() - askedAt) / 1000 / piece.length, audio = (samples - before) / rate / piece.length;
+          this.paces.set(voiceKey(v), old ? { synth: old.synth + PACE_WEIGHT * (synth - old.synth), audio: old.audio + PACE_WEIGHT * (audio - old.audio) } : { synth, audio });
           const i0 = words.filter((w) => w.start < start).length, i1 = words.filter((w) => w.start < end).length;
           const pcm = new Float32Array(samples - before);
           heard.reduce((o, a) => (pcm.set(a, o), o + a.length), 0);
@@ -981,7 +1052,7 @@ export class VoiceEngine {
       } finally {
         if (this.ttsAbort === abort) this.ttsAbort = null;
       }
-    }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); });
+    }).catch((e) => { log.warn("live", "TTS failed:", e?.message ?? e); }).finally(() => this.synthing.delete(job));
     // An ask's question: once it is voiced, the reply waits on the user.
     if (this.replyOpen && this.h.holdBargeIn?.()) void this.ttsChain.then(() => this.waitDrainThenIdle(epoch));
   }
@@ -1006,6 +1077,8 @@ export class VoiceEngine {
     this.ttsAbort?.abort();
     this.player.flush(this.epoch);
     this.chunker.flush();
+    clearTimeout(this.feedTimer);
+    this.synthing.clear();
     this.replyVoice = null;
     // The new epoch strands the drain that would have idled a speaking or thinking reply.
     if (this.phase !== "listening") this.setPhase("idle");
@@ -1121,6 +1194,7 @@ export class VoiceEngine {
     this.stopped = true;
     this.deferred = [];
     clearInterval(this.keepWarm);
+    clearTimeout(this.feedTimer);
     this.clearHold();
     this.ptt = false;
     this.epoch++;

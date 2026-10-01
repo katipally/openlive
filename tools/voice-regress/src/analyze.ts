@@ -3,7 +3,8 @@
 // rendered in one go. Pure, so the analyzer itself is unit-tested.
 import { SILENCE } from "../../../packages/shared/src/speech/trim";
 
-const FRAME_S = 0.04, HOP_S = 0.01; // 40 ms window, 10 ms hop: 100 frames per second
+export const HOP_S = 0.01; // 10 ms hop: 100 frames per second
+const FRAME_S = 0.04;      // 40 ms window
 const WIN_FRAMES = Math.round(FRAME_S / HOP_S);
 const F0_MIN = 60, F0_MAX = 400;
 // Autocorrelation peak over its zero-lag value: above this a frame is voiced.

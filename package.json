@@ -17,6 +17,7 @@
     "test": "vitest run",
     "voice:regress": "pnpm --filter @openlive/voice-regress regress",
     "voice:bakeoff": "pnpm --filter @openlive/voice-regress bakeoff",
+    "voice:capture": "pnpm --filter @openlive/voice-regress capture",
     "voiceprint:eval": "pnpm --filter @openlive/voiceprint-eval eval",
     "addressee:eval": "pnpm --filter @openlive/addressee-eval eval",
     "addressee:train": "pnpm --filter @openlive/addressee-eval train",

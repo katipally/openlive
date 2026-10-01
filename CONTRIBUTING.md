@@ -20,6 +20,8 @@ pnpm desktop:dev      # web + agent servers, opens the desktop window
 
 `pnpm desktop:dev` opens Chrome DevTools Protocol on port 9333 (packaged builds open no debugging port). A test there opens or closes Flow exactly as a double Ctrl does by running `await openlive.flow.trigger("flow", true)` in the main window. The trigger exists only in dev builds.
 
+To record what the voice really plays (a reply whose pace or pitch shifts), run `localStorage.setItem("openlive-debug", "tts")` in DevTools (the desktop app's View menu, packaged builds too, or the browser on localhost) and speak. Each piece's audio and a manifest per reply land in `<data dir>/debug/tts-capture/<run>/<reply>/` (`data/` in the repo under `pnpm dev` and `pnpm desktop:dev`, `~/Library/Application Support/@openlive/desktop/data/` in the packaged macOS app); `pnpm voice:capture <that folder>` prints the per-piece analysis and writes `reconstruction.wav`. `localStorage.removeItem("openlive-debug")` turns it off.
+
 For UI work you often don't need the whole desktop shell:
 
 ```bash

@@ -36,7 +36,9 @@ function deltas(text: string, seed: number): string[] {
   return out;
 }
 
-/** The reply's spoken chunks, as voiceEngine.ts feeds the chunker and enqueueSpeak cleans each one. */
+/** The reply's spoken chunks, as voiceEngine.ts feeds the chunker and enqueueSpeak cleans each one,
+ *  with the voice well ahead (synthesis far faster than speech, the usual case): after the
+ *  opening, sentences go only as they fill a chunk, and the rest at the reply's end. */
 export function chunks(reply: string, seed: number, Chunker: typeof SentenceChunker = SentenceChunker): string[] {
   const c = new Chunker();
   const out = deltas(reply, seed).flatMap((d) => c.push(d, "en"));

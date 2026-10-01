@@ -264,6 +264,18 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **The voice no longer changes pitch and pace from line to line.** Every voice
+  engine sounds a little different on a short piece of text than on a long one,
+  and a reply was spoken in many short pieces, so a short line ("Anything
+  else?", the line before a tool) could jump in pitch or speed up. After the
+  first sentence, which still starts as fast as before, the reply is now spoken
+  in fewer, longer pieces: sentences wait while there is audio ahead to play,
+  as long as this computer's measured speed allows, and a short last line goes
+  with the piece before it. In a call and in Flow, for every voice and brain.
+- **A buzz under the voice is gone.** With Kokoro on the agent and Kitten, a
+  low buzz could play for a few seconds under the next sentence, and their
+  output played louder than other voices from a constant offset in it. Each
+  piece now stops exactly at its end, and the offset is filtered out.
 - **"You're up to date" no longer pops up on its own.** After Check for Updates
   found a version, a later automatic check that found nothing could still open that
   message. It now appears only for a check you asked for.

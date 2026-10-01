@@ -21,6 +21,22 @@ export interface SupertonicFiles { json(file: string): Promise<unknown>; model(f
 // ponytail: 8 denoising steps = the reference default; lower if first-audio
 // latency measures worse than Kokoro on target machines.
 const STEPS = 8;
+// Each chunk of a reply is a separate render, and each render's pitch moves
+// with its noise draw. At 0.8 of the reference's unit noise, adjacent chunks
+// of a reply came 9% closer in pitch on average (19% at the 90th percentile)
+// over all ten voices, with each sentence's own pitch range unchanged (within
+// 0.4 semitones; measured 2026-09-30, tools/voice-regress corpus).
+const NOISE_SCALE = 0.8;
+// The duration predictor gives a short text less time a character: English
+// chunks under 60 characters played 4-18% faster than ones over 100 (about 10%
+// on a typical voice, 18% on F2; same measurement). A chunk predicted shorter
+// than LONG_S (100 English characters, 5.6-7.0 s over the ten voices; 30 Chinese
+// ones take as long) is stretched by 1 + 0.09 ln(LONG_S / predicted), at most 15%.
+// Measured in time, not characters, so a language spoken slower per character
+// is not stretched for it.
+const SHORT_STRETCH = 0.09;
+const MAX_STRETCH = 1.15;
+const LONG_S = 6.5;
 
 // ── text preprocessing (reference UnicodeProcessor, web/helper.js) ───────────
 // The language rides as a tag around the text, one of the model's 31 codes
@@ -116,7 +132,9 @@ export class Supertonic {
 
     // duration (reference applies a 1.05 base speed)
     const dpOut = await this.dp.run({ text_ids: textIds, style_dp: style.dp, text_mask: textMask });
-    const duration = ((dpOut.duration!.data as Float32Array)[0]!) / (1.05 * speed);
+    const predicted = ((dpOut.duration!.data as Float32Array)[0]!) / 1.05;
+    const stretch = Math.min(MAX_STRETCH, Math.max(1, 1 + SHORT_STRETCH * Math.log(LONG_S / predicted)));
+    const duration = (predicted / speed) * stretch;
 
     // text embedding
     const encOut = await this.textEnc.run({ text_ids: textIds, style_ttl: style.ttl, text_mask: textMask });
@@ -130,7 +148,7 @@ export class Supertonic {
     const latentDim = ttl.latent_dim * ttl.chunk_compress_factor;
     let xt: Float32Array<ArrayBufferLike> = new Float32Array(latentDim * latentLen);
     const noise = seededNormal(voice);
-    for (let i = 0; i < xt.length; i++) xt[i] = noise();
+    for (let i = 0; i < xt.length; i++) xt[i] = NOISE_SCALE * noise();
     const latentMask = new Tensor("float32", new Float32Array(latentLen).fill(1), [1, 1, latentLen]);
     const totalStep = new Tensor("float32", new Float32Array([STEPS]), [1]);
 

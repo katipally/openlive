@@ -510,6 +510,10 @@ async function cloneTts(text: string, voice: string, speed?: number): Promise<{ 
 /** `engine` is a variant id (a browser engine's is its family's). */
 type TtsOpts = { engine?: string; voice?: string; speed?: number; lang?: LanguageCode };
 
+/** What really produced a piece of audio: `engine` is the one that ran, which is not `opts.engine`
+ *  when `fallback` (a stand-in after a failure or an unspoken language). */
+export type TtsSource = { route: "agent" | "agent-copy" | "clone" | "worker"; engine: string | undefined; fallback: boolean };
+
 // Nothing in the browser speaks the language (Chinese): said once per call,
 // and the sentence goes unspoken instead of read wrong.
 let noVoiceToasted = false;
@@ -551,11 +555,13 @@ let hungSentences = 0;
  *  browser voice for the language, for the rest of the call, only on one that
  *  would repeat. Resolves once every piece is handed over; aborting `signal`
  *  ends it quietly. */
-export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk: (audio: Float32Array, sampleRate: number) => void, signal?: AbortSignal): Promise<void> {
+export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk: (audio: Float32Array, sampleRate: number, source?: TtsSource) => void, signal?: AbortSignal): Promise<void> {
   // A browser voice the agent runs streams from it the same way, and on a
   // lasting failure gives way to the same voice in the browser, quietly.
   const engine = isNativeTts(opts?.engine) ? opts?.engine : await agentCopy(opts?.engine);
+  const copy = engine !== opts?.engine;
   if (engine && engine !== ttsFallback) {
+    const source: TtsSource = { route: copy ? "agent-copy" : "agent", engine, fallback: false };
     let voiced = false;
     for (let attempt = 1; ; attempt++) {
       const stalled = new AbortController();
@@ -582,7 +588,7 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
           if (!pcm.length) continue;
           stallIn("audio stopped arriving");
           voiced = true;
-          onChunk(pcm, rate);
+          onChunk(pcm, rate, source);
         }
         return;
       } catch (e) {
@@ -595,7 +601,6 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
           log.error("tts", `${engine} failed twice, this sentence goes unspoken:`, e);
           return;
         }
-        const copy = engine !== opts?.engine;
         const standIn = copy ? opts?.engine : browserTtsFallback(opts?.lang ?? "en");
         (notDownloaded(e) ? log.warn : log.error)("tts", `${engine} failed, using ${standIn ?? "no voice"} in the browser for this call:`, e);
         if (ttsFallback !== engine) {
@@ -612,40 +617,43 @@ export async function ttsStream(text: string, opts: TtsOpts | undefined, onChunk
     opts = standIn;
   }
   const out = await tts(text, opts);
-  if (!signal?.aborted && out.audio.length) onChunk(out.audio, out.sampleRate);
+  if (!signal?.aborted && out.audio.length) onChunk(out.audio, out.sampleRate, out.source && { ...out.source, fallback: out.source.fallback || !!engine });
 }
 
 /** Synthesize a sentence → Float32 PCM + sample rate. Voice/speed come from the
  *  user's pipeline config; a cloned voice or a native engine routes to the local
  *  agent service and, once it is unavailable for the call, gives way to the
  *  browser voice for the language (silence when there is none). */
-export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float32Array; sampleRate: number }> {
+export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float32Array; sampleRate: number; source?: TtsSource }> {
   if (isNativeTts(opts?.engine) || await agentCopy(opts?.engine)) {
     const parts: Float32Array[] = [];
-    let sampleRate = 24000;
-    await ttsStream(text, opts, (a, r) => { parts.push(a); sampleRate = r; });
+    let sampleRate = 24000, source: TtsSource | undefined;
+    await ttsStream(text, opts, (a, r, s) => { parts.push(a); sampleRate = r; source = s; });
     const audio = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
     parts.reduce((off, p) => { audio.set(p, off); return off + p.length; }, 0);
-    return { audio, sampleRate };
+    return { audio, sampleRate, source };
   }
+  let fallback = false;
   // A browser or cloned voice that does not speak the language (a config set
   // without pickCompatible) reads it wrong: the stand-in speaks it instead.
   if (opts?.engine && opts.lang && !languageSupport(opts.engine, opts.lang)) {
     const standIn = browserStandIn(opts);
     if (!standIn) return { audio: new Float32Array(0), sampleRate: 24000 };
     opts = standIn;
+    fallback = true;
   }
   if (opts?.engine === "clone" && opts.voice && !cloneFailed) {
     const cloned = await cloneTts(text, opts.voice, opts.speed);
-    if (cloned || !cloneFailed) return cloned ?? { audio: new Float32Array(0), sampleRate: 24000 };
+    if (cloned || !cloneFailed) return cloned ? { ...cloned, source: { route: "clone", engine: "clone", fallback: false } } : { audio: new Float32Array(0), sampleRate: 24000 };
   }
   if (opts?.engine === "clone") {
     const standIn = browserStandIn(opts);
     if (!standIn) return { audio: new Float32Array(0), sampleRate: 24000 };
     opts = standIn;
+    fallback = true;
   }
   const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, engine: opts?.engine, voice: opts?.voice, speed: opts?.speed, lang: opts?.lang });
-  return { audio: m.audio, sampleRate: m.sampleRate };
+  return { audio: m.audio, sampleRate: m.sampleRate, source: { route: "worker", engine: opts?.engine, fallback } };
 }
 
 /** Whether Smart-Turn v3 loaded (else the engine uses the silence heuristic). */

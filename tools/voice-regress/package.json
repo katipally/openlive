@@ -6,6 +6,7 @@
   "scripts": {
     "regress": "tsx src/run.ts",
     "bakeoff": "tsx src/bakeoff.ts",
+    "capture": "tsx src/capture.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

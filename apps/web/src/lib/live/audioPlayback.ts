@@ -8,12 +8,17 @@
 // through a MediaStreamDestination into a hidden <audio> element — which AEC3
 // DOES reference — so the agent's own voice is cancelled from the mic input.
 import { octaveBands } from "./spectrum";
+import { captureEvent } from "./ttsCapture";
+
+/** Where play() put a chunk on the context clock, for the debug capture (ttsCapture.ts). */
+export interface PlayInfo { startAt: number; now: number; prevEnd: number; held: boolean; rate: number; baseLatency: number; outputLatency: number | undefined }
 
 export class AudioPlayer {
   private ctx: AudioContext | null = null;
   private sink: MediaStreamAudioDestinationNode | null = null;
   private el: HTMLAudioElement | null = null;
   private analyser: AnalyserNode | null = null;   // taps the output for LIVE amplitude
+  private dcBlock: BiquadFilterNode | null = null; // every chunk passes it on the way to the sink and the analyser
   private tap: Float32Array | null = null;         // reusable time-domain buffer
   private freq: Uint8Array | null = null;          // reusable frequency buffer (spectrum)
   private nextAt = 0;
@@ -35,6 +40,15 @@ export class AudioPlayer {
       this.analyser.smoothingTimeConstant = 0.6; // steadier spectrum bars
       this.tap = new Float32Array(this.analyser.fftSize);
       this.freq = new Uint8Array(this.analyser.frequencyBinCount);
+      // Kokoro (agent) and Kitten output carries a constant DC offset (part mean
+      // 0.02-0.04, measured 2026-09-30) that plays louder than the voice is. One
+      // filter for the whole stream, so its state runs on across chunks with no step
+      // at a join; 30 Hz is under any voice's pitch.
+      this.dcBlock = this.ctx.createBiquadFilter();
+      this.dcBlock.type = "highpass";
+      this.dcBlock.frequency.value = 30;
+      this.dcBlock.connect(this.sink);
+      this.dcBlock.connect(this.analyser);
       const el = document.createElement("audio");
       el.autoplay = true;
       el.setAttribute("playsinline", "");
@@ -53,7 +67,7 @@ export class AudioPlayer {
   // as streamed pieces that queue back to back. `onStart` fires
   // when THIS chunk actually begins playing (not when it was synthesized) — so a
   // caption can track the voice instead of racing ahead of it.
-  play(f32: Float32Array, epoch: number, sampleRate = 24000, onStart?: () => void) {
+  play(f32: Float32Array, epoch: number, sampleRate = 24000, onStart?: () => void): PlayInfo | undefined {
     if (epoch < this.minEpoch || f32.length === 0) return;
     const ctx = this.ensure();
     let sum = 0;
@@ -63,14 +77,20 @@ export class AudioPlayer {
     buf.getChannelData(0).set(f32); // avoids the Float32Array<ArrayBufferLike> generic mismatch
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(this.sink!); // → MediaStreamDestination → <audio> (AEC-visible)
-    if (this.analyser) src.connect(this.analyser); // parallel tap (no audio output)
-    const startAt = Math.max(ctx.currentTime + 0.02, this.nextAt);
+    src.connect(this.dcBlock!); // → MediaStreamDestination → <audio> (AEC-visible), and the analyser tap
+    const prevEnd = this.nextAt;
+    const startAt = Math.max(ctx.currentTime + 0.02, prevEnd);
     src.start(startAt);
+    // Chromium sometimes keeps repeating a resampled (24 kHz in a 48 kHz context)
+    // buffer's last 128-frame quantum after it ends, a buzz of up to ~5 s under the
+    // next chunk (measured 2026-09-30 on Kokoro and Kitten); an explicit stop at
+    // its end removed it in every replay.
+    src.stop(startAt + buf.duration);
     this.nextAt = startAt + buf.duration;
     this.sources.add(src);
     src.onended = () => { this.sources.delete(src); if (this.sources.size === 0) this.rms = 0; };
     if (onStart) { this.cues.set(onStart, startAt); if (!this.held) this.arm(onStart, startAt); }
+    return { startAt, now: ctx.currentTime, prevEnd, held: this.held, rate: ctx.sampleRate, baseLatency: ctx.baseLatency, outputLatency: ctx.outputLatency };
   }
   private arm(onStart: () => void, at: number) {
     const t = setTimeout(() => { this.timers.delete(t); this.cues.delete(onStart); onStart(); }, Math.max(0, (at - this.ctx!.currentTime) * 1000));
@@ -79,6 +99,7 @@ export class AudioPlayer {
 
   /** Pause mid-word, keeping everything queued: release() goes on from the same sample. */
   hold() {
+    captureEvent("hold", this.ctx?.currentTime);
     this.held = true;
     void this.ctx?.suspend();
     for (const t of this.timers) clearTimeout(t);
@@ -86,6 +107,7 @@ export class AudioPlayer {
   }
   release() {
     if (!this.held) return;
+    captureEvent("release", this.ctx?.currentTime);
     this.held = false;
     if (!this.ctx) return;
     void this.ctx.resume();
@@ -93,6 +115,7 @@ export class AudioPlayer {
   }
 
   flush(epoch: number) {
+    captureEvent("flush", this.ctx?.currentTime);
     this.minEpoch = epoch;
     for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
     this.sources.clear();
@@ -125,11 +148,13 @@ export class AudioPlayer {
     return octaveBands(this.freq, n);
   }
   playing() { return this.sources.size > 0; }
+  /** Seconds of audio scheduled and not yet played (0 when nothing is). */
+  ahead() { return this.ctx ? Math.max(0, this.nextAt - this.ctx.currentTime) : 0; }
   resume() { this.ensure(); }
   close() {
     this.flush(Number.MAX_SAFE_INTEGER);
     try { this.el?.pause(); this.el?.remove(); } catch { /* */ }
     try { void this.ctx?.close(); } catch { /* */ }
-    this.el = null; this.sink = null; this.ctx = null; this.analyser = null; this.tap = null;
+    this.el = null; this.sink = null; this.ctx = null; this.analyser = null; this.tap = null; this.dcBlock = null;
   }
 }

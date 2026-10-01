@@ -265,15 +265,29 @@ export function splitLong(s: string, max = MAX_CHUNK_CHARS, spaced = true): stri
   return out;
 }
 
+/** An English length bar `n` for a language spoken at `rate` characters a second. */
+const scaledBar = (n: number, rate: number) => Math.max(1, Math.round((n * rate) / ENGLISH_CHARS_PER_SEC));
+
+/** Chunks `a` and `b` as one, when that still fits a chunk in `lang` (the cap
+ *  plus a short sentence, as a flush may give); null when it does not. */
+export function joinChunks(a: string, b: string, lang = "en"): string | null {
+  const { spaced, maxChunk, rate } = langText(lang);
+  const s = spaced ? `${a} ${b}` : a + b;
+  return s.length <= maxChunk + scaledBar(MIN_TTS_CHARS, rate) ? s : null;
+}
+
 // Split a growing text stream into speakable chunks (keep decimals/abbrevs).
-// Completed sentences shorter than MIN_TTS_CHARS are held and merged with the
-// next one before emitting — so Kokoro always gets enough text to keep a single,
-// consistent voice instead of re-rendering tiny fragments oddly. The FIRST
-// chunk of a reply clears the lower FIRST_TTS_CHARS bar, so speech begins as
-// text streams, not after the whole reply is generated.
+// The FIRST chunk of a reply clears the low FIRST_TTS_CHARS bar, so speech
+// begins as text streams, not after the whole reply is generated. After it,
+// completed sentences are held: every engine's pitch and pace move with the
+// length of what it is given, so the fewer and longer the chunks, the more
+// they sound like one voice. push() lets held text go only once it fills a
+// chunk (whole sentences up to maxChunk); take() lets it go when the voice is
+// about to run dry (the caller knows, voiceEngine.ts), flush() at the end of
+// the turn or before a tool. Nothing under MIN_TTS_CHARS goes alone but a flush.
 export class SentenceChunker {
   private buf = "";      // text after the last completed sentence
-  private ready = "";    // completed sentences not yet long enough to speak
+  private ready = "";    // completed sentences held back
   private started = false; // has the first speakable chunk of THIS turn gone out?
   private inFence = false;  // inside a ``` code block — suppress it from speech
   private btTail = "";      // held trailing backticks that may start a ``` split across deltas
@@ -304,8 +318,10 @@ export class SentenceChunker {
     this.buf += this.stripFences(t);
     const out: string[] = [];
     const { rate, spaced, maxChunk } = langText(lang);
-    const bar = (n: number) => Math.max(1, Math.round((n * rate) / ENGLISH_CHARS_PER_SEC));
+    const bar = (n: number) => scaledBar(n, rate);
     const split = (x: string) => splitLong(x, maxChunk, spaced);
+    // Held text that `next` would push past a chunk goes now, and `next` starts the following one.
+    const spill = (next: string) => { if (this.started && this.held() >= bar(MIN_TTS_CHARS) && (this.ready + next).trim().length > maxChunk) { out.push(this.ready.trim()); this.ready = ""; } };
     let last = 0;
     for (const m of this.buf.matchAll(SENTENCE_END)) {
       const end = m.index + m[0].length;
@@ -317,13 +333,17 @@ export class SentenceChunker {
         if (ahead.test(this.buf.slice(end))) continue;
       }
       if (inCodeSpan(this.buf, m.index)) continue;
-      this.ready += this.buf.slice(last, end);
+      const sentence = this.buf.slice(last, end);
       last = end;
-      // First chunk clears the low bar so even a short single sentence speaks
-      // now; every chunk after keeps the stable MIN_TTS_CHARS timbre bar.
-      if (this.ready.trim().length >= bar(this.started ? MIN_TTS_CHARS : FIRST_TTS_CHARS)) { out.push(...split(this.ready)); this.ready = ""; this.started = true; }
+      spill(sentence);
+      this.ready += sentence;
+      // The first chunk speaks as soon as it clears the low bar. Later, only a
+      // sentence longer than a chunk is cut, its last piece held for what follows.
+      if (!this.started && this.ready.trim().length >= bar(FIRST_TTS_CHARS)) { out.push(...split(this.ready)); this.ready = ""; this.started = true; }
+      else if (this.ready.trim().length > maxChunk) { const pieces = split(this.ready); this.ready = pieces.pop()!; out.push(...pieces); }
     }
     if (last) this.buf = this.buf.slice(last);
+    spill(this.buf);
     // No boundary in sight: speak all but the last piece now, so no chunk, and
     // no flushed tail beyond one held short sentence, exceeds the chunk cap.
     if (this.buf.length > maxChunk) {
@@ -332,6 +352,15 @@ export class SentenceChunker {
       if (pieces.length) { out.push(...pieces); this.ready = ""; this.started = true; }
     }
     return out;
+  }
+  /** Characters of completed text held back. */
+  held(): number { return this.ready.trim().length; }
+  /** The held sentences, to speak now; none while they are under the MIN_TTS_CHARS bar. */
+  take(lang = "en"): string[] {
+    if (this.held() < scaledBar(MIN_TTS_CHARS, langText(lang).rate)) return [];
+    const s = this.ready.trim();
+    this.ready = ""; this.started = true;
+    return [s];
   }
   // flush() ends the turn (called on `done` and on barge-in) — reset `started`
   // so the next reply gets its own fast first chunk.

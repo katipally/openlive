@@ -1,13 +1,13 @@
 {
   "replies": 14,
-  "joins": 29,
-  "roughJoins": 0.034,
-  "f0JumpSt": 0.354,
-  "pauseMs": 3.793,
-  "loudJumpDb": 0.238,
-  "startPitchSt": 0.157,
-  "leadMs": 51.747,
-  "tailMs": 74.643,
-  "durationDev": 0.003,
+  "joins": 16,
+  "roughJoins": 0.063,
+  "f0JumpSt": 0.48,
+  "pauseMs": 4.375,
+  "loudJumpDb": 0.157,
+  "startPitchSt": 0.159,
+  "leadMs": 51.685,
+  "tailMs": 71.973,
+  "durationDev": 0.005,
   "broken": 0
 }
