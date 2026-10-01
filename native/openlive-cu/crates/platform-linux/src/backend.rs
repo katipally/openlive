@@ -180,6 +180,9 @@ impl LinuxBackend {
         if !crate::pipewire::available() {
             text.push_str(" PipeWire's library (libpipewire-0.3) is missing, so no pictures can be taken until it is installed.");
         }
+        if let Some(crate::portal::Phase::Failed(why)) = self.portal.as_ref().map(Portal::phase) {
+            text.push_str(&format!(" The last attempt ended: {why}."));
+        }
         Some(text)
     }
 

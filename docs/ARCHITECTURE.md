@@ -800,7 +800,8 @@ and telemetry.
     starts from it without a dialog, before the frame of a request is decided.
     A quiet restore that fails is retried after 30 s, not per request. A
     session idle for two minutes is closed so the compositor's indicator goes
-    off. When the compositor closes it (the user pressed Stop), the token is
+    off, when the portal gave a token to restore it; one that gave none stays
+    open, since closing it would mean another dialog. When the compositor closes it (the user pressed Stop), the token is
     forgotten, so it is not brought back unasked. Where RemoteDesktop is
     missing (xdg-desktop-portal-wlr) the session is ScreenCast only, with its
     own token, and posted input is refused with a sentence that says why.

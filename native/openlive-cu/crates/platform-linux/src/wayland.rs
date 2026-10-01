@@ -11,6 +11,7 @@
 //! leave the layout to the helper, which would then need libxkbcommon).
 //! A session idle for two minutes is closed, so the compositor's
 //! screen-sharing indicator does not stay on; the next use restores it quietly.
+//! A portal that hands out no restore token keeps its session open instead.
 
 use crate::bus::{block, within};
 use crate::geom::{self, Stream};
@@ -52,6 +53,8 @@ struct Session {
     handle: OwnedObjectPath,
     streams: Vec<Stream>,
     input: bool,
+    /// The portal gave a restore token, so closing an idle session costs no dialog later.
+    restorable: bool,
     closing: Arc<AtomicBool>,
 }
 
@@ -185,7 +188,8 @@ async fn open(stored: Option<Stored>, ask: bool) -> Result<(Session, Option<Stor
         return Err("the screen sharing session shares no screen".into());
     }
     let input = kind == Kind::RemoteDesktop && devices & (portal::KEYBOARD | portal::POINTER) == portal::KEYBOARD | portal::POINTER;
-    Ok((Session { conn, handle, streams, input, closing: Arc::new(AtomicBool::new(false)) }, token))
+    let restorable = token.is_some();
+    Ok((Session { conn, handle, streams, input, restorable, closing: Arc::new(AtomicBool::new(false)) }, token))
 }
 
 impl Portal {
@@ -196,7 +200,8 @@ impl Portal {
             thread::sleep(Duration::from_secs(5));
             let Some(inner) = reaper.upgrade() else { return };
             let mut g = inner.0.lock().unwrap_or_else(|p| p.into_inner());
-            if g.session.is_some() && g.last_used.elapsed() > IDLE_CLOSE {
+            // A session the portal cannot restore stays open: closing it would mean another dialog.
+            if g.session.as_ref().is_some_and(|s| s.restorable) && g.last_used.elapsed() > IDLE_CLOSE {
                 if let Some(s) = g.session.take() {
                     close(&s);
                 }
