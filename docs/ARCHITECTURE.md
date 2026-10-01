@@ -630,10 +630,13 @@ and telemetry.
   `objc2-application-services`, ScreenCaptureKit's `SCScreenshotManager` via
   `objc2-screen-capture-kit`, CGEvent via `objc2-core-graphics`).
   `platform-windows` (UI Automation, Windows.Graphics.Capture and SendInput,
-  all through Microsoft's `windows` crate 0.62). `platform-linux` is a stub
-  that answers `unsupported_platform`. `helper` is the binary.
+  all through Microsoft's `windows` crate 0.62). `platform-linux` (AT-SPI
+  over `zbus` 5 with `atspi-common` 0.14 for roles and states, X11 over
+  `x11rb` 0.14, the xdg-desktop-portal over `zbus`, PipeWire through
+  `libloading`). `helper` is the binary.
 - **Transport.** A Unix socket on macOS and Linux, a named pipe on Windows
-  (`interprocess`), in a 0700 temp directory. A named pipe lives in a global
+  (`interprocess`), in a 0700 directory: under `$XDG_RUNTIME_DIR` on Linux
+  when it is set, the temp directory otherwise. A named pipe lives in a global
   namespace whose default descriptor lets Everyone read it, so the helper
   gives it a protected DACL naming the current user's SID alone, and refuses
   to listen without one. The client writes a random token
@@ -646,22 +649,24 @@ and telemetry.
   | Method | Does |
   |---|---|
   | `handshake` | protocol, platform, `ready` (false on a stub backend) |
-  | `permissions` / `requestPermission` | grants and their System Settings links; only the request may prompt |
+  | `permissions` / `requestPermission` | grants and their System Settings links (on Linux a line of guidance instead); only the request may prompt |
   | `listApps`, `listWindows` | running apps; windows with native ids and desktop frames |
   | `getAppState` | the indexed tree text, a picture of the window, its frame |
-  | `click` | element: AXPress, AXConfirm, AXOpen (AXShowMenu for right) on macOS; Invoke, Toggle, SelectionItem.Select, ExpandCollapse (ShowContextMenu for right) on Windows, the last three read back; else a posted click at its centre; point: a posted click. Reports the path and whether it was read back |
+  | `click` | element: AXPress, AXConfirm, AXOpen (AXShowMenu for right) on macOS; Invoke, Toggle, SelectionItem.Select, ExpandCollapse (ShowContextMenu for right) on Windows, the last three read back; on Linux a list, tree or tab item through its container's Selection, else the first of the element's `click`, `press`, `activate`, `jump`, `toggle` actions (`showMenu` for right), checked, pressed, expanded and selected states read back; else a posted click at its centre; point: a posted click. Reports the path and whether it was read back |
   | `performSecondaryAction`, `setValue` | an element's listed action; a typed value, read back |
-  | `typeText`, `pasteText` | AX replace of the selection, read back, else posted keys or a clipboard paste that restores the clipboard |
-  | `pressKey`, `hotkey` | one key or a chord (`cmd+a` selects through AX when it can) |
-  | `scroll`, `drag` | `AXScroll…ByPage` (ScrollPattern on Windows) on an element, else posted wheel or drag |
+  | `typeText`, `pasteText` | AX replace of the selection (AT-SPI EditableText insert at the caret on Linux), read back, else posted keys or a clipboard paste that restores the clipboard |
+  | `pressKey`, `hotkey` | one key or a chord (`cmd+a`, `ctrl+a` on Linux, selects through the accessibility API when it can) |
+  | `scroll`, `drag` | `AXScroll…ByPage` (ScrollPattern on Windows) on an element, else posted wheel or drag (always posted on Linux, where toolkits name no scroll action) |
   | `move`, `mouseDown`, `mouseUp` | the pointer alone for a hover, and half a click for a gesture `drag` cannot express; a move while a button is held drags |
 
 - **Coordinates.** x and y are pixels in the last picture of that window. The
   core maps them onto the window's frame, refuses a point off the picture, and
   refuses a window that changed size since. Window ids are the platform's own
-  (CGWindowID, the HWND's low 32 bits on Windows), the same ids ol-input's
-  window tools take. Desktop coordinates are points on macOS and physical
-  pixels on Windows.
+  (CGWindowID, the HWND's low 32 bits on Windows, the XID on X11), the same
+  ids ol-input's window tools take; on Wayland, where windows have no global
+  id, a hash of the window's AT-SPI object, which only the helper's tools
+  take. Desktop coordinates are points on macOS, physical pixels on Windows,
+  X screen pixels on X11 and the compositor's logical coordinates on Wayland.
 - **The default target.** With no app named, the helper takes the window in
   front, or, when that is OpenLive's own, the frontmost window that is not.
   OpenLive's own is any app run from `OPENLIVE_CU_OWN_ROOT`: the install
@@ -682,7 +687,8 @@ and telemetry.
   `pack:native` builds it (universal on macOS) and stages it in
   `dist/computer-use`; electron-builder copies the macOS app into Resources
   and signs it with the app, and ships `openlive-cu.exe` in the Windows
-  resources (`check-native` refuses either package without it). The Windows
+  resources and `openlive-cu` in the Linux ones (inside the AppImage it runs
+  from the mounted image; `check-native` refuses any package without it). The Windows
   executable embeds its manifest (`crates/helper/build.rs`): `asInvoker` and
   per-monitor-v2 DPI awareness. `OPENLIVE_CU_SIGN_IDENTITY` (or
   `CSC_NAME`) signs a dev build with a real identity, so a grant survives
@@ -698,7 +704,7 @@ and telemetry.
   `read_screen_text` (ol-input's OCR over the helper's picture). ol-input's `screenshot`, pointer and keyboard tools are
   left out, so there is one `click` and one coordinate space; its window tools,
   `get_window`, `open_app`, `open_url`, `shell` and `camera_frame` stay.
-  Without the helper (Linux for now, or no build) the session gets
+  Without the helper (no build) the session gets
   ol-input's tools as before. Reads are `readOnly`; actions have `confirm`, so a
   call asks before each and Flow's one consent covers them.
 - **One input lock** (`capabilities/input-lock.ts`). Every action, through the
@@ -730,10 +736,98 @@ and telemetry.
   - *No desktop.* In session 0 (a service) the handshake says not ready; while
     the screen is locked or a UAC prompt holds the secure desktop, actions are
     refused and the grants read as not allowed.
-- **Linux.** The contract, transport and core are done; 5c fills in
-  `platform-linux` (AT-SPI2, xdg portals or X11), maps its roles onto the AX
-  role names, then adds the platform to `SUPPORTED` in `helper.ts` and stages
-  the binary in `pack-native.cjs`.
+- **Linux.** AT-SPI is the tree on X11 and Wayland alike; the display server
+  decides windows, pixels and input. The session type comes from
+  `XDG_SESSION_TYPE` and `WAYLAND_DISPLAY` (under Wayland, `DISPLAY` is
+  XWayland and never decides). Nothing links a system library: D-Bus and X11
+  are spoken in Rust, and `libpipewire-0.3.so.0` is loaded with dlopen only
+  to take a Wayland picture (missing, the picture says what to install). The
+  release binary needs libc alone.
+  - *The tree.* The helper reaches the accessibility bus through
+    `org.a11y.Bus.GetAddress`. A parent's children come in one `GetChildren`;
+    every child's role, states, interfaces, name, attributes, actions, value
+    and text are then asked for all at once, so a level costs a few round
+    trips in flight together: O(V) calls for V elements visited, O(D) round
+    trips of wall time for depth D, each call capped at 1 s so a hung app
+    cannot hold the walk. Rows of long lists, tables and trees are walked
+    only while showing. `Cache.GetItems` is not used: its reply is a whole
+    app, unbounded, and GTK 4 lacks it. Roles map onto the AX names, toolkit
+    actions onto the AX action names, so the tree text and `perform_action`
+    read as on the other systems; focus is found as the walk passes it.
+  - *Accessibility switch.* `requestPermission` (and each observation) sets
+    `org.a11y.Status.IsEnabled`, the documented switch GTK, Qt and the AT-SPI
+    bridges read. Never `ScreenReaderEnabled`: on GNOME that launches Orca, and
+    editors change behaviour for screen readers. On Cinnamon it touches
+    nothing (its settings daemon can loop rewriting the two), and the grant's
+    guidance says where to turn it on. Apps read the switch at start, so
+    open ones need a restart. Chromium and Electron build their tree only
+    with `--force-renderer-accessibility` or `ACCESSIBILITY_ENABLED=1`; a
+    Chromium window (toolkit `Chromium`) with almost no elements gets a line
+    in its tree text saying so. There is no allowlist to flip as on macOS.
+  - *X11.* Windows from EWMH `_NET_CLIENT_LIST_STACKING` (front to back), with
+    `_NET_WM_PID`, `WM_CLASS`, `_NET_WM_NAME`; the frame is the client area
+    grown by `_NET_FRAME_EXTENTS` and shrunk by `_GTK_FRAME_EXTENTS` (a
+    client-side-decorated window's shadow). With no window manager (Xvfb) the
+    root's mapped children stand in. An X window is matched to its AT-SPI
+    frame by process, place and title. Pictures are `GetImage` of the root,
+    cropped to the frame (what is on screen there, occluders included; MIT-SHM
+    is not used, one frame does not need it). Focus is the
+    `_NET_ACTIVE_WINDOW` request a pager sends. Input is XTEST. Text goes in
+    by keysym: each character's keysym is found in the live keymap with the
+    Shift or AltGr level it needs, and one missing from the layout is bound
+    to a spare keycode for the press and unbound after, as xdotool does; Caps
+    Lock is turned off around typing. Paste owns the CLIPBOARD selection from
+    a thread with its own connection, serves the text, then serves the
+    user's previous text until someone copies again (a clipboard manager
+    keeps it after the helper exits; an image is not put back).
+  - *Wayland.* There is no global window list, so windows are AT-SPI frames.
+    A native Wayland client cannot know its position, and toolkits report
+    (0, 0); only XWayland clients report real ones. A window at (0, 0) is
+    therefore shown as the whole shared desktop: its picture is every
+    monitor, x and y are desktop positions, elements act through their own
+    actions, and aiming at an element by position is refused with a pointer
+    to the picture. The frame sizes are right; the origins are not, which the
+    tree text says.
+  - *The portal session.* One RemoteDesktop session carries the keyboard,
+    the pointer and a screen cast of every monitor (`types` monitor,
+    `multiple`, cursor hidden). The consent dialog shows only from
+    `requestPermission` (Access > **Allow**), started in the background so
+    the request returns while the user answers; `permissions` reads granted
+    once a session runs or a restore token is kept. `persist_mode` 2 (until
+    revoked, RemoteDesktop version 2 and later) makes every `Start` return a
+    single-use restore token, written 0600 to
+    `$XDG_STATE_HOME/openlive/computer-use/portal-token`; the next session
+    starts from it without a dialog, before the frame of a request is decided.
+    A quiet restore that fails is retried after 30 s, not per request. A
+    session idle for two minutes is closed so the compositor's indicator goes
+    off. When the compositor closes it (the user pressed Stop), the token is
+    forgotten, so it is not brought back unasked. Where RemoteDesktop is
+    missing (xdg-desktop-portal-wlr) the session is ScreenCast only, with its
+    own token, and posted input is refused with a sentence that says why.
+  - *Wayland pictures and input.* A picture opens the session's PipeWire
+    remote (`OpenPipeWireRemote`), connects one stream per monitor with an
+    `EnumFormat` of 32-bit RGB and no modifier (so shared memory, never
+    DMA-BUF), takes one frame, and composes the monitors at their logical
+    positions, cropped to the frame. Input is the portal's `Notify*` calls in
+    each stream's logical space. A key goes as a keysym, which the compositor
+    turns into a key press on the layout in use, so text needs no keymap here;
+    libei through `ConnectToEIS` would hand over keycodes and leave the
+    layout to the helper, which would need libxkbcommon. Text first goes in
+    through AT-SPI `EditableText`, read back. Paste uses `wl-copy` and
+    `wl-paste` when wl-clipboard is installed (only the focused client may set
+    the clipboard; it borrows focus for the moment), and otherwise types the
+    text and says so. Keystrokes are refused unless the target's frame reads
+    `Active`: no client may activate another's window on Wayland.
+  - *Compositors.* GNOME (Mutter) and KDE (KWin) implement RemoteDesktop and
+    ScreenCast; restore tokens need a portal that reports RemoteDesktop
+    version 2, and older ones show the dialog for each new session. wlroots
+    compositors (sway, Hyprland, river) share the screen through their
+    portal but offer no remote control. Hit tests are X11 only; on Wayland the
+    picture, which shows what is on top, is the check.
+  - *Blocked apps.* The app id is the executable's name from /proc (the
+    script's for an interpreter, so GNOME Secrets reads `secrets`); KeePassXC,
+    Bitwarden, 1Password, Seahorse, Secrets, KWalletManager and the rest are
+    refused like their macOS and Windows twins.
 
 ## Connectors (`services/agent/src/connectors/`)
 

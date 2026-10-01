@@ -180,7 +180,7 @@ Settings > Flow ("Trigger, voice & typing"):
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
 | Typing | How text goes in | Paste (instant) or Type it out, plus advanced timing |
-| Access | Microphone, Accessibility, Screen, Computer use (macOS), Act on this machine | Status and the button to grant or withdraw |
+| Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status and the button to grant or withdraw |
 
 API mode's provider, model, vision model and Ollama address live in Settings >
 Models and are shared with Chat.
@@ -247,9 +247,36 @@ aiming at pixels, fills a field by setting its value, and reads every change
 back where it can. It holds its own Accessibility and Screen Recording, listed
 under Access as **Computer use: Accessibility** and **Computer use: Screen**;
 **Allow** shows the system prompt and opens the right page in System Settings.
-Password managers are off limits to it. On Windows and Linux, and on a Mac
-without the helper, Flow uses the screenshot, click and typing tools in the
-table above.
+Password managers are off limits to it. On Windows the helper needs no grant.
+Without the helper (a build that lacks it), Flow uses the screenshot, click and
+typing tools in the table above.
+
+**Computer use on Linux.** The same helper reads windows through the desktop's
+accessibility bus (AT-SPI), on X11 and on Wayland. Access lists the same two
+rows, each with a line on what it needs:
+
+- **Computer use: Accessibility.** **Allow** switches the desktop's
+  accessibility support on. Apps that were already open need a restart to
+  show their controls. Chromium-based browsers and Electron apps (Slack,
+  Discord, VS Code) show theirs only when started with
+  `--force-renderer-accessibility`, or with `ACCESSIBILITY_ENABLED=1` in their
+  environment; Flow says so when it meets one. On Cinnamon, turn accessibility
+  on in System Settings instead.
+- **Computer use: Screen.** On X11 there is nothing to allow. On Wayland,
+  **Allow** shows the system's screen sharing dialog once: share every screen
+  and allow remote control. The approval is kept (a restore token, in
+  `~/.local/state/openlive/computer-use/`) until you revoke it in the system's
+  privacy settings or press Stop on the screen-sharing indicator, which also
+  makes OpenLive forget it. While Flow is using the screen, GNOME and KDE show
+  their screen-sharing indicator; it goes away two minutes after the last use.
+
+On Wayland an app cannot know where its window is, so for most apps the
+picture is the whole screen rather than one window, and Flow presses controls
+through the apps' own actions. On sway, Hyprland and other wlroots desktops
+the portal shares the screen but not the keyboard and pointer, so Flow can
+read and press controls but not post clicks or keys. Pictures on Wayland need
+PipeWire (installed by default on current GNOME and KDE), and pasting needs
+`wl-clipboard`; without it Flow types the text.
 
 ## Troubleshooting
 
@@ -265,6 +292,11 @@ table above.
 - **Flow says Accessibility or Screen Recording is not allowed for OpenLive
   Computer Use (macOS).** Allow both **Computer use** rows under Access. They are
   separate from OpenLive's own grants.
+- **Flow sees an app's window but none of its controls (Linux).** Restart the
+  app after allowing **Computer use: Accessibility**. For a Chromium or
+  Electron app, start it with `--force-renderer-accessibility`.
+- **Flow says screen sharing is not set up (Linux, Wayland).** Allow
+  **Computer use: Screen** under Access and answer the system's dialog.
 - **Replies come back as text, not voice.** A go-quiet rule fired (meeting app,
   mic in use, Do Not Disturb), output is muted, or **Say replies out loud** is off.
 - **"I could not reach the model".** For Ollama, check it is running and the
@@ -299,8 +331,8 @@ process, two hidden or floating renderers, and the agent service.
                                         │    registry.ts + profiles.ts  FLOW's order, prompt
                                         │    approval.ts  consent, once
                                         │    mcp.ts       same tools as MCP for ACP agents
-                                        └─ computer/       the computer-use helper (macOS)
-                                             helper.ts ── socket ──▶ OpenLive Computer Use.app
+                                        └─ computer/       the computer-use helper
+                                             helper.ts ── socket ──▶ openlive-cu (an app of its own on macOS)
 ```
 
 - **Owner window** (`apps/web/src/lib/flow/useFlowOwner.ts`). Hidden, with
@@ -318,14 +350,16 @@ process, two hidden or floating renderers, and the agent service.
   round trip.
 - **Computer-use helper** (`native/openlive-cu`, `services/agent/src/computer/`).
   A separate process the agent service starts on first use and shares across
-  sessions, on macOS and Windows. Where it runs, its tree-first tools replace
+  sessions, on macOS, Windows and Linux. Where it runs, its tree-first tools replace
   ol-input's screenshot, pointer and keyboard tools; ol-input keeps text
   insertion, the selection, window tools, opening apps and URLs, the shell and
   OCR. With no app named it looks at the frontmost window that is not
   OpenLive's own. On Windows it cannot drive an app running as administrator
   (UIPI; it says so), refuses keystrokes when Windows keeps the app in the
   background, and may flash WGC's yellow capture border for the frame a
-  picture takes on Windows 10. Details in
+  picture takes on Windows 10. On Linux it reads AT-SPI on X11 and Wayland;
+  on Wayland its pictures and input go through one portal session the user
+  approves once, and an app's picture is often the whole screen. Details in
   [ARCHITECTURE.md](ARCHITECTURE.md#computer-use-nativeopenlive-cu-servicesagentsrccomputer).
 - **flow-ws** (`services/agent/src/live/flow-ws.ts`). Flow's side of `/live`: a
   separate connection with the same schemas and permission protocol as Chat. One
