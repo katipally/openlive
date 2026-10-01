@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire, OnDemandMode, RemindersWire } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire, OnDemandMode, RemindersWire, EditsWire } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -128,4 +128,7 @@ export const api = {
   /** Pending timers and reminders, soonest first. Cancelling answers with the rest. */
   reminders: () => fetch("/api/reminders").then(j<RemindersWire>),
   cancelReminder: (id: string) => fetch(`/api/reminders/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<RemindersWire>),
+  /** Recent edits OpenLive's file tools made, newest first. Undoing answers with the new list. */
+  edits: () => fetch("/api/edits").then(j<EditsWire>),
+  undoEdit: (id: string) => fetch(`/api/edits/${encodeURIComponent(id)}/undo`, { method: "POST", body: "{}" }).then(j<EditsWire>),
 };

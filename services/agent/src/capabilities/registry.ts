@@ -4,6 +4,8 @@ import { bridgedOpenUrl, deviceTools } from "./device-tools.js";
 import { computerTools, SUPERSEDED } from "../computer/tools.js";
 import { ASSISTANT_TOOLS } from "./assistant.js";
 import { FILE_TOOLS } from "./files.js";
+import { findFilesTool } from "./find.js";
+import { EDIT_TOOLS } from "./checkpoints.js";
 import { WORKER_TOOLS } from "./web.js";
 import { saveSkill } from "../skills/tools.js";
 import { CONNECTOR_SETUP_TOOLS } from "../connectors/setup.js";
@@ -45,6 +47,8 @@ const builtins: ToolProvider = (s) => [
   ...ASSISTANT_TOOLS,
   ...REMINDER_TOOLS,
   ...FILE_TOOLS,
+  findFilesTool,
+  ...EDIT_TOOLS,
   saveSkill,
   ...CONNECTOR_SETUP_TOOLS,
 ];

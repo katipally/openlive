@@ -1,13 +1,15 @@
-import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { realpathSync, existsSync } from "node:fs";
 import path from "node:path";
+import { checkpointed } from "./checkpoints.js";
 import type { Tool, ToolCtx, ToolResult } from "./types.js";
 
 // File tools, scoped to the conversation's workspace folder. Reads are free;
 // writes and edits say what they are about to do, so a policy that asks first
-// can. Every path is confined to the workspace root: a request that escapes it
-// lexically (../, an absolute path elsewhere) OR through a symlink inside the
-// workspace is refused before any fs call.
+// can, and each keeps the file as it was (checkpoints.ts). Every path is
+// confined to the workspace root: a request that escapes it lexically (../, an
+// absolute path elsewhere) OR through a symlink inside the workspace is refused
+// before any fs call.
 
 const MAX_READ = 100_000;   // chars returned from read_file (rest truncated)
 const MAX_FILE = 2_000_000; // refuse to read files larger than this (likely binary)
@@ -40,7 +42,7 @@ export function confine(root: string, rel: string): string | null {
   return abs;
 }
 
-const root = (ctx: ToolCtx) => ctx.workspace!().trim() || fail("No workspace folder is set for this call. Ask the user to pick a project folder from the folder menu in the top bar, then try again.");
+export const root = (ctx: Pick<ToolCtx, "workspace">) => ctx.workspace!().trim() || fail("No workspace folder is set for this call. Ask the user to pick a project folder from the folder menu in the top bar, then try again.");
 const within = (ctx: ToolCtx, rel: string) => confine(root(ctx), rel) ?? fail("That path is outside the workspace folder — not allowed.");
 const relPath = (args: { path?: unknown }) => String(args?.path ?? "").trim() || fail("No file path given.");
 const hasWorkspace = (s: { workspace?: () => string }) => !!s.workspace;
@@ -108,10 +110,8 @@ const writeFileTool: Tool<{ path: string; content: string }, null> = {
     const rel = relPath(args);
     const abs = within(ctx, rel);
     const content = String(args?.content ?? "");
-    try {
-      await mkdir(path.dirname(abs), { recursive: true });
-      await writeFile(abs, content, "utf8");
-    } catch (e: any) { return fail(`Couldn't write that file: ${String(e?.message ?? e)}`); }
+    try { await checkpointed(confine(root(ctx), "")!, abs, content, "write_file"); }
+    catch (e: any) { return fail(`Couldn't write that file: ${String(e?.message ?? e)}`); }
     return t(`Wrote ${rel} (${content.length} chars).`);
   },
 };
@@ -130,7 +130,7 @@ const editFileTool: Tool<{ path: string; find: string; replace: string }, null> 
     const find = String(args?.find ?? ""); const replace = String(args?.replace ?? "");
     // Again, since the file may have changed while the person was deciding.
     const body = await matchOnce(abs, find);
-    try { await writeFile(abs, body.replace(find, replace), "utf8"); }
+    try { await checkpointed(confine(root(ctx), "")!, abs, body.replace(find, replace), "edit_file"); }
     catch (e: any) { return fail(`Couldn't write that file: ${String(e?.message ?? e)}`); }
     return t(`Edited ${rel}.`);
   },

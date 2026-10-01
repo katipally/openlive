@@ -60,6 +60,7 @@ export function layout(home = resolveHome(), { env = process.env, platform = pro
     cache,
     scratch: p.join(cache, "scratch"),
     debug: p.join(cache, "debug"),
+    checkpoints: p.join(cache, "checkpoints"),
   };
 }
 

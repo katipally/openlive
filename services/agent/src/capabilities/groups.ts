@@ -9,6 +9,7 @@ import type { Tool } from "./types.js";
 export const GROUPS = {
   computer: { name: "Computer use", icon: "monitor", description: "Sees and drives the apps on your screen", needs: "Needs the desktop app" },
   files: { name: "Files", icon: "folder", description: "Reads and edits your workspace folder", needs: "Needs a folder" },
+  find: { name: "Find and undo", icon: "search", description: "Finds files anywhere and undoes edits" },
   web: { name: "Web research", icon: "globe", description: "Searches and reads the web, with sources" },
   text: { name: "Text", icon: "type", description: "Types at your cursor and reads selections" },
   assistant: { name: "Assistant", icon: "sparkles", description: "Plans, remembers facts and sees what a call shares" },

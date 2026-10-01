@@ -20,6 +20,7 @@ export interface HomeLayout {
   cache: string;
   scratch: string;
   debug: string;
+  checkpoints: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -30,7 +31,7 @@ export function userHome(o?: { platform?: string; homedir?: string }): string;
 export function resolveHome(o?: { env?: Env; packaged?: boolean; platform?: string; homedir?: string; repoRoot?: string }): string;
 export function layout(home?: string, o?: { env?: Env; platform?: string }): HomeLayout;
 export function privateDir(dir: string): string;
-export function writeAtomic(file: string, text: string): void;
+export function writeAtomic(file: string, text: string | Uint8Array): void;
 export function loadKey(keyFile: string, env?: Env): Buffer;
 export function encrypt(key: Buffer, plaintext: string): string;
 export function decrypt(key: Buffer, stored: string): string;

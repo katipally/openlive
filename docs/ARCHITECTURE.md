@@ -611,7 +611,7 @@ precheck, approve, run, tally).
   are `ToolProvider`s; the built-ins are one, and a provider registered later
   never shadows a name already taken.
 - **Groups** (`groups.ts`). Each built-in tool names its `group` (Computer use,
-  Files, Web research, Text, Assistant, Reminders, Shell, Skills, Connectors); `GROUPS`
+  Files, Find and undo, Web research, Text, Assistant, Reminders, Shell, Skills, Connectors); `GROUPS`
   says how each reads in
   Settings. A group switched off is listed in `disabledToolGroups` in
   settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
@@ -1168,6 +1168,55 @@ note to the user, says the time back for them to hear, and a cancel undoes it.
   what is pending, `DELETE /reminders/:id` cancels one. The Reminders card on
   the Tools subtab shows the next few, each with Cancel.
 
+## Find and undo (`services/agent/src/capabilities/find.ts`, `checkpoints.ts`)
+
+Built-ins in the Find and undo group, for every brain through the registry and
+the `openlive` MCP server.
+
+- **`find_files(query, kind?, modified_within?, limit?)`** (read-only) finds
+  files and folders under the user's home by name or content, newest first, with
+  kind, size and modified time: 20 by default, 100 at most, within 3 seconds
+  (past that it returns what it has and says so). It never reads a file;
+  `read_file` stays fenced to the workspace, and the model asks the user to pick
+  a found file's folder or open it. Backends, each spawned without a shell, the
+  user's words one argument or an environment variable, tried in order until one
+  answers (a missing command, or a non-zero exit with stderr, moves on):
+  - macOS: `mdfind -0 -onlyin ~ '(kMDItemFSName == "*q*"cd || kMDItemTextContent == "q"cdw)'`, plus
+    `&& kMDItemFSContentChangeDate >= $time.now(-N)`, with `\ " * ?` escaped.
+  - Windows: Windows Search's SystemIndex through `ADODB.Connection` and
+    `Search.CollatorDSO`, from a fixed script run as `powershell.exe -NoProfile
+    -NonInteractive -EncodedCommand`; the words come in `OL_FIND_Q` and are
+    escaped for the SQL literal, LIKE and CONTAINS. Then Everything's
+    `es.exe -n 500 -path ~ -search "[dm:>=date ]q"`.
+  - Linux: `plocate -i -e -b -0 -- q`, `locate` the same, then `fd` or `fdfind
+    -i -F -a -0 --max-results 500 [--changed-within Ns] -- q ~`.
+  - Everywhere last: a breadth-first walk of the home, names only, depth 8,
+    200,000 entries, skipping hidden folders, `node_modules`, `Library`,
+    `AppData` and caches.
+  Every path passes a deny list first: anything outside the home, a `.ssh`,
+  `.gnupg`, `.aws`, `.kube`, `.password-store`, `Keychains` or `secrets` folder
+  at any depth (so `~/.openlive/secrets`), browser profiles and OS credential
+  stores on each OS, and `.env*`, `id_rsa`-style keys, `*.pem`, `*.key`, `*.p12`,
+  `.netrc`, `.npmrc` and the like.
+- **Checkpoints.** `write_file` and `edit_file` write only through
+  `checkpointed()`, which first keeps the file as it was (or that it did not
+  exist) in `cache/checkpoints/<workspace hash>/`: `blobs/<sha256>` once per
+  content, and `journal.json` (written atomically) with each edit's path, time,
+  before and after hashes and lines added and removed. One edit at a time per
+  workspace. Kept: the newest 200 edits, 200 MB of pre-images and 14 days,
+  pruned on each edit and each Settings listing, with unreferenced blobs
+  deleted. Paths compare without case on Windows and macOS, and with either
+  slash on Windows. Only OpenLive's own file tools are covered, not a coding
+  agent's own edits or shell commands.
+- **`list_edits(limit?)`** (read-only) and **`undo_edit(id? | path?, force?)`**,
+  which asks first, naming the file and when. It restores the pre-image, or
+  deletes a file the edit created, and refuses when the file changed after that
+  edit unless `force`. An undo is itself an edit, so undoing it redoes.
+- **API** (`edit-routes.ts`, proxied at `/api/edits`): `GET /edits` lists the
+  newest edits across workspaces, `POST /edits/:id/undo` undoes one (409 with
+  the reason when refused). The Find and undo card on the Tools subtab shows the
+  last few, each with Undo.
+
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 
 Flow is the voice assistant for the whole machine, summoned with a double tap of
@@ -1248,7 +1297,7 @@ userData.
                      telemetry-queue.jsonl, telemetry-off, portal-token (Linux),
                      migration.json (the move's record)
   logs/              agent.log, rotated at 5 MB, two old files kept
-  cache/             debug/ (TTS capture), scratch/
+  cache/             debug/ (TTS capture), scratch/, checkpoints/ (file edits' pre-images, for undo)
 ```
 
 - **Which folder.** `OPENLIVE_HOME` names it; `OPENLIVE_DATA_DIR`, the old name,

@@ -53,6 +53,7 @@ describe("where the home is", () => {
       encKey: "/h/secrets/.enc-key", providers: "/h/secrets/providers.json", connectorSecrets: "/h/secrets/connectors.json",
       settingSecrets: "/h/secrets/settings.json", data: "/h/data", state: "/h/state", portalToken: "/h/state/portal-token",
       migration: "/h/state/migration.json", logs: "/h/logs", scratch: "/h/cache/scratch", debug: "/h/cache/debug",
+      checkpoints: "/h/cache/checkpoints",
     });
     const moved = layout("/h", { env: { OPENLIVE_SKILLS_DIR: "/s", OPENLIVE_FLOW_HOME: "/f" }, platform: "linux" });
     expect([moved.skills, moved.flowHome, moved.settings]).toEqual(["/s", "/f", "/h/settings.json"]);

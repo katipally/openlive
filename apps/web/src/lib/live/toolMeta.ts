@@ -1,4 +1,4 @@
-import { AlarmClock, AppWindow, ArrowLeftRight, Bookmark, Brain, Camera, Clipboard, ExternalLink, Eye, FileSearch, FolderInput, Globe, Hammer, Hourglass, Keyboard, ListTodo, MousePointerClick, Pencil, ScanText, Search, Terminal, TextCursorInput, Trash2, Wrench } from "lucide-react";
+import { AlarmClock, AppWindow, ArrowLeftRight, Bookmark, Brain, Camera, Clipboard, ExternalLink, Eye, FileSearch, FolderInput, Globe, Hammer, Hourglass, Keyboard, ListTodo, MousePointerClick, Pencil, ScanText, Search, Terminal, TextCursorInput, Trash2, Undo2, Wrench } from "lucide-react";
 import type { ToolKind } from "@openlive/shared";
 
 // Human labels + icon per tool — shared by the transcript (chips) and the in-call
@@ -46,6 +46,10 @@ export const TOOL_META: Record<string, { label: string; active: string; icon: ty
   remind: { label: "Set a reminder", active: "Setting a reminder", icon: AlarmClock },
   list_reminders: { label: "Checked your reminders", active: "Checking your reminders", icon: AlarmClock },
   cancel_reminder: { label: "Cancelled a reminder", active: "Cancelling a reminder", icon: AlarmClock },
+
+  find_files: { label: "Searched your files", active: "Searching your files", icon: FileSearch },
+  list_edits: { label: "Checked recent edits", active: "Checking recent edits", icon: Undo2 },
+  undo_edit: { label: "Undid an edit", active: "Undoing an edit", icon: Undo2 },
 };
 
 export const toolMeta = (tool: string) =>

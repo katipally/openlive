@@ -12,3 +12,4 @@ export * from "./skills";
 export * from "./memory";
 export * from "./capabilities";
 export * from "./reminders";
+export * from "./edits";

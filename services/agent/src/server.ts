@@ -71,6 +71,10 @@ app.route("/skills", skillRoutes);
 const { capabilityRoutes } = await import("./capabilities/routes.js");
 app.route("/capabilities", capabilityRoutes);
 
+// The edits OpenLive's file tools made, listed and undone from Settings.
+const { editRoutes } = await import("./capabilities/edit-routes.js");
+app.route("/edits", editRoutes);
+
 // The notes `remember` keeps, listed and edited from Settings.
 const { memoryRoutes } = await import("./memory/routes.js");
 app.route("/memory", memoryRoutes);

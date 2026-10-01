@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlarmClock, Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
-import type { CapabilitiesWire, OnDemandMode, ReminderWire, ToolGroupWire } from "@openlive/shared";
+import type { CapabilitiesWire, EditWire, OnDemandMode, ReminderWire, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { asksFirst, chipOverflow, filterGroups, onDemandCaption } from "@/lib/capabilities";
-import { Button, Chip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
+import { Button, Chip, ConfirmButton, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
 import { BuiltInBadge, NoMatch, OneLine, QueryState, card, grid2, msg, tile } from "./common";
 
 export const capabilitiesQuery = { queryKey: ["capabilities"], queryFn: api.capabilities };
@@ -20,6 +20,9 @@ const CHIPS = 4;
 // Upcoming timers and reminders the Reminders card lists before "and N more".
 const UPCOMING = 3;
 const upcomingQuery = { queryKey: ["reminders"], queryFn: api.reminders };
+// Recent edits the Find and undo card lists, each with Undo.
+const RECENT = 3;
+const editsQuery = { queryKey: ["edits"], queryFn: api.edits };
 
 /** Turns a built-in group on or off: moves at once, and goes back if the agent says no. */
 export function useFlipGroup() {
@@ -127,6 +130,7 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
         )}
       </div>
       {g.id === "reminders" && g.enabled && <Upcoming />}
+      {g.id === "find" && <RecentEdits />}
       {(asks > 0 || g.needs) && (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
           {asks > 0 && <span className="inline-flex items-center gap-1.5"><span aria-hidden className="size-1.5 rounded-full bg-arc" />{asks} ask first</span>}
@@ -164,6 +168,33 @@ function Upcoming() {
         </div>
       ))}
       {more > 0 && <span className="text-caption text-faint">and {more} more</span>}
+    </div>
+  );
+}
+
+const folderOf = (root: string) => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
+
+/** The last few edits OpenLive's file tools made, kept even with the group off, each with Undo. */
+function RecentEdits() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ ...editsQuery, refetchOnWindowFocus: true });
+  if (!data) return null;
+  const undo = (e: EditWire) => api.undoEdit(e.id)
+    .then((d) => { qc.setQueryData(editsQuery.queryKey, d); toast(`Undid the change to ${e.path}.`); })
+    .catch((err) => toast(`Couldn’t undo that. ${msg(err)}`));
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+      <span className="text-caption text-muted-foreground">Recent edits</span>
+      {data.items.length === 0 && <span className="text-label text-faint">None yet. Changes OpenLive makes to your workspace files show here, ready to undo.</span>}
+      {data.items.slice(0, RECENT).map((e) => (
+        <div key={e.id} className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 flex-col">
+            <OneLine text={e.path} className="text-label text-foreground" />
+            <OneLine text={`${folderOf(e.root)}, ${new Date(e.at).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}, ${e.tool === "undo_edit" ? "an undo, " : ""}${e.summary}`} className="text-caption text-muted-foreground" />
+          </span>
+          <ConfirmButton label="Undo" confirm="Undo it?" onConfirm={() => undo(e)} />
+        </div>
+      ))}
     </div>
   );
 }

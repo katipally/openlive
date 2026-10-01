@@ -18,23 +18,26 @@ const DEVICE = [
   "window_activate", "window_move", "window_resize", "window_minimize", "window_close", "open_app", "open_url", "shell",
 ];
 
-/** OpenLive's own tools every session gets: timers and reminders, saving a skill and setting connectors up. */
+/** OpenLive's own tools every session gets: timers and reminders, finding files, saving a skill and setting connectors up. */
 const REMINDERS = ["set_timer", "remind", "list_reminders", "cancel_reminder"];
+const FIND = "find_files";
+/** Undoing edits needs a workspace, as the file tools do. */
+const EDITS = ["list_edits", "undo_edit"];
 const SETUP = ["save_skill", "list_connectors", "add_connector", "connector_sign_in", "reconnect_connector"];
 
 describe("the registry", () => {
   it("gives Flow its text tools first, then the machine, then OpenLive's own", () => {
     expect(names(FLOW, flow)).toEqual([
       "insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context",
-      ...DEVICE, "delegate", "update_todos", "remember", ...REMINDERS, ...SETUP,
+      ...DEVICE, "delegate", "update_todos", "remember", ...REMINDERS, FIND, ...SETUP,
     ]);
   });
 
   it("gives a call its own order, and the machine after it on the desktop", () => {
-    expect(names(CHAT, call)).toEqual([...CHAT.order, ...REMINDERS, ...SETUP]);
+    expect(names(CHAT, call)).toEqual([...CHAT.order, ...REMINDERS, FIND, ...EDITS, ...SETUP]);
     const desktop = names(CHAT, { ...call, device });
     expect(desktop.slice(0, CHAT.order.length)).toEqual([...CHAT.order]);
-    expect(desktop.slice(CHAT.order.length).sort()).toEqual([...DEVICE.filter((n) => n !== "open_url"), ...REMINDERS, ...SETUP].sort());
+    expect(desktop.slice(CHAT.order.length).sort()).toEqual([...DEVICE.filter((n) => n !== "open_url"), ...REMINDERS, FIND, ...EDITS, ...SETUP].sort());
   });
 
   it("has one open_url: the device's where there is one, the client's otherwise", async () => {
@@ -53,7 +56,7 @@ describe("the registry", () => {
   });
 
   it("offers nothing a session cannot reach", () => {
-    expect(names(CHAT, {})).toEqual(["delegate", "update_todos", "remember", ...REMINDERS, ...SETUP]);
+    expect(names(CHAT, {})).toEqual(["delegate", "update_todos", "remember", ...REMINDERS, FIND, ...SETUP]);
   });
 });
 
@@ -122,7 +125,7 @@ describe("approval per mode", () => {
   it("asks in a call before an action changes something on the machine or in the workspace", () => {
     expect(confirming.sort()).toEqual([
       "add_connector", "click", "double_click", "drag", "edit_file", "keypress", "mouse_down", "mouse_up", "open_app", "right_click",
-      "save_skill", "scroll", "shell", "type", "window_activate", "window_close", "window_minimize", "window_move", "window_resize", "write_file",
+      "save_skill", "scroll", "shell", "type", "undo_edit", "window_activate", "window_close", "window_minimize", "window_move", "window_resize", "write_file",
     ]);
   });
 
