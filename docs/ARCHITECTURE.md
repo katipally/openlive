@@ -983,6 +983,36 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
   logic in `lib/skills.ts`). The list includes the current call's folder's
   skills, read-only.
 
+## Memory (`services/agent/src/memory/`)
+
+The notes the `remember` tool keeps, shared by Chat and Flow and by API and coding
+agents, since every brain's prompt reads them through one function
+(`rememberedNotes` in `prompt.ts`, which the Chat and Flow prompts and the ACP
+preambles all call).
+
+- **Shape.** One JSON array in the `agent_notes` setting, oldest first, of
+  `{ id, text, at }`. The array used to hold bare strings; both shapes read
+  (`parseNotes`), a string's id is a hash of its text so it holds still until the
+  next write, and every write stores the current shape. Nothing is dropped on the
+  way. Writes go through `updateSetting`, one lock for the whole read-modify-write,
+  so a note the agent saves and one edited in Settings never undo each other.
+- **Saving.** A note is tidied to one line of at most 240 characters. One that
+  matches another in case or spacing is skipped, and at 300 notes `remember` says
+  memory is full instead of dropping the oldest.
+- **Budget** (`budgeted`). The prompt gets the newest notes that fit 2,000
+  characters, each costing its text plus 3 for the `- ` and line break, and the
+  first note that does not fit ends the run, so an older small note never slips
+  past a newer big one. The live prompt is about 3,700 characters before its tool
+  lines, so the notes add at most half again; the old worst case was 12,000. Notes
+  past the budget stay stored and are marked not in use. The limits live in
+  `packages/shared/src/memory.ts`.
+- **API** (`routes.ts`, proxied at `/api/memory`): list, add, edit and delete one
+  (`/memory/note/:id`), clear all. Each answers with the whole list, newest first
+  with its `inUse` flags and the budget used, since one change moves the cutoff.
+- **Settings** (`MemorySettings.tsx`, pure logic in `lib/memory.ts`): a budget
+  meter, add, inline edit, delete and clear all, a filter past 8 notes, and the
+  list drawn 50 at a time.
+
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 
 Flow is the voice assistant for the whole machine, summoned with a double tap of
