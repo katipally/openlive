@@ -52,6 +52,45 @@ Releases before 0.1.9 predate this file — see the
   Settings → Voice → VAD can switch back to v5.
 
 ### Added
+- **Anonymous usage sharing, with one switch.** The desktop app shares which
+  features get used, errors and speed, as numbers and fixed labels. Never what you
+  say or type, your files, names, window titles, keys, model ids or error text. A
+  card on first run says so, and nothing is sent before it has been shown. Turn it
+  off in Settings → Privacy (which also shows the install ID and a random anonymous
+  name made from it, and links the full event list), or start the app with `OPENLIVE_TELEMETRY=0` or
+  `DO_NOT_TRACK=1`, which sends nothing at all. Turning it off in the app, in Settings
+  or on the first-run card, sends one last anonymous event saying so (it asks for no
+  named profile), then nothing, and the screen shows the install ID and name gone at
+  once. If the choice cannot be saved to disk, a marker file keeps sharing off at the
+  next launch. Development builds and builds from source send nothing. Every
+  event and field is listed in [docs/TELEMETRY.md](docs/TELEMETRY.md), and a test
+  keeps that list in step with the code.
+- **A privacy policy.** [docs/PRIVACY.md](docs/PRIVACY.md) says in plain English what
+  the anonymous usage data is, why it exists, where it is stored, what is never
+  collected and how to turn it off. Settings → Privacy and the
+  first-run card link to it.
+- **Rare, quiet feedback prompts.** After a Flow session or a call with at least two
+  answered turns, a small card in the main window asks "How was that?" with a thumbs
+  up or down and, after a thumbs down, one row of fixed reasons to tap. Once the
+  install has been used on seven days, it also asks how likely you are to recommend
+  OpenLive, 0 to 10, at most every 90 days. Never in the first two days, at most one
+  prompt a week, never two on one day, nothing for 30 days after two that were
+  ignored, never during a session, never while sharing is off, and every card has a
+  "Don't ask again" that sticks (Settings → Privacy → Ask for feedback changes it).
+  Answers are fixed choices, never text, and every limit is listed in
+  [docs/TELEMETRY.md](docs/TELEMETRY.md).
+- **Request deletion.** Settings → Privacy → Your anonymous name has a Copy button, and
+  **Request deletion** opens a draft email to privacy@openlive.dev with that name in it.
+  Nothing is sent until you send the email. Turning sharing off deletes the name, so
+  Settings and the privacy policy say to copy it first if you want past events
+  deleted. The privacy policy now names the retention period (24 months, then
+  deleted), the contact and your rights.
+- **Report a problem.** Settings → Privacy opens a GitHub issue with your version,
+  OS, provider and last Flow failure already filled in. Nothing is sent until you
+  submit it.
+- **A choice for the screen lock.** Locking the screen still closes Flow and ends a
+  call by default. Settings → General → Screen lock has a switch to keep them going
+  while the screen is locked (macOS and Windows). Sleep always ends them.
 - **A coding agent in a call can look, use the clipboard, open links and
   remember.** It gets the call's own `look`, `clipboard_read`,
   `clipboard_write`, `open_url` and `remember` over a local MCP server: the same
@@ -225,6 +264,9 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **"You're up to date" no longer pops up on its own.** After Check for Updates
+  found a version, a later automatic check that found nothing could still open that
+  message. It now appears only for a check you asked for.
 - **A model picked in Settings ran as the default one.** Choosing a model
   before ever choosing a provider saved the model alone, so Chat and Flow
   kept running the provider's default while the picker showed your choice.

@@ -40,7 +40,8 @@ Flow only listens to the keyboard for that key, has no wake word, and opens the
 microphone only while Flow is open. Once open, you just talk: Smart-Turn decides
 where each sentence ends, and Flow waits for the next one. It closes on the gesture,
 on the orb's close button, or after the **Stay open after the last reply** time
-with nothing said.
+with nothing said. It also closes when the computer sleeps, and by default when
+the screen locks (macOS and Windows); see [Settings](#settings).
 
 Flow belongs to the machine, not to the OpenLive window. Closing the window (or
 `Cmd+Q`, which closes to the menu bar) keeps Flow running; only the tray's **Quit**
@@ -183,6 +184,15 @@ Models and are shared with Chat.
 
 ![Settings > Flow > Access](../assets/flow-access.png)
 
+**Screen lock.** By default, locking the screen closes Flow and ends a call, the
+way sleep does. Flow is armed again on unlock, and a call picks back up with
+Start. Settings > General > **End Flow and calls when the screen locks** turns
+that off, for a long call or a running task that should survive a lock. Sleep
+always does. With it off, Flow keeps listening while the screen is locked and can
+still act on the computer, so anyone in earshot can talk to it. It is the same
+for API mode and coding agents, and it exists on
+macOS and Windows only, the systems that report a lock.
+
 ## Privacy: what goes where
 
 | Data | Where it goes |
@@ -193,6 +203,7 @@ Models and are shared with Chat.
 | Screenshots, OCR text, clipboard, command output | The brain, when a tool that reads them runs. For a model that cannot see, pictures go to the vision model you set instead. |
 | Camera | Only when `camera_frame` runs, one frame, then the camera closes. |
 | Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user. |
+| Usage counts (session length, turns and tool calls by kind, failure card codes, timings) | OpenLive's analytics server, as numbers and fixed labels. Never words, window titles, file names, screen content or model ids. On by default, off in Settings > Privacy. Every event is listed in [TELEMETRY.md](TELEMETRY.md). |
 
 A coding agent brain uses its own provider under your own login. Its tools come
 from a local MCP server (`openlive-flow`) bound to `127.0.0.1`.

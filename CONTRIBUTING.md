@@ -224,6 +224,23 @@ sums pinned in `src/bakeoff.ts`. Chatterbox-Turbo alone is 1.4 GB, and UTMOS
 0.4 GB. A run takes 5 to 15 minutes per engine. The word error rate and tag
 scoring have unit tests (`src/score.test.ts`) in `pnpm test`.
 
+## Usage events
+
+Adding or changing a telemetry event means editing three things in the same change:
+the schema (`packages/shared/src/telemetry-schema.ts`, then
+`node apps/desktop/scripts/gen-telemetry-schema.cjs` to refresh
+`apps/desktop/telemetry/schema.json`), the public list
+[docs/TELEMETRY.md](docs/TELEMETRY.md), and the code that reports it. `pnpm test`
+fails while the schema, its JSON copy or the doc disagree; the format the doc must
+keep is at the top of `packages/shared/src/telemetry-docs.test.ts`. Events hold only
+closed lists, booleans and capped numbers, never text, paths, names, model ids or
+error messages, and they behave the same for API providers and coding agents. What
+the events mean for users is promised in [docs/PRIVACY.md](docs/PRIVACY.md): a change
+that collects something new updates it in the same change. Opting out stays absolute:
+nothing may be sent after it, and no prompt may ask while sharing is off. If the
+project keeps dashboards over these events, a new event or field gets a chart in the
+same change, so nothing we collect goes unread.
+
 ## Sending a change
 
 1. Fork and branch off `main`.
@@ -241,6 +258,8 @@ planning something large, open an issue first so we can agree on the shape.
 
 Open an issue with your OS, the app version (Settings shows it, or the About
 menu), what you did, and what happened. Console logs from the app help a lot.
+Settings > Privacy > Report a problem opens an issue with your version, OS and
+provider already filled in.
 
 ## License
 

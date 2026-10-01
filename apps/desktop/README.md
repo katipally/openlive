@@ -82,6 +82,9 @@ main.cjs        Electron main: spawns the servers, media permissions, window, sp
 preload.cjs     contextIsolation on; exposes only the small `openlive` bridge
                 (window controls, Flow and its orb, clipboard/open-url for agent tools)
 splash.html     loading screen shown until the web server answers
+telemetry/      product-usage telemetry: opt-out, packaged builds only, and silent unless
+                telemetry-config.json exists. `pack:telemetry` stamps that git-ignored file
+                from OPENLIVE_TELEMETRY_ENDPOINT, _CLIENT_ID and _ORIGIN
 resources/web   Next standalone server (dist/web) — UI + /api settings routes
 resources/agent agent.mjs (esbuild bundle) — the /live WebSocket + tools
 ```

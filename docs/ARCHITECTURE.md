@@ -574,6 +574,45 @@ and history live in `~/.openlive/flow` via `packages/flow-store`.
 
 Full user and developer guide: [FLOW.md](FLOW.md).
 
+## Telemetry (`apps/desktop/telemetry/`, `packages/shared/src/telemetry-schema.ts`)
+
+Anonymous usage telemetry, opt-out, with one sender in Electron main. What it may
+send is listed for users in [TELEMETRY.md](TELEMETRY.md).
+
+```
+ agent service ── P1: parentPort ──┐
+                                   ▼
+ main window, Flow owner ── P2: IPC ──▶ main: validate ─▶ consent + notice gate ─▶ disk queue ─▶ paced sender
+```
+
+- **One sender.** The pages and the agent never talk to the analytics server. They
+  hand plain values to main, which checks each one against the schema and sends.
+- **P1, agent to main.** The agent posts `{ openlive: "telemetry", ... }` with
+  `process.parentPort` (a no-op in dev). Main takes it only from the agent child.
+- **P2, renderer to main.** `window.openlive.telemetry` in `preload.cjs`, admitted
+  from the main window and Flow's owner window, not the orb.
+- **The schema is the single source.** `telemetry-schema.ts` holds every event,
+  property, closed value list and cap. Main is plain CJS and cannot import it, so
+  `node apps/desktop/scripts/gen-telemetry-schema.cjs` writes
+  `apps/desktop/telemetry/schema.json`, and a test fails when the two differ. The
+  web wrapper (`apps/web/src/lib/telemetry.ts`) and the agent emitter
+  (`services/agent/src/telemetry`) are typed by it.
+- **Summaries are folded in main.** `flow_session` and `call_session` collect small
+  facts from the renderer, the agent and main (`aggregator.cjs`) and go out once,
+  when the session closes.
+- **Feedback prompts are asked by main.** `feedback.cjs` holds every cap (from
+  `schema.feedback`) and the prompt memory in `telemetry.json`; the main window asks
+  `feedbackNext()` and reports what the person did, and main adds the kind, surface and
+  context itself. Nothing is offered while sharing is off or the notice is owed.
+- **Off in dev.** It needs a packaged app and a stamped
+  `apps/desktop/telemetry-config.json`, which `pack:telemetry` writes from the
+  release environment ([RELEASING.md](../RELEASING.md)). No file, no telemetry.
+- **Where the rest lives.** `telemetry-map.cjs` maps Electron and OS values onto the
+  schema's closed lists, and `packages/shared/src/error-class.ts` maps a failure
+  to its closed class.
+- **The public list.** `docs/TELEMETRY.md`, kept in step by
+  `packages/shared/src/telemetry-docs.test.ts`.
+
 ## Packages
 
 ```

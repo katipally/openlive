@@ -53,7 +53,8 @@ watching all run on-device (WebGPU). You bring the brain, and any brain works:
 Whichever brain you pick, OpenLive is the same thing it has always been: the ears,
 mouth, and eyes around it. Nothing you say leaves the machine. The only thing that
 goes out is the final transcript (plus camera or screen frames if you turn them on),
-to whatever brain you picked.
+to whatever brain you picked. Anonymous usage counts are separate, and off in one
+switch: see [Privacy](#privacy).
 
 The same ears, mouth, and eyes also work outside a call. **Flow** is OpenLive's
 voice assistant for the whole machine: tap `Control` twice in any app, say what you
@@ -168,7 +169,8 @@ Flow is the voice assistant that lives over your dock, not in a window.
 - **What leaves the machine.** Your voice never does. The transcript, the front
   app, window title and selection, and tool results, including screenshots, go to
   the brain you chose. An Ollama address off this computer asks for confirmation
-  first, since it will receive screen content.
+  first, since it will receive screen content. Anonymous usage counts are separate:
+  see [Privacy](#privacy).
 - **Setup.** On macOS, grant Microphone, Accessibility and Screen Recording in
   Settings > Flow > Access. Windows and Linux have their own backends; Wayland
   cannot deliver the global key, so use the tray there.
@@ -204,6 +206,37 @@ That also skips the separate speech-to-text, text-to-speech, and real-time-audio
 fees hosted platforms charge on top. You still pay your normal model and vision API
 costs, nothing more. With a coding agent as the brain there's nothing extra to pay
 at all; it runs under the login you already have.
+
+## Privacy
+
+Your voice stays on your machine. The transcript, and camera or screen frames if you
+turn them on, go only to the brain you picked.
+
+Separately, the desktop app shares anonymous usage counts: which features get used,
+errors and speed. Never what you say or type, your files, names, window titles,
+keys, model ids or error text.
+
+```
+ on by default ──▶ notice on first run ──▶ nothing sent before you have seen it
+                                       └──▶ off any time: Settings > Privacy,
+                                            or OPENLIVE_TELEMETRY=0 / DO_NOT_TRACK=1
+```
+
+- Builds you run from source, and any build without release settings, send nothing.
+- Turning it off in the app sends one last anonymous event saying so, then nothing.
+- The install ID is random, not tied to you, your hardware or an account.
+  So is the readable name made from it, like `swift-otter-1a2b3c4d`: nobody types it, and
+  turning sharing off and on gives a new one.
+- Every event and every field is listed in [docs/TELEMETRY.md](docs/TELEMETRY.md), and
+  [docs/PRIVACY.md](docs/PRIVACY.md) is the privacy policy: what is collected and why, where
+  it is stored, and your choices.
+- Now and then a small card asks how a session went, or how likely you are to recommend
+  OpenLive. It is rare, takes one tap, has no text box, never appears mid-session and has a
+  "Don't ask again".
+- Settings > Privacy has **Request deletion**: it opens a draft email with your anonymous
+  name, and nothing is sent until you send it. Usage data is kept 24 months, then deleted.
+- Logs and crash details are never uploaded. **Report a problem** in Settings > Privacy
+  opens a GitHub issue you write yourself.
 
 ## How it works
 
