@@ -9,6 +9,7 @@ import { registry } from "../capabilities/registry.js";
 import { CHAT } from "../capabilities/profiles.js";
 import { ToolSet } from "../capabilities/dispatch.js";
 import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
+import { computer } from "../computer/helper.js";
 import { MCP_SERVER_NAME, serveMcp } from "../capabilities/mcp.js";
 import { slashSkill } from "../skills/tools.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
@@ -159,6 +160,7 @@ export class LiveSession {
       emit: (e) => this.toolEmit(e),
       elicit: (req) => this.askElicitation(req),
       ...(device && { device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS), async () => (this.cameraOn ? this.requestFrame() : null)) }),
+      ...(device && computer.available() && { computer }),
     };
     this.tools = this.callTools();
     this.approve = CHAT.approval((question) => this.askPermission(question, ALLOW_OR_DENY).then((id) => id === "allow"));

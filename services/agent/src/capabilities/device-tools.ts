@@ -2,6 +2,7 @@ import type {
   CapabilityReport, ControlAction, DevicePort, MouseButton, ScreenPoint, ShotGeometry, WindowSummary,
 } from "./device.js";
 import { screenPoint, shotPoint } from "./device.js";
+import { inputLock } from "./input-lock.js";
 import type { ImagePart, TextPart, Tool, ToolResult } from "./types.js";
 
 // Perception and control, as one flat action set over the device seam.
@@ -42,6 +43,8 @@ const MAX_WAIT_SECONDS = 10;
 
 export interface DeviceToolOpts {
   device: DevicePort;
+  /** Tools to leave out: the ones the computer-use helper provides in this session. */
+  omit?: ReadonlySet<string>;
   /** One settle time for every action, overriding the per-action ones. Tests pass 0. */
   screenshotDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -254,10 +257,10 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     description: spec.description,
     parameters: obj(spec.properties, spec.required),
     ...(spec.ask && { confirm: spec.ask }),
-    async execute(args: Record<string, any>) {
+    async execute(args: Record<string, any>, ctx) {
       const action = await spec.build(args, toScreen);
       requireControl(await freshCapabilities(), POSTED_INPUT.has(action.kind));
-      await device.control(action);
+      await inputLock.run(() => device.control(action), ctx.signal);
       const summary = spec.summary(args);
       return { content: [text(summary)], details: { action: summary } };
     },
@@ -276,7 +279,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
   };
 
-  return [...perception, ...control, shell];
+  return [...perception, ...control, shell].filter((t) => !opts.omit?.has(t.name));
 }
 
 // ── the control table ───────────────────────────────────────────────────────

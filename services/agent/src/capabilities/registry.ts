@@ -1,6 +1,7 @@
 import { ToolSet } from "./dispatch.js";
 import { TEXT_TOOLS } from "./text.js";
 import { bridgedOpenUrl, deviceTools } from "./device-tools.js";
+import { computerTools, SUPERSEDED } from "../computer/tools.js";
 import { ASSISTANT_TOOLS } from "./assistant.js";
 import { FILE_TOOLS } from "./files.js";
 import type { Session, Tool } from "./types.js";
@@ -21,10 +22,17 @@ export interface Ordering {
   readonly order: readonly string[];
 }
 
-/** OpenLive's own tools. The device family is built per session: it remembers the last picture it showed. */
+/** The machine's tools: the helper's where it runs, with what only ol-input does beside them. */
+function machine(s: Session): Tool[] {
+  if (!s.device) return [bridgedOpenUrl];
+  if (!s.computer) return deviceTools({ device: s.device });
+  return [...computerTools({ computer: s.computer, device: s.device }), ...deviceTools({ device: s.device, omit: SUPERSEDED })];
+}
+
+/** OpenLive's own tools. The machine's are built per session: they remember the last picture they showed. */
 const builtins: ToolProvider = (s) => [
   ...TEXT_TOOLS,
-  ...(s.device ? deviceTools({ device: s.device }) : [bridgedOpenUrl]),
+  ...machine(s),
   ...ASSISTANT_TOOLS,
   ...FILE_TOOLS,
 ];

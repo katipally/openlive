@@ -17,9 +17,9 @@ export const brainOf = (kind: "api" | "acp", id: string): Brain => ({ brain_kind
 const FLOW_TOOLS = {
   t_insert: ["insert_text"],
   t_words: ["read_selection", "clipboard_read", "clipboard_write", "get_context"],
-  t_see: ["screenshot", "read_screen_text", "wait", "list_windows", "get_window", "camera_frame"],
-  t_point: ["click", "double_click", "right_click", "move", "drag", "scroll", "mouse_down", "mouse_up"],
-  t_keys: ["type", "keypress"],
+  t_see: ["screenshot", "read_screen_text", "wait", "list_windows", "get_window", "camera_frame", "get_app_state", "list_apps"],
+  t_point: ["click", "double_click", "right_click", "move", "drag", "scroll", "mouse_down", "mouse_up", "perform_action"],
+  t_keys: ["type", "keypress", "set_value"],
   t_window: ["window_activate", "window_move", "window_resize", "window_minimize", "window_close"],
   t_open: ["open_app", "open_url"],
   t_shell: ["shell"],

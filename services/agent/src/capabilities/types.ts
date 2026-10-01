@@ -1,5 +1,6 @@
 import type { FlowContentWire, FlowContextWire, SseEvent } from "@openlive/shared";
 import type { DevicePort } from "./device.js";
+import type { ComputerPort } from "../computer/helper.js";
 import type { ElicitationAnswer, ElicitationAsk } from "../agents/index.js";
 
 // One tool shape for every surface. Chat's loop, Flow's loop and the MCP server
@@ -77,6 +78,8 @@ export interface Session {
   clipboard?: ClipboardPort;
   /** Perception and control of the machine, through the ol-input addon. */
   device?: DevicePort;
+  /** The computer-use helper, where it runs. Supersedes ol-input's pointer, keyboard and screenshot tools. */
+  computer?: ComputerPort;
   /** Opening a page in the default browser, for a session without the device. */
   openUrl?: (url: string) => Promise<string>;
   share?: LiveShare;

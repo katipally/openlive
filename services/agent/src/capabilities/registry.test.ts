@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { registry, ToolRegistry, type ToolProvider } from "./registry.js";
 import { CHAT, FLOW } from "./profiles.js";
 import type { DevicePort } from "./device.js";
+import type { ComputerPort } from "../computer/helper.js";
 import type { Session, Tool } from "./types.js";
 
 const device = {} as DevicePort;
@@ -49,6 +50,34 @@ describe("the registry", () => {
 
   it("offers nothing a session cannot reach", () => {
     expect(names(CHAT, {})).toEqual(["delegate", "update_todos", "remember"]);
+  });
+});
+
+describe("the machine's tools with the computer-use helper", () => {
+  const computer = { call: async () => ({}) } as ComputerPort;
+  const HELPER = ["list_apps", "list_windows", "get_app_state", "wait", "read_screen_text", "click", "perform_action", "set_value", "type", "keypress", "scroll", "drag"];
+  const KEPT = ["get_window", "camera_frame", "window_activate", "window_move", "window_resize", "window_minimize", "window_close", "open_app", "open_url", "shell"];
+
+  it("offers one coherent surface: the helper's tools, plus what only ol-input does", () => {
+    const flowNames = names(FLOW, { ...flow, computer });
+    expect(new Set(flowNames).size).toBe(flowNames.length);
+    expect(flowNames.slice(5, 5 + HELPER.length + KEPT.length).sort()).toEqual([...HELPER, ...KEPT].sort());
+    for (const gone of ["screenshot", "double_click", "right_click", "move", "mouse_down", "mouse_up"]) expect(flowNames).not.toContain(gone);
+    expect(flowNames.slice(0, 5)).toEqual(["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context"]);
+  });
+
+  it("serves the helper's click, not ol-input's", () => {
+    const click = registry.tools(FLOW, { ...flow, computer }).resolve("click")!;
+    expect(click.parameters).toMatchObject({ properties: { element: { type: "integer" } } });
+  });
+
+  it("falls back to ol-input's tools where there is no helper", () => {
+    expect(names(FLOW, flow)).toContain("screenshot");
+    expect(names(FLOW, flow)).not.toContain("get_app_state");
+  });
+
+  it("needs the device too: a session off the desktop gets neither", () => {
+    expect(names(CHAT, { ...call, computer })).not.toContain("get_app_state");
   });
 });
 

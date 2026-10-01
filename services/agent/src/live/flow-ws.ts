@@ -10,6 +10,7 @@ import { serveMcp } from "../capabilities/mcp.js";
 import { registry } from "../capabilities/registry.js";
 import { FLOW } from "../capabilities/profiles.js";
 import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
+import { computer } from "../computer/helper.js";
 import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type PermissionAskOption } from "../agents/index.js";
@@ -264,6 +265,7 @@ export class FlowLiveSession {
       write: (text) => this.bridge("clipboard_write", text),
     },
     device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS)),
+    ...(computer.available() && { computer }),
   };
 
   // Declared after `toolSession`: a class field is initialized in source order.
