@@ -611,7 +611,8 @@ precheck, approve, run, tally).
   are `ToolProvider`s; the built-ins are one, and a provider registered later
   never shadows a name already taken.
 - **Groups** (`groups.ts`). Each built-in tool names its `group` (Computer use,
-  Files, Web research, Text, Assistant, Shell); `GROUPS` says how each reads in
+  Files, Web research, Text, Assistant, Shell, Skills, Connectors); `GROUPS`
+  says how each reads in
   Settings. A group switched off is listed in `disabledToolGroups` in
   settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
   every new session, every brain and the MCP server alike. `/capabilities`
@@ -923,6 +924,17 @@ An MCP server the user adds once, offered to every brain in both modes.
   keep text and images (at most 4, each under 5 MB) and spell out resource
   links; text is capped at 20,000 characters. A coding agent reaches connectors
   only through the `openlive` MCP server: tokens never leave OpenLive.
+- **Setup tools** (`setup.ts`), built-ins in the Connectors group, for the
+  `connector-setup` skill: `list_connectors` (read-only: id, where it runs,
+  status, tool counts), `add_connector(url | json, name?, headers?)`, which asks
+  first and goes through the same `addConnectors` as `POST /connectors`,
+  `connector_sign_in(id)`, which starts the same OAuth flow and opens the page
+  through the device or the client's `open_url` (it does not ask: it only opens
+  the server's own page, and finishing there is the consent), and
+  `reconnect_connector(id)`. None can consent to a stdio server: the add result
+  says so, and only `POST /connectors/:id/consent` sets it. Results never carry a
+  secret: no header or env value, no arguments, no URL query, and any secret
+  value a server echoes into an error is blanked.
 - **Elicitation.** A question the server asks mid-call goes to the newest call
   running on that connector. In a call, URL and form modes reuse the ACP
   elicitation card; elsewhere a URL opens in the browser and a form is declined.
@@ -955,6 +967,22 @@ offered to every brain in both modes: a folder with a `SKILL.md` (YAML
 frontmatter `name` and `description`, optional `license`, `compatibility`,
 `metadata`, `allowed-tools`) and optional `scripts/`, `references/`, `assets/`.
 
+- **Built in** (`services/agent/skills/<name>/SKILL.md`): `computer-use`,
+  `research`, `skill-creator` and `connector-setup`, read in place and never
+  copied into the user's folder. `bundledSkillsDir()` (`catalog.ts`) finds them
+  at `services/agent/skills` in dev and at `skills/` beside `agent.mjs` in the
+  bundled agent; `pack-agent.cjs` copies them to `dist/agent/skills`, which
+  electron-builder's `dist/agent` extraResource carries to
+  `resources/agent/skills`, and `smoke-servers.cjs` checks they arrived.
+  `OPENLIVE_BUNDLED_SKILLS_DIR` moves them, for tests. They switch off by name
+  like any skill, and cannot be edited or removed: `PUT` and `DELETE` answer 403
+  saying so. `computer-use` holds the how-to that was `get_app_state`'s prompt
+  guidance; the tool keeps only the safety line and a pointer to the skill.
+- **Precedence.** Workspace over user over built in. A skill of yours (or the
+  project's) with a built-in skill's name replaces it, without a warning; the
+  built-in one is listed with `replacedBy` and never offered, and removing yours
+  brings it back. `GET /skills/skill/:name?source=bundled` reads the built-in one
+  either way.
 - **Where** (`packages/db/src/paths.ts`, `skillsDir()`). `<home>/skills`, so
   `~/.openlive/skills` beside `~/.claude/skills` and `~/.agents/skills` for the
   installed app, and `<repo>/data/skills` in a dev checkout: skills are files a
@@ -994,6 +1022,13 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
   device `shell` for the built-in brain in the desktop app, the agent's own
   for a coding agent), so it follows that tool's approval; the content names
   the folder to run it from.
+- **`save_skill(name, description, body, replace_built_in?)`**, a built-in in
+  the Skills group (registered with the other built-ins, so it is offered with
+  no skill enabled), for the `skill-creator` skill. It checks the name rule and
+  the description before anyone is asked (`precheck`), asks first (`confirm`),
+  and writes through the same `createSkill` as `POST /skills`. A built-in
+  skill's name is refused unless `replace_built_in` is set, which the skill
+  allows only when the user asked for their own version.
 - **Sessions.** A session's tool set is built from a scan at its start: each
   call, a call's folder change (which rebuilds the call's tools, the MCP server
   reading them per request), and each new or resumed Flow session. A rebuilt
@@ -1012,8 +1047,9 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
 - **Import** (`import.ts`). Claude Code (`$CLAUDE_CONFIG_DIR` or `~/.claude`,
   then `skills`), `~/.agents/skills`, Codex (`$CODEX_HOME` or `~/.codex`, then
   `skills`) and Gemini CLI (`~/.gemini/skills`), the same relative path on every
-  OS under `os.homedir()`. Preview marks a name OpenLive already has, or an
-  earlier source offers. Commit finds each folder on disk again and copies it
+  OS under `os.homedir()`. Preview marks a name OpenLive already has (a
+  built-in one included, since importing it would replace that), or an earlier
+  source offers. Commit finds each folder on disk again and copies it
   (symlinks as their targets, without `.git` or `node_modules`) into a hidden
   staging folder renamed into place, under the skill's name.
 - **API** (`routes.ts`, proxied by the web app at `/api/skills`): list (with
@@ -1025,7 +1061,8 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
 - **Settings** (`apps/web/src/components/settings/SkillsSettings.tsx`, the Skills
   subtab of Capabilities, pure logic in `lib/skills.ts`). Built-in skills
   (`source: "bundled"`) and the current call's folder's skills are read-only;
-  only your own folder's skills edit or remove.
+  only your own folder's skills edit or remove. A replaced built-in skill shows
+  "Replaced by yours" and no switch.
 
 ## Memory (`services/agent/src/memory/`)
 
