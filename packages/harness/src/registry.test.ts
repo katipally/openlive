@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, isUnreachable, normalizeOllamaUrl, resolveApiMode, unreachableMessage, withSettings,
+  BUILTIN_PROVIDERS, DEFAULT_OLLAMA_URL, isLoopbackUrl, normalizeOllamaUrl, resolveApiMode, unreachableMessage, withSettings,
   type StoredProvider,
 } from "./registry"
 
@@ -104,9 +104,7 @@ describe("resolveApiMode", () => {
 })
 
 describe("unreachable", () => {
-  it("recognises a request that never arrived, and names where it was sent", () => {
-    expect(isUnreachable(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }))).toBe(true)
-    expect(isUnreachable(new Error("HTTP 401: nope"))).toBe(false)
+  it("names where a request that never arrived was sent", () => {
     const local = withSettings(ollama, { ollamaBaseUrl: "http://nas:11434" })
     expect(unreachableMessage(local)).toBe("Could not reach Ollama (local) at http://nas:11434. Is it running?")
   })

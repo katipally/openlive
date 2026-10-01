@@ -18,9 +18,7 @@ import { join } from "node:path";
 const MODEL_HOSTS = "https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net";
 // Live voice connects to the agent over a WebSocket. Desktop/dev: directly to the
 // agent port on loopback, which the desktop app picks at launch, so any loopback
-// port is allowed. Container: same-origin through the server.mjs proxy, which
-// injects the shared secret (browsers can't set that header themselves). A baked
-// NEXT_PUBLIC_LIVE_WS_URL elsewhere stays allowed too.
+// port is allowed. A baked NEXT_PUBLIC_LIVE_WS_URL elsewhere stays allowed too.
 const LOOPBACK_WS = "ws://localhost:* ws://127.0.0.1:*";
 const LIVE_WS = (() => {
   const raw = process.env.NEXT_PUBLIC_LIVE_WS_URL || `ws://localhost:${process.env.AGENT_PORT || 8787}`;

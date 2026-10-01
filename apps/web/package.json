@@ -8,7 +8,6 @@
     "dev": "node scripts/dev.mjs",
     "prebuild": "node scripts/copy-voice-assets.mjs",
     "build": "next build",
-    "start": "node server.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -34,7 +33,6 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.7.0",
-    "ws": "^8.22.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

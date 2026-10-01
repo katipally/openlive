@@ -5,7 +5,7 @@ import { DATA_DIR } from "./paths";
 import { migrateConversationsJson } from "./migrate-conversations";
 
 // Chats + messages live in SQLite (node:sqlite — built into Node ≥22.13, no
-// native dependency, so desktop universal builds and the container stay
+// native dependency, so desktop universal builds stay
 // pure-JS). The other stores (providers/settings/voice-profiles) remain tiny
 // JSON files — they're small, rarely written, and not append-shaped.
 //

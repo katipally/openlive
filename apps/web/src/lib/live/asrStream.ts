@@ -41,9 +41,8 @@ export class AsrStream {
       if (m.type === "ready") { this.ready = true; this.attempts = 0; }
       else if (m.type === "partial") this.h.onPartial(m.text ?? "");
       else if (m.type === "final") this.finals.shift()?.resolve({ text: m.text ?? "", at: m.at });
-      // The agent says why before closing 1008; the web proxy relays that but
-      // closes with its own code, so the message is what marks a refusal. The
-      // proxy's own error (agent unreachable) is a failed open, retried below.
+      // The agent says why before closing 1008, so the message is what marks a
+      // refusal. A failed open (agent unreachable) is retried below.
       else if (m.type === "error") refused = m.error || "refused";
     };
     ws.onclose = (ev) => {

@@ -4,7 +4,7 @@ import lockfile from "proper-lockfile";
 import { DATA_DIR } from "./paths";
 
 // Tiny JSON-file store. Replaces SQLite for the single-user app: no native
-// module, so the desktop build (Electron) and the container both stay pure-JS.
+// module, so the desktop build (Electron) stays pure-JS.
 // BOTH processes write these files (web writes providers/settings; the agent
 // writes conversations AND settings for binds/notes), so every read-modify-write
 // must go through updateJson(), which holds a cross-process lock for the whole

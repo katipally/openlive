@@ -227,13 +227,7 @@ export function withSettings<P extends ProviderInfo>(p: P, s: ProviderSettings):
 /** The address to name in an error: what the person typed, not the API path under it. */
 export const providerAddress = (p: ProviderInfo): string => p.baseURL.replace(/\/v1$/, "")
 
-/** The request never reached the server: nothing listens there, or the network is down. */
-export function isUnreachable(e: unknown): boolean {
-  const err = e as { message?: string; cause?: { code?: string } } | null
-  return /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET|ETIMEDOUT|socket hang up/i.test(`${err?.message ?? e} ${err?.cause?.code ?? ""}`)
-}
-
-/** What to say when `isUnreachable`: where it was tried, so a wrong address is visible. */
+/** What to say when the request never reached the server: where it was tried, so a wrong address is visible. */
 export const unreachableMessage = (p: ProviderInfo): string =>
   `Could not reach ${p.name} at ${providerAddress(p)}.${p.keyless ? " Is it running?" : ""}`
 
