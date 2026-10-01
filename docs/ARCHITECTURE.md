@@ -595,7 +595,8 @@ approve, run, tally).
   `window.openlive.flow.device` and main's `openlive:flow-device` handler. Flow
   always has it; a call has it when the desktop app connects with `device=1`.
   `look` (the frame a call shares) and `screenshot` (the display, sized for
-  pointing) stay distinct.
+  pointing) stay distinct. Where the computer-use helper runs, its tools replace
+  ol-input's pointer, keyboard and screenshot tools (next section).
 - **MCP** (`mcp.ts`). One server, named `openlive`, serves a session's `ToolSet`
   to a coding agent on a random loopback path, through the same dispatch and
   approval. It is stateless (MCP SDK v2 `createMcpHandler`): each request gets
@@ -604,6 +605,94 @@ approve, run, tally).
   The low-level `Server` rather than `McpServer`, because `McpServer` validates
   names and arguments before a handler runs and would refuse the calls dispatch
   repairs.
+
+## Computer use (`native/openlive-cu/`, `services/agent/src/computer/`)
+
+A separate Rust helper process, `openlive-cu`, that reads app windows through
+the accessibility tree, captures them, and acts on them. One helper per server,
+shared by every session; the server wraps it and serves it through the registry,
+so an API brain gets native tools and a coding agent gets them over the
+`openlive` MCP server. OpenLive stays in the middle for approval, one input lock
+and telemetry.
+
+```
+ Chat / Flow loop ─┐                     ┌─ ComputerHelper (computer/helper.ts)
+ ACP agent ── MCP ─┴─ registry ─ tools ──┤     spawn, token, restart, reap
+                      (dispatch,          │
+                       approval,          └── NDJSON over a private socket ──▶ openlive-cu
+                       input lock)                                              core + this OS's backend
+```
+
+- **Crates** (`native/openlive-cu/crates`). `core` (`openlive-cu-core`): the
+  protocol types, NDJSON framing (4 MiB line cap), token auth, the indexed tree
+  text (1200 elements, 64 levels; O(N·D) reads), coordinate scaling, the image
+  policy, and the request loop every OS shares. `platform-macos` (AX via
+  `objc2-application-services`, ScreenCaptureKit's `SCScreenshotManager` via
+  `objc2-screen-capture-kit`, CGEvent via `objc2-core-graphics`).
+  `platform-windows` and `platform-linux` are stubs that answer
+  `unsupported_platform`. `helper` is the binary.
+- **Transport.** A Unix socket on macOS and Linux, a named pipe on Windows
+  (`interprocess`), in a 0700 temp directory. The client writes a random token
+  to a 0600 file there; the helper reads and deletes it, and every request
+  carries it. The helper serves one owner and exits when that connection
+  closes, when told to `terminate`, or when nobody claims it within 30 s.
+- **Methods** (protocol 1). Every action answers with the window's refreshed
+  state, tree and picture, after a settle time the client picks.
+
+  | Method | Does |
+  |---|---|
+  | `handshake` | protocol, platform, `ready` (false on a stub backend) |
+  | `permissions` / `requestPermission` | grants and their System Settings links; only the request may prompt |
+  | `listApps`, `listWindows` | running apps; windows with native ids and desktop frames |
+  | `getAppState` | the indexed tree text, a picture of the window, its frame |
+  | `click` | element: AXPress, AXConfirm, AXOpen (AXShowMenu for right), else a posted click at its centre; point: a posted click. Reports the path and whether it was read back |
+  | `performSecondaryAction`, `setValue` | an element's listed action; a typed value, read back |
+  | `typeText`, `pasteText` | AX replace of the selection, read back, else posted keys or a clipboard paste that restores the clipboard |
+  | `pressKey`, `hotkey` | one key or a chord (`cmd+a` selects through AX when it can) |
+  | `scroll`, `drag` | `AXScroll…ByPage` on an element, else posted wheel or drag |
+
+- **Coordinates.** x and y are pixels in the last picture of that window. The
+  core maps them onto the window's frame, refuses a point off the picture, and
+  refuses a window that changed size since. Window ids are the platform's own
+  (CGWindowID now), the same ids ol-input's window tools take.
+- **Pictures.** 1280 on the long edge (ol-input's 1024x768 cap is for whole
+  displays; one window at 1280 keeps a 2x window's text legible and stays under
+  every vision model's resize limit), PNG while it fits 900 KB, then JPEG, then
+  smaller by a fifth until it fits.
+- **Who owns it.** The server: it already owns the registry and the MCP server,
+  and nothing about TCC needs Electron main. The helper is its own app,
+  `OpenLive Computer Use.app` (`com.openlive.computer-use`), in the app's
+  Resources; at launch it re-spawns itself with TCC responsibility disclaimed,
+  so Accessibility and Screen Recording are granted to it, whoever spawned it.
+  Dev runs the build in `native/openlive-cu/dist` without disclaiming (a
+  self-responsible process under `~/Desktop` stalls on a folder prompt), so dev
+  grants are those of whatever launched OpenLive.
+- **Packaging.** `pnpm native:build` builds it when stale (host arch).
+  `pack:native` builds it universal and stages it; electron-builder copies it
+  into Resources and signs it with the app. `OPENLIVE_CU_SIGN_IDENTITY` (or
+  `CSC_NAME`) signs a dev build with a real identity, so a grant survives
+  rebuilds; otherwise it is ad hoc. Electron main passes the path as
+  `OPENLIVE_CU_HELPER`; an empty value turns the helper off.
+- **The client** (`computer/helper.ts`). Starts on first use, handshakes,
+  times a request out at 30 s and restarts a hung helper, restarts after a
+  crash, rests for a minute after three crashes, and kills it on exit.
+- **The tool surface.** A desktop session (Flow, or a call from the desktop app)
+  gets the helper's tools where it is available: `get_app_state`, `list_apps`,
+  `list_windows`, `click`, `perform_action`, `set_value`, `type`, `keypress`,
+  `scroll`, `drag`, `wait`, and `read_screen_text` (ol-input's OCR over the
+  helper's picture). ol-input's `screenshot`, pointer and keyboard tools are
+  left out, so there is one `click` and one coordinate space; its window tools,
+  `get_window`, `open_app`, `open_url`, `shell` and `camera_frame` stay.
+  Without the helper (Windows and Linux for now, or no build) the session gets
+  ol-input's tools as before. Reads are `readOnly`; actions have `confirm`, so a
+  call asks before each and Flow's one consent covers them.
+- **One input lock** (`capabilities/input-lock.ts`). Every action, through the
+  helper or ol-input, waits its turn, so two sessions never interleave input.
+- **Windows and Linux.** The contract, transport and core are done; 5b and 5c
+  fill in `platform-windows` (UIA, Windows.Graphics.Capture, SendInput) and
+  `platform-linux` (AT-SPI2, xdg portals or X11), map their roles onto the AX
+  role names the tree text uses, then add the platform to `SUPPORTED` in
+  `helper.ts` and stage the binary in `pack-native.cjs`.
 
 ## Connectors (`services/agent/src/connectors/`)
 

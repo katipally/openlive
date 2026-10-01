@@ -180,7 +180,7 @@ Settings > Flow ("Trigger, voice & typing"):
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
 | Typing | How text goes in | Paste (instant) or Type it out, plus advanced timing |
-| Access | Microphone, Accessibility, Screen, Act on this machine | Status and the button to grant or withdraw |
+| Access | Microphone, Accessibility, Screen, Computer use (macOS), Act on this machine | Status and the button to grant or withdraw |
 
 API mode's provider, model, vision model and Ollama address live in Settings >
 Models and are shared with Chat.
@@ -239,6 +239,18 @@ clicking, reading the selection) and Screen Recording (screenshots). After
 granting Screen Recording, quit and reopen OpenLive: macOS gives the right to the
 app, not to the copy already running.
 
+**Computer use on macOS.** Reading and operating app windows goes through a
+separate helper app, **OpenLive Computer Use**, that ships inside OpenLive. It
+works from each window's accessibility tree: Flow sees the window's controls,
+numbered, and a picture of it, presses a button by its number rather than by
+aiming at pixels, fills a field by setting its value, and reads every change
+back where it can. It holds its own Accessibility and Screen Recording, listed
+under Access as **Computer use: Accessibility** and **Computer use: Screen**;
+**Allow** shows the system prompt and opens the right page in System Settings.
+Password managers are off limits to it. On Windows and Linux, and on a Mac
+without the helper, Flow uses the screenshot, click and typing tools in the
+table above.
+
 ## Troubleshooting
 
 - **The double tap does nothing.** Check the Flow tab: the chip should say
@@ -250,6 +262,9 @@ app, not to the copy already running.
   non-elevated app.
 - **"Granted, but this copy of OpenLive cannot capture".** Quit OpenLive from the
   tray and open it again.
+- **Flow says Accessibility or Screen Recording is not allowed for OpenLive
+  Computer Use (macOS).** Allow both **Computer use** rows under Access. They are
+  separate from OpenLive's own grants.
 - **Replies come back as text, not voice.** A go-quiet rule fired (meeting app,
   mic in use, Do Not Disturb), output is muted, or **Say replies out loud** is off.
 - **"I could not reach the model".** For Ollama, check it is running and the
@@ -280,10 +295,12 @@ process, two hidden or floating renderers, and the agent service.
                                       live/flow-ws.ts  FlowSession
                                         ├─ flow/loop.ts    runFlow: turns and tool calls
                                         ├─ flow/brain.ts   LocalBrain (provider) | AcpBrain
-                                        └─ capabilities/   the tools both modes share
-                                             registry.ts + profiles.ts  FLOW's order, prompt
-                                             approval.ts  consent, once
-                                             mcp.ts       same tools as MCP for ACP agents
+                                        ├─ capabilities/   the tools both modes share
+                                        │    registry.ts + profiles.ts  FLOW's order, prompt
+                                        │    approval.ts  consent, once
+                                        │    mcp.ts       same tools as MCP for ACP agents
+                                        └─ computer/       the computer-use helper (macOS)
+                                             helper.ts ── socket ──▶ OpenLive Computer Use.app
 ```
 
 - **Owner window** (`apps/web/src/lib/flow/useFlowOwner.ts`). Hidden, with
@@ -299,6 +316,12 @@ process, two hidden or floating renderers, and the agent service.
   `flow-runtime.cjs`, `flow-cursor.cjs`). Loads the addon, owns the tray and the
   window bounds, and answers every perception and control call as one named IPC
   round trip.
+- **Computer-use helper** (`native/openlive-cu`, `services/agent/src/computer/`).
+  A separate process the agent service starts on first use and shares across
+  sessions. Where it runs, its tree-first tools replace ol-input's screenshot,
+  pointer and keyboard tools; ol-input keeps text insertion, the selection,
+  window tools, opening apps and URLs, the shell and OCR. Details in
+  [ARCHITECTURE.md](ARCHITECTURE.md#computer-use-nativeopenlive-cu-servicesagentsrccomputer).
 - **flow-ws** (`services/agent/src/live/flow-ws.ts`). Flow's side of `/live`: a
   separate connection with the same schemas and permission protocol as Chat. One
   rolling session, persisted through `packages/flow-store`.
