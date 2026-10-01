@@ -6,11 +6,14 @@ import type { MessageBlock, SseEvent } from "@openlive/shared";
 import { foldBlock } from "../block-emit.ts";
 import { ToolSet } from "../capabilities/dispatch.ts";
 import { allowAll } from "../capabilities/approval.ts";
-import { LiveTurnRunner, stepGap } from "./turn-runner.ts";
+import { LiveTurnRunner, OUT_OF_STEPS, stepGap } from "./turn-runner.ts";
 
 // A model that calls a tool on every step it is allowed to, and calls one anyway
 // when told not to, the worst a provider can do with the step cap.
 const asked: ChatRequest[] = [];
+// How the last, tool-free step goes: words, none, or an error over tool_choice "none".
+let final: "speak" | "silent" | "reject" = "speak";
+let protocol = "anthropic";
 vi.mock("@openlive/harness", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@openlive/harness")>()),
   streamProvider: (_p: unknown, _k: unknown, req: ChatRequest) => { asked.push(structuredClone(req)); return req; },
@@ -18,13 +21,14 @@ vi.mock("@openlive/harness", async (importOriginal) => ({
 vi.mock("../turn.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../turn.ts")>()),
   collectTurn: async (req: ChatRequest, emit: (e: SseEvent) => unknown) => {
-    const text = req.toolChoice === "none" ? "Here is what I found." : "";
+    if (req.toolChoice === "none" && final === "reject") throw new Error("400 tool_choice none is not supported");
+    const text = (req.toolChoice === "none" && final === "speak") || !req.tools.length ? "Here is what I found." : "";
     if (text) await emit({ type: "text_delta", text });
     return { text, reasoning: "", toolCalls: [{ id: `c${asked.length}`, name: "look", arguments: "{}" }], usage: { input: 1, output: 1 } };
   },
 }));
 vi.mock("../providers.js", () => ({
-  resolveLive: () => ({ provider: { keyless: true, protocol: "anthropic" }, model: "m", apiKey: null }),
+  resolveLive: () => ({ provider: { keyless: true, protocol }, model: "m", apiKey: null }),
   resolveVision: () => null,
   liveReasoning: () => ({}),
 }));
@@ -67,4 +71,37 @@ test("a turn that spends its tool budget still ends in a spoken reply, with ever
   const answered = messages.flatMap((m) => (m.role === "tool" ? [m.callId] : []));
   expect(answered).toEqual(called);
   expect(called).toHaveLength(6);
+});
+
+const spentTurn = async (how: typeof final, via = "anthropic") => {
+  asked.length = 0;
+  final = how;
+  protocol = via;
+  const events: SseEvent[] = [];
+  const runner = new LiveTurnRunner(look, {}, { approve: allowAll });
+  try { await runner.runTurn("dig into it", [], (e) => { events.push(e); }, new AbortController().signal); }
+  finally { final = "speak"; protocol = "anthropic"; }
+  const spoken = events.flatMap((e) => (e.type === "text_delta" ? [e.text] : []));
+  return { spoken, errors: events.filter((e) => e.type === "error"), last: (runner as unknown as { messages: Message[] }).messages.at(-1)! };
+};
+
+test("a last step that still says nothing ends in a short spoken line", async () => {
+  const { spoken, last } = await spentTurn("silent");
+  expect(spoken).toEqual([OUT_OF_STEPS]);
+  expect(last).toMatchObject({ role: "assistant", text: OUT_OF_STEPS, toolCalls: undefined });
+});
+
+test("a provider that refuses tool_choice none is asked once more without tools, where that is valid", async () => {
+  const { spoken, errors, last } = await spentTurn("reject", "openai-chat");
+  expect(asked.map((r) => [r.toolChoice, r.tools.length])).toEqual([...Array(6).fill([undefined, 1]), ["none", 1], [undefined, 0]]);
+  expect(spoken).toEqual(["Here is what I found."]);
+  expect(errors).toEqual([]);
+  expect(last).toMatchObject({ role: "assistant", text: "Here is what I found." });
+});
+
+test("over Anthropic, with tool calls in the history, a refusal is not retried without tools, and the line is spoken", async () => {
+  const { spoken, errors } = await spentTurn("reject");
+  expect(asked).toHaveLength(7);
+  expect(spoken).toEqual([OUT_OF_STEPS]);
+  expect(errors).toEqual([]);
 });

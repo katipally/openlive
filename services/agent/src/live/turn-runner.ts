@@ -1,9 +1,10 @@
-import { streamProvider, unreachableMessage, type Message } from "@openlive/harness";
+import { streamProvider, unreachableMessage, type Message, type ProviderInfo } from "@openlive/harness";
 import { classifyError, type LanguageCode } from "@openlive/shared";
 import type { Approve, Emit, Session } from "../capabilities/types.js";
 import { asMessage, dispatchAll, toolSpecs, type ToolSet, type ToolTally } from "../capabilities/dispatch.js";
 import { CHAT } from "../capabilities/profiles.js";
-import { cancelledText, collectTurn, safeParseArgs } from "../turn.js";
+import { cancelledText, collectTurn, safeParseArgs, type Turn } from "../turn.js";
+import { log } from "../log.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
 import { CARRIED_HEAD, carriedSkills } from "../skills/content.js";
@@ -38,6 +39,14 @@ export const stepGap = (before: string, next: string): string =>
 // Lower than a text chat's step cap ON PURPOSE. Every tool round before the model
 // speaks is dead air in a live call, so cap the worst case tightly.
 const MAX_STEPS = 6;
+
+/** Said when the last, tool-free step still comes back without words. */
+export const OUT_OF_STEPS = "I couldn't quite finish that one. Want me to keep going?";
+
+/** A request with no tools is still valid here. Anthropic refuses tool_use
+ *  blocks in a request that defines no tools; the OpenAI APIs take them. */
+const canDropTools = (provider: Pick<ProviderInfo, "protocol">, messages: readonly Message[]) =>
+  provider.protocol !== "anthropic" || !messages.some((m) => m.role === "assistant" && m.toolCalls?.length);
 
 // A per-call LLM driver that keeps a growing Message[] across turns and injects the
 // camera frame(s) onto each user turn.
@@ -177,20 +186,33 @@ export class LiveTurnRunner {
         if (partial) before = partial;
         partial = "";
         const last = step === MAX_STEPS;
-        const turn = await collectTurn(
-          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: toolDefs, ...(last && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
+        const ask = async (bare: boolean) => collectTurn(
+          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
           track,
         );
+        let turn: Turn | null;
+        try { turn = await ask(false); }
+        catch (e) {
+          if (!last || signal.aborted || partial) throw e;
+          // Perhaps a provider that refuses tool_choice "none": once more without tools, where that is a valid request.
+          log.warn("live", "the last, tool-free step failed:", String((e as Error)?.message ?? e));
+          turn = canDropTools(provider, this.messages) ? await ask(true).catch(() => null) : null;
+          if (signal.aborted) return;
+        }
         // A provider that ignores toolChoice may still call one; drop it, as it would never get a result.
-        const toolCalls = last ? [] : turn.toolCalls;
+        const toolCalls = last ? [] : turn!.toolCalls;
+        // The turn always ends in words: a last step with none says so plainly.
+        const said = turn?.text ?? partial;
+        const silent = last && !said.trim();
+        if (silent) await track({ type: "text_delta", text: OUT_OF_STEPS });
         this.messages.push({
           role: "assistant",
-          text: turn.text,
-          reasoning: turn.reasoning || undefined,
-          reasoningSignature: turn.reasoningSignature,
+          text: silent ? OUT_OF_STEPS : said,
+          reasoning: turn?.reasoning || undefined,
+          reasoningSignature: turn?.reasoningSignature,
           toolCalls: toolCalls.length ? toolCalls : undefined,
         });
-        await emit({ type: "usage", contextTokens: turn.usage.input, outputTokens: turn.usage.output, costUsd: 0 });
+        if (turn) await emit({ type: "usage", contextTokens: turn.usage.input, outputTokens: turn.usage.output, costUsd: 0 });
         if (!toolCalls.length) break;
         // Run this step's tool calls CONCURRENTLY. Serializing them was extra dead
         // air (two web_searches back-to-back); fanned out, they finish while the

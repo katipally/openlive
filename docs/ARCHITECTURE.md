@@ -587,6 +587,11 @@ voice agent does all the talking and delegates web work to a **worker subagent**
 (Exa search, `fetch_url`) whose grind stays out of the main context. Its other
 tools come from the shared registry below.
 
+A turn takes at most six tool steps, then one more with `tool_choice: "none"`,
+so it ends in words. If that call errors, it is tried once with no tools where
+that is a valid request (not over Anthropic with tool calls in the history), and
+if it still says nothing, a short line (`OUT_OF_STEPS`) is spoken instead.
+
 ## Tools (`services/agent/src/capabilities/`)
 
 Chat and Flow keep their own loops (`LiveTurnRunner`, `runFlow`) but draw on one
