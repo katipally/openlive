@@ -629,10 +629,14 @@ and telemetry.
   policy, and the request loop every OS shares. `platform-macos` (AX via
   `objc2-application-services`, ScreenCaptureKit's `SCScreenshotManager` via
   `objc2-screen-capture-kit`, CGEvent via `objc2-core-graphics`).
-  `platform-windows` and `platform-linux` are stubs that answer
-  `unsupported_platform`. `helper` is the binary.
+  `platform-windows` (UI Automation, Windows.Graphics.Capture and SendInput,
+  all through Microsoft's `windows` crate 0.62). `platform-linux` is a stub
+  that answers `unsupported_platform`. `helper` is the binary.
 - **Transport.** A Unix socket on macOS and Linux, a named pipe on Windows
-  (`interprocess`), in a 0700 temp directory. The client writes a random token
+  (`interprocess`), in a 0700 temp directory. A named pipe lives in a global
+  namespace whose default descriptor lets Everyone read it, so the helper
+  gives it a protected DACL naming the current user's SID alone, and refuses
+  to listen without one. The client writes a random token
   to a 0600 file there; the helper reads and deletes it, and every request
   carries it. The helper serves one owner and exits when that connection
   closes, when told to `terminate`, or when nobody claims it within 30 s.
@@ -645,16 +649,23 @@ and telemetry.
   | `permissions` / `requestPermission` | grants and their System Settings links; only the request may prompt |
   | `listApps`, `listWindows` | running apps; windows with native ids and desktop frames |
   | `getAppState` | the indexed tree text, a picture of the window, its frame |
-  | `click` | element: AXPress, AXConfirm, AXOpen (AXShowMenu for right), else a posted click at its centre; point: a posted click. Reports the path and whether it was read back |
+  | `click` | element: AXPress, AXConfirm, AXOpen (AXShowMenu for right) on macOS; Invoke, Toggle, SelectionItem.Select, ExpandCollapse (ShowContextMenu for right) on Windows, the last three read back; else a posted click at its centre; point: a posted click. Reports the path and whether it was read back |
   | `performSecondaryAction`, `setValue` | an element's listed action; a typed value, read back |
   | `typeText`, `pasteText` | AX replace of the selection, read back, else posted keys or a clipboard paste that restores the clipboard |
   | `pressKey`, `hotkey` | one key or a chord (`cmd+a` selects through AX when it can) |
-  | `scroll`, `drag` | `AXScroll…ByPage` on an element, else posted wheel or drag |
+  | `scroll`, `drag` | `AXScroll…ByPage` (ScrollPattern on Windows) on an element, else posted wheel or drag |
+  | `move`, `mouseDown`, `mouseUp` | the pointer alone for a hover, and half a click for a gesture `drag` cannot express; a move while a button is held drags |
 
 - **Coordinates.** x and y are pixels in the last picture of that window. The
   core maps them onto the window's frame, refuses a point off the picture, and
   refuses a window that changed size since. Window ids are the platform's own
-  (CGWindowID now), the same ids ol-input's window tools take.
+  (CGWindowID, the HWND's low 32 bits on Windows), the same ids ol-input's
+  window tools take. Desktop coordinates are points on macOS and physical
+  pixels on Windows.
+- **The default target.** With no app named, the helper takes the window in
+  front, or, when that is OpenLive's own, the frontmost window that is not.
+  OpenLive's own is any app run from `OPENLIVE_CU_OWN_ROOT`: the install
+  (set by Electron main) or, in dev, the repo, where the dev Electron lives.
 - **Pictures.** 1280 on the long edge (ol-input's 1024x768 cap is for whole
   displays; one window at 1280 keeps a 2x window's text legible and stays under
   every vision model's resize limit), PNG while it fits 900 KB, then JPEG, then
@@ -668,8 +679,12 @@ and telemetry.
   self-responsible process under `~/Desktop` stalls on a folder prompt), so dev
   grants are those of whatever launched OpenLive.
 - **Packaging.** `pnpm native:build` builds it when stale (host arch).
-  `pack:native` builds it universal and stages it; electron-builder copies it
-  into Resources and signs it with the app. `OPENLIVE_CU_SIGN_IDENTITY` (or
+  `pack:native` builds it (universal on macOS) and stages it in
+  `dist/computer-use`; electron-builder copies the macOS app into Resources
+  and signs it with the app, and ships `openlive-cu.exe` in the Windows
+  resources (`check-native` refuses either package without it). The Windows
+  executable embeds its manifest (`crates/helper/build.rs`): `asInvoker` and
+  per-monitor-v2 DPI awareness. `OPENLIVE_CU_SIGN_IDENTITY` (or
   `CSC_NAME`) signs a dev build with a real identity, so a grant survives
   rebuilds; otherwise it is ad hoc. Electron main passes the path as
   `OPENLIVE_CU_HELPER`; an empty value turns the helper off.
@@ -679,20 +694,46 @@ and telemetry.
 - **The tool surface.** A desktop session (Flow, or a call from the desktop app)
   gets the helper's tools where it is available: `get_app_state`, `list_apps`,
   `list_windows`, `click`, `perform_action`, `set_value`, `type`, `keypress`,
-  `scroll`, `drag`, `wait`, and `read_screen_text` (ol-input's OCR over the
-  helper's picture). ol-input's `screenshot`, pointer and keyboard tools are
+  `scroll`, `drag`, `move`, `mouse_down`, `mouse_up`, `wait`, and
+  `read_screen_text` (ol-input's OCR over the helper's picture). ol-input's `screenshot`, pointer and keyboard tools are
   left out, so there is one `click` and one coordinate space; its window tools,
   `get_window`, `open_app`, `open_url`, `shell` and `camera_frame` stay.
-  Without the helper (Windows and Linux for now, or no build) the session gets
+  Without the helper (Linux for now, or no build) the session gets
   ol-input's tools as before. Reads are `readOnly`; actions have `confirm`, so a
   call asks before each and Flow's one consent covers them.
 - **One input lock** (`capabilities/input-lock.ts`). Every action, through the
   helper or ol-input, waits its turn, so two sessions never interleave input.
-- **Windows and Linux.** The contract, transport and core are done; 5b and 5c
-  fill in `platform-windows` (UIA, Windows.Graphics.Capture, SendInput) and
-  `platform-linux` (AT-SPI2, xdg portals or X11), map their roles onto the AX
-  role names the tree text uses, then add the platform to `SUPPORTED` in
-  `helper.ts` and stage the binary in `pack-native.cjs`.
+- **Windows.** The tree is UI Automation's control view, read with one
+  CacheRequest per element and one `FindAllBuildCache` per parent (one IPC
+  round trip per expanded element; the cycle guard compares cached RuntimeIds
+  in process). Control types map onto the AX role names and patterns onto the
+  AX action names, so the tree text and `perform_action` read the same on both
+  systems.
+  - *DPI.* The helper is per-monitor-v2 aware (manifest, and at startup), so
+    window frames (the DWM extended frame, without the invisible resize
+    borders), UIA bounds and SendInput are all physical pixels.
+  - *UIPI.* Windows drops input to an app running as administrator from one
+    that is not, silently, and withholds its tree. The helper compares
+    integrity levels and refuses every action on such a window with a
+    sentence that says so; `get_app_state` appends it to the tree.
+  - *Focus.* SetForegroundWindow, then UI Automation's SetFocus, and nothing
+    else (no AttachThreadInput, no synthetic Alt). Keystrokes are refused when
+    the app is still not in front; a click needs only to land on the app,
+    which the helper checks by hit test first.
+  - *The capture border.* WGC draws a yellow border while it captures.
+    Turning it off officially needs a consent prompt and a packaged app's
+    `graphicsCaptureWithoutBorder` capability; the helper is unpackaged, so it
+    sets `IsBorderRequired = false` where that property exists (Windows 11)
+    without asking, and otherwise the border shows for the one frame a
+    picture takes. PrintWindow (`PW_RENDERFULLCONTENT`) is the fallback when
+    WGC fails.
+  - *No desktop.* In session 0 (a service) the handshake says not ready; while
+    the screen is locked or a UAC prompt holds the secure desktop, actions are
+    refused and the grants read as not allowed.
+- **Linux.** The contract, transport and core are done; 5c fills in
+  `platform-linux` (AT-SPI2, xdg portals or X11), maps its roles onto the AX
+  role names, then adds the platform to `SUPPORTED` in `helper.ts` and stages
+  the binary in `pack-native.cjs`.
 
 ## Connectors (`services/agent/src/connectors/`)
 

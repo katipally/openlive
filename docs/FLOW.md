@@ -318,9 +318,14 @@ process, two hidden or floating renderers, and the agent service.
   round trip.
 - **Computer-use helper** (`native/openlive-cu`, `services/agent/src/computer/`).
   A separate process the agent service starts on first use and shares across
-  sessions. Where it runs, its tree-first tools replace ol-input's screenshot,
-  pointer and keyboard tools; ol-input keeps text insertion, the selection,
-  window tools, opening apps and URLs, the shell and OCR. Details in
+  sessions, on macOS and Windows. Where it runs, its tree-first tools replace
+  ol-input's screenshot, pointer and keyboard tools; ol-input keeps text
+  insertion, the selection, window tools, opening apps and URLs, the shell and
+  OCR. With no app named it looks at the frontmost window that is not
+  OpenLive's own. On Windows it cannot drive an app running as administrator
+  (UIPI; it says so), refuses keystrokes when Windows keeps the app in the
+  background, and may flash WGC's yellow capture border for the frame a
+  picture takes on Windows 10. Details in
   [ARCHITECTURE.md](ARCHITECTURE.md#computer-use-nativeopenlive-cu-servicesagentsrccomputer).
 - **flow-ws** (`services/agent/src/live/flow-ws.ts`). Flow's side of `/live`: a
   separate connection with the same schemas and permission protocol as Chat. One
