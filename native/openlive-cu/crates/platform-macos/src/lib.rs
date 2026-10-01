@@ -502,3 +502,31 @@ fn select_all(target: &Resolved) -> bool {
     let Some(len) = ax::string(&el, "AXValue").map(|v| v.encode_utf16().count() as isize) else { return false };
     ax::set_selected_range(&el, 0, len) && ax::selected_range(&el) == Some((0, len))
 }
+
+/// Against this machine's real windows, read-only, and never where a grant is
+/// missing (asking would prompt). Run by hand: `cargo test -p openlive-cu-macos -- --ignored`.
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn reads_and_captures_the_front_window_without_changing_it() {
+        if !trusted() || !CGPreflightScreenCaptureAccess() {
+            eprintln!("skipped: Accessibility or Screen Recording is not granted");
+            return;
+        }
+        let Some(w) = cg::windows().into_iter().next() else { return eprintln!("skipped: no window on screen") };
+        // Rendered directly, so no Chromium accessibility switch is flipped on the app.
+        let app = unsafe { AXUIElement::new_application(w.pid) };
+        let window = ax_window(&app, u64::from(w.id), &w.frame).expect("the window has an AX element");
+        let rendered = render(&mut Source::new(), window, None, false);
+        assert!(!rendered.records.is_empty());
+        println!("{}", rendered.lines.iter().take(15).cloned().collect::<Vec<_>>().join("\n"));
+        let image = capture::window(w.id, w.frame, openlive_cu_core::image::MAX_LONG_EDGE).expect("captured");
+        assert!(image.width().max(image.height()) <= openlive_cu_core::image::MAX_LONG_EDGE);
+        assert!(image.pixels().any(|p| p.0 != [0, 0, 0, 0]), "the picture is not blank");
+        let encoded = openlive_cu_core::image::encode(image).expect("encoded");
+        println!("{} {}x{} {} bytes", encoded.mime, encoded.width, encoded.height, encoded.bytes.len());
+    }
+}
