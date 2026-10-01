@@ -20,7 +20,7 @@ pnpm desktop:dev      # web + agent servers, opens the desktop window
 
 `pnpm desktop:dev` opens Chrome DevTools Protocol on port 9333 (packaged builds open no debugging port). A test there opens or closes Flow exactly as a double Ctrl does by running `await openlive.flow.trigger("flow", true)` in the main window. The trigger exists only in dev builds.
 
-To record what the voice really plays (a reply whose pace or pitch shifts), run `localStorage.setItem("openlive-debug", "tts")` in DevTools (the desktop app's View menu, packaged builds too, or the browser on localhost) and speak. Each piece's audio and a manifest per reply land in `<data dir>/debug/tts-capture/<run>/<reply>/` (`data/` in the repo under `pnpm dev` and `pnpm desktop:dev`, `~/Library/Application Support/@openlive/desktop/data/` in the packaged macOS app); `pnpm voice:capture <that folder>` prints the per-piece analysis and writes `reconstruction.wav`. `localStorage.removeItem("openlive-debug")` turns it off.
+To record what the voice really plays (a reply whose pace or pitch shifts), run `localStorage.setItem("openlive-debug", "tts")` in DevTools (the desktop app's View menu, packaged builds too, or the browser on localhost) and speak. Each piece's audio and a manifest per reply land in `<home>/cache/debug/tts-capture/<run>/<reply>/` (the home is `data/` in the repo under `pnpm dev` and `pnpm desktop:dev`, `~/.openlive` in the packaged app); `pnpm voice:capture <that folder>` prints the per-piece analysis and writes `reconstruction.wav`. `localStorage.removeItem("openlive-debug")` turns it off.
 
 For UI work you often don't need the whole desktop shell:
 
@@ -56,7 +56,8 @@ services/agent   the /live WebSocket, the ACP coding-agent driver (agents/*),
 packages/harness model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing
 packages/shared  the agent registry (single source of agent identity), wire
                  protocol, shared types
-packages/db      JSON-file store for keys, settings, conversations
+packages/db      the store: keys, settings, chats, connectors, memory
+packages/shared/src/home  where every file lives (~/.openlive), and the one-time move into it
 tools/voice-regress voice continuity check against one-go renders (pnpm voice:regress),
                  and the voice engine bake-off (pnpm voice:bakeoff)
 tools/voiceprint  speaker verification eval behind the voiceprint's model and thresholds (pnpm voiceprint:eval)
@@ -70,6 +71,27 @@ The voice loop (VAD, STT, end-of-turn, TTS — Kokoro, Supertonic, or a cloned
 voice — and barge-in) is in `apps/web/src/lib/live`. The model turn goes out from
 `services/agent`, which either streams a provider reply or drives a coding agent
 (Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi) over ACP as a child process.
+
+### Your dev data
+
+A dev checkout keeps everything in its own `data/` folder, laid out exactly as an
+installed app's `~/.openlive` ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#where-openlive-keeps-things-packagessharedsrchome)):
+`settings.json`, `mcp.json`, `memory.json`, `skills/`, `secrets/`, `data/` (chats,
+models), `flow/`, `state/`, `logs/agent.log` and `cache/`. So `pnpm dev` and
+`pnpm desktop:dev` never touch your installed app's data, and worktrees never touch
+each other's. The first start of the servers reshapes an older flat `data/` in place,
+once (`data/state/migration.json` lists every move; `data/secrets/backup/` keeps
+settings.json and connectors.json as they were).
+
+- `OPENLIVE_HOME=/some/dir` points every process at another home; the old
+  `OPENLIVE_DATA_DIR` still works as the same thing.
+- `OPENLIVE_SKILLS_DIR` moves only the skills folder, `OPENLIVE_FLOW_HOME` only the
+  folder that holds `flow/`.
+- Dev skills now live in `data/skills`, no longer `~/.openlive/skills`. To keep
+  using the ones you have there, copy them over or set
+  `OPENLIVE_SKILLS_DIR=~/.openlive/skills`. The same goes for Flow's history:
+  `OPENLIVE_FLOW_HOME=~/.openlive` shares the installed app's.
+- `pnpm test` runs on a throwaway home (`vitest.config.ts`), never on `data/`.
 
 The UI's design system is one kit, `apps/web/src/components/ui` (import it from
 `@/components/ui`), on the tokens in `apps/web/src/app/globals.css` and
@@ -125,7 +147,7 @@ The model downloads into `ADDRESSEE_CACHE` or the OS cache dir under
 `pnpm addressee:train` fits a head on the training split plus the judgment log
 the agent keeps when Settings → Voice → Turn-taking → Side talk → "Keep a
 judgment log to train on" is on (docs/ARCHITECTURE.md). It reads the log and
-the downloaded model from the agent's data dir (`OPENLIVE_DATA_DIR`, else the
+the downloaded model from the agent's home (`OPENLIVE_HOME`, else the
 default), prints the log's out-of-fold numbers for the shipped head and the new
 one with and without the sound features, and the synthetic held-out splits, and
 writes `addressee-head.json` beside the log. The agent uses it only when its
@@ -137,12 +159,12 @@ English sentence rendered by `say -o` (to a file, never played) in two voices
 at levels 6 dB apart, transcribed by a running agent and judged there with the
 log on, labelled with its truth. `--cue level` renders side talk 6 dB quieter,
 a planted cue the sound features should find. Point it at a standalone agent
-with a scratch data dir, never your own:
+with a scratch home, never your own:
 
 ```bash
-AGENT_PORT=48787 OPENLIVE_DATA_DIR=/tmp/ol-sim pnpm --filter @openlive/agent start   # needs the side talk model and the STT engine in that dir
+AGENT_PORT=48787 OPENLIVE_HOME=/tmp/ol-sim pnpm --filter @openlive/agent start   # needs the side talk model and the STT engine in that home
 AGENT_URL=http://127.0.0.1:48787 pnpm addressee:simulate --cue none
-OPENLIVE_DATA_DIR=/tmp/ol-sim pnpm addressee:train --dry
+OPENLIVE_HOME=/tmp/ol-sim pnpm addressee:train --dry
 ```
 
 Its log is drawn from the held-out English split, so that split's numbers after
@@ -161,7 +183,7 @@ latency, and the listening sounds with any overlap with the user's speech. Each
 turn is a real model call: run it against a scratch agent.
 
 ```bash
-OPENLIVE_DATA_DIR=/tmp/ol-eval AGENT_PORT=47901 pnpm --filter @openlive/agent start   # the model and Nemotron set up there
+OPENLIVE_HOME=/tmp/ol-eval AGENT_PORT=47901 pnpm --filter @openlive/agent start   # the model and Nemotron set up there
 AGENT_URL=http://127.0.0.1:47901 ROUNDS=2 CONVERSE_OUT=out.json pnpm converse:eval
 ```
 

@@ -257,7 +257,7 @@ itself, on onnxruntime-node, with the synthesis the browser runs
 same seeded noise, the same trim), so both render the same voice. It is a
 native engine of its own family (`supertonic-3`, marked `browser: "supertonic"`
 in `native-models.ts`), downloaded from Settings → Speech engine into
-`data/models/supertonic-3` file by file from the Hugging Face revision the
+`<home>/data/models/supertonic-3` file by file from the Hugging Face revision the
 regression check pins. It is not a choice of its own: with Supertonic picked,
 each call asks the agent once whether its copy is downloaded and can run here
 (`GET /voice/engines`, `runnable`: onnxruntime-node ships no binary for Intel
@@ -273,7 +273,7 @@ the same Kokoro-82M v1.0 weights and voices on the agent, benchmarked the same
 way, and kokoro-js cannot be given a thread count.
 
 The **native engines** (`services/agent/src/voice/native*.ts`) are optional
-sherpa-onnx models that the agent service downloads into `data/models/<id>` from
+sherpa-onnx models that the agent service downloads into `<home>/data/models/<id>` from
 Settings → Speech engine. The catalog groups them in families of variants (size,
 precision, chunk latency, voice): Nemotron and Nemotron 3.5 (streaming),
 Parakeet, Moonshine and Canary for speech to text, Pocket TTS, Kitten TTS, Piper,
@@ -314,7 +314,7 @@ input. A native crash, any other exit or a 2 minute timeout fails only that
 provider. An accelerator is used only if it cuts CPU's real-time factor by 20% or
 more. Load time, which holds CoreML's compile, never counts toward that. Any
 voice job aborts a running benchmark and kills its process, as does the agent
-exiting; an engine whose benchmark took the agent down twice anyway stays on CPU. Results live in `data/voice-accel.json`,
+exiting; an engine whose benchmark took the agent down twice anyway stays on CPU. Results live in `<home>/data/voice-accel.json`,
 keyed by the device fingerprint, the variant and its files, so a new device,
 runtime or download measures again. A provider that fails in a real call is
 retired for that engine and the next load runs on CPU. Settings → Voice shows the
@@ -477,7 +477,7 @@ room); the page's echo canceller hears it like the reply, at -8 dB.
 
 The **judgment log** (Settings → Side talk → "Keep a judgment log to train on",
 off by default, shown once the check is on) keeps each judged sentence on the
-agent, in `DATA_DIR/addressee-log.jsonl`, for `pnpm addressee:train`: its words
+agent, in `<home>/data/addressee-log.jsonl`, for `pnpm addressee:train`: its words
 (up to 1000 characters), the last 300 characters of the reply before it, the
 time, the score, verdict and head that judged it, the mode, the voiceprint's
 label, and how it sounded (below). Never the audio, and it is never sent
@@ -509,7 +509,7 @@ plus the log (a correction weighs 4 synthetic rows; an unmarked entry 1, labelle
 by what happened to it), with and without the sound features, scores the log
 out of fold (a sentence's repeats in one fold), and sets the threshold that
 ignores at most 1% of the user's own addressed sentences there. It writes
-`DATA_DIR/addressee-head.json`, never the shipped head. The agent judges with it
+`<home>/data/addressee-head.json`, never the shipped head. The agent judges with it
 (reread when the file changes) only when it is for the same model, has the
 right shape and passed: at least 100 addressed and 20 side talk sentences
 logged, at most 1% of the user's addressed ones ignored, more side talk caught
@@ -573,7 +573,7 @@ recording rides every `generate()` call, so one engine instance serves every
 saved profile; `generateAsync` synthesizes on sherpa's native thread pool
 (measured ~0.22x realtime on an M-series CPU) and the engine unloads after five
 idle minutes. The model is a user-managed ~208 MB install under
-`data/models/zipvoice`, profiles are a wav + transcript under `data/voices`, and
+`<home>/data/models/zipvoice`, profiles are a wav + transcript under `<home>/data/voices`, and
 the renderer reaches it all through a same-origin `/api/voice` proxy — the
 cloned audio streams back as raw Float32 PCM into the same `AudioPlayer` /
 barge-in path as the on-device engines, with Kokoro as automatic fallback.
@@ -824,8 +824,9 @@ and telemetry.
     the request returns while the user answers; `permissions` reads granted
     once a session runs or a restore token is kept. `persist_mode` 2 (until
     revoked, RemoteDesktop version 2 and later) makes every `Start` return a
-    single-use restore token, written 0600 to
-    `$XDG_STATE_HOME/openlive/computer-use/portal-token`; the next session
+    single-use restore token, written 0600 to `<home>/state/portal-token`
+    (the agent names it in `OPENLIVE_CU_PORTAL_TOKEN`; a helper run on its own
+    falls back to `$XDG_STATE_HOME/openlive/computer-use/portal-token`); the next session
     starts from it without a dialog, before the frame of a request is decided.
     A quiet restore that fails is retried after 30 s, not per request. A
     session idle for two minutes is closed so the compositor's indicator goes
@@ -863,15 +864,29 @@ and telemetry.
 
 An MCP server the user adds once, offered to every brain in both modes.
 
-- **Store** (`packages/db/src/connectors.ts`, `data/connectors.json`). Each
-  connector: name, a stable `slug`, a stdio (command, args, env, cwd) or http
-  (url, headers) transport, `enabled`, `disabledTools`, its `source` (added by
-  hand or imported from which tool), `spawnConsent`, an optional CIMD
+- **Store** (`packages/db/src/connectors.ts`, `<home>/mcp.json` plus
+  `<home>/secrets/connectors.json`; the format is `packages/shared/src/home/mcp.mjs`).
+  `mcp.json` is the standard `{"mcpServers": {...}}` shape, one server per key,
+  the key being its name: a stdio (command, args, env, cwd) or http (type, url,
+  headers) transport, and under `"openlive"` what only OpenLive uses: `id`, a
+  stable `slug`, `enabled`, `disabledTools`, its `source` (added by hand or
+  imported from which tool), `createdAt`, `spawnConsent`, an optional CIMD
   `clientMetadataUrl`, and the tool list last seen (with the server's `ttlMs`).
-  Env values marked secret, every header value, OAuth tokens and OAuth client
-  credentials are `encryptSecret` ciphertext, the same AES-256-GCM as provider
-  keys; OAuth credentials are filed per issuer. The wire types are in
+  Env values marked secret and every header value are written as
+  `${secret:NAME}` references; their `encryptSecret` ciphertext (the same
+  AES-256-GCM as provider keys), and OAuth tokens and client credentials, filed
+  per issuer, are in the secrets file by connector id. The wire types are in
   `packages/shared/src/connectors.ts` and carry secret names, never values.
+- **Edited by hand** (see [Where OpenLive keeps things](#where-openlive-keeps-things-packagessharedsrchome)).
+  Every read is fresh, so an edit counts at once; the agent watches the file and
+  closes a live connection whose server changed under it (`reconcile`), to reopen
+  as written. A server written without an `"openlive"` block gets an id from its
+  key and must be allowed to run before it starts; `spawnConsent` is a hash of the
+  command and arguments agreed to, so changing either by hand asks again. A plain
+  header value written by hand works at once and moves into the secrets file on
+  the next write. A server that cannot be used is named on the Connectors screen,
+  left out, and written back untouched; a file that is not JSON is never written
+  over (`McpFileError`, a 409) until it is fixed.
 - **Connections** (`manager.ts`). One client per connector, shared by every
   session, so a stdio server runs once. A connection opens on first use, reopens
   with backoff after it drops (1 s doubling to 60 s, six tries), and every child
@@ -930,12 +945,11 @@ offered to every brain in both modes: a folder with a `SKILL.md` (YAML
 frontmatter `name` and `description`, optional `license`, `compatibility`,
 `metadata`, `allowed-tools`) and optional `scripts/`, `references/`, `assets/`.
 
-- **Where** (`packages/db/src/paths.ts`, `skillsDir()`). `~/.openlive/skills`,
-  beside `~/.claude/skills` and `~/.agents/skills`, rather than under
-  `DATA_DIR`: that is the app's private store, hidden in packaged builds and
-  split between dev and packaged, and skills are files a person opens, edits and
-  shares. `OPENLIVE_SKILLS_DIR` moves it (tests). Which skills are switched off
-  is the only state OpenLive keeps, by name, in `data/skills.json`.
+- **Where** (`packages/db/src/paths.ts`, `skillsDir()`). `<home>/skills`, so
+  `~/.openlive/skills` beside `~/.claude/skills` and `~/.agents/skills` for the
+  installed app, and `<repo>/data/skills` in a dev checkout: skills are files a
+  person opens, edits and shares. `OPENLIVE_SKILLS_DIR` moves it. Which skills are
+  switched off is the only state OpenLive keeps, by name, in `<home>/state/skills.json`.
 - **Workspace skills.** A call with a bound folder also reads
   `<folder>/.claude/skills` and `<folder>/.agents/skills`, in place and never
   copied. The folder is one the user picked, so it is trusted as they are; a
@@ -1009,12 +1023,14 @@ agents, since every brain's prompt reads them through one function
 (`rememberedNotes` in `prompt.ts`, which the Chat and Flow prompts and the ACP
 preambles all call).
 
-- **Shape.** One JSON array in the `agent_notes` setting, oldest first, of
-  `{ id, text, at }`. The array used to hold bare strings; both shapes read
+- **Shape.** One JSON array in `<home>/memory.json`, oldest first, of
+  `{ id, text, at }` (it was the `agent_notes` setting before the home; the move
+  carries it over). The array used to hold bare strings; both shapes read
   (`parseNotes`), a string's id is a hash of its text so it holds still until the
   next write, and every write stores the current shape. Nothing is dropped on the
-  way. Writes go through `updateSetting`, one lock for the whole read-modify-write,
-  so a note the agent saves and one edited in Settings never undo each other.
+  way. Writes go through `updateMemory`, one cross-process lock for the whole
+  read-modify-write, so a note the agent saves and one edited in Settings never
+  undo each other.
 - **Saving.** A note is tidied to one line of at most 240 characters. One that
   matches another in case or spacing is skipped, and at 300 notes `remember` says
   memory is full instead of dropping the oldest.
@@ -1042,7 +1058,7 @@ calls on a `LocalBrain` (provider) or an `AcpBrain` (coding agent, which gets th
 same tools over a local MCP server, and shows on the orb as it calls them and as it
 uses its own tools, labelled by what they do: "Reading src/app.ts"). Device tools reach the `native/ol-input` Rust
 addon through the owner renderer and `flow-runtime.cjs` in the main process. Config
-and history live in `~/.openlive/flow` via `packages/flow-store`.
+and history live in `<home>/flow` via `packages/flow-store`.
 
 Full user and developer guide: [FLOW.md](FLOW.md).
 
@@ -1084,6 +1100,93 @@ send is listed for users in [TELEMETRY.md](TELEMETRY.md).
   to its closed class.
 - **The public list.** `docs/TELEMETRY.md`, kept in step by
   `packages/shared/src/telemetry-docs.test.ts`.
+
+## Where OpenLive keeps things (`packages/shared/src/home/`)
+
+One folder holds everything OpenLive owns, as `~/.claude` and `~/.codex` do:
+`~/.openlive` on macOS and Linux (not the XDG folders, to match those tools) and
+`%USERPROFILE%\.openlive` on Windows. Chromium's own files stay in Electron's
+userData.
+
+```
+~/.openlive/
+  settings.json      preferences and per-chat state, plain, no secrets
+  mcp.json           connectors, {"mcpServers": {...}}, edited by hand too
+  memory.json        what `remember` keeps: [{ id, text, at }]
+  skills/            your Agent Skills, one folder each
+  secrets/           0700, every file 0600, never plain text
+    .enc-key         the AES-256-GCM key (unless OPENLIVE_ENC_KEY is set)
+    providers.json   provider API keys, encrypted
+    connectors.json  connector env/header secrets and OAuth credentials, encrypted
+    settings.json    secret settings (exa_api_key, voiceprint), encrypted
+    backup/          settings.json and connectors.json as they were before the move
+  data/              openlive.db (+ -wal, -shm), voice-profiles.json, voice-accel.json,
+                     models/, voices/, addressee-log.jsonl, addressee-head.json
+  flow/              Flow's config.json, sessions/, assets/, lease.json
+  state/             skills.json (switched-off skills), window-state.json, appearance.json,
+                     preferences.json, once.json, server-pids.json, telemetry.json,
+                     telemetry-queue.jsonl, telemetry-off, portal-token (Linux),
+                     migration.json (the move's record)
+  logs/              agent.log, rotated at 5 MB, two old files kept
+  cache/             debug/ (TTS capture), scratch/
+```
+
+- **Which folder.** `OPENLIVE_HOME` names it; `OPENLIVE_DATA_DIR`, the old name,
+  still works when `OPENLIVE_HOME` is not set. Otherwise the installed app uses
+  `~/.openlive` and a dev checkout `<repo>/data`, with the same layout inside, so a
+  worktree never touches the real home or another worktree's. Only Electron main
+  knows it is packaged: it passes `OPENLIVE_HOME` to the servers it starts.
+  `OPENLIVE_SKILLS_DIR` and `OPENLIVE_FLOW_HOME` (the folder that holds `flow/`)
+  still move their one folder.
+- **One paths module.** `index.mjs` is plain ESM on Node builtins, so the same file
+  serves every process: the db, flow-store, agent and web packages import
+  `@openlive/shared/home`, Electron main loads it from the packaged resources
+  (`electron-builder.yml`, `extraResources`), and the Rust helper is handed its one
+  path in `OPENLIVE_CU_PORTAL_TOKEN`. The agent copies everything it writes to
+  stderr into `logs/agent.log` (`teeStderr` in `services/agent/src/log.ts`).
+- **Secrets.** Settings named in `SECRET_SETTINGS` read and write through
+  `getSetting`/`setSetting` as before but live encrypted in `secrets/settings.json`.
+  A store whose file was broken by hand is never written over: the write fails and
+  says which file to fix.
+- **mcp.json**, as written:
+
+  ```json
+  {
+    "mcpServers": {
+      "GitHub": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": { "LOG_LEVEL": "info", "GITHUB_TOKEN": "${secret:GITHUB_TOKEN}" },
+        "openlive": { "id": "0c5e…", "slug": "github", "enabled": true, "disabledTools": [],
+                      "source": "manual", "createdAt": "2026-10-01T09:00:00.000Z", "spawnConsent": "9f2c41d0a7b3e815" }
+      },
+      "Linear": {
+        "type": "http",
+        "url": "https://mcp.linear.app/mcp",
+        "headers": { "Authorization": "${secret:Authorization}" },
+        "openlive": { "id": "4b1d…", "slug": "linear", "enabled": true, "disabledTools": [], "source": "claude-code", "createdAt": "…" }
+      }
+    }
+  }
+  ```
+
+  Other tools ignore `"openlive"`; fields OpenLive does not own (another tool's
+  `timeout`, a `$schema`) are kept on every write. See [Connectors](#connectors-servicesagentsrcconnectors).
+- **The move** (`migrateHome`). Once, at the first start of a build with the home:
+  Electron main moves the installed app's `<userData>/data` and its own files in
+  userData into `~/.openlive` before it starts the servers; a dev checkout's servers
+  reshape `<repo>/data` in place (as does any other `OPENLIVE_HOME` or
+  `OPENLIVE_DATA_DIR`, never `~/.openlive` itself, whose top an old build left a
+  stray `openlive.db` in). `agent_notes` leaves settings.json for memory.json,
+  secret settings are encrypted into `secrets/`, and connectors.json becomes
+  mcp.json plus the secrets file (its ciphertext moves as is, under the same key).
+  Every step is a rename, or a copy verified byte for byte before its source goes;
+  settings.json and connectors.json are copied to `secrets/backup/` before they are
+  rewritten; a folder lock keeps two processes from moving at once; and
+  `state/migration.json`, written last, records each move and ends it. A start that
+  stops part way leaves every file in its old place or its new one, never neither,
+  and the next start finishes. The old folders keep a `MIGRATED.txt` saying where
+  things went.
 
 ## Packages
 

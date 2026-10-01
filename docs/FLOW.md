@@ -229,7 +229,7 @@ macOS and Windows only, the systems that report a lock.
 | Turn context: front app, window title, selected text | The brain, with each turn. |
 | Screenshots, OCR text, clipboard, command output | The brain, when a tool that reads them runs. For a model that cannot see, pictures go to the vision model you set instead. |
 | Camera | Only when `camera_frame` runs, one frame, then the camera closes. |
-| Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user. |
+| Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user. A dev checkout keeps its own in `<repo>/data/flow/`. |
 | Usage counts (session length, turns and tool calls by kind, failure card codes, timings) | OpenLive's analytics server, as numbers and fixed labels. Never words, window titles, file names, screen content or model ids. On by default, off in Settings > Privacy. Every event is listed in [TELEMETRY.md](TELEMETRY.md). |
 
 A coding agent brain uses its own provider under your own login. Its tools come

@@ -5,8 +5,9 @@ servers locally (warm, persistent WebSocket — no cold starts, no network hop) 
 shows the UI in its own window. The voice models run in the renderer
 (Chromium/WebGPU); the LLM call goes out from the local agent.
 
-No native modules: settings/keys/chats are stored as small JSON files
-(AES-256-GCM for keys) under the app's user-data dir, so packaging is clean.
+No native modules: settings/keys/chats are stored as small JSON files and
+node:sqlite (AES-256-GCM for keys) in `~/.openlive` (`<repo>/data` in dev), so
+packaging is clean. Chromium's own files stay in the app's user-data dir.
 
 ## Develop
 

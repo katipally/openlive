@@ -238,6 +238,28 @@ keys, model ids or error text.
 - Logs and crash details are never uploaded. **Report a problem** in Settings > Privacy
   opens a GitHub issue you write yourself.
 
+Everything OpenLive keeps on your computer is in one folder, like `~/.claude`:
+`~/.openlive` on macOS and Linux, `%USERPROFILE%\.openlive` on Windows. Settings >
+About > **Show OpenLive folder** opens it. Set `OPENLIVE_HOME` to put it elsewhere.
+
+```
+~/.openlive/
+  settings.json   your preferences, plain text
+  mcp.json        your connectors, the same {"mcpServers": ...} shape other tools use
+  memory.json     what OpenLive remembered for you
+  skills/         your skills
+  secrets/        API keys and tokens, encrypted, readable by your user only
+  data/           chats, voice profiles, downloaded voice models
+  flow/           Flow's settings and history
+  state/          window position, app state, usage-sharing state
+  logs/           agent.log
+  cache/          scratch files
+```
+
+The first start of a version with this folder moves what earlier versions kept in
+the app's data folder into it, once, and leaves a `MIGRATED.txt` behind saying where
+it went.
+
 ## How it works
 
 ```
@@ -293,7 +315,7 @@ services/agent   Hono + ws: the /live WebSocket, the ACP agent driver (acp-agent
 packages/shared  the agent registry (single source of agent identity), wire protocol,
                  shared types
 packages/harness provider-neutral model adapters, live model listing, cost/effort
-packages/db      JSON-file store: encrypted keys, settings, conversations
+packages/db      the store under ~/.openlive: encrypted keys, settings, chats, connectors
 packages/flow-store Flow's config and session history in ~/.openlive/flow
 native/ol-input  Rust addon for Flow: the global key, typing, capture, OCR, input
 ```

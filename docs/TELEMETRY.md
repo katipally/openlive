@@ -30,7 +30,7 @@ The provider or coding agent you picked goes out as a fixed id such as `anthropi
 
 ## When sending starts
 
-The first time the app shows its window, it shows a short notice about this page. Nothing is sent until that notice has been on screen. Until then, events wait in memory and are never queued on disk. Before the notice the app writes only a small state file: a random install ID, when it first ran, its version, your on or off choice, what the feedback prompts remember (when one last showed and whether you said don't ask again, kept on your computer and never sent), and the two labels `app_first_open` still owes so it can go out after a restart. No event is queued. A launch at login with no window does not count as showing the notice.
+The first time the app shows its window, it shows a short notice about this page. Nothing is sent until that notice has been on screen. Until then, events wait in memory and are never queued on disk. Before the notice the app writes only a small state file, `telemetry.json` in the `state` folder of the OpenLive folder (`~/.openlive/state/` on macOS and Linux, `%USERPROFILE%\.openlive\state\` on Windows): a random install ID, when it first ran, its version, your on or off choice, what the feedback prompts remember (when one last showed and whether you said don't ask again, kept on your computer and never sent), and the two labels `app_first_open` still owes so it can go out after a restart. No event is queued. A launch at login with no window does not count as showing the notice.
 
 ## How long it is kept
 
@@ -67,7 +67,7 @@ Every install gets a random, readable name, so its usage can be found and follow
 
 Every event carries the [common properties](#common-properties) below, the install ID (as the profile ID, with a device ID made from it), and a timestamp rounded down to the minute. The app sends nothing but these events: there is no separate sign-up or registration request.
 
-Events wait in a small queue on disk (about 500 events or 256 KB at most, oldest dropped first), so a restart or a spell offline loses little. They are sent slowly, at most two a second. The first send waits a random 15 to 60 seconds after the first-run notice appears, so there is time to turn sharing off before anything goes out. On later launches it waits a random 0 to 60 seconds.
+Events wait in a small queue on disk, `telemetry-queue.jsonl` beside the state file (about 500 events or 256 KB at most, oldest dropped first), so a restart or a spell offline loses little. They are sent slowly, at most two a second. The first send waits a random 15 to 60 seconds after the first-run notice appears, so there is time to turn sharing off before anything goes out. On later launches it waits a random 0 to 60 seconds.
 
 ## Where events go, and location
 
