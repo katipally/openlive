@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { consentApprove, isDeclined, isUnanswered } from "./approval.js";
-import { flowTools } from "./tools.js";
+import { askEach, consentApprove, isDeclined, isUnanswered } from "./approval.js";
+import { TEXT_TOOLS } from "./text.js";
+import { FILE_TOOLS } from "./files.js";
+import type { Tool } from "./types.js";
 
-const tools = flowTools();
-const insert = tools.find((t) => t.name === "insert_text")!;
+const insert = TEXT_TOOLS.find((t) => t.name === "insert_text")!;
 
 const ask = (answer: boolean) => vi.fn(async () => answer);
 const signal = () => new AbortController().signal;
@@ -77,6 +78,36 @@ describe("consent", () => {
     const a = ask(true);
     expect(await consentApprove({ granted: () => false, ask: a, remember: async () => {} })(call, ac.signal))
       .toMatchObject({ block: true });
+    expect(a).not.toHaveBeenCalled();
+  });
+});
+
+describe("asking per action", () => {
+  const named = (name: string) => [...TEXT_TOOLS, ...FILE_TOOLS].find((t) => t.name === name)!;
+
+  it("asks before an action that changes something, naming it, and runs it on a yes", async () => {
+    const a = vi.fn(async (_q: string, _s: AbortSignal) => true);
+    expect(await askEach(a)({ tool: named("write_file"), args: { path: "notes.md", content: "hi" } }, signal())).toEqual({});
+    expect(a.mock.calls[0]![0]).toBe("OpenLive wants to create or overwrite notes.md (2 chars) in your workspace. Allow it?");
+  });
+
+  it("blocks only that call on a no, and says the tool still works", async () => {
+    const verdict = await askEach(async () => false)({ tool: named("edit_file"), args: { path: "a.ts", find: "x", replace: "y" } }, signal());
+    expect(verdict).toMatchObject({ block: true, reason: expect.stringContaining("The tool itself works") });
+  });
+
+  it("never asks for a read, or for a tool that changes nothing outside OpenLive", async () => {
+    const a = vi.fn(async () => false);
+    const quiet: Tool = { name: "remember", description: "", parameters: {}, async execute() { return { content: [], details: null }; } };
+    for (const tool of [named("read_file"), named("list_dir"), named("clipboard_read"), named("clipboard_write"), quiet]) {
+      expect(await askEach(a)({ tool, args: {} }, signal())).toEqual({});
+    }
+    expect(a).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for a turn that was already cut off", async () => {
+    const a = vi.fn(async () => true);
+    expect(await askEach(a)({ tool: named("write_file"), args: { path: "x", content: "" } }, AbortSignal.abort())).toEqual({ block: true, reason: "cancelled" });
     expect(a).not.toHaveBeenCalled();
   });
 });

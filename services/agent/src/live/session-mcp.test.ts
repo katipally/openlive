@@ -103,7 +103,7 @@ async function stubAgent(id = "codex") {
 }
 
 /** A call as the desktop client holds it: the bridge and the camera answered. */
-function connect(chatId: string, agentId: string | null = "codex", resumeSessionId?: string) {
+function connect(chatId: string, agentId: string | null = "codex", resumeSessionId?: string, device = false) {
   const ws = Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1, sent: [] as Record<string, any>[] });
   const say = (m: unknown) => ws.emit("message", Buffer.from(JSON.stringify(m)), false);
   (ws as any).send = (raw: string) => {
@@ -116,10 +116,12 @@ function connect(chatId: string, agentId: string | null = "codex", resumeSession
     });
   };
   const done = async () => { while (!ws.sent.some((m) => m.event?.type === "done")) await new Promise((r) => setTimeout(r, 10)); };
-  const started = new LiveSession(ws as never, chatId).start();
+  const started = new LiveSession(ws as never, chatId, undefined, device).start();
   say({ t: "bind", agentId, cwd: dir, resumeSessionId });
   return { ws, say, done, started };
 }
+
+const CALL_TOOLS = "delegate, update_todos, remember, look, clipboard_read, clipboard_write, open_url, list_dir, read_file, write_file, edit_file";
 
 test("a coding agent in a call uses look, the clipboard and remember as the built-in brain does", async () => {
   const prompts = await stubAgent();
@@ -130,8 +132,8 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
   await done();
 
   expect(prompts()[0]!.server).toBe("openlive");
-  expect(readFileSync(join(dir, "prompts.jsonl"), "utf8")).toContain('{"reads":["look","clipboard_read"]}');
-  expect(prompts()[0]!.text).toContain('a server called "openlive": look, clipboard_read, clipboard_write, open_url, remember');
+  expect(readFileSync(join(dir, "prompts.jsonl"), "utf8")).toContain('{"reads":["delegate","look","clipboard_read","list_dir","read_file"]}');
+  expect(prompts()[0]!.text).toContain(`a server called "openlive": ${CALL_TOOLS}.`);
   expect(ws.sent.find((m) => m.t === "tool_bridge")).toMatchObject({ op: "clipboard_write", arg: "copied", turn: 7 });
   expect(ws.sent.some((m) => m.t === "need_frame")).toBe(true);
   expect(JSON.parse(getSetting("agent_notes") ?? "[]")).toEqual(["Likes tea."]);
@@ -254,5 +256,70 @@ test("the built-in brain shows the same chip for a bridge tool", async () => {
   expect(callFacts().at(-1)).toMatchObject({ brain_kind: "api", brain_id: "ollama", turns: 1, agent_start_ms: 0, ttft_ms: expect.any(Number), turn_ms: expect.any(Number) });
   expect(callFacts().some((f) => "resumed" in f)).toBe(false);
   expect(allAccepted()).toBe(true);
+  ws.emit("close");
+}, 20_000);
+
+/** A local OpenAI Responses stub, reached as the keyless Ollama provider: it
+ *  calls `name` with `args` once, then says "Done." */
+async function modelCalling(name: string, args: Record<string, unknown>) {
+  const model = createServer((req, res) => {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      const events = body.includes("function_call_output")
+        ? [{ type: "response.output_text.delta", delta: "Done." }]
+        : [{ type: "response.output_item.added", item: { type: "function_call", id: "fc", call_id: "c1", name } },
+          { type: "response.function_call_arguments.delta", item_id: "fc", delta: JSON.stringify(args) },
+          { type: "response.function_call_arguments.done", item_id: "fc" }];
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end([...events, { type: "response.completed", response: {} }].map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""));
+    });
+  });
+  await new Promise<void>((r) => model.listen(0, "127.0.0.1", r));
+  await setSetting("liveProviderId", "ollama");
+  await setSetting("liveModel", "stub");
+  await setSetting("ollamaBaseUrl", `http://127.0.0.1:${(model.address() as AddressInfo).port}`);
+  return model;
+}
+
+test("on the desktop a call reaches the machine, and asks before a command runs", async () => {
+  const model = await modelCalling("shell", { command: "ls" });
+  const { ws, say, done, started } = connect("call-device", null, undefined, true);
+  (ws as any).send = ((send) => (raw: string) => {
+    send(raw);
+    const m = JSON.parse(raw);
+    if (m.t === "permission") queueMicrotask(() => say({ t: "permission_response", reqId: m.reqId, optionId: "deny" }));
+  })((ws as any).send);
+  await started;
+  say({ t: "user_text", text: "List my home folder.", turn: 4 });
+  await done();
+  model.close();
+  expect(ws.sent.find((m) => m.t === "permission")).toMatchObject({ question: "OpenLive wants to run this command: ls. Allow it?", turn: 4 });
+  // Refused before it reached the machine.
+  expect(ws.sent.some((m) => m.t === "tool_bridge" && m.op === "flow_device")).toBe(false);
+  expect(["perm_asks", "perm_denied", "perm_allowed"].map(total)).toEqual([1, 1, 0]);
+  expect(allAccepted()).toBe(true);
+  ws.emit("close");
+}, 20_000);
+
+test("a read on the machine does not ask, and goes through the same device bridge Flow uses", async () => {
+  const model = await modelCalling("list_windows", {});
+  const { ws, say, done, started } = connect("call-device-read", null, undefined, true);
+  await started;
+  say({ t: "user_text", text: "What's open?", turn: 5 });
+  await done();
+  model.close();
+  expect(ws.sent.some((m) => m.t === "permission")).toBe(false);
+  expect(ws.sent.find((m) => m.t === "tool_bridge" && m.op === "flow_device")).toMatchObject({ arg: JSON.stringify({ fn: "windows" }), turn: 5 });
+  ws.emit("close");
+}, 20_000);
+
+test("a call without the desktop offers no device tools", async () => {
+  const prompts = await stubAgent();
+  const { ws, say, done, started } = connect("call-web");
+  await started;
+  say({ t: "user_text", text: "Hi." });
+  await done();
+  expect(prompts().at(-1)!.text).not.toContain("screenshot");
   ws.emit("close");
 }, 20_000);

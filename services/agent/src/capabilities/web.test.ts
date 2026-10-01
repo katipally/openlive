@@ -2,7 +2,7 @@
 // security/correctness paths where a silent miss is exploitable or corrupting.
 import assert from "node:assert";
 import { test } from "vitest";
-import { isPrivateIp, htmlToText } from "./tools.ts";
+import { isPrivateIp, htmlToText } from "./web.ts";
 
 test("isPrivateIp: blocks loopback/private incl. IPv4-mapped IPv6", () => {
   // Private / loopback / metadata — must all be blocked.

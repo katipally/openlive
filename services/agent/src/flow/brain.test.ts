@@ -214,7 +214,7 @@ describe("ACP brain tool activity", () => {
       { type: "acp_tool_call", call: call("r", "Read File", "read", "pending") } as SseEvent,
       { type: "acp_tool_update", delta: { id: "r", locations: [{ path: "/p/src/app.ts" }], title: "Read src/app.ts" } },
       { type: "acp_tool_update", delta: { id: "r", status: "in_progress" } },
-      { type: "acp_tool_call", call: call("m", "mcp__openlive-flow__screenshot", "other", "pending") } as SseEvent,
+      { type: "acp_tool_call", call: call("m", "mcp__openlive__screenshot", "other", "pending") } as SseEvent,
       { type: "acp_tool_update", delta: { id: "m", status: "completed" } },
       { type: "acp_tool_update", delta: { id: "r", status: "completed" } },
       { type: "acp_tool_update", delta: { id: "r", status: "completed" } },

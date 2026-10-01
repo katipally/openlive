@@ -109,3 +109,38 @@ export interface DevicePort {
   control(action: ControlAction): Promise<void>;
   shell(command: string): Promise<{ code: number; stdout: string; stderr: string }>;
 }
+
+/** How long a device call may take to come back. Perception is slower than the
+ *  clipboard: OCR pays a one-off Vision warm-up of about 26 seconds per process. */
+export const DEVICE_TIMEOUT_MS = 40_000;
+
+/**
+ * The device as a session reaches it: one round trip named by `fn` through the
+ * client's tool bridge to the main process, which holds the addon. `call`
+ * resolves to the client's raw reply, "" when none came in time. A call may
+ * answer the camera itself, from the share it already holds.
+ */
+export function bridgedDevice(call: (arg: string) => Promise<string>, cameraFrame?: DevicePort["cameraFrame"]): DevicePort {
+  const run = async <T>(fn: string, args?: unknown): Promise<T> => {
+    const raw = await call(JSON.stringify({ fn, args }));
+    if (!raw) throw new Error(`The machine did not answer in time (${fn}).`);
+    // Anything that is not the envelope is the main process answering in prose.
+    let reply = null as { value?: T; error?: string } | null;
+    try { reply = JSON.parse(raw) as typeof reply; } catch { /* prose */ }
+    if (!reply) throw new Error(raw.slice(0, 400));
+    if (reply.error) throw new Error(reply.error);
+    return reply.value as T;
+  };
+  return {
+    capabilities: () => run("capabilities"),
+    displays: () => run("displays"),
+    capture: (target) => run("capture", target),
+    shotToScreen: (shot, point) => run("shot_to_screen", { shot, point }),
+    recognizeText: (png, shot) => run("recognize_text", { png, shot }),
+    windows: () => run("windows"),
+    foreground: () => run("foreground"),
+    cameraFrame: cameraFrame ?? (() => run("camera_frame")),
+    control: (action) => run("control", action),
+    shell: (command) => run("shell", { command }),
+  };
+}

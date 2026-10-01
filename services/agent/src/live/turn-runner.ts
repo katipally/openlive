@@ -1,10 +1,10 @@
 import { streamProvider, unreachableMessage, type Message } from "@openlive/harness";
-import { classifyError, replyLanguageLine, type LanguageCode } from "@openlive/shared";
-import { buildOpenLiveTools, type OpenLiveTool, type Emit } from "../tools.js";
+import { classifyError, type LanguageCode } from "@openlive/shared";
+import type { Approve, Emit, Session } from "../capabilities/types.js";
+import { asMessage, dispatchAll, toolSpecs, type ToolSet, type ToolTally } from "../capabilities/dispatch.js";
+import { CHAT } from "../capabilities/profiles.js";
 import { cancelledText, collectTurn, safeParseArgs } from "../turn.js";
-import { buildLivePrompt } from "../prompt.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
-import { runWorker } from "./worker.js";
 import { prepareToolImages } from "../tool-images.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
@@ -34,12 +34,6 @@ export async function describeFrames(v: ResolvedLive, userText: string, frames: 
 export const stepGap = (before: string, next: string): string =>
   before && next && !/\s$/.test(before) && !/^\s/.test(next) ? " " : "";
 
-/** The call's system prompt in `lang`: English adds nothing, so it stays byte-identical. */
-export const withLanguage = (prompt: string, lang?: LanguageCode): string => {
-  const line = replyLanguageLine(lang);
-  return line ? `${prompt}\n\n---\n${line}` : prompt;
-};
-
 // Lower than a text chat's step cap ON PURPOSE. Every tool round before the model
 // speaks is dead air in a live call, so cap the worst case tightly.
 const MAX_STEPS = 6;
@@ -50,12 +44,11 @@ export class LiveTurnRunner {
   private messages: Message[];
   /** What the vision model said about each tool's picture, by call id. */
   private described = new Map<string, string>();
-  private readonly prompt = buildLivePrompt();
   /** Always messages[0]: seeding and the history cap keep it. */
-  private readonly system = { role: "system" as const, text: this.prompt };
+  private readonly system = { role: "system" as const, text: "" };
 
-  /** `tally` hears each tool this runner executes, by name. */
-  constructor(private extraTools: OpenLiveTool[], private tally?: (tool: string) => void) {
+  /** `tools` is the call's set, run against `session` through `approve`; `tally` hears each call. */
+  constructor(private tools: ToolSet, private session: Session, private opts: { approve: Approve; tally?: ToolTally }) {
     this.messages = [this.system];
   }
 
@@ -75,9 +68,8 @@ export class LiveTurnRunner {
     try { resolved = resolveLive(); } catch { return; }
     const { provider, model, apiKey } = resolved;
     if (!model || (!apiKey && !provider.keyless)) return;
-    const tools = [...buildOpenLiveTools({ emit: async () => {} }), ...this.extraTools];
-    const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
-    this.system.text = withLanguage(this.prompt, lang);
+    const toolDefs = toolSpecs(this.tools.list);
+    this.system.text = CHAT.prompt(this.tools.list, lang);
     try {
       // maxTokens:1 — we only want the prefill (cache write); the output is discarded.
       const gen = streamProvider(provider, apiKey ?? undefined, { model, messages: this.messages, tools: toolDefs, maxTokens: 1 }, signal);
@@ -146,17 +138,14 @@ export class LiveTurnRunner {
       }
     }
     // Per turn, so a language change in the middle of a call applies from the next turn.
-    this.system.text = withLanguage(this.prompt, lang);
+    this.system.text = CHAT.prompt(this.tools.list, lang);
     const asked = { role: "user" as const, text, images: imgs };
     this.messages.push(asked);
     // Keep frames only on the 2 most recent user turns (cost + latency).
     const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
     for (const m of withImgs.slice(0, -2)) if (m.role === "user") m.images = undefined;
 
-    // Build tools with THIS turn's emit + signal so their events are dropped by the
-    // same epoch guard when a barge-in interrupts. `runWorker` powers `delegate`.
-    const tools = [...buildOpenLiveTools({ emit, signal, runWorker }), ...this.extraTools];
-    const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+    const toolDefs = toolSpecs(this.tools.list);
 
     // Live wants the SNAPPIEST conversation. Auto = thinking OFF for an instant
     // reply — OpenAI can't fully disable it so we ask for "minimal"; Anthropic just
@@ -200,24 +189,16 @@ export class LiveTurnRunner {
         if (!toolCalls.length) break;
         // Run this step's tool calls CONCURRENTLY. Serializing them was extra dead
         // air (two web_searches back-to-back); fanned out, they finish while the
-        // model's spoken bridge line is still being voiced. Results are pushed in
-        // the original call order (providers pair each result to its call by id).
-        const runOne = async (tc: (typeof turn.toolCalls)[number]) => {
-          const tool = tools.find((t) => t.name === tc.name);
-          if (!tool) return { tc, res: { output: `Unknown tool "${tc.name}".`, isError: true as const } };
-          this.tally?.(tool.name);
-          try { return { tc, res: await tool.execute(safeParseArgs(tc.arguments)) }; }
-          catch (e: any) { return { tc, res: { output: `Error: ${String(e?.message ?? e)}`, isError: true as const } }; }
-        };
-        const results = await Promise.all(toolCalls.map(runOne));
-        // Pair a tool_result to EVERY tool_use we just recorded — unconditionally,
-        // even on a barge-in abort. An assistant message carrying toolCalls with no
-        // matching tool results makes the very next turn 400 at Anthropic/OpenAI
-        // (orphaned tool_use), poisoning the rest of the call. runOne never throws
-        // (it maps errors to an error result), so this always fully pairs them.
-        for (const { tc, res } of results) {
-          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: res.output, images: res.images, isError: res.isError });
-        }
+        // model's spoken bridge line is still being voiced. A tool's events go to
+        // THIS turn's emit, so a barge-in drops them with the rest of the turn.
+        // Results come back in the original call order (providers pair each result
+        // to its call by id), one for EVERY call, unconditionally, even on a
+        // barge-in abort: an assistant message carrying toolCalls with no matching
+        // results makes the very next turn 400 at Anthropic/OpenAI (orphaned
+        // tool_use), poisoning the rest of the call.
+        const calls = toolCalls.map((tc) => ({ id: tc.id, name: tc.name, args: safeParseArgs(tc.arguments) }));
+        const results = await dispatchAll(calls, this.tools, { ...this.session, emit, signal, context: null }, this.opts);
+        for (const r of results) this.messages.push({ role: "tool", ...asMessage(r) });
         if (signal.aborted) return;
       }
     } catch (e: any) {

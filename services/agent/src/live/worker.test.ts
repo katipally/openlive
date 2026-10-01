@@ -10,8 +10,8 @@ vi.mock("../turn.js", async (importOriginal) => ({
     ? { text: "", toolCalls: [{ id: "c1", name: "web_search", arguments: JSON.stringify({ query: "paris weather today" }) }] }
     : { text: "Sunny.", toolCalls: [] }),
 }));
-vi.mock("../tools.js", () => ({
-  buildWorkerTools: () => [{ name: "web_search", execute: () => new Promise((r) => setTimeout(() => r({ output: "sunny" }), 2000)) }],
+vi.mock("../capabilities/web.js", () => ({
+  WORKER_TOOLS: [{ name: "web_search", description: "", parameters: { type: "object", properties: { query: { type: "string" } } }, execute: () => new Promise((r) => setTimeout(() => r({ content: [{ type: "text", text: "sunny" }], details: null }), 2000)) }],
 }));
 const { runWorker } = await import("./worker.ts");
 

@@ -9,7 +9,6 @@ import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./
 
 export type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
 export { PERMISSION_CANCELLED } from "./types.js";
-export { CALL_MCP_SERVER } from "./acp-agent.js";
 
 /** Callbacks a live session wires into a bound agent (streamed meta, recovered
  *  transcript on resume, non-fatal notices, agent-side title). */

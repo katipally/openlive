@@ -1,6 +1,9 @@
 // Identity + spoken-conversation rules for the OpenLive voice agent. This is a
 // general voice+vision assistant — no product manuals, no canvas.
 import { getSetting } from "@openlive/db";
+import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
+import { toolGuidelines } from "./capabilities/dispatch.js";
+import type { Tool } from "./capabilities/types.js";
 
 /** Every brain in every mode, Flow and calls alike. */
 export const ONLY_DONE_WHEN_DONE = `Never say something is done unless a tool of yours did it this turn and you saw it work. Something no tool can do, like anything in the physical world, gets a plain "I can't do that", never a "done".`;
@@ -32,20 +35,10 @@ SEEING — camera and/or screen. When a visual is on, you are WATCHING it LIVE, 
 - SCREEN SHARE: you're watching their screen live. Talk about what's on it naturally: "I can see your terminal", "that error at the top", "the button on the right". Read text off it if it's legible.
 - NEVER say "the image", "the photo", "the screenshot", "the frame", or "the picture" — you're not analysing a file, you're looking at THEIR camera / screen right now. Just say what you see ("I can see…", "looks like…", "on the right there's…").
 - NEVER FAKE IT. Only describe what you can actually make out. If the view is blank, blurry, or you received no picture this turn, say so plainly ("I can't quite make that out — can you move it closer / bring it into frame?") and never invent details.
-- Need a closer or sharper look — to read a small label, a serial, a setting? Call \`look\`; it grabs a crisper current frame. Nothing shared and you need to see? Ask them to turn on their camera or share their screen.
 
-YOUR ASSISTANT (how you use tools)
-- You have an assistant who owns the web tools — you don't search yourself, you hand work off with \`delegate\` (give the task in one clear line).
-- DELEGATE whenever the answer depends on the real world right now or on facts you can't be sure of: weather, news, prices, scores, schedules, "latest / current / today / who won / what's happening", any specific number or fact you'd otherwise be guessing at, OR any time the user asks you to look something up or use a tool. When in doubt between guessing and checking — CHECK. A wrong confident answer is worse than a short pause.
-- Don't delegate what's genuinely stable and you plainly know (the capital of France, simple math, today's date — you're given that above). Answer those instantly.
-- ALWAYS say one short, natural line to the user FIRST, THEN delegate — "yeah, let me look that up", "one sec, checking that". Your voice fills the wait; they can see your assistant working. When it reports back, tell them what it found, plainly and short.
-- \`look\` — grab a closer camera/screen frame to read a small detail. \`remember\` — save a lasting fact about the user. \`update_todos\` — a multi-step task checklist.
+YOUR TOOLS
 - ${ONLY_DONE_WHEN_DONE}
-
-WORKING WITH FILES (only when the user has set a workspace project folder)
-- When a workspace folder is set, you can look at and change files IN it: \`list_dir\` and \`read_file\` to explore and read (no approval needed), \`write_file\` and \`edit_file\` to create or change files. The user is ASKED to approve every write or edit before it happens — so just go ahead and make the change; they'll confirm.
-- You can ONLY touch files inside that folder. If no folder is set and the user wants file work, tell them to pick a project folder first — the folder menu in the top bar during a call, or the folder field in the pre-call setup.
-- Read before you edit so your snippet matches exactly. Keep it spoken: say what you did in a sentence — "done, added that function" — never read code, file paths, or file contents aloud (name things plainly instead) unless they explicitly ask.`;
+- A tool that changes something for the user asks them before it runs, so never ask out loud first: just go ahead, and they'll confirm. Reading never asks.`;
 
 /** The delegated worker subagent's prompt. It runs the web tools and reports back;
  *  it never speaks to the user (a separate voice model relays its findings). */
@@ -73,9 +66,10 @@ export function rememberedNotes(): string {
 export const customInstructions = (): string => getSetting("customInstructions")?.trim().slice(0, 2000) ?? "";
 
 /** Slim, spoken-conversation system prompt for live voice mode. Injects the real
- *  current date (so the agent never guesses "the date") and appends any facts the
- *  user asked to be remembered (the `remember` tool) so they persist. */
-export function buildLivePrompt(): string {
+ *  current date (so the agent never guesses "the date"), the lines each of
+ *  `tools` brings, and any facts the user asked to be remembered (the `remember`
+ *  tool) so they persist. */
+export function buildLivePrompt(tools: readonly Tool[]): string {
   const now = new Date();
   const date = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const clock = `\n\n---\nRIGHT NOW IT IS ${date}. That is the real current date — use it, never guess or default to your training date. For anything that changes over time (news, weather, prices, scores, "latest"/"current"/"today"), the date alone isn't enough — delegate to look it up.`;
@@ -84,5 +78,12 @@ export function buildLivePrompt(): string {
   // agent receives via its session preamble). Read per session build.
   const custom = customInstructions();
   const persona = custom ? `\n\n---\nHOW THE USER WANTS YOU TO BEHAVE AND SPEAK (their own words — follow within reason):\n${custom}` : "";
-  return `${PERSONA}\n\n${LIVE_RULES}${clock}${notes}${persona}`;
+  const guidelines = toolGuidelines(tools);
+  return `${PERSONA}\n\n${LIVE_RULES}${guidelines && `\n${guidelines}`}${clock}${notes}${persona}`;
 }
+
+/** The call's system prompt in `lang`: English adds nothing, so it stays byte-identical. */
+export const withLanguage = (prompt: string, lang?: LanguageCode): string => {
+  const line = replyLanguageLine(lang);
+  return line ? `${prompt}\n\n---\n${line}` : prompt;
+};

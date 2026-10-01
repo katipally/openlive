@@ -1,6 +1,6 @@
 import type { Message } from "@openlive/harness";
 import type { MessageBlock } from "@openlive/shared";
-import type { Emit } from "../tools.js";
+import type { Emit } from "../capabilities/types.js";
 
 // An "agent" is an external coding agent (Claude Code / Codex / Cursor / …) driven
 // as the brain of a live conversation, in place of the built-in provider LLM loop.

@@ -6,7 +6,8 @@ import type { Agent, TurnInput } from "../agents/types.js";
 import { hostedBy } from "../agents/mcp-config.js";
 import { isCancelled } from "../turn.js";
 import { parsePartialJson } from "./partial-json.js";
-import { MCP_SERVER_NAME, type Brain, type BrainEvent, type TurnRequest, type Usage } from "./types.js";
+import { MCP_SERVER_NAME } from "../capabilities/mcp.js";
+import type { Brain, BrainEvent, TurnRequest, Usage } from "./types.js";
 
 // ── provider mapping ────────────────────────────────────────────────────────
 

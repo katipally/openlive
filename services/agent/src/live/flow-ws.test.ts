@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { afterAll, afterEach, describe, expect, it, vi, beforeEach } from "vitest";
-import type { Msg, Tool } from "../flow/types.js";
+import type { Msg } from "../flow/types.js";
+import type { ToolSet } from "../capabilities/dispatch.js";
 
 // The session is driven exactly as the orb drives it: messages in over the
 // socket, messages out over the socket. Only the two things that would reach
@@ -29,7 +30,7 @@ const fake = vi.hoisted(() => ({
   /** The brain the config names; unset, the default. */
   brain: null as null | Record<string, unknown>,
   /** Flow's tools as served to a coding agent, and what that agent was told was cut. */
-  mcp: null as null | { tools: Tool[]; onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void; ctx: () => { signal: AbortSignal } },
+  mcp: null as null | { tools: ToolSet; onCall?: (event: Record<string, unknown> & { type: "tool_call" | "tool_result" }) => void; ctx: () => { signal: AbortSignal } },
   cuts: [] as string[],
   /** The cuts that also told the agent its request was cancelled. */
   cancelled: [] as string[],
@@ -79,9 +80,9 @@ vi.mock("../flow/brain.js", () => {
   };
 });
 
-vi.mock("../flow/mcp.js", async (importOriginal) => ({
+vi.mock("../capabilities/mcp.js", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
-  serveFlowMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {} }; },
+  serveMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {} }; },
 }));
 
 vi.mock("../agents/supervisor.js", () => ({
@@ -596,9 +597,32 @@ describe("OpenLive's memory in Flow", () => {
     await until(() => turnsDone(ws2) === 1);
     expect(fake.preamble).toContain("They drink tea.");
     expect(fake.preamble).toContain("save it with OpenLive's remember tool, never your own memory files");
-    const remember = fake.mcp!.tools.find((t) => t.name === "remember")!;
+    const remember = fake.mcp!.tools.resolve("remember")!;
     await remember.execute({ note: "They live in Oslo." }, {} as never);
     expect(JSON.parse(getSetting("agent_notes")!)).toContain("They live in Oslo.");
+    ws2.emit("close");
+  });
+});
+
+describe("Flow's tools", () => {
+  it("are the same for both brains, research and the checklist included", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Hi.");
+    ws.say("hi");
+    await until(() => turnsDone(ws) === 1);
+    const builtIn = fake.reqs[0]!.tools.map((t) => t.name);
+    expect(builtIn).toEqual(expect.arrayContaining(["insert_text", "screenshot", "shell", "open_url", "delegate", "update_todos", "remember"]));
+    for (const callOnly of ["look", "list_dir", "write_file"]) expect(builtIn).not.toContain(callOnly);
+    ws.emit("close");
+
+    fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+    const ws2 = new FakeSocket();
+    new FlowLiveSession(ws2 as never);
+    fake.script = reply("Hi.");
+    ws2.say("hi");
+    await until(() => turnsDone(ws2) === 1);
+    expect(fake.mcp!.tools.list.map((t) => t.name)).toEqual(builtIn);
     ws2.emit("close");
   });
 });

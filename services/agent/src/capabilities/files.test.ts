@@ -6,7 +6,7 @@ import path from "node:path";
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { test } from "vitest";
-import { confine } from "./file-tools.ts";
+import { confine } from "./files.ts";
 
 // Platform-portable fake root: /home/u/proj on POSIX, <drive>:\home\u\proj on
 // Windows — a hardcoded POSIX string made every startsWith comparison fail there.
@@ -52,5 +52,23 @@ test("a symlink inside the workspace pointing outside is refused", () => {
     writeFileSync(path.join(ws, "ok.txt"), "x");
     assert.strictEqual(confine(ws, "ok.txt"), path.join(realpathSync.native(ws), "ok.txt"));
     assert.ok(confine(ws, "new-dir/new.txt"));
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("the file tools read inside the workspace and refuse without one", async () => {
+  const { FILE_TOOLS } = await import("./files.ts");
+  const tool = (n: string) => FILE_TOOLS.find((t) => t.name === n)!;
+  const tmp = mkdtempSync(path.join(tmpdir(), "ol-files-"));
+  try {
+    writeFileSync(path.join(tmp, "a.txt"), "hello");
+    const ctx = (ws: string) => ({ signal: new AbortController().signal, context: null, callId: "c", workspace: () => ws });
+    const read = await tool("read_file").execute({ path: "a.txt" }, ctx(tmp));
+    assert.deepStrictEqual(read.content, [{ type: "text", text: "hello" }]);
+    await assert.rejects(tool("read_file").execute({ path: "a.txt" }, ctx("")), /No workspace folder/);
+    await assert.rejects(tool("read_file").execute({ path: "../x" }, ctx(tmp)), /outside the workspace/);
+    await tool("edit_file").execute({ path: "a.txt", find: "hello", replace: "bye" }, ctx(tmp));
+    assert.deepStrictEqual((await tool("read_file").execute({ path: "a.txt" }, ctx(tmp))).content, [{ type: "text", text: "bye" }]);
+    assert.strictEqual(tool("write_file").available!({}), false);
+    assert.strictEqual(tool("write_file").available!({ workspace: () => "" }), true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

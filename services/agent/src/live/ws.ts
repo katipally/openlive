@@ -57,7 +57,8 @@ export function attachLiveWs(server: Server): WebSocketServer {
     console.log(`[agent] /live upgrade accepted — ${flow ? "flow" : `chat=${chatId || "(none)"}`}`);
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (flow) { new FlowLiveSession(ws); return; }
-      void new LiveSession(ws, chatId, languageSchema.safeParse(url.searchParams.get("lang")).data).start();
+      // `device=1`: the desktop app, whose main process holds the ol-input addon.
+      void new LiveSession(ws, chatId, languageSchema.safeParse(url.searchParams.get("lang")).data, url.searchParams.get("device") === "1").start();
     });
   });
   return wss;

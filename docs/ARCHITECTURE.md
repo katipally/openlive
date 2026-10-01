@@ -74,15 +74,13 @@ over stdio ("LSP for agents"). Design points:
   `commands` for the composer's slash menu. A typed "/name args" that names an
   advertised command is sent alone as the prompt's first text block, per ACP;
   anything else is ordinary speech. API mode has none, so the menu hides.
-- **The call's own tools.** A call serves the tools a coding agent lacks (`look`,
-  `clipboard_read`, `clipboard_write`, `open_url`, `remember`) to it over a
-  loopback MCP server named `openlive`, built by Flow's `serveFlowMcp` from the
-  same tool objects the built-in brain runs. They take the same bridge, turn
-  number and chips; the agent's own report of those calls is dropped so they
-  show once, as the built-in brain's do. What `remember` kept rides the agent's
-  preamble. Web search, fetching, files and plans stay the agent's own.
-  Claude Code is handed `allowedTools: ["mcp__<server>"]` for every server
-  OpenLive hosts (`openlive`, `openlive-flow`), so it never asks before one.
+- **OpenLive's tools.** A call serves a coding agent the same tools its
+  built-in brain runs (see *Tools* below) over a loopback MCP server named
+  `openlive`, the one `serveMcp` Flow uses too. They take the same bridge, turn
+  number, chips and per-action asks; the agent's own report of those calls is
+  dropped so they show once, as the built-in brain's do. What `remember` kept
+  rides the agent's preamble. Claude Code is handed `allowedTools:
+  ["mcp__openlive"]`, so it never asks before one: OpenLive's own policy does.
   Codex-acp builds its MCP config itself and offers no such switch; it runs
   a tool marked `readOnly` (sent as the MCP `readOnlyHint`) without asking and
   asks for the rest, which the ask names as "OpenLive's <tool>" since the card
@@ -568,8 +566,39 @@ Conversations with no agent bound run on a provider turn loop: three wire adapte
 in `packages/harness` (Anthropic `/messages`, OpenAI `/responses`, OpenAI
 `/chat/completions`) cover every provider; a provider is a registry row. The main
 voice agent does all the talking and delegates web work to a **worker subagent**
-(Exa search, `fetch_url`) whose grind stays out of the main context; other tools:
-`look`, `remember`, `update_todos`, clipboard/open-url via the desktop bridge.
+(Exa search, `fetch_url`) whose grind stays out of the main context. Its other
+tools come from the shared registry below.
+
+## Tools (`services/agent/src/capabilities/`)
+
+Chat and Flow keep their own loops (`LiveTurnRunner`, `runFlow`) but draw on one
+tool registry, and both run every call through one `dispatch` (repair, validate,
+approve, run, tally).
+
+- **One `Tool` type** (`types.ts`): name, description, JSON Schema, optional
+  prompt guidelines, `readOnly` (sent over MCP as `readOnlyHint`), `confirm`
+  (it changes something, and this is the question to ask first), and
+  `available(session)`, which reads what the session can reach: the app in front
+  and insertion (Flow), the clipboard, the device addon, a live share (`look`, a
+  call), a workspace (the file tools, a call).
+- **The registry** (`registry.ts`). `registry.tools(profile, session)` returns a
+  `ToolSet`, ordered for the mode and looked up by name in O(1). Sources of tools
+  are `ToolProvider`s; the built-ins are one, and a provider registered later
+  never shadows a name already taken.
+- **Profiles** (`profiles.ts`). `CHAT` and `FLOW` set the order the model sees,
+  the system prompt (each builder renders the guidelines of the tools the
+  session has), and the approval policy: a call asks before each action that
+  changes something (`askEach`), Flow takes consent once (`consentApprove`).
+  No profile removes a tool.
+- **The device.** `ol-input` lives in Electron main. Either session reaches it
+  through its client's tool bridge (`flow_device`), which calls
+  `window.openlive.flow.device` and main's `openlive:flow-device` handler. Flow
+  always has it; a call has it when the desktop app connects with `device=1`.
+  `look` (the frame a call shares) and `screenshot` (the display, sized for
+  pointing) stay distinct.
+- **MCP** (`mcp.ts`). One server, named `openlive`, serves a session's `ToolSet`
+  to a coding agent on a random loopback path, through the same dispatch and
+  approval.
 
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 

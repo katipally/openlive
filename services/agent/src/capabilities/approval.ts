@@ -1,9 +1,11 @@
 import type { Approve } from "./types.js";
 
-// Flow asks for one thing, once: may it act on this machine. After that every
-// tool runs. There is no tier, no per-tool override and no per-call question,
-// because a conversation interrupted three times to confirm a click is not a
-// conversation, and a person who says yes to everything in a row has not been
+// Two policies, one per mode. A call asks before each action that changes
+// something: the user is there talking it through, and an edit to their files
+// is worth a word. Flow asks for one thing, once: may it act on this machine.
+// After that every tool runs, with no tier, no per-tool override and no
+// per-call question, because a run of clicks interrupted three times to confirm
+// is not a run, and a person who says yes to everything in a row has not been
 // asked anything meaningful.
 
 /** Nothing is ever asked. For tests and for a host that gates elsewhere. */
@@ -82,5 +84,21 @@ export function consentApprove(opts: ConsentOpts): Approve {
     if (signal.aborted) return { block: true, reason: "cancelled" };
     refused = yes === null ? UNANSWERED : DECLINED;
     return { block: true, reason: refused };
+  };
+}
+
+// A call's no is about this action only, so the model is told the tool works.
+const NOT_APPROVED = "the user did not approve it, so it was not done. The tool itself works. Do not retry it unless they ask for it again.";
+
+/**
+ * A call's policy: every tool that changes something asks first, naming what it
+ * is about to do, and everything that only reads or only keeps a note runs.
+ * `ask` resolves true for a yes. A no blocks that call alone.
+ */
+export function askEach(ask: (question: string, signal: AbortSignal) => Promise<boolean>): Approve {
+  return async ({ tool, args }, signal) => {
+    if (!tool.confirm) return {};
+    if (signal.aborted) return { block: true, reason: "cancelled" };
+    return (await ask(`OpenLive wants to ${tool.confirm(args)}. Allow it?`, signal)) ? {} : { block: true, reason: NOT_APPROVED };
   };
 }

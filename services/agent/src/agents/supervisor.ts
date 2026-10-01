@@ -1,6 +1,6 @@
 import type { Message } from "@openlive/harness";
 import { agentLabel, ClassedError, supervisorClass } from "@openlive/shared";
-import type { Emit } from "../tools.js";
+import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentId, AskPermission, TurnInput } from "./types.js";
 import { emitFact } from "../telemetry/emit.js";
 import { brainOf, reportBrainError, type Surface } from "../telemetry/facts.js";

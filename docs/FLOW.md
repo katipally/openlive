@@ -91,10 +91,15 @@ answer you out loud, or do something on the machine.
 | Pointer and keys | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `mouse_down`, `mouse_up`, `type`, `keypress` |
 | Windows and apps | `window_activate`, `window_move`, `window_resize`, `window_minimize`, `window_close`, `open_app`, `open_url` |
 | Commands | `shell` (runs in your home folder through your login shell, 30 second limit) |
+| OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `update_todos` (a checklist for a long job), `remember` (memory shared with calls and every brain) |
 
 Every action hands back a fresh screenshot, so the model checks that the step
 worked before the next one. Only the newest three screenshots stay in the model's
 context.
+
+These are the same tools a call has: Chat and Flow draw on one tool registry,
+and a call in the desktop app can reach the machine too. Flow takes its one
+permission up front; a call asks before each action that changes something.
 
 **Brains.** Settings > Flow > Brain:
 
@@ -206,7 +211,7 @@ macOS and Windows only, the systems that report a lock.
 | Usage counts (session length, turns and tool calls by kind, failure card codes, timings) | OpenLive's analytics server, as numbers and fixed labels. Never words, window titles, file names, screen content or model ids. On by default, off in Settings > Privacy. Every event is listed in [TELEMETRY.md](TELEMETRY.md). |
 
 A coding agent brain uses its own provider under your own login. Its tools come
-from a local MCP server (`openlive-flow`) bound to `127.0.0.1`.
+from a local MCP server (`openlive`) bound to `127.0.0.1`.
 
 **Remote Ollama.** An Ollama address on this computer saves at once. Any other
 address asks first in a native dialog in the desktop app, because that server
@@ -275,9 +280,10 @@ process, two hidden or floating renderers, and the agent service.
                                       live/flow-ws.ts  FlowSession
                                         ├─ flow/loop.ts    runFlow: turns and tool calls
                                         ├─ flow/brain.ts   LocalBrain (provider) | AcpBrain
-                                        ├─ flow/tools.ts + device-tools.ts
-                                        ├─ flow/approval.ts consent, once
-                                        └─ flow/mcp.ts     same tools as MCP for ACP agents
+                                        └─ capabilities/   the tools both modes share
+                                             registry.ts + profiles.ts  FLOW's order, prompt
+                                             approval.ts  consent, once
+                                             mcp.ts       same tools as MCP for ACP agents
 ```
 
 - **Owner window** (`apps/web/src/lib/flow/useFlowOwner.ts`). Hidden, with
@@ -299,8 +305,8 @@ process, two hidden or floating renderers, and the agent service.
 - **Loop and brains** (`services/agent/src/flow/`). `runFlow` runs turns until the
   model stops calling tools, Stop or barge-in aborts, or an error ends it; there
   is no step budget. `LocalBrain` streams from `packages/harness` providers;
-  `AcpBrain` wraps a supervised ACP agent, which reaches the same `Tool[]` through
-  the local MCP server, so both brains see identical tools. Its calls there
+  `AcpBrain` wraps a supervised ACP agent, which reaches the same `ToolSet`
+  through the local MCP server, so both brains see identical tools. Its calls there
   reach the orb and the session file as the built-in brain's do, and a cut
   reply is cut in its memory too (`Agent.cut`). Its own tools (Read, Bash,
   Edit) show on the orb by kind and file ("Reading src/app.ts") and are kept in

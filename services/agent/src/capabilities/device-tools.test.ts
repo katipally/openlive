@@ -322,3 +322,14 @@ describe("evidence after an action", () => {
     expect(slept[0]).toBeGreaterThan(slept[1]!);
   });
 });
+
+describe("asking first", () => {
+  it("says in plain words what an action is about to do, and asks nothing for a look", () => {
+    const { tools } = build();
+    expect(byName(tools, "click").confirm!({ x: 1, y: 2 })).toBe("click on your screen");
+    expect(byName(tools, "keypress").confirm!({ keys: ["Cmd", "S"] })).toBe("press cmd+s");
+    expect(byName(tools, "shell").confirm!({ command: "ls" })).toBe("run this command: ls");
+    expect(byName(tools, "open_app").confirm!({ name: "Notes" })).toBe("open Notes");
+    for (const quiet of ["screenshot", "read_screen_text", "list_windows", "move", "open_url"]) expect(byName(tools, quiet).confirm, quiet).toBeUndefined();
+  });
+});

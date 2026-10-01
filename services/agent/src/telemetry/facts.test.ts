@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PERMISSION_CANCELLED } from "../agents/types.ts";
 import {
-  askOutcome, callToolFact, callToolGroup, flowToolFact, flowToolGroup, permissionFact, reportBrainError, reportException, reportReply, reportTurnError, TurnTimer,
+  askOutcome, permissionFact, toolGroup, toolTally, reportBrainError, reportException, reportReply, reportTurnError, TurnTimer,
   type PermissionOutcome,
 } from "./facts.ts";
 import { limits } from "./limits.ts";
@@ -15,6 +15,8 @@ beforeEach(() => {
 });
 afterEach(() => { delete (process as unknown as { parentPort?: unknown }).parentPort; vi.useRealTimers(); });
 
+const flowTool = toolTally("flow");
+const callTool = toolTally("call");
 const facts = (scope: string) => sent.filter((m) => m.kind === "fact" && m.scope === scope).map((m) => m.props);
 const events = (name: string) => sent.filter((m) => m.kind === "event" && m.name === name).map((m) => m.props);
 
@@ -28,41 +30,57 @@ describe("Flow tool groups", () => {
       window_activate: "t_window", window_move: "t_window", window_resize: "t_window", window_minimize: "t_window", window_close: "t_window",
       open_app: "t_open", open_url: "t_open", shell: "t_shell", remember: "t_memory",
     };
-    for (const [tool, group] of Object.entries(groups)) expect(flowToolGroup(tool), tool).toBe(group);
+    for (const [tool, group] of Object.entries(groups)) expect(toolGroup("flow", tool), tool).toBe(group);
   });
 
   it("counts a tool no group holds as a call and nothing else", () => {
     for (const invented of ["send_email", "Screenshot", "click ", "constructor", "__proto__", "toString", "hasOwnProperty", ""]) {
       sent = [];
-      flowToolFact(invented, false);
+      flowTool(invented, false);
       expect(facts("flow"), invented).toEqual([{ tool_calls: 1 }]);
     }
     sent = [];
-    flowToolFact(null, true);
+    flowTool(null, true);
     expect(facts("flow")).toEqual([{ tool_calls: 1, tool_errors: 1 }]);
   });
 
   it("counts a call once under its group, and a failure beside it", () => {
-    flowToolFact("camera_frame", false);
-    flowToolFact("shell", true);
+    flowTool("camera_frame", false);
+    flowTool("shell", true);
     expect(facts("flow")).toEqual([{ tool_calls: 1, t_see: 1 }, { tool_calls: 1, tool_errors: 1, t_shell: 1 }]);
   });
 });
 
 describe("call tool groups", () => {
   it("covers the tools both brains have, and the built-in brain's own", () => {
-    expect(["look", "clipboard_read", "clipboard_write", "open_url", "remember", "delegate", "update_todos", "list_dir", "read_file", "write_file", "edit_file"].map(callToolGroup))
+    expect(["look", "clipboard_read", "clipboard_write", "open_url", "remember", "delegate", "update_todos", "list_dir", "read_file", "write_file", "edit_file"].map((t) => toolGroup("call", t)))
       .toEqual(["t_look", "t_clipboard", "t_clipboard", "t_open_url", "t_memory", "t_web", "t_plan", "t_files", "t_files", "t_files", "t_files"]);
   });
 
   it("says nothing for a tool it does not know, since a call has no total to add it to", () => {
-    for (const unknown of ["screenshot", "Bash", "constructor", null]) callToolFact(unknown);
+    for (const unknown of ["screenshot", "Bash", "constructor", null]) callTool(unknown, false);
     expect(sent).toEqual([]);
   });
 
   it("sends one group at a time", () => {
-    callToolFact("clipboard_write");
+    callTool("clipboard_write", true);
     expect(facts("call")).toEqual([{ t_clipboard: 1 }]);
+  });
+});
+
+describe("one tally for both surfaces", () => {
+  it("counts a tool reachable from both under each surface's own groups", () => {
+    callTool("remember", false);
+    flowTool("remember", false);
+    expect(facts("call")).toEqual([{ t_memory: 1 }]);
+    expect(facts("flow")).toEqual([{ tool_calls: 1, t_memory: 1 }]);
+  });
+
+  it("counts a tool new to a surface as a call there and under no group yet", () => {
+    callTool("click", false);
+    flowTool("delegate", false);
+    expect(facts("call")).toEqual([]);
+    expect(facts("flow")).toEqual([{ tool_calls: 1 }]);
   });
 });
 

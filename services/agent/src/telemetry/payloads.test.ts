@@ -6,7 +6,7 @@ import { ERROR_CLASSES } from "@openlive/shared";
 import { NATIVE_ENGINES, NATIVE_FAMILIES } from "../voice/native-models.ts";
 import type { BenchResult } from "../voice/accel.ts";
 import type { DeviceProfile } from "../voice/device.ts";
-import { callToolFact, flowToolFact, permissionFact, reportBrainError, reportException, type PermissionOutcome } from "./facts.ts";
+import { permissionFact, toolTally, reportBrainError, reportException, type PermissionOutcome } from "./facts.ts";
 import { limits } from "./limits.ts";
 import { reportBench, voiceFault } from "./voice.ts";
 
@@ -34,14 +34,14 @@ function expectAccepted(): void {
 describe("facts", () => {
   it("accept every Flow tool group and count", () => {
     for (const tool of ["insert_text", "read_selection", "screenshot", "click", "keypress", "window_close", "open_app", "shell", "remember", "camera_frame", "made_up"]) {
-      flowToolFact(tool, false);
-      flowToolFact(tool, true);
+      toolTally("flow")(tool, false);
+      toolTally("flow")(tool, true);
     }
     expectAccepted();
   });
 
   it("accept every call tool group", () => {
-    for (const tool of ["look", "clipboard_read", "open_url", "list_dir", "delegate", "update_todos", "remember"]) callToolFact(tool);
+    for (const tool of ["look", "clipboard_read", "open_url", "list_dir", "delegate", "update_todos", "remember"]) toolTally("call")(tool, false);
     expectAccepted();
   });
 

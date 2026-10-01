@@ -2,6 +2,7 @@ import { classifyError, httpClassOf, SUPERVISED_CLASSES, type ErrorClass, type H
 import { PERMISSION_CANCELLED } from "../agents/types.js";
 import { emitEvent, emitFact, type AgentFactProps } from "./emit.js";
 import { limits } from "./limits.js";
+import type { ToolTally } from "../capabilities/dispatch.js";
 
 export type Surface = "flow" | "call";
 
@@ -38,21 +39,23 @@ const CALL_TOOLS = {
 const invert = <G extends string>(groups: Record<G, readonly string[]>): Map<string, G> =>
   new Map((Object.entries(groups) as [G, readonly string[]][]).flatMap(([group, names]) => names.map((n): [string, G] => [n, group])));
 
-const flowGroups = invert(FLOW_TOOLS);
-const callGroups = invert(CALL_TOOLS);
-export const flowToolGroup = (tool: string | null) => (tool ? flowGroups.get(tool) : undefined);
-export const callToolGroup = (tool: string | null) => (tool ? callGroups.get(tool) : undefined);
+// A tool is reachable from both surfaces, but each fact reports only the groups
+// its own schema names: a call's device tools and Flow's research count nowhere
+// until a group is added for them.
+const GROUPS: Record<Surface, Map<string, string>> = { flow: invert(FLOW_TOOLS), call: invert(CALL_TOOLS) };
 
-/** One Flow tool call, as `dispatch` saw it: `tool` is the resolved tool, null when the name matched none. */
-export function flowToolFact(tool: string | null, failed: boolean): void {
-  const group = flowToolGroup(tool);
-  emitFact("flow", { tool_calls: 1, ...(failed && { tool_errors: 1 }), ...(group && { [group]: 1 }) });
-}
+/** The group a tool counts under on this surface; nothing for a name it does not know. */
+export const toolGroup = (surface: Surface, tool: string | null) => (tool ? GROUPS[surface].get(tool) : undefined);
 
-/** One call tool, from either brain. A call reports groups only, so an unknown tool is nothing to add. */
-export function callToolFact(tool: string | null): void {
-  const group = callToolGroup(tool);
-  if (group) emitFact("call", { [group]: 1 });
+/** Hears every dispatched call on a surface, whichever brain made it: `tool` is
+ *  the resolved tool, null when the name matched none. A call's fact counts
+ *  groups only; Flow's also counts calls and failures. */
+export function toolTally(surface: Surface): ToolTally {
+  return (tool, failed) => {
+    const group = toolGroup(surface, tool);
+    if (surface === "flow") emitFact("flow", { tool_calls: 1, ...(failed && { tool_errors: 1 }), ...(group && { [group]: 1 }) });
+    else if (group) emitFact("call", { [group]: 1 });
+  };
 }
 
 // ── permission asks ─────────────────────────────────────────────────────────

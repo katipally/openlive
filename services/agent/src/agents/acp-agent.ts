@@ -10,7 +10,7 @@ import {
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
-import type { Emit } from "../tools.js";
+import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
 import { TerminalManager } from "./terminal-manager.js";
@@ -21,6 +21,7 @@ import { emitEvent } from "../telemetry/emit.js";
 import { resolveVision } from "../providers.js";
 import { describeFrames, frameSources } from "../live/turn-runner.js";
 import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
+import { MCP_SERVER_NAME } from "../capabilities/mcp.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -52,14 +53,11 @@ function voiceCall(): string {
   return `${PREAMBLE}\n[How the user wants you to behave and speak, in their own words — follow within reason:\n${custom}]`;
 }
 
-/** The MCP server a call hands its agent: the call's own tools the agent lacks. */
-export const CALL_MCP_SERVER = "openlive";
-
-/** A call's preamble once those tools ride along, with what `remember` kept so
+/** A call's preamble once OpenLive's tools ride along, with what `remember` kept so
  *  the agent knows it too, as the built-in brain does. */
 export function callPreamble(hosted: string[]): string {
   return `${preamble()}
-[OpenLive has attached tools of its own to this session over MCP, from a server called "${CALL_MCP_SERVER}": ${hosted.join(", ")}. Your harness lists them namespaced, like mcp__${CALL_MCP_SERVER}__${hosted[0]} or mcp.${CALL_MCP_SERVER}.${hosted[0]}, and may hold them back until something loads them: load them, then call them.]${hosted.includes("remember") ? SHARED_MEMORY : ""}${rememberedNotes()}`;
+[OpenLive has attached tools of its own to this session over MCP, from a server called "${MCP_SERVER_NAME}": ${hosted.join(", ")}. Your harness lists them namespaced, like mcp__${MCP_SERVER_NAME}__${hosted[0]} or mcp.${MCP_SERVER_NAME}.${hosted[0]}, and may hold them back until something loads them: load them, then call them.]${hosted.includes("remember") ? SHARED_MEMORY : ""}${rememberedNotes()}`;
 }
 
 // Claude's adapter accepts Agent-SDK options via `_meta.claudeCode.options` on

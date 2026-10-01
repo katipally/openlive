@@ -1,11 +1,10 @@
-import { dispatch, resolveToolName, toolSpecs, type FlowToolCall, type ToolTally, type Verdict } from "./tools.js";
-import { allowAll } from "./approval.js";
+import { asMessage, dispatch, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
+import { allowAll } from "../capabilities/approval.js";
+import type { Approve, Session } from "../capabilities/types.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
 import type { ErrorClass } from "@openlive/shared";
-import type {
-  Approve, Brain, ClipboardPort, ContextProvider, FlowEvent, InsertionSink, Msg, TextPart, Tool, Usage,
-} from "./types.js";
+import type { Brain, FlowEvent, Msg, Usage } from "./types.js";
 
 // The only control flow in Flow. Two levels: turns, and the events inside a
 // turn. It owns no budget and counts no steps: a run ends because the data said
@@ -14,15 +13,15 @@ import type {
 
 export interface FlowRun {
   brain: Brain;
-  tools: Tool[];
+  tools: ToolSet;
   /** The conversation. Appended to in place, so the host persists what it already holds. */
   messages: Msg[];
   signal: AbortSignal;
-  insert: InsertionSink;
-  clipboard: ClipboardPort;
+  /** What the tools reach. Its `foreground` is captured once a turn, and its
+   *  `insert` takes insert_text's words as they stream. */
+  session: Session;
   /** Resolved per turn. Must not throw. */
   getSystemPrompt: () => string | Promise<string>;
-  context?: ContextProvider;
   approve?: Approve;
   /** False runs tools one at a time. Approval is sequential either way. */
   parallel?: boolean;
@@ -109,10 +108,7 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefi
   });
 }
 
-const asText = (content: (TextPart | { type: "image" })[]): string =>
-  content.filter((c): c is TextPart => c.type === "text").map((c) => c.text).join("\n") || "(no output)";
-
-function assistantMessage(text: string, calls: FlowToolCall[], reasoning = "", reasoningSignature?: string): Msg {
+function assistantMessage(text: string, calls: ToolCall[], reasoning = "", reasoningSignature?: string): Msg {
   return {
     role: "assistant",
     text: text || undefined,
@@ -133,14 +129,15 @@ const alreadyTyped = (committed: string) =>
 // ── the loop ────────────────────────────────────────────────────────────────
 
 export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
-  const { brain, tools, messages, signal } = run;
+  const { brain, tools, messages, signal, session } = run;
+  const insert = session.insert;
   const approve = run.approve ?? allowAll;
   const budget = run.budget ?? DEFAULT_BUDGET;
-  const specs = toolSpecs(tools);
+  const specs = toolSpecs(tools.list);
   let anchor: { index: number; tokens: number } | null = null;
   // The calls of the turn in flight. Any insertion they opened is closed on the
   // way out, whichever way the run ends.
-  let open: FlowToolCall[] = [];
+  let open: ToolCall[] = [];
 
   try {
     for (;;) {
@@ -148,7 +145,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
 
       for (const m of run.pollSteering?.() ?? []) messages.push(m);
 
-      const context = (await run.context?.capture(signal)) ?? null;
+      const context = (await session.foreground?.capture(signal)) ?? null;
       if (context) yield { type: "context", context };
 
       // The anchor's token count included the pictures just dropped.
@@ -163,7 +160,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       let text = "";
       let reasoning = "";
       let signature: string | undefined;
-      const calls: FlowToolCall[] = [];
+      const calls: ToolCall[] = [];
       open = calls;
       // Resolved once per call, by whoever needs it first, and reused by dispatch.
       const preflighted = new Map<string, Promise<Verdict>>();
@@ -179,10 +176,10 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
        * here instead, before the first character lands. Consent already given
        * answers in a microtask and the text streams as before.
        */
-      const mayStream = async (call: FlowToolCall, args: Record<string, unknown>): Promise<boolean> => {
+      const mayStream = async (call: ToolCall, args: Record<string, unknown>): Promise<boolean> => {
         let decision = preflighted.get(call.id);
         if (!decision) {
-          const tool = resolveToolName(call.name, tools);
+          const tool = tools.resolve(call.name);
           if (!tool) return false;
           decision = Promise.resolve(approve({ tool, args }, signal))
             .catch((e): Verdict => ({ block: true, reason: e instanceof Error ? e.message : "the approval failed" }));
@@ -201,8 +198,8 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
           // The insertion sink is forward-only, so handing it the growing text is
           // safe to do before the call is even finished being written.
           const call = calls.find((c) => c.id === ev.id);
-          if (call?.name === "insert_text" && typeof ev.argsPartial.text === "string" && await mayStream(call, ev.argsPartial)) {
-            await run.insert.commit(ev.id, ev.argsPartial.text);
+          if (insert && call?.name === "insert_text" && typeof ev.argsPartial.text === "string" && await mayStream(call, ev.argsPartial)) {
+            await insert.commit(ev.id, ev.argsPartial.text);
           }
           continue;
         }
@@ -240,21 +237,20 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       let terminate = true;
       if (stop === "length") {
         for (const c of calls) {
-          const typed = run.insert.committed(c.id);
-          if (typed) await run.insert.abandon(c.id);
+          const typed = insert?.committed(c.id) ?? "";
+          if (typed) await insert!.abandon(c.id);
           const result = typed ? alreadyTyped(typed) : TRUNCATED;
           messages.push({ role: "tool", callId: c.id, name: c.name, result, isError: true });
           yield { type: "tool_result", id: c.id, name: c.name, content: [{ type: "text", text: result }], isError: true, details: { error: result } };
         }
         terminate = false;
       } else {
-        const running = dispatch(calls, tools, { signal, context, insert: run.insert, clipboard: run.clipboard }, { approve, parallel: run.parallel, preflighted, tally: run.tally });
+        const running = dispatch(calls, tools, { ...session, signal, context }, { approve, parallel: run.parallel, preflighted, tally: run.tally });
         for (;;) {
           const next = await running.next();
           if (next.done) {
             for (const r of next.value) {
-              const images = r.content.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
-              messages.push({ role: "tool", callId: r.id, name: r.name, result: asText(r.content), isError: r.isError, images: images.length ? images : undefined });
+              messages.push({ role: "tool", ...asMessage(r) });
               if (!r.terminate) terminate = false;
             }
             break;
@@ -269,6 +265,6 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       if (await run.shouldStop?.()) { yield { type: "done", reason: "host_stop" }; return; }
     }
   } finally {
-    for (const c of open) if (c.name === "insert_text") await run.insert.abandon(c.id);
+    for (const c of open) if (c.name === "insert_text") await insert?.abandon(c.id);
   }
 }

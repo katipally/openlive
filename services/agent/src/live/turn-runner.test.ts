@@ -4,6 +4,8 @@ import { expect, test, vi } from "vitest";
 import type { ChatRequest, Message } from "@openlive/harness";
 import type { MessageBlock, SseEvent } from "@openlive/shared";
 import { foldBlock } from "../block-emit.ts";
+import { ToolSet } from "../capabilities/dispatch.ts";
+import { allowAll } from "../capabilities/approval.ts";
 import { LiveTurnRunner, stepGap } from "./turn-runner.ts";
 
 // A model that calls a tool on every step it is allowed to, and calls one anyway
@@ -26,10 +28,9 @@ vi.mock("../providers.js", () => ({
   resolveVision: () => null,
   liveReasoning: () => ({}),
 }));
-vi.mock("../prompt.js", () => ({ buildLivePrompt: () => "SYSTEM" }));
+vi.mock("../prompt.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../prompt.ts")>()), buildLivePrompt: () => "SYSTEM" }));
 vi.mock("../tool-images.js", () => ({ prepareToolImages: async (m: Message[]) => m }));
-vi.mock("../tools.js", () => ({ buildOpenLiveTools: () => [{ name: "look", description: "", parameters: {}, execute: async () => ({ output: "seen" }) }] }));
-vi.mock("./worker.js", () => ({ runWorker: async () => "" }));
+const look = new ToolSet([{ name: "look", description: "", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "seen" }], details: null }) }]);
 
 test("keeps a space between two steps' text in the saved turn", () => {
   const blocks: MessageBlock[] = [];
@@ -47,7 +48,7 @@ test("adds nothing where the boundary already has whitespace or a side is empty"
 });
 
 test("the call's prompt gains one language line outside English, and stays byte-identical in it", async () => {
-  const { withLanguage } = await import("./turn-runner.ts");
+  const { withLanguage } = await import("../prompt.ts");
   expect(withLanguage("PROMPT")).toBe("PROMPT");
   expect(withLanguage("PROMPT", "en")).toBe("PROMPT");
   expect(withLanguage("PROMPT", "ko")).toBe("PROMPT\n\n---\nAlways reply in Korean.");
@@ -55,7 +56,7 @@ test("the call's prompt gains one language line outside English, and stays byte-
 
 test("a turn that spends its tool budget still ends in a spoken reply, with every call answered", async () => {
   const events: SseEvent[] = [];
-  const runner = new LiveTurnRunner([]);
+  const runner = new LiveTurnRunner(look, {}, { approve: allowAll });
   await runner.runTurn("dig into it", [], (e) => { events.push(e); }, new AbortController().signal);
   expect(asked.map((r) => r.toolChoice)).toEqual([...Array(6).fill(undefined), "none"]);
   expect(asked.at(-1)!.tools.map((t) => t.name)).toEqual(["look"]);

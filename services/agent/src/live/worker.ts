@@ -1,5 +1,8 @@
 import { streamProvider, isReasoningModel, type Message } from "@openlive/harness";
-import { buildWorkerTools, type Emit } from "../tools.js";
+import { WORKER_TOOLS } from "../capabilities/web.js";
+import { allowAll } from "../capabilities/approval.js";
+import { asMessage, dispatchAll, toolSpecs, ToolSet } from "../capabilities/dispatch.js";
+import type { Emit } from "../capabilities/types.js";
 import { collectTurn, safeParseArgs } from "../turn.js";
 import { WORKER_PROMPT } from "../prompt.js";
 import { resolveLive } from "../providers.js";
@@ -40,8 +43,8 @@ export async function runWorker(task: string, emit: Emit, signal: AbortSignal): 
   const { provider, model, apiKey } = resolveLive();
   if (!model || (!apiKey && !provider.keyless)) return "(no model configured for the lookup)";
 
-  const tools = buildWorkerTools({ emit });
-  const toolDefs = tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+  const tools = new ToolSet(WORKER_TOOLS);
+  const toolDefs = toolSpecs(tools.list);
   const messages: Message[] = [
     { role: "system", text: WORKER_PROMPT },
     { role: "user", text: task },
@@ -68,15 +71,11 @@ export async function runWorker(task: string, emit: Emit, signal: AbortSignal): 
       const line = narrationFor(turn.toolCalls, narrations);
       if (line) narrateTimer = setTimeout(() => { if (!signal.aborted) { narrations++; void emit({ type: "say", text: line }); } }, NARRATE_AFTER_MS);
     }
-    const results = await Promise.all(turn.toolCalls.map(async (tc) => {
-      const tool = tools.find((t) => t.name === tc.name);
-      if (!tool) return { tc, out: `Unknown tool "${tc.name}".` };
-      try { return { tc, out: (await tool.execute(safeParseArgs(tc.arguments))).output }; }
-      catch (e: any) { return { tc, out: `Error: ${String(e?.message ?? e)}` }; }
-    }));
+    const calls = turn.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, args: safeParseArgs(tc.arguments) }));
+    const results = await dispatchAll(calls, tools, { signal, context: null, emit }, { approve: allowAll });
     if (narrateTimer) clearTimeout(narrateTimer);
     if (signal.aborted) return "(cancelled)";
-    for (const { tc, out } of results) messages.push({ role: "tool", callId: tc.id, name: tc.name, result: out });
+    for (const r of results) messages.push({ role: "tool", ...asMessage(r) });
   }
   return "(couldn't pin it down in a few steps — tell the user you came up short)";
 }

@@ -18,6 +18,8 @@ import type { ImagePart, TextPart, Tool, ToolResult } from "./types.js";
 
 const text = (t: string): TextPart => ({ type: "text", text: t });
 const image = (data: string): ImagePart => ({ type: "image", data, mime: "image/png" });
+const obj = (properties: Record<string, unknown>, required: string[]) =>
+  ({ type: "object", properties, required, additionalProperties: false });
 
 /**
  * Settle time before the automatic screenshot, per action.
@@ -251,6 +253,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     name: spec.name,
     description: spec.description,
     parameters: obj(spec.properties, spec.required),
+    ...(spec.ask && { confirm: spec.ask }),
     async execute(args: Record<string, any>) {
       const action = await spec.build(args, toScreen);
       requireControl(await freshCapabilities(), POSTED_INPUT.has(action.kind));
@@ -264,6 +267,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     name: "shell",
     description: "Run a shell command on the user's machine and read its output. Use it for things a command does well, never for clicking around an app.",
     parameters: obj({ command: { type: "string", description: "The command line to run" } }, ["command"]),
+    confirm: (a) => `run this command: ${a.command}`,
     promptGuidelines: ["Nothing stops a shell command once you call it, so say what you are running in the same breath, and do not run one they did not ask for."],
     async execute(args) {
       const r = await device.shell(args.command);
@@ -282,6 +286,8 @@ interface ControlSpec {
   description: string;
   /** How long the screen needs to catch up with this action. Omitted means a frame. */
   settleMs?: number;
+  /** What it is about to do, for a policy that asks first. Omitted: nothing worth asking about. */
+  ask?: (args: any) => string;
   properties: Record<string, unknown>;
   required: string[];
   build(args: any, toScreen: (x: number, y: number) => Promise<ScreenPoint>): Promise<ControlAction>;
@@ -321,21 +327,45 @@ const keyName = (raw: unknown): string => {
   return KEY_SPELLINGS[key] ?? key;
 };
 
+/** One open_url, whether the device opens it or the client's bridge does. */
+const OPEN_URL = {
+  description: "Open a web address in the user's default browser, when they ask to open, pull up or go to a site. Prefer this over clicking into the address bar and typing: it is one call, it cannot miss, and it works whatever the browser is showing.",
+  properties: { url: { type: "string", description: "An http or https address" } },
+};
+
+/**
+ * open_url for a session with no device: the client opens it and says how that
+ * went. A session with the device gets the control action instead, which shows
+ * the page it opened.
+ */
+export const bridgedOpenUrl: Tool<{ url: string }, null> = {
+  name: "open_url",
+  description: OPEN_URL.description,
+  parameters: obj(OPEN_URL.properties, ["url"]),
+  available: (s) => !s.device && !!s.openUrl,
+  async execute(args, ctx) {
+    return { content: [text(await ctx.openUrl!(args.url))], details: null };
+  },
+};
+
 const CONTROL_ACTIONS: ControlSpec[] = [
   {
     name: "click", description: "Click once where you point.", settleMs: COMMIT_SETTLE_MS,
+    ask: () => "click on your screen",
     properties: { ...XY, ...BUTTON }, required: ["x", "y"],
     build: async (a, to) => ({ kind: "click", point: await to(a.x, a.y), button: button(a), count: 1 }),
     summary: (a) => `Clicked ${at(a)}.`,
   },
   {
     name: "double_click", description: "Double click where you point.", settleMs: COMMIT_SETTLE_MS,
+    ask: () => "double click on your screen",
     properties: XY, required: ["x", "y"],
     build: async (a, to) => ({ kind: "click", point: await to(a.x, a.y), button: "left", count: 2 }),
     summary: (a) => `Double clicked ${at(a)}.`,
   },
   {
     name: "right_click", description: "Open the context menu where you point.",
+    ask: () => "right click on your screen",
     properties: XY, required: ["x", "y"],
     build: async (a, to) => ({ kind: "click", point: await to(a.x, a.y), button: "right", count: 1 }),
     summary: (a) => `Right clicked ${at(a)}.`,
@@ -348,6 +378,7 @@ const CONTROL_ACTIONS: ControlSpec[] = [
   },
   {
     name: "drag", description: "Press at one point, move, and release at another.",
+    ask: () => "drag on your screen",
     properties: {
       from_x: { type: "integer" }, from_y: { type: "integer" },
       to_x: { type: "integer" }, to_y: { type: "integer" }, ...BUTTON,
@@ -358,6 +389,7 @@ const CONTROL_ACTIONS: ControlSpec[] = [
   },
   {
     name: "scroll",
+    ask: () => "scroll on your screen",
     description: "Scroll under the pointer, in notches of a wheel. Positive vertical scrolls down, positive horizontal scrolls right.",
     properties: {
       ...XY,
@@ -374,12 +406,14 @@ const CONTROL_ACTIONS: ControlSpec[] = [
   },
   {
     name: "type", description: "Type text into whatever has keyboard focus. For putting the user's own words in their document, use insert_text instead.",
+    ask: (a) => `type ${String(a.text).length} characters where your cursor is`,
     properties: { text: { type: "string" } }, required: ["text"],
     build: async (a) => ({ kind: "type", text: a.text }),
     summary: (a) => `Typed ${String(a.text).length} characters.`,
   },
   {
     name: "keypress", description: "Press a chord, as [\"cmd\", \"s\"] or [\"enter\"]. Enter usually commits something, so read the screen that comes back.", settleMs: COMMIT_SETTLE_MS,
+    ask: (a) => `press ${(a.keys as unknown[]).map(keyName).filter(Boolean).join("+")}`,
     properties: { keys: { type: "array", items: { type: "string" }, description: "The keys held together" } },
     required: ["keys"],
     build: async (a) => {
@@ -391,30 +425,35 @@ const CONTROL_ACTIONS: ControlSpec[] = [
   },
   {
     name: "mouse_down", description: "Press and hold a mouse button. Pair it with mouse_up for a gesture drag cannot express.",
+    ask: () => "press your mouse button down",
     properties: { ...XY, ...BUTTON }, required: ["x", "y"],
     build: async (a, to) => ({ kind: "mouse_down", point: await to(a.x, a.y), button: button(a) }),
     summary: (a) => `Pressed the mouse at ${at(a)}.`,
   },
   {
     name: "mouse_up", description: "Release a held mouse button.",
+    ask: () => "release your mouse button",
     properties: { ...XY, ...BUTTON }, required: ["x", "y"],
     build: async (a, to) => ({ kind: "mouse_up", point: await to(a.x, a.y), button: button(a) }),
     summary: (a) => `Released the mouse at ${at(a)}.`,
   },
   {
     name: "window_activate", description: "Bring a window to the front and give it focus.", settleMs: COMMIT_SETTLE_MS,
+    ask: () => "bring a window to the front",
     properties: { window_id: { type: "integer" } }, required: ["window_id"],
     build: async (a) => ({ kind: "window", op: "activate", windowId: a.window_id }),
     summary: (a) => `Brought window ${a.window_id} to the front.`,
   },
   {
     name: "window_move", description: "Move a window to a desktop position, in the coordinates list_windows reports.",
+    ask: () => "move a window",
     properties: { window_id: { type: "integer" }, ...WINDOW_XY }, required: ["window_id", "x", "y"],
     build: async (a) => ({ kind: "window_move", windowId: a.window_id, point: screenPoint(a.x, a.y) }),
     summary: (a) => `Moved window ${a.window_id} to ${at(a)}.`,
   },
   {
     name: "window_resize", description: "Resize a window, in the same desktop coordinates list_windows reports.",
+    ask: () => "resize a window",
     properties: { window_id: { type: "integer" }, width: { type: "integer" }, height: { type: "integer" } },
     required: ["window_id", "width", "height"],
     build: async (a) => ({ kind: "window_resize", windowId: a.window_id, width: a.width, height: a.height }),
@@ -422,36 +461,35 @@ const CONTROL_ACTIONS: ControlSpec[] = [
   },
   {
     name: "window_minimize", description: "Send a window to the dock or taskbar.",
+    ask: () => "minimize a window",
     properties: { window_id: { type: "integer" } }, required: ["window_id"],
     build: async (a) => ({ kind: "window", op: "minimize", windowId: a.window_id }),
     summary: (a) => `Minimized window ${a.window_id}.`,
   },
   {
     name: "window_close", description: "Close a window. Anything unsaved in it is the user's to lose, so be sure.",
+    ask: () => "close a window",
     properties: { window_id: { type: "integer" } }, required: ["window_id"],
     build: async (a) => ({ kind: "window", op: "close", windowId: a.window_id }),
     summary: (a) => `Closed window ${a.window_id}.`,
   },
   {
     name: "open_app", description: "Launch an app, or bring it to the front if it is already running. Prefer this over hunting for it in the dock.", settleMs: LAUNCH_SETTLE_MS,
+    ask: (a) => `open ${a.name}`,
     properties: { name: { type: "string", description: "The app's name as the user would say it" } },
     required: ["name"],
     build: async (a) => ({ kind: "open_app", name: a.name }),
     summary: (a) => `Opened ${a.name}.`,
   },
   {
-    name: "open_url", description: "Open a web address in the user's browser. Prefer this over clicking into the address bar and typing: it is one call, it cannot miss, and it works whatever the browser is showing.", settleMs: LAUNCH_SETTLE_MS,
-    properties: { url: { type: "string", description: "An http or https address" } },
-    required: ["url"],
+    name: "open_url", description: OPEN_URL.description, settleMs: LAUNCH_SETTLE_MS,
+    properties: OPEN_URL.properties, required: ["url"],
     build: async (a) => ({ kind: "open_url", url: a.url }),
     summary: (a) => `Opened ${a.url}.`,
   },
 ];
 
 // ── plumbing ────────────────────────────────────────────────────────────────
-
-const obj = (properties: Record<string, unknown>, required: string[]) =>
-  ({ type: "object", properties, required, additionalProperties: false });
 
 const describeWindow = (w: WindowSummary): string => {
   const title = w.title ? ` "${w.title}"` : "";

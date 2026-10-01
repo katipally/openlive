@@ -56,7 +56,7 @@ test("each turn's language reaches the system prompt; English leaves it untouche
   await done(3);
   // The connect-time warm-up may send one more request first, with the English prompt.
   const [en, es, back] = instructions.slice(-3);
-  expect(en!.startsWith(buildLivePrompt().slice(0, 200))).toBe(true);
+  expect(en!.startsWith(buildLivePrompt([]).slice(0, 200))).toBe(true);
   expect(en).not.toContain("Always reply in");
   expect(es).toBe(`${en}\n\n---\nAlways reply in Spanish.`);
   expect(back).toBe(en); // a language change applies from the next turn, both ways
@@ -75,7 +75,7 @@ test("the connect-time warm-up primes the prompt in the language the call opened
   };
   const [en] = await warmed();
   const [es] = await warmed("es");
-  expect(en!.startsWith(buildLivePrompt().slice(0, 200))).toBe(true);
+  expect(en!.startsWith(buildLivePrompt([]).slice(0, 200))).toBe(true);
   expect(en).not.toContain("Always reply in");
   expect(es).toBe(`${en}\n\n---\nAlways reply in Spanish.`);
 });

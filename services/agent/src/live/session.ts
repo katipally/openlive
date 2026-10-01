@@ -4,27 +4,33 @@ import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
-import { makeRemember, type Emit, type OpenLiveTool } from "../tools.js";
+import type { Approve, Emit, Session, Tool } from "../capabilities/types.js";
+import { registry } from "../capabilities/registry.js";
+import { CHAT } from "../capabilities/profiles.js";
+import { ToolSet } from "../capabilities/dispatch.js";
+import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
+import { MCP_SERVER_NAME, serveMcp } from "../capabilities/mcp.js";
 import { finalizeToolBlocks, foldBlock, newFoldCtx, type FoldCtx } from "../block-emit.js";
 import { LiveTurnRunner } from "./turn-runner.js";
-import { buildFileTools } from "./file-tools.js";
 import { narrationEnabled, wrapEmitWithNarration, createCommentaryGate } from "./narrator.js";
-import { serveFlowMcp, servedTool } from "../flow/mcp.js";
-import { ForwardOnlyInsertion } from "../flow/tools.js";
 import { hostedBy } from "../agents/mcp-config.js";
-import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, CALL_MCP_SERVER, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
+import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { emitFact, type AgentFactProps } from "../telemetry/emit.js";
-import { askOutcome, brainOf, callToolFact, permissionFact, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent, type PermissionOutcome } from "../telemetry/facts.js";
+import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent, type PermissionOutcome } from "../telemetry/facts.js";
 import { resolveLive } from "../providers.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" | "attachment" };
-/** A call's tools reach the machine through its own bridge, so the context, typing
- *  and clipboard ports Flow's MCP transport hands a tool go unused here. */
-const UNUSED_PORTS = { context: null, insert: new ForwardOnlyInsertion(() => {}), clipboard: { read: async () => "", write: async () => {} } };
 const HISTORY_TURNS = 20; // recent messages to rehydrate on reconnect
+const BRIDGE_TIMEOUT_MS = 5_000;
+/** Tools whose work shows on its own: the worker's searches, and the checklist. */
+const OWN_UI = new Set(["delegate", "update_todos"]);
+/** Kinds given, so a no is counted as one and the client maps a spoken answer. */
+const ALLOW_OR_DENY: PermissionAskOption[] = [{ id: "allow", label: "Allow", kind: "allow_once" }, { id: "deny", label: "Deny", kind: "reject_once" }];
+/** The argument a chip names, the first one a tool has. */
+const CHIP_ARGS = ["url", "note", "path", "command", "name"];
 
 // Some providers (e.g. MiniMax) leak control-token fragments like "[e[" into the
 // text stream. Scrub ONLY those bracket-pair fragments — NOT every bracket: coding
@@ -69,7 +75,7 @@ function truncateSpokenText(blocks: MessageBlock[], spoken: string): void {
  *  are kept in `hidden`. */
 function hideHosted(emit: Emit, hidden: Set<string>): Emit {
   return (e) => {
-    if (e.type === "acp_tool_call" && hostedBy(e.call.title, CALL_MCP_SERVER)) hidden.add(e.call.id);
+    if (e.type === "acp_tool_call" && hostedBy(e.call.title, MCP_SERVER_NAME)) hidden.add(e.call.id);
     const id = e.type === "acp_tool_call" ? e.call.id : e.type === "acp_tool_update" ? e.delta.id : "";
     return id && hidden.has(id) ? undefined : emit(e);
   };
@@ -81,6 +87,7 @@ function hideHosted(emit: Emit, hidden: Set<string>): Emit {
 // the conversation.
 export class LiveSession {
   private runner: LiveTurnRunner;
+  private toolSession: Session;
   // When bound, a coding agent (Claude Code / Codex / Cursor) is the brain instead
   // of the provider loop. `agentReady` resolves once the ACP handshake completes.
   private agent: Agent | null = null;
@@ -127,56 +134,33 @@ export class LiveSession {
   // `look` tool ↔ client hi-res frame handshake.
   private lookPending: { reqId: string; resolve: (f: Frame | null) => void } | null = null;
   private awaitingLookFrame = false;
-  // OS bridge (clipboard / open_url) ↔ client handshake. The client runs the
-  // action via Electron and replies; on the web it replies "not available".
+  // OS bridge (clipboard / open_url / the device) ↔ client handshake. The client
+  // runs the action via Electron and replies; on the web it replies "not available".
   private bridgePending = new Map<string, (out: string) => void>();
-  // The tools a coding agent lacks, served to it over MCP: the same objects the
+  // The call's tools, served to a coding agent over MCP: the same set the
   // built-in brain runs, so one implementation answers both.
-  private hosted: OpenLiveTool[];
-  private mcp: ReturnType<typeof serveFlowMcp> | null = null;
-  /** The running turn's emit, so a hosted tool shows its chip in that turn. */
+  private tools: ToolSet;
+  private approve: Approve;
+  private mcp: ReturnType<typeof serveMcp> | null = null;
+  /** The running turn's emit, so a tool shows its chip in that turn. */
   private toolEmit: Emit = () => {};
 
-  constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode) {
-    const lookTool: OpenLiveTool = {
-      name: "look",
-      readOnly: true,
-      description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
-      execute: async () => {
-        if (!this.cameraOn && !this.screenOn) return { output: "Nothing is being shared right now. Ask the user to turn on their camera or share their screen." };
-        const frame = await this.requestFrame();
-        if (!frame) return { output: "Couldn't grab a fresh frame (it timed out). Ask the user to check their camera / screen share." };
-        const what = this.screenOn ? "the user's screen" : "the user's camera";
-        return { output: `This is what ${what} is showing right now — talk about it naturally, as what you're both looking at.`, images: [frame] };
-      },
+  /** `device`: the client is the desktop app, which can reach the ol-input addon. */
+  constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode, device = false) {
+    // What the call can reach. The client answers every bridge op; the camera
+    // frame for the device comes from the share the call already holds.
+    this.toolSession = {
+      clipboard: { read: () => this.bridge("clipboard_read"), write: (text) => this.bridge("clipboard_write", text) },
+      openUrl: (url) => this.bridge("open_url", url),
+      share: { showing: () => (this.screenOn ? "screen" : this.cameraOn ? "camera" : null), frame: () => this.requestFrame() },
+      // Read live, so the file tools track a folder change mid-call.
+      workspace: () => this.boundCwd,
+      emit: (e) => this.toolEmit(e),
+      ...(device && { device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS), async () => (this.cameraOn ? this.requestFrame() : null)) }),
     };
-    const clipboardRead: OpenLiveTool = {
-      name: "clipboard_read",
-      readOnly: true,
-      description: "Read the text currently on the user's clipboard (what they just copied). Use when they say things like 'what did I just copy' or 'read my clipboard'. Desktop app only.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
-      execute: async () => ({ output: await this.bridge("clipboard_read") }),
-    };
-    const clipboardWrite: OpenLiveTool = {
-      name: "clipboard_write",
-      description: "Copy text to the user's clipboard so they can paste it somewhere. Use when they ask you to 'copy that' or 'put it on my clipboard'. Desktop app only.",
-      parameters: { type: "object", properties: { text: { type: "string", description: "The text to place on the clipboard" } }, required: ["text"], additionalProperties: false },
-      execute: async (args) => ({ output: await this.bridge("clipboard_write", String(args?.text ?? "")) }),
-    };
-    const openUrl: OpenLiveTool = {
-      name: "open_url",
-      description: "Open a web page in the user's default browser. Use when they ask you to open, pull up, or go to a site. Desktop app only.",
-      parameters: { type: "object", properties: { url: { type: "string", description: "The http(s) URL to open" } }, required: ["url"], additionalProperties: false },
-      execute: async (args) => ({ output: await this.bridge("open_url", String(args?.url ?? "")) }),
-    };
-    // File tools for the built-in assistant, scoped to this conversation's workspace
-    // folder (`boundCwd`, read live so it tracks folder changes). Writes/edits go
-    // through the same permission ask the coding agents use; reads are free.
-    const fileTools = buildFileTools({ cwd: () => this.boundCwd, ask: (q, o) => this.askPermission(q, o) });
-    const bridged = [this.chipped(lookTool), this.chipped(clipboardRead), this.chipped(clipboardWrite), this.chipped(openUrl, (a) => String(a?.url ?? ""))];
-    this.runner = new LiveTurnRunner([...bridged, ...fileTools], callToolFact);
-    this.hosted = [...bridged, makeRemember((e) => this.toolEmit(e))];
+    this.tools = new ToolSet(registry.tools(CHAT, this.toolSession).list.map((t) => (OWN_UI.has(t.name) ? t : this.chipped(t))));
+    this.approve = CHAT.approval((question) => this.askPermission(question, ALLOW_OR_DENY).then((id) => id === "allow"));
+    this.runner = new LiveTurnRunner(this.tools, this.toolSession, { approve: this.approve, tally: toolTally("call") });
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) this.onBinary(data);
@@ -290,14 +274,14 @@ export class LiveSession {
     }
   }
 
-  /** Ask the client to run an OS action (clipboard / open_url) and await its
-   *  result. On non-desktop clients the reply is instant ("not available"). */
-  private bridge(op: "clipboard_read" | "clipboard_write" | "open_url", arg?: string): Promise<string> {
+  /** Ask the client to run an OS action (clipboard / open_url / the device) and
+   *  await its result. On non-desktop clients the reply is instant ("not available"). */
+  private bridge(op: "clipboard_read" | "clipboard_write" | "open_url" | "flow_device", arg?: string, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<string> {
     return new Promise((resolve) => {
       const reqId = randomUUID();
       const timer = setTimeout(() => {
         if (this.bridgePending.delete(reqId)) resolve("That action timed out.");
-      }, 5000);
+      }, timeoutMs);
       this.bridgePending.set(reqId, (out) => { clearTimeout(timer); resolve(out); });
       this.send({ t: "tool_bridge", reqId, op, arg, turn: this.replyTurn });
     });
@@ -557,13 +541,13 @@ export class LiveSession {
     // user who speaks before the session/load finishes doesn't make ingestReplay think
     // the chat is OpenLive-origin and drop the recovered transcript.
     this.expectReplay = !!resumeSessionId && listMessages(this.chatId).length === 0;
-    const mcp = await (this.mcp ??= serveFlowMcp({
-      name: CALL_MCP_SERVER,
-      tools: this.hosted.map(servedTool),
+    const mcp = await (this.mcp ??= serveMcp({
+      tools: this.tools,
       // A call arriving outside a turn is refused, as the built-in brain never makes
       // one, and so is one a stopped turn made that lands in the next.
-      ctx: (agentCallId) => ({ signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort(), ...UNUSED_PORTS }),
-      tally: callToolFact,
+      ctx: (agentCallId) => ({ ...this.toolSession, context: null, signal: (agentCallId && this.deadHosted.has(agentCallId) ? null : this.ac?.signal) ?? AbortSignal.abort() }),
+      approve: this.approve,
+      tally: toolTally("call"),
     }));
     if (epoch !== this.bindEpoch || this.closed) return;
     const agent = createBoundAgent(this.chatId, (q, o, toolCallId) => this.askPermission(q, o, toolCallId), {
@@ -572,7 +556,7 @@ export class LiveSession {
       onReplay: (msgs) => this.ingestReplay(msgs),
       askElicitation: (req) => this.askElicitation(req),
       completeElicitation: (elicitationId) => this.elicitById.get(elicitationId)?.({ action: "accept" }),
-      mcp: { wire: mcp.wire, tools: this.hosted.map((t) => t.name) },
+      mcp: { wire: mcp.wire, tools: this.tools.list.map((t) => t.name) },
       replay: this.expectReplay,
       onResumed: (how) => { this.resumed = how; },
     });
@@ -604,14 +588,15 @@ export class LiveSession {
     catch { return {}; }
   }
 
-  /** A bridge tool with its chip in the running turn, the same whichever brain calls it. */
-  private chipped(t: OpenLiveTool, summary?: (args: any) => string): OpenLiveTool {
+  /** A tool with its chip in the running turn, the same whichever brain calls it. */
+  private chipped(t: Tool): Tool {
     return {
       ...t,
-      execute: async (args) => {
+      execute: async (args, ctx) => {
         const id = randomUUID();
-        await this.toolEmit({ type: "tool_start", id, tool: t.name, ...(summary && { summary: summary(args) }) });
-        try { return await t.execute(args); } finally { await this.toolEmit({ type: "tool_done", id }); }
+        const named = CHIP_ARGS.map((k) => args?.[k]).find((v) => typeof v === "string" && v);
+        await this.toolEmit({ type: "tool_start", id, tool: t.name, ...(named && { summary: named }) });
+        try { return await t.execute(args, ctx); } finally { await this.toolEmit({ type: "tool_done", id }); }
       },
     };
   }

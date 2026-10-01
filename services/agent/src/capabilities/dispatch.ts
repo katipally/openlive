@@ -1,14 +1,14 @@
-import { parsePartialJson } from "./partial-json.js";
-import { deviceTools, type DeviceToolOpts } from "./device-tools.js";
-import type { Approve, ImagePart, InsertionSink, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
+import { parsePartialJson } from "../flow/partial-json.js";
+import type { Approve, ImagePart, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
 
-// Tool plumbing for the Flow loop: repair what the model got wrong, validate,
-// check the person consented, run, and turn every possible failure into an
-// ordinary tool result the model can read. Nothing here ever propagates.
+// Tool plumbing for every loop and the MCP server: repair what the model got
+// wrong, validate, check the person agreed, run, and turn every possible
+// failure into an ordinary tool result the model can read. Nothing here ever
+// propagates.
 
 const text = (t: string): TextPart => ({ type: "text", text: t });
 
-export interface FlowToolCall { id: string; name: string; args: Record<string, unknown> }
+export interface ToolCall { id: string; name: string; args: Record<string, unknown> }
 
 export interface DispatchResult {
   id: string;
@@ -93,12 +93,27 @@ function propSchema(tool: Tool, key: string): Record<string, unknown> {
   return isObj(p) ? p : {};
 }
 
-export function resolveToolName(name: string, tools: Tool[]): Tool | null {
-  const exact = tools.find((t) => t.name === name);
-  if (exact) return exact;
-  const r = reduce(name);
-  const alias = NAME_ALIASES[r];
-  return tools.find((t) => reduce(t.name) === r) ?? (alias ? tools.find((t) => t.name === alias) ?? null : null);
+/**
+ * The tools one session was given, looked up the way models get names wrong.
+ * Built once per session; every lookup is O(1).
+ */
+export class ToolSet {
+  private readonly exact = new Map<string, Tool>();
+  private readonly loose = new Map<string, Tool>();
+
+  constructor(readonly list: readonly Tool[]) {
+    for (const t of list) {
+      this.exact.set(t.name, t);
+      const r = reduce(t.name);
+      if (!this.loose.has(r)) this.loose.set(r, t);
+    }
+  }
+
+  resolve(name: string): Tool | null {
+    const r = reduce(name);
+    const alias = Object.hasOwn(NAME_ALIASES, r) ? NAME_ALIASES[r]! : "";
+    return this.exact.get(name) ?? this.loose.get(r) ?? this.exact.get(alias) ?? null;
+  }
 }
 
 /**
@@ -226,18 +241,18 @@ export type ToolTally = (tool: string | null, failed: boolean) => void;
 // ── dispatch ────────────────────────────────────────────────────────────────
 
 interface Prepared {
-  call: FlowToolCall;
+  call: ToolCall;
   tool: Tool | null;
   args: Record<string, unknown>;
   error?: string;
 }
 
-const errResult = (call: FlowToolCall, msg: string): DispatchResult =>
+const errResult = (call: ToolCall, msg: string): DispatchResult =>
   ({ id: call.id, name: call.name, content: [text(msg)], details: { error: msg }, isError: true, terminate: false });
 
-function prepare(call: FlowToolCall, tools: Tool[]): Prepared {
-  const tool = resolveToolName(call.name, tools);
-  if (!tool) return { call, tool: null, args: {}, error: `Unknown tool "${call.name}". Available: ${tools.map((t) => t.name).join(", ")}.` };
+function prepare(call: ToolCall, tools: ToolSet): Prepared {
+  const tool = tools.resolve(call.name);
+  if (!tool) return { call, tool: null, args: {}, error: `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}.` };
   const normalized = normalizeArgs(tool, call.args);
   const valid = validateArgs(tool, normalized);
   if (!valid.ok) return { call, tool, args: normalized, error: valid.error };
@@ -257,8 +272,8 @@ function prepare(call: FlowToolCall, tools: Tool[]): Prepared {
  * `preflighted` and is not asked about twice.
  */
 export async function* dispatch(
-  calls: FlowToolCall[],
-  tools: Tool[],
+  calls: ToolCall[],
+  tools: ToolSet,
   ctx: Omit<ToolCtx, "callId">,
   opts: { approve: Approve; parallel?: boolean; preflighted?: Map<string, Promise<Verdict>>; tally?: ToolTally },
 ): AsyncGenerator<DispatchResult, DispatchResult[]> {
@@ -316,130 +331,28 @@ export async function* dispatch(
   return results;
 }
 
+/** The whole batch at once, for a caller with nothing to show until it is done. */
+export async function dispatchAll(...args: Parameters<typeof dispatch>): Promise<DispatchResult[]> {
+  const running = dispatch(...args);
+  let step = await running.next();
+  while (!step.done) step = await running.next();
+  return step.value;
+}
+
 function errText(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
   return (m || "the tool failed").slice(0, 400);
 }
 
-// ── the text tool set ───────────────────────────────────────────────────────
+export const toolSpecs = (tools: readonly Tool[]) => tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
 
-/**
- * Forward-only insertion, in one place.
- *
- * `commit` is given the whole text known so far and emits only the growth, so
- * the streaming path and the tool's own final call are the same operation seen
- * twice. Text that diverges from what was already sent is dropped rather than
- * retyped: those characters are already in the user's document.
- */
-export class ForwardOnlyInsertion implements InsertionSink {
-  private sent = new Map<string, string>();
-  /** What an abandoned call left in the document, waiting for the retry that continues it. */
-  private carried = "";
-  constructor(private readonly push: (id: string, chunk: string) => Promise<void> | void, private readonly finish?: (id: string) => Promise<void> | void) {}
+/** What the available tools add to a system prompt, one line each. */
+export const toolGuidelines = (tools: readonly Tool[]): string =>
+  tools.flatMap((t) => t.promptGuidelines ?? []).map((g) => `- ${g}`).join("\n");
 
-  async commit(id: string, textSoFar: string): Promise<void> {
-    if (typeof textSoFar !== "string") return;
-    const done = this.sent.get(id) ?? (textSoFar.startsWith(this.carried) ? this.carried : "");
-    if (!textSoFar.startsWith(done) || textSoFar.length === done.length) return;
-    this.carried = "";
-    this.sent.set(id, textSoFar);
-    await this.push(id, textSoFar.slice(done.length));
-  }
-
-  async end(id: string): Promise<void> {
-    if (!this.sent.has(id)) return;
-    this.sent.delete(id);
-    await this.finish?.(id);
-  }
-
-  async abandon(id: string): Promise<void> {
-    this.carried = this.sent.get(id) ?? "";
-    await this.end(id);
-  }
-
-  /** How much of this call's text has already reached the user's app. */
-  committed(id: string): string { return this.sent.get(id) ?? ""; }
+/** A result as one tool message reads it: the text, with the pictures beside it. */
+export function asMessage(r: DispatchResult): { callId: string; name: string; result: string; isError: boolean; images?: { data: string; mime: string }[] } {
+  const images = r.content.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
+  const result = r.content.filter((c): c is TextPart => c.type === "text").map((c) => c.text).join("\n") || "(no output)";
+  return { callId: r.id, name: r.name, result, isError: r.isError, ...(images.length && { images }) };
 }
-
-const noParams = { type: "object", properties: {}, additionalProperties: false } as const;
-
-const insertText: Tool<{ text: string }, { inserted: number }> = {
-  name: "insert_text",
-  description: "Type text into the app the user is in right now, at their cursor. Use this whenever they asked for words rather than an answer: a message, a commit message, a paragraph, a rewrite. Write only the text itself, no preamble and no quotes around it.",
-  parameters: { type: "object", properties: { text: { type: "string", description: "Exactly the text to type, nothing else" } }, required: ["text"], additionalProperties: false },
-  promptGuidelines: [
-    "When they want words in their app, insert_text them; do not read them out as well.",
-    "Text streams as you write it, so never restate or revise text you already wrote in the same call.",
-  ],
-  async execute(args, ctx) {
-    await ctx.insert.commit(ctx.callId, args.text);
-    await ctx.insert.end(ctx.callId);
-    return { content: [text(`Typed ${args.text.length} characters.`)], details: { inserted: args.text.length } };
-  },
-};
-
-const readSelection: Tool<Record<string, never>, { selection: string }> = {
-  name: "read_selection",
-  description: "Read the text the user currently has selected in the app they are in.",
-  parameters: noParams,
-  readOnly: true,
-  async execute(_args, ctx) {
-    const selection = ctx.context?.selection;
-    if (selection === undefined) {
-      return { content: [text("I cannot read the selection in this app, so I do not know whether anything is selected.")], details: { selection: "" } };
-    }
-    return { content: [text(selection || "Nothing is selected right now.")], details: { selection } };
-  },
-};
-
-const clipboardRead: Tool<Record<string, never>, { text: string }> = {
-  name: "clipboard_read",
-  description: "Read the text currently on the user's clipboard.",
-  parameters: noParams,
-  readOnly: true,
-  async execute(_args, ctx) {
-    const value = await ctx.clipboard.read();
-    return { content: [text(value || "The clipboard is empty.")], details: { text: value } };
-  },
-};
-
-const clipboardWrite: Tool<{ text: string }, { text: string }> = {
-  name: "clipboard_write",
-  description: "Put text on the user's clipboard so they can paste it themselves. Prefer insert_text when they want it typed where they are.",
-  parameters: { type: "object", properties: { text: { type: "string", description: "The text to copy" } }, required: ["text"], additionalProperties: false },
-  async execute(args, ctx) {
-    await ctx.clipboard.write(args.text);
-    return { content: [text("Copied.")], details: { text: args.text } };
-  },
-};
-
-const getContext: Tool<Record<string, never>, { context: unknown }> = {
-  name: "get_context",
-  description: "What the user is looking at: the foreground app, its window title, any selected text, and the page URL when it is a browser.",
-  parameters: noParams,
-  readOnly: true,
-  async execute(_args, ctx) {
-    const c = ctx.context;
-    if (!c) return { content: [text("I cannot see what app they are in right now.")], details: { context: null } };
-    const lines = [
-      c.app ? `App: ${c.app}` : "",
-      c.windowTitle ? `Window: ${c.windowTitle}` : "",
-      c.url ? `URL: ${c.url}` : "",
-      c.selection ? `Selection: ${c.selection}` : "",
-    ].filter(Boolean);
-    return { content: [text(lines.join("\n") || "No details available.")], details: { context: c } };
-  },
-};
-
-/**
- * Every tool Flow has.
- *
- * Perception and control need a machine to act on, so they appear only when a
- * device is wired in. This one list is what the built-in brain is given and what
- * the MCP server publishes, which is what keeps the two brains identical.
- */
-export function flowTools(opts?: DeviceToolOpts): Tool[] {
-  return [insertText, readSelection, clipboardRead, clipboardWrite, getContext, ...(opts ? deviceTools(opts) : [])];
-}
-
-export const toolSpecs = (tools: Tool[]) => tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));

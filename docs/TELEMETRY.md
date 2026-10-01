@@ -308,11 +308,11 @@ Limit: none.
 | `t_look` | Uses of the look tool, which grabs a sharp frame on demand. | whole number, 0 to 999 | sometimes |
 | `t_clipboard` | Clipboard reads and writes. | whole number, 0 to 999 | sometimes |
 | `t_open_url` | Links opened. | whole number, 0 to 999 | sometimes |
-| `t_files` | File tools: list, read, write and edit files in the project folder (built-in model only). | whole number, 0 to 999 | sometimes |
-| `t_web` | Web research the built-in model handed to its helper: searches and page fetches. | whole number, 0 to 999 | sometimes |
-| `t_plan` | Updates to the built-in model's to-do list. | whole number, 0 to 999 | sometimes |
+| `t_files` | File tools: list, read, write and edit files in the project folder. | whole number, 0 to 999 | sometimes |
+| `t_web` | Web research handed to OpenLive's helper: searches and page fetches. | whole number, 0 to 999 | sometimes |
+| `t_plan` | Updates to OpenLive's to-do list. | whole number, 0 to 999 | sometimes |
 | `t_memory` | Things saved to remember. | whole number, 0 to 999 | sometimes |
-| `perm_asks` | Permission questions asked in the call, by a coding agent or by the built-in model's file tools. | whole number, 0 to 999 | sometimes |
+| `perm_asks` | Permission questions asked in the call, by a coding agent or by OpenLive before one of its tools changes something. | whole number, 0 to 999 | sometimes |
 | `perm_allowed` | Asks that were allowed. | whole number, 0 to 999 | sometimes |
 | `perm_denied` | Asks that were denied. | whole number, 0 to 999 | sometimes |
 | `perm_timeout` | Asks that timed out. | whole number, 0 to 999 | sometimes |

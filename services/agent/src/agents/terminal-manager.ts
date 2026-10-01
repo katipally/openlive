@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import type { Emit } from "../tools.js";
+import type { Emit } from "../capabilities/types.js";
 import { killTree, track } from "./proc.js";
 import { log } from "../log.js";
 

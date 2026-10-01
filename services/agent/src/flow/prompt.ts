@@ -1,6 +1,8 @@
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
-import { MCP_SERVER_NAME, type FlowContext, type Tool } from "./types.js";
+import { toolGuidelines } from "../capabilities/dispatch.js";
+import { MCP_SERVER_NAME } from "../capabilities/mcp.js";
+import type { FlowContext, Tool } from "../capabilities/types.js";
 
 // Flow's prompt is short on purpose. It is read once per turn by a model that
 // has to answer before the user finishes waiting, and every line it contains is
@@ -41,11 +43,10 @@ export function formatContext(c: FlowContext | null): string {
 }
 
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
-export function buildFlowPrompt(p: { tools: Tool[]; lang?: LanguageCode }): string {
-  const guidelines = p.tools.flatMap((t) => t.promptGuidelines ?? []);
+export function buildFlowPrompt(p: { tools: readonly Tool[]; lang?: LanguageCode }): string {
   const custom = customInstructions();
   const persona = custom && `How the user wants you to behave and speak, in their own words. Follow it within reason:\n${custom}`;
-  return [BASE, guidelines.map((g) => `- ${g}`).join("\n"), rememberedNotes().trim(), persona, replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
+  return [BASE, toolGuidelines(p.tools), rememberedNotes().trim(), persona, replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -57,7 +58,7 @@ export function buildFlowPrompt(p: { tools: Tool[]; lang?: LanguageCode }): stri
  * the user to share their screen, because in Chat a frame is attached to the
  * message, and here it is a tool it could have called.
  */
-export function buildFlowAcpPreamble(p: { tools: Tool[] }): string {
+export function buildFlowAcpPreamble(p: { tools: readonly Tool[] }): string {
   const names = p.tools.map((t) => t.name).join(", ");
   return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They tap Control twice anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small orb above the dock, so nothing you do is visible to them unless you say it or type it.
 
@@ -70,7 +71,7 @@ ${buildFlowPrompt({ tools: p.tools })}]${p.tools.some((t) => t.name === "remembe
 
 /** The names the model actually sees. Every harness namespaces an MCP tool
  *  under its server, and they disagree on how: Claude Code writes
- *  `mcp__openlive-flow__screenshot`, Codex writes `mcp.openlive-flow.screenshot`.
+ *  `mcp__openlive__screenshot`, Codex writes `mcp.openlive.screenshot`.
  *  A model told to call `screenshot` when neither appears in its list concludes
  *  it has no such tool and tells the user the tools are not wired up. */
 const namespaced = (name: string) => [`mcp__${MCP_SERVER_NAME}__${name}`, `mcp.${MCP_SERVER_NAME}.${name}`];

@@ -1,4 +1,4 @@
-import type { Emit } from "../tools.js";
+import type { Emit } from "../capabilities/types.js";
 import type { SseEvent } from "@openlive/shared";
 
 // Spoken progress for a voice turn — kept CLEAN and agent-agnostic. Two pieces:

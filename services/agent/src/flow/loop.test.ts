@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { compact, estimateTokens, runFlow, type FlowRun } from "./loop.js";
-import { ForwardOnlyInsertion, flowTools } from "./tools.js";
-import type { Brain, BrainEvent, ClipboardPort, FlowEvent, Msg, Tool } from "./types.js";
+import { ForwardOnlyInsertion, TEXT_TOOLS } from "../capabilities/text.js";
+import { ToolSet } from "../capabilities/dispatch.js";
+import type { ClipboardPort, Tool } from "../capabilities/types.js";
+import type { Brain, BrainEvent, FlowEvent, Msg } from "./types.js";
 
 // A brain that replays scripted turns: one array of events per turn, so a
 // multi-turn run is written down rather than mocked.
@@ -31,11 +33,10 @@ function harness(over: Partial<FlowRun> & { brain: Brain }): { run: FlowRun; chu
     ended,
     insert,
     run: {
-      tools: flowTools(),
+      tools: new ToolSet(TEXT_TOOLS),
       messages: [{ role: "user", text: "hi" }],
       signal: new AbortController().signal,
-      insert,
-      clipboard,
+      session: { insert, clipboard },
       getSystemPrompt: () => "system",
       ...over,
     },
@@ -85,7 +86,8 @@ describe("runFlow", () => {
       ],
       [{ type: "text_delta", delta: "you are in Mail" }, { type: "turn_done", stop: "stop" }],
     ]);
-    const { run } = harness({ brain, context: { async capture() { return { capturedAt: 1, app: "Mail" }; } } });
+    const { run } = harness({ brain });
+    run.session.foreground = { async capture() { return { capturedAt: 1, app: "Mail" }; } };
     const events = await collect(run);
     expect(events.map((e) => e.type)).toEqual([
       "context", "tool_start", "tool_call", "turn_end", "tool_result",
@@ -149,7 +151,7 @@ describe("runFlow", () => {
         return {};
       },
     });
-    run.insert = new ForwardOnlyInsertion((_id, c) => { order.push(`typed ${c}`); chunks.push(c); });
+    run.session.insert = new ForwardOnlyInsertion((_id, c) => { order.push(`typed ${c}`); chunks.push(c); });
     await collect(run);
     expect(order).toEqual(["asked", "answered", "typed dear ", "typed alice"]);
     expect(asked).toBe(1);
@@ -202,7 +204,7 @@ describe("runFlow", () => {
       ],
       [{ type: "turn_done", stop: "stop" }],
     ]);
-    const { run } = harness({ brain, tools: [tool] });
+    const { run } = harness({ brain, tools: new ToolSet([tool]) });
     const events = await collect(run);
     expect(executed).not.toHaveBeenCalled();
     const results = events.filter((e) => e.type === "tool_result");
@@ -220,7 +222,7 @@ describe("runFlow", () => {
       ]),
       { type: "turn_done", stop: "tools" },
     ];
-    const tools = [stopper, ...flowTools()];
+    const tools = new ToolSet([stopper, ...TEXT_TOOLS]);
 
     const unanimous = harness({ brain: scripted([batch(["stop_now", "stop_now"])]), tools });
     expect(doneReason(await collect(unanimous.run)).reason).toBe("terminate");

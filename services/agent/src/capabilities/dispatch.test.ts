@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { dispatch, flowTools, ForwardOnlyInsertion, normalizeArgs, resolveToolName, validateArgs, type DispatchResult } from "./tools.js";
+import { asMessage, dispatch, normalizeArgs, ToolSet, validateArgs, type DispatchResult } from "./dispatch.js";
+import { ForwardOnlyInsertion, TEXT_TOOLS } from "./text.js";
 import { allowAll } from "./approval.js";
 import type { Approve, ClipboardPort, Tool, ToolCtx } from "./types.js";
 
-const tools = flowTools();
-const byName = (n: string) => tools.find((t) => t.name === n)!;
+const tools = new ToolSet(TEXT_TOOLS);
+const byName = (n: string) => tools.resolve(n)!;
 
 const clipboard = (initial = ""): ClipboardPort & { value: string } => ({
   value: initial,
@@ -33,12 +34,12 @@ const drain = async (gen: AsyncGenerator<DispatchResult, DispatchResult[]>) => {
 
 describe("normalizer", () => {
   it("resolves the names models actually emit", () => {
-    expect(resolveToolName("insert_text", tools)?.name).toBe("insert_text");
-    expect(resolveToolName("insertText", tools)?.name).toBe("insert_text");
-    expect(resolveToolName("insert-text", tools)?.name).toBe("insert_text");
-    expect(resolveToolName("type_text", tools)?.name).toBe("insert_text");
-    expect(resolveToolName("readClipboard", tools)?.name).toBe("clipboard_read");
-    expect(resolveToolName("nonsense", tools)).toBe(null);
+    expect(tools.resolve("insert_text")?.name).toBe("insert_text");
+    expect(tools.resolve("insertText")?.name).toBe("insert_text");
+    expect(tools.resolve("insert-text")?.name).toBe("insert_text");
+    expect(tools.resolve("type_text")?.name).toBe("insert_text");
+    expect(tools.resolve("readClipboard")?.name).toBe("clipboard_read");
+    expect(tools.resolve("nonsense")).toBe(null);
   });
 
   it("unwraps arguments the model wrapped in itself", () => {
@@ -152,9 +153,6 @@ describe("the Block 3 tool set", () => {
     expect((await byName("get_context").execute({}, ctx)).details).toEqual({ context: null });
   });
 
-  it("does not ship any device control yet", () => {
-    expect(tools.map((t) => t.name).sort()).toEqual(["clipboard_read", "clipboard_write", "get_context", "insert_text", "read_selection"]);
-  });
 });
 
 describe("dispatch", () => {
@@ -172,7 +170,7 @@ describe("dispatch", () => {
 
   it("turns a thrown error into a result", async () => {
     const boom: Tool = { name: "boom", description: "", parameters: { type: "object", properties: {} }, async execute() { throw new Error("kaboom"); } };
-    const { results } = await drain(dispatch([{ id: "1", name: "boom", args: {} }], [boom], ctxOf(), { approve: allowAll }));
+    const { results } = await drain(dispatch([{ id: "1", name: "boom", args: {} }], new ToolSet([boom]), ctxOf(), { approve: allowAll }));
     expect(results[0]).toMatchObject({ isError: true });
     expect((results[0]!.content[0] as { text: string }).text).toBe("kaboom");
   });
@@ -205,7 +203,7 @@ describe("dispatch", () => {
     };
     const approve: Approve = async ({ args }) => { log.push(`ask${(args as { i: number }).i}`); await new Promise((r) => setTimeout(r, 5)); log.push(`answered${(args as { i: number }).i}`); return {}; };
     const calls = [0, 1].map((i) => ({ id: String(i), name: "slow", args: { i } }));
-    const { order, results } = await drain(dispatch(calls, [slow], ctxOf(), { approve }));
+    const { order, results } = await drain(dispatch(calls, new ToolSet([slow]), ctxOf(), { approve }));
     expect(log).toEqual(["ask0", "answered0", "ask1", "answered1", "run0", "run1"]);
     // The UI sees whatever finished first; the transcript keeps source order.
     expect(order).toEqual(["1", "0"]);
@@ -215,7 +213,7 @@ describe("dispatch", () => {
   it("runs one at a time when asked", async () => {
     const seq: string[] = [];
     const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, async execute() { seq.push("x"); return { content: [], details: null }; } };
-    const { order } = await drain(dispatch([{ id: "a", name: "t", args: {} }, { id: "b", name: "t", args: {} }], [t], ctxOf(), { approve: allowAll, parallel: false }));
+    const { order } = await drain(dispatch([{ id: "a", name: "t", args: {} }, { id: "b", name: "t", args: {} }], new ToolSet([t]), ctxOf(), { approve: allowAll, parallel: false }));
     expect(order).toEqual(["a", "b"]);
     expect(seq).toHaveLength(2);
   });
@@ -225,7 +223,7 @@ describe("dispatch", () => {
     ac.abort();
     const execute = vi.fn();
     const t: Tool = { name: "t", description: "", parameters: { type: "object", properties: {} }, execute };
-    const { results } = await drain(dispatch([{ id: "a", name: "t", args: {} }], [t], ctxOf({ signal: ac.signal }), { approve: allowAll }));
+    const { results } = await drain(dispatch([{ id: "a", name: "t", args: {} }], new ToolSet([t]), ctxOf({ signal: ac.signal }), { approve: allowAll }));
     expect(execute).not.toHaveBeenCalled();
     expect(results[0]).toMatchObject({ isError: true });
   });
@@ -236,7 +234,7 @@ describe("dispatch tally", () => {
   const bad: Tool = { name: "shell", description: "", parameters: { type: "object", properties: {} }, async execute() { throw new Error("nope"); } };
   const run = async (calls: { id: string; name: string; args: Record<string, unknown> }[], ctx = ctxOf()) => {
     const seen: [string | null, boolean][] = [];
-    await drain(dispatch(calls, [ok, bad, ...tools], ctx, { approve: allowAll, tally: (tool, failed) => { seen.push([tool, failed]); } }));
+    await drain(dispatch(calls, new ToolSet([ok, bad, ...TEXT_TOOLS]), ctx, { approve: allowAll, tally: (tool, failed) => { seen.push([tool, failed]); } }));
     return seen;
   };
 
@@ -259,7 +257,7 @@ describe("dispatch tally", () => {
   });
 
   it("is optional", async () => {
-    const { results } = await drain(dispatch([{ id: "1", name: "screenshot", args: {} }], [ok], ctxOf(), { approve: allowAll }));
+    const { results } = await drain(dispatch([{ id: "1", name: "screenshot", args: {} }], new ToolSet([ok]), ctxOf(), { approve: allowAll }));
     expect(results[0]!.isError).toBe(false);
   });
 });
@@ -294,15 +292,25 @@ describe("normalizing a device call", () => {
   });
 
   it("answers to the names models reach for", () => {
-    const set = [click, keypress];
-    expect(resolveToolName("left_click", set)).toBe(click);
-    expect(resolveToolName("LeftClick", set)).toBe(click);
-    expect(resolveToolName("press_key", set)).toBe(keypress);
+    const set = new ToolSet([click, keypress]);
+    expect(set.resolve("left_click")).toBe(click);
+    expect(set.resolve("LeftClick")).toBe(click);
+    expect(set.resolve("press_key")).toBe(keypress);
   });
 });
 
-describe("the tool set", () => {
-  it("has no device actions without a machine to act on", () => {
-    expect(flowTools().map((t) => t.name)).toEqual(["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context"]);
+describe("a tool set", () => {
+  it("looks a name up exactly first, so a loose match never shadows a real tool", () => {
+    const named = (name: string): Tool => ({ name, description: "", parameters: { type: "object", properties: {} }, async execute() { return { content: [], details: null }; } });
+    const set = new ToolSet([named("open_app"), named("openApp")]);
+    expect(set.resolve("openApp")!.name).toBe("openApp");
+    expect(set.resolve("OPEN-APP")!.name).toBe("open_app");
+    expect(set.resolve("constructor")).toBe(null);
+  });
+
+  it("hands a loop one tool message per result, pictures beside the text", () => {
+    expect(asMessage({ id: "c", name: "screenshot", content: [{ type: "text", text: "Here." }, { type: "image", data: "PNG", mime: "image/png" }], details: null, isError: false, terminate: false }))
+      .toEqual({ callId: "c", name: "screenshot", result: "Here.", isError: false, images: [{ data: "PNG", mime: "image/png" }] });
+    expect(asMessage({ id: "c", name: "t", content: [], details: null, isError: true, terminate: false })).toEqual({ callId: "c", name: "t", result: "(no output)", isError: true });
   });
 });
