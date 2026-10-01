@@ -197,7 +197,7 @@ fn grab(origin: ScreenPoint, width: i32, height: i32, window: Option<HWND>) -> R
                         protected or secure-desktop window is in front"
                 .into());
         }
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }

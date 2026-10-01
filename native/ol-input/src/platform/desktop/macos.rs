@@ -161,7 +161,7 @@ fn grab(rect: CGRect, option: CGWindowListOption, window_id: u32) -> Result<Bitm
     for row in bytes.chunks_exact(stride).take(height) {
         rgba.extend_from_slice(&row[..width * 4]);
     }
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
 

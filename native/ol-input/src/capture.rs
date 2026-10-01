@@ -83,7 +83,7 @@ fn downscale(rgba: &[u8], width: u32, height: u32, new_width: u32, new_height: u
             for y in top..bottom {
                 let start = ((y * width + left) * 4) as usize;
                 let end = ((y * width + right) * 4) as usize;
-                for pixel in rgba[start..end].chunks_exact(4) {
+                for pixel in rgba[start..end].as_chunks::<4>().0 {
                     for (total, channel) in totals.iter_mut().zip(pixel) {
                         *total += u32::from(*channel);
                     }
@@ -121,7 +121,7 @@ mod tests {
         let source = solid(64, 40, [10, 20, 30, 255]);
         let out = downscale(&source, 64, 40, 16, 10);
         assert_eq!(out.len(), 16 * 10 * 4);
-        assert!(out.chunks_exact(4).all(|pixel| pixel == [10, 20, 30, 255]));
+        assert!(out.as_chunks::<4>().0.iter().all(|pixel| *pixel == [10, 20, 30, 255]));
     }
 
     #[test]

@@ -93,7 +93,9 @@ fn decode(png: &[u8], origin: ScreenPoint, logical_width: f64) -> Result<Bitmap,
     let rgba = match frame.color_type {
         png::ColorType::Rgba => buffer[..frame.buffer_size()].to_vec(),
         png::ColorType::Rgb => buffer[..frame.buffer_size()]
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
             .collect(),
         other => return Err(format!("the screenshot tool produced an unusable {other:?} image")),
