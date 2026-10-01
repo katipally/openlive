@@ -3,12 +3,12 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "chat" | "flow" | "privacy" | "about";
+export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "connectors" | "chat" | "flow" | "privacy" | "about";
 
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
 const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice" };
-const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
+const TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "connectors", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
 
 export function resolveSettingsTab(id: string | null | undefined): SettingsTabId | null {
   if (!id) return null;
@@ -69,6 +69,9 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Reset speech engine", keywords: "defaults pipeline", tab: "engine", anchor: "set-engine-reset" },
 
   { label: "Coding agents", keywords: "install sign in sign out hide claude codex cursor acp", tab: "agents", anchor: "set-agents-list" },
+
+  { label: "Connectors", keywords: "mcp servers tools plugins integrations add url json oauth sign in github slack notion", tab: "connectors", anchor: "set-connectors-list" },
+  { label: "Import connectors", keywords: "mcp import claude desktop claude code codex cursor gemini vs code vscode mcpServers", tab: "connectors", anchor: "set-connectors-list" },
 
   { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
   { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },

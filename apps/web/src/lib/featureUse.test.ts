@@ -53,7 +53,7 @@ describe("settings page counters", () => {
   it("has one for each page Settings shows, named by the page's own id", () => {
     const prefix = "n_settings_tab_";
     const pages = telemetrySchema.counters.filter((c) => c.startsWith(prefix)).map((c) => c.slice(prefix.length));
-    expect(pages).toHaveLength(9);
+    expect(pages).toHaveLength(10);
     expect(pages.map(resolveSettingsTab)).toEqual(pages);
   });
 });

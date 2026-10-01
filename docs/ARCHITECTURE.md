@@ -657,6 +657,12 @@ An MCP server the user adds once, offered to every brain in both modes.
   (URL or pasted `mcpServers` JSON), update, remove, toggle a connector or a
   tool, consent, reconnect, OAuth start/sign out and the callback, import
   preview and commit.
+- **Settings** (`apps/web/src/components/settings/ConnectorsSettings.tsx`, pure
+  logic in `lib/connectors.ts`). The agent pushes nothing, so the page refetches
+  on focus, every 2 s while a connector is connecting, and on a backoff (2 s, then
+  5 s, then 10 s, for at most five minutes) while a sign-in is open in the
+  browser. Secret values are write-only: an edit shows a saved one as set and
+  sends only what was typed.
 
 Project `.mcp.json` passthrough for coding agents (`agents/mcp-config.ts`) is a
 separate path and unchanged. Exa web search (`exa.ts`) stays a built-in client

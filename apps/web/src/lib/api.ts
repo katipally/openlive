@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -62,4 +62,24 @@ export const api = {
         currentModelId: string | null;
         effort: { id: string; label: string; values: { id: string; name: string }[]; currentId: string | null } | null;
       }>),
+  connectors: () => fetch("/api/connectors").then(j<{ connectors: ConnectorWire[] }>).then((r) => r.connectors),
+  addConnector: (b: { url: string; name?: string; headers?: Record<string, string> } | { json: string }) =>
+    fetch("/api/connectors", { method: "POST", body: JSON.stringify(b) }).then(j<{ connectors: ConnectorWire[]; warnings: string[] }>),
+  updateConnector: (id: string, p: ConnectorPatch) =>
+    fetch(`/api/connectors/${id}`, { method: "PATCH", body: JSON.stringify(p) }).then(j<ConnectorWire>),
+  removeConnector: (id: string) => fetch(`/api/connectors/${id}`, { method: "DELETE" }).then(j),
+  setConnectorEnabled: (id: string, enabled: boolean) =>
+    fetch(`/api/connectors/${id}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<ConnectorWire>),
+  setConnectorToolEnabled: (id: string, tool: string, enabled: boolean) =>
+    fetch(`/api/connectors/${id}/tools/${encodeURIComponent(tool)}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<ConnectorWire>),
+  consentConnector: (id: string) => fetch(`/api/connectors/${id}/consent`, { method: "POST" }).then(j<ConnectorWire>),
+  reconnectConnector: (id: string) => fetch(`/api/connectors/${id}/reconnect`, { method: "POST" }).then(j<ConnectorWire>),
+  /** The page to sign in on, or the connector when a stored token was enough. */
+  startConnectorSignIn: (id: string) =>
+    fetch(`/api/connectors/${id}/oauth/start`, { method: "POST" }).then(j<{ authorizationUrl: string } | { connector: ConnectorWire }>),
+  signOutConnector: (id: string) => fetch(`/api/connectors/${id}/oauth/signout`, { method: "POST" }).then(j<ConnectorWire>),
+  connectorImports: () => fetch("/api/connectors/import").then(j<{ sources: ConnectorImportSource[] }>).then((r) => r.sources),
+  importConnectors: (items: { source: string; name: string }[]) =>
+    fetch("/api/connectors/import", { method: "POST", body: JSON.stringify({ items }) })
+      .then(j<{ connectors: ConnectorWire[]; skipped: { source: string; name: string; reason: string }[] }>),
 };
