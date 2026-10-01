@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectorImportSource, ConnectorStatus, ConnectorWire } from "@openlive/shared";
-import { STATUS, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine } from "./connectors";
+import { STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine } from "./connectors";
 
 const base = { enabled: true, source: "manual", createdAt: "", spawnConsent: true, signedIn: false, status: "connected", tools: [] } as const;
 const stdio: ConnectorWire = {
@@ -119,5 +119,20 @@ describe("import selection", () => {
     picks.add(pickKey("cursor", "b"));
     expect(pickedItems(sources, picks)).toEqual([{ source: "cursor", name: "b" }, { source: "vscode", name: "a" }]);
     expect(pickedItems(sources, new Set())).toEqual([]);
+  });
+});
+
+describe("bulk tool switches", () => {
+  const tool = (name: string, enabled: boolean) => ({ name, exposedName: name, description: "", readOnly: true, enabled });
+  const tools = [tool("a", true), tool("b", false), tool("c", true)];
+
+  it("changes only the tools not already where it puts them", () => {
+    expect(bulkTools(tools, false, false)).toEqual({ names: ["a", "c"], label: "Turn all off" });
+    expect(bulkTools(tools, false, true)).toEqual({ names: ["b"], label: "Turn all on" });
+  });
+
+  it("says when a filter narrows it to the tools shown", () => {
+    expect(bulkTools(tools.slice(0, 2), true, true)).toEqual({ names: ["b"], label: "Turn the 2 shown on" });
+    expect(bulkTools([], true, false).names).toEqual([]);
   });
 });

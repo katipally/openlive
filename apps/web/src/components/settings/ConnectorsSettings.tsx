@@ -9,7 +9,7 @@ import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import {
-  STATUS, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine,
+  STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine,
   type EditDraft, type KeyRow,
 } from "@/lib/connectors";
 import { Badge, Button, Checkbox, Chip, ConfirmButton, Input, ListGroup, Segmented, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
@@ -274,11 +274,23 @@ function Tools({ id, c, flip }: {
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
   const shown = q ? c.tools.filter((t) => `${t.exposedName} ${t.description}`.toLowerCase().includes(q)) : c.tools;
+  const bulk = (on: boolean) => {
+    const { names, label } = bulkTools(shown, !!q, on);
+    const change = new Set(names);
+    return (
+      <Button variant="ghost" size="sm" disabled={!names.length} onClick={() => flip(
+        { ...c, tools: c.tools.map((t) => (change.has(t.name) ? { ...t, enabled: on } : t)) },
+        () => api.setConnectorToolsEnabled(c.id, names, on),
+        `Couldn’t turn ${names.length === 1 ? names[0] : `${names.length} tools`} ${on ? "on" : "off"}.`,
+      )}>{label}</Button>
+    );
+  };
   return (
     <div id={id} className="mt-2.5 flex flex-col gap-2">
       {c.tools.length > FILTER_AT && (
         <Input type="search" size="sm" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Find among ${c.tools.length} tools`} aria-label={`Find a tool in ${c.name}`} />
       )}
+      {c.tools.length > 1 && shown.length > 0 && <span className="flex flex-wrap gap-1.5">{bulk(true)}{bulk(false)}</span>}
       {q && shown.length === 0 && <p className="text-label text-muted-foreground">No tool matches &ldquo;{filter.trim()}&rdquo;.</p>}
       {shown.length > 0 && (
         <div className="flex flex-col divide-y divide-border rounded-lg border border-border px-3">

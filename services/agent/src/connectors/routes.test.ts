@@ -44,6 +44,10 @@ describe("the /connectors API", () => {
   it("switches one tool, then the whole connector, off", async () => {
     const t = await call("POST", `/${id}/tools/echo/enabled`, { enabled: false });
     expect(t.json.tools.find((x: any) => x.name === "echo").enabled).toBe(false);
+    const all = await call("POST", `/${id}/tools/enabled`, { tools: ["make.note", "confirm"], enabled: false });
+    expect(all.json.tools.filter((x: any) => !x.enabled).map((x: any) => x.name).sort()).toEqual(["confirm", "echo", "make.note"]);
+    const back = await call("POST", `/${id}/tools/enabled`, { tools: ["make.note", "confirm"], enabled: true });
+    expect(back.json.tools.filter((x: any) => !x.enabled).map((x: any) => x.name)).toEqual(["echo"]);
     const c = await call("POST", `/${id}/enabled`, { enabled: false });
     expect(c.json.status).toBe("disabled");
   });

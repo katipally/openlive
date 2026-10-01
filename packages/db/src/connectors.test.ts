@@ -72,10 +72,18 @@ describe("the connector store", () => {
   it("toggles single tools", async () => {
     const c = await load();
     const h = await c.createConnector({ name: "h", transport: { type: "http", url: "https://h.example/mcp" } });
-    await c.setConnectorToolEnabled(h.id, "delete_all", false);
-    await c.setConnectorToolEnabled(h.id, "archive", false);
-    await c.setConnectorToolEnabled(h.id, "archive", true);
+    await c.setConnectorToolsEnabled(h.id, ["delete_all"], false);
+    await c.setConnectorToolsEnabled(h.id, ["archive"], false);
+    await c.setConnectorToolsEnabled(h.id, ["archive"], true);
     expect(c.getConnectorRow(h.id)!.disabledTools).toEqual(["delete_all"]);
+  });
+
+  it("toggles many tools at once", async () => {
+    const c = await load();
+    const h = await c.createConnector({ name: "h", transport: { type: "http", url: "https://h.example/mcp" } });
+    await c.setConnectorToolsEnabled(h.id, ["b", "a", "c"], false);
+    await c.setConnectorToolsEnabled(h.id, ["a", "c"], true);
+    expect(c.getConnectorRow(h.id)!.disabledTools).toEqual(["b"]);
   });
 });
 

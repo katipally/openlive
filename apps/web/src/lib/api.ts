@@ -83,6 +83,8 @@ export const api = {
     fetch(`/api/connectors/${id}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<ConnectorWire>),
   setConnectorToolEnabled: (id: string, tool: string, enabled: boolean) =>
     fetch(`/api/connectors/${id}/tools/${encodeURIComponent(tool)}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<ConnectorWire>),
+  setConnectorToolsEnabled: (id: string, tools: string[], enabled: boolean) =>
+    fetch(`/api/connectors/${id}/tools/enabled`, { method: "POST", body: JSON.stringify({ tools, enabled }) }).then(j<ConnectorWire>),
   consentConnector: (id: string) => fetch(`/api/connectors/${id}/consent`, { method: "POST" }).then(j<ConnectorWire>),
   reconnectConnector: (id: string) => fetch(`/api/connectors/${id}/reconnect`, { method: "POST" }).then(j<ConnectorWire>),
   /** The page to sign in on, or the connector when a stored token was enough. */

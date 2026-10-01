@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   clearConnectorOAuth, consentToSpawn, createConnector, getConnectorRow, hasConnectorTokens, listConnectorRows,
-  removeConnector, setConnectorToolEnabled, transportWire, updateConnector, type ConnectorRow,
+  removeConnector, setConnectorToolsEnabled, transportWire, updateConnector, type ConnectorRow,
 } from "@openlive/db";
 import type { ConnectorWire } from "@openlive/shared";
 import { log } from "../log.js";
@@ -118,7 +118,15 @@ connectorRoutes.post("/:id/tools/:tool/enabled", async (c) => {
   const id = c.req.param("id");
   const b = await body(c, z.object({ enabled: z.boolean() }));
   if (!b) return c.json({ error: "send { enabled }" }, 400);
-  if (!(await setConnectorToolEnabled(id, c.req.param("tool"), b.enabled))) return c.json({ error: "not found" }, 404);
+  if (!(await setConnectorToolsEnabled(id, [c.req.param("tool")], b.enabled))) return c.json({ error: "not found" }, 404);
+  return c.json(one(id));
+});
+
+connectorRoutes.post("/:id/tools/enabled", async (c) => {
+  const id = c.req.param("id");
+  const b = await body(c, z.object({ tools: z.array(z.string()), enabled: z.boolean() }));
+  if (!b) return c.json({ error: "send { tools, enabled }" }, 400);
+  if (!(await setConnectorToolsEnabled(id, b.tools, b.enabled))) return c.json({ error: "not found" }, 404);
   return c.json(one(id));
 });
 

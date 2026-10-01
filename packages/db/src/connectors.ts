@@ -162,10 +162,10 @@ export function updateConnector(id: string, p: ConnectorPatch): Promise<Connecto
   });
 }
 
-export function setConnectorToolEnabled(id: string, tool: string, enabled: boolean): Promise<ConnectorRow | undefined> {
+export function setConnectorToolsEnabled(id: string, tools: readonly string[], enabled: boolean): Promise<ConnectorRow | undefined> {
   return mutate(id, (row) => {
     const off = new Set(row.disabledTools);
-    if (enabled) off.delete(tool); else off.add(tool);
+    for (const tool of tools) if (enabled) off.delete(tool); else off.add(tool);
     row.disabledTools = [...off].sort();
   });
 }

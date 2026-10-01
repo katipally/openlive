@@ -110,7 +110,7 @@ describe("a stdio connector", () => {
   });
 
   it("leaves out a tool switched off, and every tool of a connector switched off", async () => {
-    await db.setConnectorToolEnabled(id, "make.note", false);
+    await db.setConnectorToolsEnabled(id, ["make.note"], false);
     expect(names()).toEqual(["fixture__echo", "fixture__confirm"]);
     await db.updateConnector(id, { enabled: false });
     expect(names()).toEqual([]);

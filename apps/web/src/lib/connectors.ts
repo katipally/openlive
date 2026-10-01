@@ -2,7 +2,7 @@
 // the PATCH the agent takes, and which import candidates start checked. No
 // React, no DOM, so it tests on its own.
 
-import type { ConnectorImportSource, ConnectorPatch, ConnectorStatus, ConnectorTransportWire, ConnectorWire } from "@openlive/shared";
+import type { ConnectorImportSource, ConnectorPatch, ConnectorStatus, ConnectorToolWire, ConnectorTransportWire, ConnectorWire } from "@openlive/shared";
 
 export const STATUS: Record<ConnectorStatus, { text: string; dot: "success" | "arc" | "accent" | "muted" | "danger" }> = {
   connected: { text: "Connected", dot: "success" },
@@ -23,6 +23,14 @@ export const transportLine = (t: ConnectorTransportWire) =>
 export function signInPollMs(elapsedMs: number): number | false {
   if (elapsedMs >= 5 * 60_000) return false;
   return elapsedMs < 30_000 ? 2000 : elapsedMs < 120_000 ? 5000 : 10_000;
+}
+
+/** One bulk switch over the tools in view: the names it changes and its label,
+ *  which says when a filter narrows it to the tools shown. */
+export function bulkTools(shown: readonly ConnectorToolWire[], filtered: boolean, on: boolean): { names: string[]; label: string } {
+  const names = shown.filter((t) => t.enabled !== on).map((t) => t.name);
+  const state = on ? "on" : "off";
+  return { names, label: filtered ? `Turn the ${shown.length} shown ${state}` : `Turn all ${state}` };
 }
 
 /** A key and value being edited. `secret` only matters for env; headers are all secret. */
