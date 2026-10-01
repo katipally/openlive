@@ -1,4 +1,4 @@
-import { streamProvider, unreachableMessage, type Message, type ProviderInfo } from "@openlive/harness";
+import { streamProvider, unreachableMessage, type ImagePart, type Message, type ProviderInfo } from "@openlive/harness";
 import { classifyError, type LanguageCode } from "@openlive/shared";
 import type { Approve, Emit, Session } from "../capabilities/types.js";
 import { asMessage, asStateTail, dispatchAll, newestState, toolSpecs, type ToolSet, type ToolTally } from "../capabilities/dispatch.js";
@@ -49,8 +49,17 @@ export const OUT_OF_STEPS = "I couldn't quite finish that one. Want me to keep g
 const canDropTools = (provider: Pick<ProviderInfo, "protocol">, messages: readonly Message[]) =>
   provider.protocol !== "anthropic" || !messages.some((m) => m.role === "assistant" && m.toolCalls?.length);
 
-// A per-call LLM driver that keeps a growing Message[] across turns and injects the
-// camera frame(s) onto each user turn.
+/** The turn's live camera or screen view joins the request's one transient tail,
+ *  ahead of any window state, so a step with both still sends a single message. */
+function withView(messages: Message[], view: { text: string; images: ImagePart[] } | null): Message[] {
+  if (!view) return messages;
+  const last = messages.at(-1);
+  if (last?.role !== "user" || !last.transient) return [...messages, { role: "user", ...view, transient: true }];
+  return [...messages.slice(0, -1), { ...last, text: `${view.text}\n\n${last.text}`, images: [...view.images, ...(last.images ?? [])] }];
+}
+
+// A per-call LLM driver that keeps a growing Message[] across turns and shows the
+// camera or screen frame(s) of each user turn.
 export class LiveTurnRunner {
   private messages: Message[];
   /** What the vision model said about each tool's picture, by call id. */
@@ -134,6 +143,11 @@ export class LiveTurnRunner {
     // a real error (never a faked "I can see"). Tell the model which source it is.
     let text = userText;
     let imgs: { data: string; mime: string }[] | undefined;
+    // A live frame is stale by the next turn, so it never enters the stored turn,
+    // which keeps a fixed note: rewriting an old message would end the prompt cache
+    // there. It rides after the conversation on this turn's requests only. An
+    // attached image is part of what the user said, so it stays on the turn.
+    let view: { text: string; images: ImagePart[] } | null = null;
     if (frames.length) {
       const sources = frameSources(frames);
       // If the user configured a separate vision model, let IT see and fold its
@@ -148,17 +162,23 @@ export class LiveTurnRunner {
       if (described) {
         text = `${userText}\n\n[A vision model is looking at the user's ${sources} live right now and reports: ${described}\nTalk about what's actually there, naturally — as what you're both looking at. Don't mention "the image" or that another model described it.]`;
       } else {
-        text = `${userText}\n\n[You're viewing the user's ${sources} live right now — talk about what's actually there, not "the image". If you truly can't make it out or got no picture, say so plainly and never invent details.]`;
-        imgs = frames.map((f) => ({ data: f.data, mime: f.mime }));
+        const shown = frames.filter((f) => f.source !== "attachment");
+        const attached = frames.filter((f) => f.source === "attachment");
+        const viewing = (what: string) => `[You're viewing the user's ${what} live right now: talk about what's actually there, not "the image". If you truly can't make it out or got no picture, say so plainly and never invent details.]`;
+        if (attached.length) {
+          text += `\n\n${viewing(frameSources(attached))}`;
+          imgs = attached.map((f) => ({ data: f.data, mime: f.mime }));
+        }
+        if (shown.length) {
+          text += `\n\n[The user's ${frameSources(shown)} came with this. Only the newest view is shown, at the end, while they share.]`;
+          view = { text: viewing(frameSources(shown)), images: shown.map((f) => ({ data: f.data, mime: f.mime })) };
+        }
       }
     }
     // Per turn, so a language change in the middle of a call applies from the next turn.
     this.system.text = CHAT.prompt(this.tools.list, lang);
     const asked = { role: "user" as const, text, images: imgs };
     this.messages.push(asked);
-    // Keep frames only on the 2 most recent user turns (cost + latency).
-    const withImgs = this.messages.filter((m) => m.role === "user" && m.images?.length);
-    for (const m of withImgs.slice(0, -2)) if (m.role === "user") m.images = undefined;
 
     const toolDefs = toolSpecs(this.tools.list);
 
@@ -193,8 +213,9 @@ export class LiveTurnRunner {
         // The newest window state rides after the conversation on this request only, so no stored message changes.
         const shown = newestState.get(this.messages);
         const sent: Message[] = shown ? [...this.messages, { role: "user", ...shown, transient: true }] : this.messages;
+        // The view joins after the tool pictures are prepared: frames go to whatever model is picked, as above.
         const ask = async (bare: boolean) => collectTurn(
-          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(sent, live, signal, this.described), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
+          streamProvider(provider, apiKey ?? undefined, { model, messages: withView(await prepareToolImages(sent, live, signal, this.described), view), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
           track,
         );
         let turn: Turn | null;

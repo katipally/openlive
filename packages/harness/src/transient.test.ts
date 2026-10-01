@@ -92,3 +92,38 @@ describe("a transient tail", () => {
     expect(sent.messages[1].content[0].cache_control).toBeUndefined()
   })
 })
+
+describe("a live view on a user turn", () => {
+  const view = (n: number): Message => ({ role: "user", text: "[the screen, live]", images: [{ data: `SCR${n}`, mime: "image/jpeg" }], transient: true })
+  const said = (n: number): Message => ({ role: "user", text: `turn ${n}\n\n[screen frame shared]` })
+  const reply = (n: number): Message => ({ role: "assistant", text: `reply ${n}` })
+
+  it("joins the user's words on Anthropic, after the cache breakpoint, and earlier turns never change", async () => {
+    const turns: any[] = []
+    const transcript: Message[] = [...ask]
+    for (let n = 1; n <= 3; n++) {
+      transcript.push(said(n))
+      turns.push(await anthropic([...transcript, view(n)]))
+      transcript.push(reply(n))
+    }
+    const last = turns.at(-1).messages.at(-1).content
+    expect(last.map((b: { type: string }) => b.type)).toEqual(["text", "text", "image"])
+    expect(last[0].cache_control).toEqual({ type: "ephemeral" })
+    expect(last.slice(1).every((b: { cache_control?: unknown }) => !b.cache_control)).toBe(true)
+    for (let n = 1; n < turns.length; n++) {
+      const prev = turns[n - 1].messages
+      const cached = prev.map((m: { content: unknown[] }, i: number) => (i === prev.length - 1 ? { ...m, content: m.content.slice(0, 1) } : m))
+      expect(bare(turns[n].messages.slice(0, cached.length))).toBe(bare(cached))
+    }
+    expect(turns.map((b) => JSON.stringify(b.messages).match(/SCR\d/g))).toEqual([["SCR1"], ["SCR2"], ["SCR3"]])
+  })
+
+  it("follows the user's words as its own user message on both OpenAI wires", async () => {
+    const c = await chat([...ask, said(1), view(1)])
+    expect(c.messages.map((m: { role: string }) => m.role)).toEqual(["system", "user", "user", "user"])
+    expect(c.messages[3].content[1]).toEqual({ type: "image_url", image_url: { url: "data:image/jpeg;base64,SCR1" } })
+    const r = await responses([...ask, said(1), view(1)])
+    expect(r.input.map((i: { role: string }) => i.role)).toEqual(["user", "user", "user"])
+    expect(r.input[2].content[1]).toEqual({ type: "input_image", image_url: "data:image/jpeg;base64,SCR1" })
+  })
+})

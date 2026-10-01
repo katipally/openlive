@@ -142,3 +142,69 @@ test("keeps window state out of the stored turn and sends only the newest after 
   const stored = JSON.stringify((runner as unknown as { messages: Message[] }).messages);
   expect(stored).not.toMatch(/tree \d|JPG/);
 });
+
+const screen = (n: number) => [{ data: `SCR${n}`, mime: "image/jpeg", source: "screen" as const }];
+const transients = (r: ChatRequest) => r.messages.filter((m) => m.role === "user" && m.transient);
+const stored = (runner: LiveTurnRunner) => (runner as unknown as { messages: Message[] }).messages;
+
+test("a shared screen never enters the stored turns: each request repeats the last byte for byte, and shows only this turn's frame", async () => {
+  asked.length = 0;
+  final = "speak";
+  const runner = new LiveTurnRunner(look, {}, { approve: allowAll });
+  const turns: number[] = [];
+  for (let n = 1; n <= 3; n++) {
+    await runner.runTurn(`turn ${n}`, screen(n), () => {}, new AbortController().signal);
+    turns.push(asked.length);
+  }
+  const kept = (r: ChatRequest) => r.messages.filter((m) => !(m.role === "user" && m.transient));
+  for (let i = 1; i < asked.length; i++) {
+    expect(JSON.stringify(kept(asked[i]!).slice(0, kept(asked[i - 1]!).length))).toBe(JSON.stringify(kept(asked[i - 1]!)));
+  }
+  // One transient per request, with one frame: the newest the user shared.
+  const frameOf = (i: number) => turns.findIndex((end) => i < end) + 1;
+  asked.forEach((r, i) => {
+    expect(transients(r)).toHaveLength(1);
+    expect(transients(r)[0]!.images).toEqual([{ data: `SCR${frameOf(i)}`, mime: "image/jpeg" }]);
+    expect(JSON.stringify(kept(r))).not.toMatch(/SCR\d/);
+  });
+  // As the last request had them: the history cap cuts the first turn after it.
+  expect(kept(asked.at(-1)!).filter((m) => m.role === "user").map((m) => (m as { text: string }).text)).toEqual(
+    [1, 2, 3].map((n) => `turn ${n}\n\n[The user's screen came with this. Only the newest view is shown, at the end, while they share.]`),
+  );
+});
+
+test("once the share stops, no frame is sent, and the earlier turns are untouched", async () => {
+  asked.length = 0;
+  const runner = new LiveTurnRunner(look, {}, { approve: allowAll });
+  await runner.runTurn("look at this", screen(1), () => {}, new AbortController().signal);
+  const before = JSON.stringify(stored(runner));
+  const from = asked.length;
+  await runner.runTurn("never mind", [], () => {}, new AbortController().signal);
+  expect(asked.slice(from).map((r) => transients(r).length)).toEqual(Array(7).fill(0));
+  expect(JSON.stringify(stored(runner)).startsWith(before.slice(0, -1))).toBe(true);
+});
+
+test("an attached image stays on its turn for good, apart from the live view", async () => {
+  asked.length = 0;
+  const runner = new LiveTurnRunner(look, {}, { approve: allowAll });
+  await runner.runTurn("this one", [{ data: "ATT", mime: "image/png", source: "attachment" }, ...screen(1)], () => {}, new AbortController().signal);
+  await runner.runTurn("and now", screen(2), () => {}, new AbortController().signal);
+  expect(stored(runner).find((m) => m.role === "user")).toMatchObject({ images: [{ data: "ATT", mime: "image/png" }] });
+  expect(transients(asked.at(-1)!)[0]!.images).toEqual([{ data: "SCR2", mime: "image/jpeg" }]);
+});
+
+test("the shared view and the window state ride in one transient message, the view first", async () => {
+  asked.length = 0;
+  let n = 0;
+  const watching = new ToolSet([{
+    name: "look", description: "", parameters: { type: "object", properties: {} },
+    execute: async () => { n++; return { content: [{ type: "text", text: "Done." }], state: [{ type: "text", text: `tree ${n}` }, { type: "image", data: `JPG${n}`, mime: "image/jpeg" }], details: null }; },
+  }]);
+  const runner = new LiveTurnRunner(watching, {}, { approve: allowAll });
+  await runner.runTurn("click through it", screen(1), () => {}, new AbortController().signal);
+  expect(asked.map((r) => transients(r).length)).toEqual(Array(7).fill(1));
+  expect(transients(asked[0]!)[0]!.images!.map((i) => i.data)).toEqual(["SCR1"]);
+  const tail = transients(asked.at(-1)!)[0]!;
+  expect(tail.images!.map((i) => i.data)).toEqual(["SCR1", "JPG6"]);
+  expect(tail.text).toMatch(/^\[You're viewing the user's screen live right now[^]*\n\nThe newest window state, left by look[^]*tree 6$/);
+});
