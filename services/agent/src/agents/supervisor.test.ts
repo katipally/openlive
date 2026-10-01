@@ -14,6 +14,33 @@ test("a start that never resolves rejects on the deadline instead of hanging for
   await assert.rejects(sup.start(new AbortController().signal), /didn't become ready/);
 });
 
+test("a start that fails or times out disposes the agent, so no adapter process is left running", async () => {
+  let disposed = 0;
+  const failing = new AgentSupervisor(() => agent({ start: async () => { throw new Error("no"); }, dispose: async () => { disposed++; } }) as any, noAsk);
+  await assert.rejects(failing.start(new AbortController().signal), /no/);
+  const hung = new AgentSupervisor(() => agent({ start: () => new Promise(() => {}), dispose: async () => { disposed++; } }) as any, noAsk, { startMs: 50 });
+  await assert.rejects(hung.start(new AbortController().signal), /didn't become ready/);
+  assert.equal(disposed, 2);
+});
+
+test("a restart whose start fails disposes the new agent too", async () => {
+  const disposed: number[] = [];
+  let built = 0;
+  const sup = new AgentSupervisor(() => {
+    const n = ++built;
+    return agent({
+      start: async () => { if (n > 1) throw new Error("still broken"); },
+      runTurn: async () => { throw new Error("boom"); },
+      dispose: async () => { disposed.push(n); },
+    }) as any;
+  }, noAsk);
+  await sup.start(new AbortController().signal);
+  const { events, emit } = collect();
+  await sup.runTurn({ text: "hi", frames: [] }, emit, new AbortController().signal);
+  assert.deepEqual(disposed, [1, 2]);
+  assert.ok(events.some((e) => e.type === "error" && /installed and signed in/.test(e.message)));
+});
+
 test("a crashed turn ends as a spoken recovery notice and recycles ONCE", async () => {
   let built = 0;
   const sup = new AgentSupervisor(() => { built++; return agent({ runTurn: async () => { throw new Error("boom"); } }) as any; }, noAsk);

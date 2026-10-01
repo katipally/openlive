@@ -49,7 +49,11 @@ export class AgentSupervisor implements Agent {
   }
 
   async start(signal: AbortSignal): Promise<void> {
-    await this.withStartTimeout(this.agent.start(signal));
+    await this.withStartTimeout(this.agent.start(signal)).catch(async (e) => {
+      // A start that failed or timed out may still hold a live adapter process tree.
+      await this.agent.dispose().catch(() => {});
+      throw e;
+    });
   }
 
   seed(history: Message[]) {
@@ -149,7 +153,7 @@ export class AgentSupervisor implements Agent {
       const next = this.factory(this.ask);
       next.seed(this.history);
       const ac = new AbortController();
-      await this.withStartTimeout(next.start(ac.signal)).catch((e) => { ac.abort(); throw e; });
+      await this.withStartTimeout(next.start(ac.signal)).catch(async (e) => { ac.abort(); await next.dispose().catch(() => {}); throw e; });
       if (this.disposed) { await next.dispose().catch(() => {}); return; } // disposed while starting
       this.agent = next;
       this.restarted = true;

@@ -2,7 +2,7 @@
 // slash commands, boolean config options, session/list paging and session/resume
 // with its fallback. Plus the pure mappers they rest on.
 import assert from "node:assert";
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -208,6 +208,15 @@ test("auth_required from session/new reads as a sign-in instruction, not a proto
   const err = await agent().a.start(new AbortController().signal).then(() => null, (e: Error & { errorClass?: string }) => e);
   assert.equal(err?.errorClass, "agent_start_failed");
   assert.match(err!.message, /isn't signed in[\s\S]*signed in/);
+}, 20_000);
+
+test("a start that fails while the adapter still runs leaves no process behind", async () => {
+  const pidFile = join(cwd, "adapter.pid");
+  flagged(`--auth-required --pid-file=${pidFile}`);
+  await assert.rejects(agent().a.start(new AbortController().signal), /isn't signed in/);
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  await until(() => !alive());
 }, 20_000);
 
 async function piSees(a: InstanceType<typeof AcpAgent>): Promise<{ launcher: string | null; registered: unknown[] }> {

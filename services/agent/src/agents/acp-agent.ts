@@ -244,11 +244,14 @@ export class AcpAgent implements Agent {
       // event — give the exit a moment, and if the child is dead tell the actionable
       // story (exit + stderr + per-agent hint), not the transport's.
       const dead = await Promise.race([died.catch(() => true), new Promise<false>((r) => setTimeout(() => r(false), 500))]);
-      if (dead || !this.alive) throw new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed");
       // ACP's auth_required: the agent runs but has no login. OpenLive signs agents in
       // through their own CLI, never through `authenticate`.
-      if ((e as { code?: number } | null)?.code === AUTH_REQUIRED) throw new ClassedError(`${labelFor(this.id)} isn't signed in (${extractAcpError(e)}). ${AGENT_REGISTRY[this.id].startHint}`, "agent_start_failed");
-      throw e;
+      const why = dead || !this.alive ? new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed")
+        : (e as { code?: number } | null)?.code === AUTH_REQUIRED ? new ClassedError(`${labelFor(this.id)} isn't signed in (${extractAcpError(e)}). ${AGENT_REGISTRY[this.id].startHint}`, "agent_start_failed")
+        : e;
+      // A start that failed leaves no adapter behind: its whole process tree goes.
+      await this.dispose();
+      throw why;
     }
     ready = true;
     if (!this.opts.probe) emitEvent("onboarding_step", { step: "first_agent_start_ok" });

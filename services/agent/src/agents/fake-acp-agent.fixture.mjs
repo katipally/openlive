@@ -3,9 +3,11 @@
 // blocks back as its reply so the test can see exactly what was sent. Flags pick
 // an agent's quirks: --legacy-models (models as session state, set by
 // session/set_model), --no-http-mcp (advertises it takes no http MCP; any agent
-// echoes the MCP servers it was given on "[mcp]"), --auth-required (session/new says auth_required).
+// echoes the MCP servers it was given on "[mcp]"), --auth-required (session/new says auth_required),
+// --pid-file=<path> (writes its pid there, so a test can see it is gone).
 // On "[pi]" it plays pi-acp's pi: loads the extension next to $PI_ACP_PI_COMMAND and echoes
 // the launcher and what the extension registered.
+import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
@@ -15,6 +17,8 @@ const SESSIONS = Array.from({ length: 5 }, (_, i) => ({
   sessionId: `s${i}`, cwd: "/work", title: i === 2 ? null : `Session ${i}`, updatedAt: new Date(Date.UTC(2026, 8, 1 + i)).toISOString(),
 }));
 const flags = new Set(process.argv.slice(2));
+const pidFile = process.argv.find((a) => a.startsWith("--pid-file="))?.slice("--pid-file=".length);
+if (pidFile) writeFileSync(pidFile, String(process.pid));
 let fast = false;
 let servers = [];
 let legacyModel = "m1";
