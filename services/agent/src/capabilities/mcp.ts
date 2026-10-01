@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { createMcpHandler, hostHeaderValidationResponse, localhostAllowedHostnames, Server } from "@modelcontextprotocol/server";
 import type { McpServerWire } from "../agents/mcp-config.js";
-import { dispatchAll, type ToolSet, type ToolTally } from "./dispatch.js";
+import { allContent, dispatchAll, type ToolSet, type ToolTally } from "./dispatch.js";
 import { allowAll } from "./approval.js";
 import type { Approve, ToolCtx } from "./types.js";
 
@@ -55,10 +55,12 @@ export function mcpServer(opts: McpOpts): Server {
     opts.onCall?.({ type: "tool_call", id: call.id, name: call.name, args: call.args });
     const agentCallId = req.params._meta?.["claudecode/toolUseId"];
     const result = (await dispatchAll([call], opts.tools, opts.ctx(typeof agentCallId === "string" ? agentCallId : undefined), { approve: opts.approve ?? allowAll, tally: opts.tally }))[0]!;
-    opts.onCall?.({ type: "tool_result", id: result.id, name: result.name, content: result.content, isError: result.isError });
+    // An agent keeps its own history, so it gets the window state like any other content.
+    const content = allContent(result);
+    opts.onCall?.({ type: "tool_result", id: result.id, name: result.name, content, isError: result.isError });
     return {
       isError: result.isError,
-      content: result.content.map((c) => (c.type === "text"
+      content: content.map((c) => (c.type === "text"
         ? { type: "text" as const, text: c.text }
         : { type: "image" as const, data: c.data, mimeType: c.mime })),
     };

@@ -79,10 +79,12 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     const picture = s.screenshot
       ? `The picture is ${s.screenshot.width} by ${s.screenshot.height}; x and y are in that picture.`
       : `No picture: ${s.screenshotError ?? "not asked for"}.`;
-    const content: (TextPart | ImagePart)[] = [text([lead, `${s.app.name}, window ${s.window.id}. ${picture}`, "", s.treeText].join("\n"))];
-    if (s.screenshot) content.push({ type: "image", data: s.screenshot.data, mime: s.screenshot.mime });
+    // The tree and the picture are stale after the next action, so they go in
+    // `state`, which a transcript holds only while it is the newest.
+    const shown: (TextPart | ImagePart)[] = [text([picture, "", s.treeText].join("\n"))];
+    if (s.screenshot) shown.push({ type: "image", data: s.screenshot.data, mime: s.screenshot.mime });
     const { screenshot: _, ...rest } = s;
-    return { content, details: { snapshot: rest } };
+    return { content: [text(`${lead}\n${s.app.name}, window ${s.window.id}.`)], state: shown, details: { snapshot: rest } };
   };
 
   const look = async (a: { app?: string; window_id?: number; screenshot?: boolean }, lead: string) =>

@@ -30,7 +30,7 @@ Doing something on the machine is the whole job, not the first step of it. They 
 
 They have already said, once, that you may act on this machine, so never ask for permission to use a tool. Asking costs them a whole spoken exchange: ask only when you genuinely cannot tell what they meant. Otherwise pick the likeliest reading and go. You already know what app they are in and what they have selected; use it instead of asking. The app in front tells you what "this" and "here" mean; it is never a reason to act on a plain question.`;
 
-/** The metadata block appended to the prompt for a turn, when there is any. */
+/** What the machine says is on screen, sent after the conversation each turn, when there is any. */
 export function formatContext(c: FlowContext | null): string {
   if (!c) return "";
   const lines = [
@@ -39,7 +39,7 @@ export function formatContext(c: FlowContext | null): string {
     c.url ? `url: ${c.url}` : "",
     c.selection ? `selected text: ${c.selection.slice(0, 2000)}` : "",
   ].filter(Boolean);
-  return lines.length ? `Right now:\n${lines.join("\n")}` : "";
+  return lines.length ? `Right now (read from the machine, not said by the user):\n${lines.join("\n")}` : "";
 }
 
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */

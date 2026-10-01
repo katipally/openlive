@@ -77,6 +77,17 @@ describe("prepareToolImages", () => {
     expect(tool.result).toMatch(/cannot take images, so it was not sent\. Do not describe it or say you can see it/);
   });
 
+  it("describes the newest window state's picture too, once per picture", async () => {
+    const calls = serve(["completion"]);
+    const eyes = { provider: groq, model: "llama-4-scout", apiKey: "k" };
+    const described = new Map<string, string>();
+    const state: Message[] = [{ role: "user", text: "press save" }, { role: "user", text: "The newest window state:\n1 button Save", images: [{ data: "JPG", mime: "image/jpeg" }], transient: true }];
+    const out = await prepareToolImages(state, live("blind:4"), signal, described, () => eyes);
+    expect(out[1]).toEqual({ role: "user", transient: true, images: undefined, text: expect.stringContaining("1 button Save\n\n[blind:4 cannot take images, so llama-4-scout looked at the picture") });
+    await prepareToolImages(state, live("blind:4"), signal, described, () => eyes);
+    expect(calls.filter((u) => u.endsWith("/chat/completions"))).toHaveLength(1);
+  });
+
   it("falls back to the note when the vision model fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) =>
       String(url).endsWith("/api/show") ? Response.json({ capabilities: ["completion"] }) : new Response("nope", { status: 400 })));

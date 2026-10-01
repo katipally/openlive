@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { compact, estimateTokens, runFlow, type FlowRun } from "./loop.js";
 import { ForwardOnlyInsertion, TEXT_TOOLS } from "../capabilities/text.js";
-import { ToolSet } from "../capabilities/dispatch.js";
+import { newestState, STATE_ELSEWHERE, ToolSet } from "../capabilities/dispatch.js";
+import { computerTools } from "../computer/tools.js";
+import type { ComputerPort } from "../computer/helper.js";
+import type { DevicePort } from "../capabilities/device.js";
 import type { ClipboardPort, Tool } from "../capabilities/types.js";
-import type { Brain, BrainEvent, FlowEvent, Msg } from "./types.js";
+import type { Brain, BrainEvent, FlowEvent, Msg, TurnRequest } from "./types.js";
 
 // A brain that replays scripted turns: one array of events per turn, so a
 // multi-turn run is written down rather than mocked.
@@ -95,6 +98,90 @@ describe("runFlow", () => {
     ]);
     expect(run.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
     expect((run.messages[2] as { result: string }).result).toContain("Mail");
+  });
+
+  it("sends the screen beside the conversation, so the system prompt and earlier messages stay byte-identical across steps", async () => {
+    const reqs: TurnRequest[] = [];
+    const brain = scripted([
+      [{ type: "tool_start", id: "c1", name: "get_context" }, { type: "tool_end", id: "c1", name: "get_context", args: {} }, { type: "turn_done", stop: "tools" }],
+      [{ type: "text_delta", delta: "done" }, { type: "turn_done", stop: "stop" }],
+    ]);
+    const stream = brain.stream.bind(brain);
+    brain.stream = (req, signal) => { reqs.push(structuredClone(req)); return stream(req, signal); };
+    const { run } = harness({ brain });
+    const windows = ["Inbox", "Pull request #12"];
+    run.session.foreground = { async capture() { return { capturedAt: 1, app: "Mail", windowTitle: windows.shift() }; } };
+    await collect(run);
+    expect(reqs).toHaveLength(2);
+    expect(reqs[1]!.systemPrompt).toBe(reqs[0]!.systemPrompt);
+    expect(JSON.stringify(reqs[1]!.tools)).toBe(JSON.stringify(reqs[0]!.tools));
+    expect(reqs[1]!.messages.slice(0, reqs[0]!.messages.length)).toEqual(reqs[0]!.messages);
+    expect(reqs.map((r) => r.tail)).toEqual([
+      { text: "Right now (read from the machine, not said by the user):\napp: Mail\nwindow: Inbox" },
+      { text: "Right now (read from the machine, not said by the user):\napp: Mail\nwindow: Pull request #12" },
+    ]);
+  });
+
+  it("keeps window trees and pictures out of the transcript and sends only the newest, after it", async () => {
+    let n = 0;
+    const computer: ComputerPort = {
+      call: async <T>(method: string) => {
+        n++;
+        const snap = {
+          app: { name: "Notes", bundleId: "com.apple.Notes", pid: 42, active: true },
+          window: { id: 7, appName: "Notes", pid: 42, title: "Groceries", x: 0, y: 0, width: 800, height: 600, onScreen: true },
+          treeText: `App: Notes (com.apple.Notes, pid 42)\nWindow: "Groceries"\n\n0 window Groceries\n\t1 button Save (tree ${n})`,
+          elementCount: 2, truncated: false, screenshot: { data: `JPG${n}`, mime: "image/jpeg", width: 1280, height: 800 },
+        };
+        return (method === "getAppState" ? snap : { action: { path: "accessibility", actionName: "AXPress", verified: true }, state: snap }) as T;
+      },
+    };
+    const tools = new ToolSet(computerTools({ computer, device: {} as DevicePort }));
+    const call = (id: string, name: string, args: Record<string, unknown>): BrainEvent[] =>
+      [{ type: "tool_start", id, name }, { type: "tool_end", id, name, args }, { type: "turn_done", stop: "tools" }];
+    const reqs: TurnRequest[] = [];
+    const brain = scripted([
+      call("c1", "get_app_state", { app: "Notes" }),
+      call("c2", "click", { element: 1 }),
+      call("c3", "click", { element: 1 }),
+      call("c4", "type", { text: "milk" }),
+      [{ type: "text_delta", delta: "done" }, { type: "turn_done", stop: "stop" }],
+    ]);
+    const stream = brain.stream.bind(brain);
+    brain.stream = (req, signal) => { reqs.push(structuredClone(req)); return stream(req, signal); };
+    const { run } = harness({ brain, tools });
+    const events = await collect(run);
+
+    expect(reqs).toHaveLength(5);
+    // Every request starts with the whole of the one before it, byte for byte.
+    for (let i = 1; i < reqs.length; i++) {
+      expect(JSON.stringify(reqs[i]!.messages.slice(0, reqs[i - 1]!.messages.length)), `step ${i}`).toBe(JSON.stringify(reqs[i - 1]!.messages));
+      expect(reqs[i]!.systemPrompt).toBe(reqs[0]!.systemPrompt);
+    }
+    // The transcript never holds a tree or a picture.
+    const stored = JSON.stringify(run.messages);
+    expect(stored).not.toContain("button Save");
+    expect(stored).not.toContain("JPG");
+    expect(run.messages.filter((m) => m.role === "tool").every((m) => (m as { result: string }).result.endsWith(STATE_ELSEWHERE))).toBe(true);
+    // Exactly one state per request after the first look, and always the newest.
+    expect(reqs.map((r) => r.tail?.text.match(/button Save/g)?.length ?? 0)).toEqual([0, 1, 1, 1, 1]);
+    expect(reqs.map((r) => /tree (\d+)/.exec(r.tail?.text ?? "")?.[1])).toEqual([undefined, "1", "2", "3", "4"]);
+    expect(reqs.map((r) => r.tail?.images?.map((i) => i.data))).toEqual([undefined, ["JPG1"], ["JPG2"], ["JPG3"], ["JPG4"]]);
+    expect(reqs[4]!.tail!.text).toMatch(/^The newest window state, left by type\./);
+    // The orb and the session file still get everything the call returned.
+    const shown = events.filter((e) => e.type === "tool_result").map((e) => (e as { content: { type: string }[] }).content.map((c) => c.type));
+    expect(shown).toEqual(Array(4).fill(["text", "text", "image"]));
+  });
+
+  it("starts a fresh transcript with no window state", async () => {
+    const reqs: TurnRequest[] = [];
+    const brain = scripted([[{ type: "text_delta", delta: "hi" }, { type: "turn_done", stop: "stop" }]]);
+    const stream = brain.stream.bind(brain);
+    brain.stream = (req, signal) => { reqs.push(structuredClone(req)); return stream(req, signal); };
+    const { run } = harness({ brain });
+    newestState.set([], { text: "someone else's" });
+    await collect(run);
+    expect(reqs[0]!.tail).toBeUndefined();
   });
 
   it("streams insert_text into the app before the call is finished", async () => {

@@ -118,3 +118,27 @@ test("sends only the newest three tool pictures, however many steps took one", a
     ...Array(3).fill("seen\n[screenshot removed]"), ...Array(3).fill("seen"),
   ]);
 });
+
+test("keeps window state out of the stored turn and sends only the newest after it, every step", async () => {
+  asked.length = 0;
+  final = "speak";
+  let n = 0;
+  const watching = new ToolSet([{
+    name: "look", description: "", parameters: { type: "object", properties: {} },
+    execute: async () => { n++; return { content: [{ type: "text", text: "Done." }], state: [{ type: "text", text: `tree ${n}` }, { type: "image", data: `JPG${n}`, mime: "image/jpeg" }], details: null }; },
+  }]);
+  const runner = new LiveTurnRunner(watching, {}, { approve: allowAll });
+  await runner.runTurn("click through it", [], () => {}, new AbortController().signal);
+  const tails = asked.map((r) => r.messages.at(-1)!).map((m) => (m.role === "user" && m.transient ? m : null));
+  expect(tails[0]).toBeNull();
+  expect(tails.slice(1).map((m) => [/tree (\d+)/.exec(m!.text)?.[1], m!.images?.map((i) => i.data)])).toEqual(
+    [1, 2, 3, 4, 5, 6].map((i) => [String(i), [`JPG${i}`]]),
+  );
+  // Each request repeats the one before it, tail aside, byte for byte.
+  const kept = (r: ChatRequest) => r.messages.filter((m) => !(m.role === "user" && m.transient));
+  for (let i = 1; i < asked.length; i++) {
+    expect(JSON.stringify(kept(asked[i]!).slice(0, kept(asked[i - 1]!).length))).toBe(JSON.stringify(kept(asked[i - 1]!)));
+  }
+  const stored = JSON.stringify((runner as unknown as { messages: Message[] }).messages);
+  expect(stored).not.toMatch(/tree \d|JPG/);
+});

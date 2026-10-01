@@ -1,4 +1,4 @@
-import { asMessage, dispatch, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
+import { allContent, asMessage, asStateTail, dispatch, newestState, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
 import { allowAll } from "../capabilities/approval.js";
 import type { Approve, Session } from "../capabilities/types.js";
 import { trimImages } from "./retention.js";
@@ -160,7 +160,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       const compacted = compact(messages, budget, anchor);
       if (compacted) { messages.splice(0, messages.length, ...compacted); anchor = null; }
 
-      const systemPrompt = [await run.getSystemPrompt(), formatContext(context)].filter(Boolean).join("\n\n");
+      const systemPrompt = await run.getSystemPrompt();
 
       let text = "";
       let reasoning = "";
@@ -193,7 +193,11 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
         return !(await decision).block;
       };
 
-      for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs }, signal)) {
+      const shown = newestState.get(messages);
+      const said = [shown?.text, formatContext(context)].filter(Boolean).join("\n\n");
+      const tail = said ? { text: said, ...(shown?.images && { images: shown.images }) } : undefined;
+
+      for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs, tail }, signal)) {
         if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
         if (ev.type === "reasoning") { reasoning += ev.delta; continue; }
         if (ev.type === "reasoning_signature") { signature = ev.signature; continue; }
@@ -256,12 +260,13 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
           if (next.done) {
             for (const r of next.value) {
               messages.push({ role: "tool", ...asMessage(r) });
+              if (r.state) newestState.set(messages, asStateTail(r.name, r.state));
               if (!r.terminate) terminate = false;
             }
             break;
           }
           const r = next.value;
-          yield { type: "tool_result", id: r.id, name: r.name, content: r.content, isError: r.isError, details: r.details };
+          yield { type: "tool_result", id: r.id, name: r.name, content: allContent(r), isError: r.isError, details: r.details };
         }
       }
 

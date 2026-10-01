@@ -36,7 +36,9 @@ export interface ImagePart {
 /** Canonical conversation message kept by the engine. */
 export type Message =
   | { role: "system"; text: string }
-  | { role: "user"; text: string; images?: ImagePart[] }
+  /** `transient`: rides on this one request, after the cache breakpoint, and is
+   *  never part of the conversation the next request repeats. */
+  | { role: "user"; text: string; images?: ImagePart[]; transient?: boolean }
   | { role: "assistant"; text?: string; reasoning?: string; reasoningSignature?: string; toolCalls?: ToolCall[] }
   | { role: "tool"; callId: string; name: string; result: string; isError?: boolean; images?: ImagePart[] }
 

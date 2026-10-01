@@ -18,6 +18,11 @@ export type FlowContext = FlowContextWire;
 export interface ToolResult<D = unknown> {
   /** Bounded, model-facing. */
   content: (TextPart | ImagePart)[];
+  /** What the call left on screen (an element tree, a picture), stale by the
+   *  next action. Our own loops never store it: only the newest rides on the
+   *  next request, after the cached prefix. Everyone else (the UI, the session
+   *  file, MCP) reads it as more content, after `content`. */
+  state?: (TextPart | ImagePart)[];
   /** Rich, UI-facing. Same return value, no second channel. */
   details: D;
   /** The tool believes the turn is finished. A batch ends the run only if every call agrees. */

@@ -1,7 +1,7 @@
 import { streamProvider, unreachableMessage, type Message, type ProviderInfo } from "@openlive/harness";
 import { classifyError, type LanguageCode } from "@openlive/shared";
 import type { Approve, Emit, Session } from "../capabilities/types.js";
-import { asMessage, dispatchAll, toolSpecs, type ToolSet, type ToolTally } from "../capabilities/dispatch.js";
+import { asMessage, asStateTail, dispatchAll, newestState, toolSpecs, type ToolSet, type ToolTally } from "../capabilities/dispatch.js";
 import { CHAT } from "../capabilities/profiles.js";
 import { cancelledText, collectTurn, safeParseArgs, type Turn } from "../turn.js";
 import { log } from "../log.js";
@@ -190,8 +190,11 @@ export class LiveTurnRunner {
         const trimmed = trimImages(this.messages);
         if (trimmed) this.messages.splice(0, this.messages.length, ...trimmed);
         const last = step === MAX_STEPS;
+        // The newest window state rides after the conversation on this request only, so no stored message changes.
+        const shown = newestState.get(this.messages);
+        const sent: Message[] = shown ? [...this.messages, { role: "user", ...shown, transient: true }] : this.messages;
         const ask = async (bare: boolean) => collectTurn(
-          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
+          streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(sent, live, signal, this.described), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
           track,
         );
         let turn: Turn | null;
@@ -229,7 +232,10 @@ export class LiveTurnRunner {
         // tool_use), poisoning the rest of the call.
         const calls = toolCalls.map((tc) => ({ id: tc.id, name: tc.name, args: safeParseArgs(tc.arguments) }));
         const results = await dispatchAll(calls, this.tools, { ...this.session, emit, signal, context: null }, this.opts);
-        for (const r of results) this.messages.push({ role: "tool", ...asMessage(r) });
+        for (const r of results) {
+          this.messages.push({ role: "tool", ...asMessage(r) });
+          if (r.state) newestState.set(this.messages, asStateTail(r.name, r.state));
+        }
         if (signal.aborted) return;
       }
     } catch (e: any) {

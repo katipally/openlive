@@ -1,4 +1,5 @@
-import { catalogModels, providerAddress, streamProvider, type Message, type ProviderInfo } from "@openlive/harness";
+import { createHash } from "node:crypto";
+import { catalogModels, providerAddress, streamProvider, type ImagePart, type Message, type ProviderInfo } from "@openlive/harness";
 import { modelVision } from "@openlive/shared";
 import { collectTurn } from "./turn.js";
 import { resolveVision, type ResolvedLive } from "./providers.js";
@@ -53,7 +54,7 @@ export async function takesImages(p: ProviderInfo, model: string): Promise<boole
 
 const DESCRIBE = `You are the eyes of an assistant that operates the user's computer for them and cannot see. Describe the picture so it can act on it: which app and window it shows, all readable text quoted exactly, the buttons, fields, links and menus, and where each one is as approximate x,y pixel positions in this picture. Plain sentences, no preamble.`;
 
-async function describe(eyes: ResolvedLive, m: Extract<Message, { role: "tool" }>, signal: AbortSignal): Promise<string> {
+async function describe(eyes: ResolvedLive, said: string, images: ImagePart[], signal: AbortSignal): Promise<string> {
   const turn = await collectTurn(
     streamProvider(eyes.provider, eyes.apiKey ?? undefined, {
       model: eyes.model,
@@ -61,7 +62,7 @@ async function describe(eyes: ResolvedLive, m: Extract<Message, { role: "tool" }
       maxTokens: 800,
       messages: [
         { role: "system", text: DESCRIBE },
-        { role: "user", text: `The ${m.name} tool returned this with it: ${m.result.slice(0, 1000)}`, images: m.images },
+        { role: "user", text: said.slice(0, 1000), images },
       ],
     }, signal),
     () => {},
@@ -73,11 +74,12 @@ const blindNote = (model: string) =>
   `[A picture came with this result, but ${model} cannot take images, so it was not sent. Do not describe it or say you can see it. Work from text: a tool that reads the screen as text, or what the user tells you.]`;
 
 /**
- * The transcript as this turn's model can take it. Pictures in tool results stay
- * when the model sees; otherwise each becomes the vision model's description, or
- * the note that it was not sent. `described` remembers descriptions by call id,
- * because the transcript is sent again every turn and a picture is only worth
- * describing once.
+ * The transcript as this turn's model can take it. Pictures in tool results,
+ * and in the transient window state at the end, stay when the model sees;
+ * otherwise each becomes the vision model's description, or the note that it
+ * was not sent. `described` remembers descriptions by call id (by the picture
+ * itself for the window state, which has no call), because the transcript is
+ * sent again every turn and a picture is only worth describing once.
  */
 export async function prepareToolImages(
   messages: Message[],
@@ -86,21 +88,25 @@ export async function prepareToolImages(
   described: Map<string, string>,
   eyes: () => ResolvedLive | null = resolveVision,
 ): Promise<Message[]> {
-  if (!messages.some((m) => m.role === "tool" && m.images?.length)) return messages;
+  const pictured = (m: Message) => (m.role === "tool" || (m.role === "user" && !!m.transient)) && !!m.images?.length;
+  if (!messages.some(pictured)) return messages;
   if (await takesImages(live.provider, live.model)) return messages;
   const v = eyes();
   const helper = v && !(v.provider.id === live.provider.id && v.model === live.model) ? v : null;
   return Promise.all(messages.map(async (m): Promise<Message> => {
-    if (m.role !== "tool" || !m.images?.length) return m;
+    if (!pictured(m) || (m.role !== "tool" && m.role !== "user")) return m;
+    const images = m.images!;
     let note = blindNote(live.model);
     if (helper) {
-      let text = described.get(m.callId);
+      const key = m.role === "tool" ? m.callId : `state:${createHash("sha1").update(images.map((i) => i.data).join()).digest("hex")}`;
+      let text = described.get(key);
       if (text === undefined) {
-        try { text = await describe(helper, m, signal); } catch { text = ""; }
-        if (text) described.set(m.callId, text);
+        const said = m.role === "tool" ? `The ${m.name} tool returned this with it: ${m.result}` : m.text;
+        try { text = await describe(helper, said, images, signal); } catch { text = ""; }
+        if (text) described.set(key, text);
       }
       if (text) note = `[${live.model} cannot take images, so ${helper.model} looked at the picture that came with this result and reports: ${text}]`;
     }
-    return { ...m, images: undefined, result: `${m.result}\n\n${note}` };
+    return m.role === "tool" ? { ...m, images: undefined, result: `${m.result}\n\n${note}` } : { ...m, images: undefined, text: `${m.text}\n\n${note}` };
   }));
 }

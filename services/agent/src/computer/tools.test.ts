@@ -35,13 +35,14 @@ const cleanup: Array<() => void> = [];
 afterEach(() => { for (const f of cleanup.splice(0)) f(); });
 
 describe("the computer tools", () => {
-  it("lead with the tree and follow with the picture", async () => {
+  it("lead with the tree and follow with the picture, both as window state", async () => {
     const { port } = recorder();
     const r = await byName(computerTools({ computer: port, device }), "get_app_state").execute({ app: "Notes" }, ctx);
-    expect(r.content[0]).toMatchObject({ type: "text" });
-    expect((r.content[0] as { text: string }).text).toContain("1 button Save");
-    expect((r.content[0] as { text: string }).text).toContain("1280 by 960");
-    expect(r.content[1]).toEqual({ type: "image", data: "PNG", mime: "image/png" });
+    expect(r.content).toEqual([{ type: "text", text: "The window now.\nNotes, window 7." }]);
+    expect(r.state![0]).toMatchObject({ type: "text" });
+    expect((r.state![0] as { text: string }).text).toContain("1 button Save");
+    expect((r.state![0] as { text: string }).text).toContain("1280 by 960");
+    expect(r.state![1]).toEqual({ type: "image", data: "PNG", mime: "image/png" });
   });
 
   it("keep working in the window the model last looked at, until it names another app", async () => {

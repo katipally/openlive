@@ -14,6 +14,11 @@ export interface TurnRequest {
   systemPrompt: string;
   messages: Msg[];
   tools: ToolSpec[];
+  /** What is on screen this turn: the newest window state and the app in front.
+   *  Sent after the conversation on this request only. Kept out of `systemPrompt`
+   *  and `messages`, which lead every request: one changed byte there and the
+   *  provider's prompt cache misses the whole conversation behind it. */
+  tail?: { text: string; images?: { data: string; mime: string }[] };
 }
 
 export type BrainEvent =

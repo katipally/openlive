@@ -14,6 +14,8 @@ export interface DispatchResult {
   id: string;
   name: string;
   content: (TextPart | ImagePart)[];
+  /** See ToolResult.state. */
+  state?: (TextPart | ImagePart)[];
   details: unknown;
   isError: boolean;
   terminate: boolean;
@@ -298,7 +300,7 @@ export async function* dispatch(
     if (ctx.signal.aborted) return errResult(p.call, "Cancelled before it ran.");
     try {
       const r: ToolResult = await p.tool.execute(p.args, { ...ctx, callId: p.call.id });
-      return { id: p.call.id, name: p.tool.name, content: r.content, details: r.details, isError: false, terminate: !!r.terminate };
+      return { id: p.call.id, name: p.tool.name, content: r.content, ...(r.state && { state: r.state }), details: r.details, isError: false, terminate: !!r.terminate };
     } catch (e) {
       return errResult(p.call, errText(e));
     }
@@ -352,9 +354,32 @@ export const toolSpecs = (tools: readonly Tool[]) => tools.map((t) => ({ name: t
 export const toolGuidelines = (tools: readonly Tool[]): string =>
   tools.flatMap((t) => t.promptGuidelines ?? []).map((g) => `- ${g}`).join("\n");
 
-/** A result as one tool message reads it: the text, with the pictures beside it. */
+const pictures = (parts: (TextPart | ImagePart)[]) => parts.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
+const words = (parts: (TextPart | ImagePart)[]) => parts.filter((c): c is TextPart => c.type === "text").map((c) => c.text).join("\n");
+
+/** Fixed wording, so a stored result never changes once written. */
+export const STATE_ELSEWHERE = "[The window state this left is not kept here. Only the newest one is, at the end of the conversation.]";
+
+/** A result as one tool message reads it: the text, with the pictures beside it.
+ *  Its window state stays out: see `asStateTail`. */
 export function asMessage(r: DispatchResult): { callId: string; name: string; result: string; isError: boolean; images?: { data: string; mime: string }[] } {
-  const images = r.content.filter((c) => c.type === "image").map((c) => ({ data: c.data, mime: c.mime }));
-  const result = r.content.filter((c): c is TextPart => c.type === "text").map((c) => c.text).join("\n") || "(no output)";
+  const images = pictures(r.content);
+  const result = [words(r.content), r.state && STATE_ELSEWHERE].filter(Boolean).join("\n") || "(no output)";
   return { callId: r.id, name: r.name, result, isError: r.isError, ...(images.length && { images }) };
 }
+
+/** The newest window state, said once at the end of the next request and never stored. */
+export interface StateTail { text: string; images?: { data: string; mime: string }[] }
+
+/** Each transcript's newest window state, kept beside it and never in it, so no
+ *  stored message is ever rewritten. Keyed by the array: a transcript that is
+ *  replaced (a resumed or a new session) starts with none until the next action. */
+export const newestState = new WeakMap<object, StateTail>();
+
+export function asStateTail(tool: string, state: (TextPart | ImagePart)[]): StateTail {
+  const images = pictures(state);
+  return { text: `The newest window state, left by ${tool}. Element numbers and picture coordinates refer to this one:\n${words(state)}`, ...(images.length && { images }) };
+}
+
+/** Everything a call returned, its window state included, for whoever is not the model's transcript. */
+export const allContent = (r: { content: (TextPart | ImagePart)[]; state?: (TextPart | ImagePart)[] }) => (r.state ? [...r.content, ...r.state] : r.content);

@@ -1,4 +1,4 @@
-import { streamProvider, unreachableMessage, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
+import { streamProvider, unreachableMessage, type Message, type ProviderEvent, type ProviderInfo } from "@openlive/harness";
 import { classifyError, ClassedError, mergeToolCall, withReplyLanguage, type LanguageCode, type SseEvent, type ToolCallState } from "@openlive/shared";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
@@ -92,7 +92,8 @@ export class LocalBrain implements Brain {
       const { model, apiKey } = live;
       provider = live.provider;
       if (!apiKey && !provider.keyless) throw new ClassedError(`No API key for ${provider.name}. Add one in Settings > Models.`, "no_key");
-      const messages = [{ role: "system" as const, text: req.systemPrompt }, ...await this.prepare(req.messages, live, signal, this.described)];
+      const said: Message[] = req.tail ? [...req.messages, { role: "user", ...req.tail, transient: true }] : req.messages;
+      const messages: Message[] = [{ role: "system", text: req.systemPrompt }, ...await this.prepare(said, live, signal, this.described)];
       const gen = streamProvider(provider, apiKey ?? undefined, { model, messages, tools: req.tools, ...liveReasoning(live) }, signal);
       const map = createProviderMapper();
       for await (const ev of gen) {

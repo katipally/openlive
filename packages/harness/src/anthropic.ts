@@ -6,16 +6,24 @@ import { safeJsonParse, sseLines } from "./sse"
 function toAnthropic(messages: Message[], noCacheControl?: boolean): { system?: string; messages: unknown[] } {
   let system: string | undefined
   const out: Record<string, unknown>[] = []
+  // The last block the next request will repeat: where the conversation breakpoint goes.
+  let lasting: Record<string, unknown> | undefined
   for (const m of messages) {
     if (m.role === "system") {
       system = system ? `${system}\n\n${m.text}` : m.text
-    } else if (m.role === "user") {
+      continue
+    }
+    if (m.role === "user") {
       const content: Record<string, unknown>[] = []
       if (m.text) content.push({ type: "text", text: m.text })
       for (const img of m.images ?? []) {
         content.push({ type: "image", source: { type: "base64", media_type: img.mime, data: img.data } })
       }
-      out.push({ role: "user", content: content.length ? content : [{ type: "text", text: m.text }] })
+      const prev = out[out.length - 1]
+      // A transient tail joins the user turn in front of it, after any tool_result
+      // blocks there (which must lead), so it is one turn and never a new one.
+      if (m.transient && prev?.role === "user") (prev.content as Record<string, unknown>[]).push(...content)
+      else out.push({ role: "user", content: content.length ? content : [{ type: "text", text: m.text }] })
     } else if (m.role === "assistant") {
       const content: Record<string, unknown>[] = []
       // Replay the signed thinking block first (required by Anthropic when thinking + tools are used).
@@ -47,20 +55,15 @@ function toAnthropic(messages: Message[], noCacheControl?: boolean): { system?: 
         content: [{ type: "tool_result", tool_use_id: m.callId, content: trContent, is_error: m.isError ?? false }],
       })
     }
+    if (!(m.role === "user" && m.transient)) lasting = (out[out.length - 1]?.content as Record<string, unknown>[] | undefined)?.at(-1)
   }
   // Rolling conversation-cache breakpoint: mark the last content block of the most recent message so
   // the whole message prefix is cached and re-read at ~10% price on the next turn (Anthropic caches
   // the longest matching prefix). Without this, the growing `messages` array is re-billed at full
   // input price every turn — the single biggest cost/latency lever in a long agentic loop. The
   // system block + last tool def carry their own breakpoints, so this is the 3rd of Anthropic's 4.
-  if (!noCacheControl) {
-    const last = out[out.length - 1]
-    const content = last?.content
-    if (Array.isArray(content) && content.length) {
-      const block = content[content.length - 1] as Record<string, unknown>
-      block.cache_control = { type: "ephemeral" }
-    }
-  }
+  // A transient tail goes after it: marking that would cache a prefix no later request starts with.
+  if (!noCacheControl && lasting) lasting.cache_control = { type: "ephemeral" }
   return { system, messages: out }
 }
 
