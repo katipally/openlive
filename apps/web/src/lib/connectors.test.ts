@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectorImportSource, ConnectorStatus, ConnectorWire } from "@openlive/shared";
-import { STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine } from "./connectors";
+import { STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine } from "./connectors";
 
 const base = { enabled: true, source: "manual", createdAt: "", spawnConsent: true, signedIn: false, status: "connected", tools: [] } as const;
 const stdio: ConnectorWire = {
@@ -28,6 +28,14 @@ describe("status", () => {
     expect(signInPollMs(60_000)).toBe(5000);
     expect(signInPollMs(4 * 60_000)).toBe(10_000);
     expect(signInPollMs(5 * 60_000)).toBe(false);
+  });
+
+  it("polls several sign-ins at the pace of the newest, until all give up", () => {
+    const now = 10 * 60_000;
+    expect(signInsPollMs([], now)).toBe(false);
+    expect(signInsPollMs([now - 60_000, now - 1000], now)).toBe(2000);
+    expect(signInsPollMs([now - 6 * 60_000, now - 60_000], now)).toBe(5000);
+    expect(signInsPollMs([now - 6 * 60_000], now)).toBe(false);
   });
 });
 

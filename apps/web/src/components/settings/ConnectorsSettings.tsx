@@ -9,7 +9,7 @@ import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import {
-  STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, transportLine,
+  STATUS, bulkTools, draftOf, editPatch, initialPicks, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine,
   type EditDraft, type KeyRow,
 } from "@/lib/connectors";
 import { Badge, Button, Checkbox, Chip, ConfirmButton, Input, ListGroup, Segmented, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
@@ -23,7 +23,7 @@ const field = "flex min-w-0 flex-col gap-1 text-label text-muted-foreground";
 const panel = "flex flex-col gap-3 rounded-xl bg-card p-3 shadow-card";
 const inset = "flex flex-col gap-3 rounded-lg border border-border p-3";
 
-type SignIn = { id: string; url: string; since: number };
+type SignIn = { url: string; since: number };
 
 /** Opens a page in the real browser: the desktop shell's bridge, or a tab. A tab
  *  opened before the await (`tab`) is pointed at it, since a browser blocks one
@@ -36,16 +36,17 @@ function openPage(url: string, tab?: Window | null) {
 
 /** MCP servers every brain can use, in Chat and Flow. The agent pushes nothing,
  *  so this page refreshes itself: on focus, while a connector is connecting,
- *  and while a sign-in is open in the browser. */
+ *  and while any sign-in is open in the browser. */
 export function ConnectorsSettings() {
   const qc = useQueryClient();
-  const [signIn, setSignIn] = useState<SignIn | null>(null);
+  // Keyed by connector id, so a second sign-in never ends the first one's watch.
+  const [signIns, setSignIns] = useState<ReadonlyMap<string, SignIn>>(new Map());
   const [adding, setAdding] = useState<"add" | "import" | null>(null);
   const [filter, setFilter] = useState("");
   const { data: list, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: KEY, queryFn: api.connectors, retry: 1, refetchOnWindowFocus: true,
     refetchInterval: (q) => {
-      if (signIn) return signInPollMs(Date.now() - signIn.since);
+      if (signIns.size) return signInsPollMs([...signIns.values()].map((s) => s.since), Date.now());
       return q.state.data?.some((c) => c.status === "connecting") ? 2000 : false;
     },
   });
@@ -55,19 +56,25 @@ export function ConnectorsSettings() {
   // The desktop window regains focus without the page turning visible, which
   // is all the query's own focus check listens for.
   useEffect(() => {
-    if (!signIn) return;
+    if (!signIns.size) return;
     const look = () => { if (document.visibilityState === "visible") void refetch(); };
     window.addEventListener("focus", look);
     document.addEventListener("visibilitychange", look);
-    const giveUp = setTimeout(() => setSignIn(null), 5 * 60_000);
+    const oldest = Math.min(...[...signIns.values()].map((s) => s.since));
+    const giveUp = setTimeout(
+      () => setSignIns((m) => new Map([...m].filter(([, s]) => signInPollMs(Date.now() - s.since) !== false))),
+      Math.max(0, oldest + 5 * 60_000 - Date.now()),
+    );
     return () => { window.removeEventListener("focus", look); document.removeEventListener("visibilitychange", look); clearTimeout(giveUp); };
-  }, [signIn, refetch]);
-  const waitingOn = signIn && list?.find((c) => c.id === signIn.id);
+  }, [signIns, refetch]);
   useEffect(() => {
-    if (!signIn) return;
-    if (!waitingOn) setSignIn(null);
-    else if (waitingOn.status === "connected") { setSignIn(null); toast(`Signed in to ${waitingOn.name}.`, "info"); }
-  }, [signIn, waitingOn]);
+    if (!signIns.size) return;
+    const byId = new Map(list?.map((c) => [c.id, c]));
+    const done = [...signIns.keys()].filter((id) => { const c = byId.get(id); return !c || c.status === "connected"; });
+    if (!done.length) return;
+    for (const id of done) { const c = byId.get(id); if (c) toast(`Signed in to ${c.name}.`, "info"); }
+    setSignIns((m) => new Map([...m].filter(([id]) => !done.includes(id))));
+  }, [signIns, list]);
 
   const startSignIn = async (c: ConnectorWire) => {
     const tab = isDesktop ? null : window.open("", "_blank");
@@ -75,7 +82,7 @@ export function ConnectorsSettings() {
       const r = await api.startConnectorSignIn(c.id);
       if ("connector" in r) { tab?.close(); put(r.connector); return; }
       openPage(r.authorizationUrl, tab);
-      setSignIn({ id: c.id, url: r.authorizationUrl, since: Date.now() });
+      setSignIns((m) => new Map(m).set(c.id, { url: r.authorizationUrl, since: Date.now() }));
     } catch (e) {
       tab?.close();
       toast(`Couldn’t start signing in to ${c.name}. ${msg(e)}`);
@@ -125,7 +132,7 @@ export function ConnectorsSettings() {
             <ListGroup>
               {shown.map((c) => (
                 <ConnectorRow key={c.id} c={c} put={put} refresh={refresh} onSignIn={() => void startSignIn(c)}
-                  waiting={signIn?.id === c.id ? signIn.url : null} />
+                  waiting={signIns.get(c.id)?.url ?? null} />
               ))}
             </ListGroup>
           )}

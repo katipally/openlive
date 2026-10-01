@@ -33,6 +33,17 @@ export function bulkTools(shown: readonly ConnectorToolWire[], filtered: boolean
   return { names, label: filtered ? `Turn the ${shown.length} shown ${state}` : `Turn all ${state}` };
 }
 
+/** The next look while several sign-ins are open: the soonest any one of them
+ *  wants, or false once every one has given up. O(sign-ins). */
+export function signInsPollMs(sinces: Iterable<number>, now: number): number | false {
+  let next: number | false = false;
+  for (const since of sinces) {
+    const ms = signInPollMs(now - since);
+    if (ms !== false && (next === false || ms < next)) next = ms;
+  }
+  return next;
+}
+
 /** A key and value being edited. `secret` only matters for env; headers are all secret. */
 export interface KeyRow { key: string; value: string; secret: boolean }
 
