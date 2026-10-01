@@ -203,6 +203,12 @@ describe("perception", () => {
     const r = await byName(tools, "read_screen_text").execute({}, ctx);
     expect(r.content[0]).toMatchObject({ text: expect.stringContaining("Send (500, 250)") });
   });
+
+  it("keeps the safety lines in every prompt when the helper is not there", () => {
+    const lines = byName(build().tools, "screenshot").promptGuidelines!.join("\n");
+    expect(lines).toContain("Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that.");
+    expect(lines).toContain("Never tell the user something was sent, saved, bought or deleted unless the screen shows it.");
+  });
 });
 
 

@@ -78,6 +78,7 @@ describe("each built-in skill", () => {
     const lines = look.promptGuidelines!.join("\n");
     expect(lines).toContain("Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that.");
     expect(lines).toContain("Password managers are off limits.");
+    expect(lines).toContain("Never tell the user something was sent, saved, bought or deleted unless the window's state shows it.");
     expect(lines).toContain("computer-use skill");
   });
 });

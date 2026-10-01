@@ -134,6 +134,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
       // Safety stays in every prompt; the how-to is the computer-use skill, paid for only when loaded.
       promptGuidelines: [
         "Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that. Password managers are off limits.",
+        "Never tell the user something was sent, saved, bought or deleted unless the window's state shows it.",
         "Before working in an app, load the computer-use skill with activate_skill when it is offered: it says how to look, act and check your work here.",
       ],
       execute: (a: { app?: string; window_id?: number; screenshot?: boolean }) => look(a, "The window now."),

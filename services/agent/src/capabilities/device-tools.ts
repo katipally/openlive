@@ -183,6 +183,8 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
         "Take a screenshot before clicking anything, and use the coordinates of the image you were given: everything you point at, including the positions read_screen_text gives you, is in that image's space.",
         "A page or an app that was still loading when you looked is worth one wait and another look, never a guess about what it probably says by now.",
         "Window positions and sizes are the one exception. They are desktop coordinates, they only ever go back to the window tools, and they are never a place to click.",
+        "Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that. Password managers are off limits.",
+        "Never tell the user something was sent, saved, bought or deleted unless the screen shows it.",
       ],
       async execute(args: { display_id?: number; window_id?: number }) {
         const { png, shot } = await capture({ displayId: args.display_id, windowId: args.window_id });
