@@ -105,3 +105,16 @@ test("over Anthropic, with tool calls in the history, a refusal is not retried w
   expect(spoken).toEqual([OUT_OF_STEPS]);
   expect(errors).toEqual([]);
 });
+
+test("sends only the newest three tool pictures, however many steps took one", async () => {
+  asked.length = 0;
+  final = "speak";
+  const shooting = new ToolSet([{ name: "look", description: "", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "seen" }, { type: "image", data: "PNG", mime: "image/png" }], details: null }) }]);
+  const runner = new LiveTurnRunner(shooting, {}, { approve: allowAll });
+  await runner.runTurn("click through it", [], () => {}, new AbortController().signal);
+  const pictures = (r: ChatRequest) => r.messages.filter((m) => m.role === "tool" && m.images?.length).length;
+  expect(asked.map(pictures)).toEqual([0, 1, 2, 3, 3, 3, 3]);
+  expect(asked.at(-1)!.messages.filter((m) => m.role === "tool").map((m) => (m as { result: string }).result)).toEqual([
+    ...Array(3).fill("seen\n[screenshot removed]"), ...Array(3).fill("seen"),
+  ]);
+});

@@ -7,6 +7,7 @@ import { cancelledText, collectTurn, safeParseArgs, type Turn } from "../turn.js
 import { log } from "../log.js";
 import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "../providers.js";
 import { prepareToolImages } from "../tool-images.js";
+import { trimImages } from "../flow/retention.js";
 import { CARRIED_HEAD, carriedSkills } from "../skills/content.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
@@ -185,6 +186,9 @@ export class LiveTurnRunner {
         if (signal.aborted) return;
         if (partial) before = partial;
         partial = "";
+        // As in Flow: only the newest tool pictures show the screen as it is, and every picture kept is sent again each step.
+        const trimmed = trimImages(this.messages);
+        if (trimmed) this.messages.splice(0, this.messages.length, ...trimmed);
         const last = step === MAX_STEPS;
         const ask = async (bare: boolean) => collectTurn(
           streamProvider(provider, apiKey ?? undefined, { model, messages: await prepareToolImages(this.messages, live, signal, this.described), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),
