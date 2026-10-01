@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -25,6 +25,9 @@ async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? res.statusText);
   return res.json() as Promise<T>;
 }
+
+/** The query that adds a project's own skills to a skills request. */
+const inWorkspace = (workspace: string) => (workspace ? `?workspace=${encodeURIComponent(workspace)}` : "");
 
 /** A key write went through: report which provider, never the key. */
 const keyChanged = (value: "added" | "removed") => (p: Provider): Provider => { providerKeyChanged(p.kind, value); return p; };
@@ -82,4 +85,19 @@ export const api = {
   importConnectors: (items: { source: string; name: string }[]) =>
     fetch("/api/connectors/import", { method: "POST", body: JSON.stringify({ items }) })
       .then(j<{ connectors: ConnectorWire[]; skipped: { source: string; name: string; reason: string }[] }>),
+  /** `workspace` adds that project's skills, read in place. */
+  skills: (workspace = "") => fetch(`/api/skills${inWorkspace(workspace)}`).then(j<SkillListWire>),
+  rescanSkills: (workspace = "") => fetch(`/api/skills/rescan${inWorkspace(workspace)}`, { method: "POST" }).then(j<SkillListWire>),
+  skill: (name: string, workspace = "") =>
+    fetch(`/api/skills/skill/${encodeURIComponent(name)}${inWorkspace(workspace)}`).then(j<{ skill: SkillWire; text: string }>),
+  createSkill: (b: { name: string; description: string; body: string }) => fetch("/api/skills", { method: "POST", body: JSON.stringify(b) }).then(j<SkillWire>),
+  saveSkill: (name: string, text: string) => fetch(`/api/skills/skill/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ text }) }).then(j<SkillWire>),
+  setSkillEnabled: (name: string, enabled: boolean, workspace = "") =>
+    fetch(`/api/skills/skill/${encodeURIComponent(name)}/enabled${inWorkspace(workspace)}`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<SkillWire>),
+  removeSkill: (name: string) => fetch(`/api/skills/skill/${encodeURIComponent(name)}`, { method: "DELETE" }).then(j),
+  revealSkills: () => fetch("/api/skills/reveal", { method: "POST" }).then(j<{ path: string }>),
+  skillImports: () => fetch("/api/skills/import").then(j<{ sources: SkillImportSource[] }>).then((r) => r.sources),
+  importSkills: (items: { source: string; name: string }[]) =>
+    fetch("/api/skills/import", { method: "POST", body: JSON.stringify({ items }) })
+      .then(j<{ imported: string[]; skipped: { source: string; name: string; reason: string }[] }>),
 };

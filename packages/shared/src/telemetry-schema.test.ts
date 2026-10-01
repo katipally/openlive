@@ -16,9 +16,9 @@ const events = schema.events as unknown as Loose;
 const facts = schema.facts as unknown as Record<string, { event: string; props: Record<string, Spec> }>;
 
 describe("telemetry schema contents", () => {
-  it("has the 29 events, 32 counters and 4 fact scopes of the catalog", () => {
+  it("has the 29 events, 33 counters and 4 fact scopes of the catalog", () => {
     expect(Object.keys(events)).toHaveLength(29);
-    expect(schema.counters).toHaveLength(32);
+    expect(schema.counters).toHaveLength(33);
     expect(Object.keys(facts).sort()).toEqual(["agent_call", "agent_flow", "call_renderer", "flow_owner"]);
   });
 

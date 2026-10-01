@@ -1258,12 +1258,14 @@ function wireCrashReports() {
 
 // ── OS bridge for agent tools (clipboard / open a URL) ───────────────────────
 // The agent's reveal/open paths are model-driven — scope them to the bound
-// workspace (reported by the renderer on every bind) plus the app's own data.
+// workspace (reported by the renderer on every bind) plus the app's own data
+// and its skills folder (as packages/db skillsDir() resolves it).
 let workspaceDir = "";
 function pathAllowed(p) {
   let real;
   try { real = fs.realpathSync(path.resolve(String(p ?? ""))); } catch { return false; }
-  const roots = [workspaceDir, path.join(app.getPath("userData"), "data")].filter(Boolean);
+  const skills = process.env.OPENLIVE_SKILLS_DIR ? path.resolve(process.env.OPENLIVE_SKILLS_DIR) : path.join(os.homedir(), ".openlive", "skills");
+  const roots = [workspaceDir, path.join(app.getPath("userData"), "data"), skills].filter(Boolean);
   return roots.some((root) => {
     try { const r = fs.realpathSync(root); return real === r || real.startsWith(r + path.sep); } catch { return false; }
   });
