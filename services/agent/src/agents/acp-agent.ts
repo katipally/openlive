@@ -23,6 +23,8 @@ import { resolveVision } from "../providers.js";
 import { describeFrames, frameSources } from "../live/turn-runner.js";
 import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { MCP_SERVER_NAME } from "../capabilities/mcp.js";
+import { disabledGroups } from "../capabilities/groups.js";
+import { localZone, nowLine } from "../reminders/time.js";
 import { AGENT_CANCELLED } from "../turn.js";
 
 // Drive an external coding agent as the live brain over the Agent Client Protocol
@@ -737,7 +739,10 @@ export class AcpAgent implements Agent {
     const seen = vision ? await describeFrames(vision, text, frames, sources, signal).catch(() => "") : "";
     if (signal.aborted) return;
 
-    let userText = text;
+    // The local time, as the API brains get it in their tail, when the reminder tools ride along.
+    // Not ahead of a slash command, which must stay first to be read as one.
+    const clock = !command && !text.trimStart().startsWith("/") && this.hosted.length && !disabledGroups().has("reminders") ? nowLine(Date.now(), localZone()) : "";
+    let userText = clock ? `${clock}\n\n${text}` : text;
     // Once per session, tell the agent it's in a spoken voice+vision call.
     if (!this.sentPreamble) { userText = `${this.preambleText()}\n\n${userText}`; this.sentPreamble = true; }
     if (sources) {

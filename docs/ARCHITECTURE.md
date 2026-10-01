@@ -1143,9 +1143,10 @@ note to the user, says the time back for them to hear, and a cancel undoes it.
 - **The time in the prompt.** The Chat prompt carries only the date. A session
   whose tools can schedule gets "It is now 3:04 PM on Thursday, ... (zone)" in the
   request's transient tail, Chat's and Flow's, after the cached prefix, so the
-  system prompt stays byte-identical. A coding agent's turn has no transient
-  part, so it reads the time from `list_reminders` or a refusal, and a bare
-  clock time needs no date.
+  system prompt stays byte-identical. A coding agent keeps its own history, so
+  `AcpAgent.runTurn` opens each spoken turn's text with the same line when
+  OpenLive's tools reach it and Reminders is on. A slash command gets none, so
+  it stays first and is still read as a command.
 - **Scheduler** (`scheduler.ts`). Items live in `state/reminders.json` under the
   store's lock: every pending one and the newest 50 finished. At most 500 are
   pending. One timer points at the soonest, recomputed on each add, cancel and

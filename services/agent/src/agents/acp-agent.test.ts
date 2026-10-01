@@ -13,15 +13,15 @@ const FIXTURE = fileURLToPath(new URL("./fake-acp-agent.fixture.mjs", import.met
 vi.mock("@openlive/db", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   // The driver's own override hook runs the fixture in place of the real adapter.
-  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : undefined),
+  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : k === "disabledToolGroups" ? adapter.off : undefined),
 }));
-const adapter = vi.hoisted(() => ({ command: undefined as string | undefined }));
+const adapter = vi.hoisted(() => ({ command: undefined as string | undefined, off: undefined as string | undefined }));
 
 const { AcpAgent, commandsFromAcp, isAdvertised, optionFromAcp, sessionsFromAcp } = await import("./acp-agent.ts");
 
 const cwd = mkdtempSync(join(tmpdir(), "acp-agent-test-"));
 const live: { dispose(): Promise<void> }[] = [];
-afterEach(async () => { adapter.command = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
+afterEach(async () => { adapter.command = undefined; adapter.off = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
 
 function agent(opts: Record<string, unknown> = {}, id: "codex" | "pi" = "codex") {
   const metas: AgentMeta[] = [];
@@ -191,6 +191,24 @@ test("OpenLive's tools go to an agent that is silent about http MCP, and are hel
   await refuses.start(new AbortController().signal);
   assert.doesNotMatch((await said(refuses, { text: "hello" }))[0]!, /HOSTED TOOLS/);
   assert.deepEqual(await said(refuses, { text: "[mcp]" }), []);
+}, 20_000);
+
+test("with OpenLive's tools attached, each spoken turn opens with the local time, and a slash command stays first", async () => {
+  const { a } = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" });
+  await a.start(new AbortController().signal);
+  assert.match((await said(a, { text: "hello" }))[0]!, /^\[HOSTED TOOLS\]\n\nIt is now \d{1,2}:\d\d [AP]M on .+\)\.\n\nhello$/);
+  assert.match((await said(a, { text: "and now" }))[0]!, /^It is now .+\n\nand now$/);
+  assert.deepEqual(await said(a, { text: "/nope", command: "/nope" }), ["/nope"]);
+  assert.deepEqual(await said(a, { text: "  /compact" }), ["  /compact"]);
+
+  const bare = agent().a;
+  await bare.start(new AbortController().signal);
+  await said(bare, { text: "hi" });
+  assert.deepEqual(await said(bare, { text: "again" }), ["again"]);
+
+  // Reminders switched off in Settings: no clock, as the API brains get none.
+  adapter.off = "reminders";
+  assert.deepEqual(await said(a, { text: "quiet" }), ["quiet"]);
 }, 20_000);
 
 test("a model list given as session state fills the picker and is set with session/set_model", async () => {
