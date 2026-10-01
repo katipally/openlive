@@ -7,3 +7,4 @@ export * from "./live-models";
 export * from "./error-class";
 export * from "./telemetry-schema";
 export * from "./telemetry";
+export * from "./connectors";
