@@ -33,6 +33,8 @@ export interface SkillWire {
   warnings: string[];
   license?: string;
   compatibility?: string;
+  /** On a built-in skill a skill of the same name replaces: whose. Listed, never offered. */
+  replacedBy?: Exclude<SkillSource, "bundled">;
 }
 
 /** A folder with a SKILL.md that could not load, and why. */

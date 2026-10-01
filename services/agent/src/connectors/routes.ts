@@ -24,7 +24,7 @@ connectorRoutes.onError((e, c) => {
 });
 
 /** Rows as the UI sees them. Names are computed across all rows at once, as the registry computes them. */
-function wires(rows: ConnectorRow[]): ConnectorWire[] {
+export function wires(rows: ConnectorRow[]): ConnectorWire[] {
   const names = exposedNames(rows);
   return rows.map((row) => {
     const off = new Set(row.disabledTools);
@@ -43,7 +43,7 @@ function wires(rows: ConnectorRow[]): ConnectorWire[] {
 const one = (id: string): ConnectorWire | undefined => wires(listConnectorRows()).find((w) => w.id === id);
 
 /** Connect, so the reply carries the outcome (tools, or why not). A failure is in the status, not an HTTP error. */
-async function settle(id: string): Promise<void> {
+export async function settle(id: string): Promise<void> {
   await connectors.reconnect(id).catch((e) => log.warn("connectors", `connect ${id}:`, errText(e)));
 }
 
@@ -53,33 +53,42 @@ async function body<T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodTy
 }
 
 const strMap = z.record(z.string(), z.string());
-const addSchema = z.union([
+export const addSchema = z.union([
   z.object({ url: z.string().url(), name: z.string().optional(), headers: strMap.optional() }),
   z.object({ json: z.union([z.string(), z.record(z.string(), z.unknown())]) }),
 ]);
 
-connectorRoutes.get("/", (c) => c.json({ connectors: wires(listConnectorRows()), problems: connectorProblems() }));
-
-// Add by URL, or by pasting `{ "mcpServers": { ... } }` (or just the map inside it).
-connectorRoutes.post("/", async (c) => {
-  const b = await body(c, addSchema);
-  if (!b) return c.json({ error: "Send a url, or json in the mcpServers shape." }, 400);
+/**
+ * Add by URL, or from `{ "mcpServers": { ... } }` (or just the map inside it),
+ * for this route and the add_connector tool. Secrets go through the store's
+ * encrypted path. An http server is reached at once; a stdio one waits for
+ * the person's consent, which only its own route gives.
+ */
+export async function addConnectors(b: z.infer<typeof addSchema>): Promise<{ connectors: ConnectorWire[]; warnings: string[] } | { error: string }> {
   let found: Found[];
   if ("url" in b) {
     found = [{ name: b.name?.trim() || new URL(b.url).hostname, transport: { type: "http", url: b.url, headers: b.headers ?? {} }, warnings: [] }];
   } else {
     let parsed: unknown;
     try { parsed = typeof b.json === "string" ? JSON.parse(b.json) : b.json; }
-    catch { return c.json({ error: "That is not valid JSON." }, 400); }
+    catch { return { error: "That is not valid JSON." }; }
     found = fromMcpServers(parsed, "mcpServers", true);
-    if (!found.length) return c.json({ error: "No MCP servers found in that JSON." }, 400);
+    if (!found.length) return { error: "No MCP servers found in that JSON." };
   }
   const created: ConnectorRow[] = [];
   for (const f of found) created.push(await createConnector({ name: f.name, transport: f.transport, source: "manual" }));
-  // An http server can be reached at once; a stdio one waits for its consent.
   await Promise.all(created.filter((r) => r.transport.type === "http").map((r) => settle(r.id)));
   const ids = new Set(created.map((r) => r.id));
-  return c.json({ connectors: wires(listConnectorRows()).filter((w) => ids.has(w.id)), warnings: found.flatMap((f) => f.warnings) }, 201);
+  return { connectors: wires(listConnectorRows()).filter((w) => ids.has(w.id)), warnings: found.flatMap((f) => f.warnings) };
+}
+
+connectorRoutes.get("/", (c) => c.json({ connectors: wires(listConnectorRows()), problems: connectorProblems() }));
+
+connectorRoutes.post("/", async (c) => {
+  const b = await body(c, addSchema);
+  if (!b) return c.json({ error: "Send a url, or json in the mcpServers shape." }, 400);
+  const r = await addConnectors(b);
+  return c.json(r, "error" in r ? 400 : 201);
 });
 
 const patchSchema = z.object({

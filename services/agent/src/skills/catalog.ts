@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { skillsDir } from "@openlive/db";
 import type { SkillSource } from "@openlive/shared";
 import { parseSkill, type Parsed, type Skill } from "./parse.js";
 
-// Finding skills: OpenLive's own folder, and a bound workspace's
-// .agents/skills and .claude/skills, read in place and never copied. A scan
+// Finding skills: the ones OpenLive ships, OpenLive's own folder, and a bound
+// workspace's .agents/skills and .claude/skills, read in place and never copied. A scan
 // stats every SKILL.md and parses only the ones that changed, so running one
 // at every session start costs a stat per skill.
 
@@ -19,7 +20,12 @@ export interface SkillEntry extends Skill {
 
 export interface SkillProblem { dir: string; source: SkillSource; error: string }
 
-export interface Catalog { skills: SkillEntry[]; problems: SkillProblem[] }
+export interface Catalog {
+  skills: SkillEntry[];
+  problems: SkillProblem[];
+  /** Built-in skills a user or workspace skill of the same name replaces. */
+  replaced: SkillEntry[];
+}
 
 /** Parsed SKILL.md files by path, with the mtime and size they were parsed at. */
 const cache = new Map<string, { mtimeMs: number; size: number; parsed: Parsed }>();
@@ -50,7 +56,7 @@ const hidden = (name: string) => name.startsWith(".") || name === "node_modules"
  * changed file.
  */
 export function scanRoot(root: string, source: SkillSource): Catalog {
-  const out: Catalog = { skills: [], problems: [] };
+  const out: Catalog = { skills: [], problems: [], replaced: [] };
   let entries;
   try { entries = readdirSync(root, { withFileTypes: true }); } catch { return out; }
   for (const e of entries) {
@@ -64,9 +70,21 @@ export function scanRoot(root: string, source: SkillSource): Catalog {
   return out;
 }
 
+/**
+ * Where OpenLive ships its skills. In dev this module is src/skills/catalog.ts
+ * and they sit at services/agent/skills; in the bundled agent
+ * (dist/agent/agent.mjs, and resources/agent/agent.mjs in the packaged app)
+ * pack-agent.cjs copies them to skills/ beside it.
+ */
+export const shippedSkillsDir = (moduleUrl: string = import.meta.url): string =>
+  fileURLToPath(new URL(moduleUrl.endsWith(".ts") ? "../../skills/" : "./skills/", moduleUrl));
+
+/** The built-in skills, read in place and never copied. OPENLIVE_BUNDLED_SKILLS_DIR moves them, so a test can run without them. */
+export const bundledSkillsDir = (): string => process.env.OPENLIVE_BUNDLED_SKILLS_DIR || shippedSkillsDir();
+
 /** Where skills are read from, lowest precedence first. */
 export function skillRoots(workspace = ""): [string, SkillSource][] {
-  const roots: [string, SkillSource][] = [[skillsDir(), "user"]];
+  const roots: [string, SkillSource][] = [[bundledSkillsDir(), "bundled"], [skillsDir(), "user"]];
   // .agents/skills is the cross-client folder, so it wins over .claude/skills in the same workspace.
   if (workspace.trim()) roots.push([join(workspace, ".claude", "skills"), "workspace"], [join(workspace, ".agents", "skills"), "workspace"]);
   return roots;
@@ -75,21 +93,26 @@ export function skillRoots(workspace = ""): [string, SkillSource][] {
 /**
  * Every skill this session can see, one per name, sorted by name. A later
  * root wins a name: a workspace skill overrides the user's skill of the same
- * name, and the one it shadows is named in a warning. O(n log n) in skills.
+ * name, and the one it shadows is named in a warning. A built-in skill that
+ * loses its name is listed in `replaced` instead, since replacing one is what
+ * the person meant. O(n log n) in skills.
  */
 export function catalog(workspace = ""): Catalog {
   const byName = new Map<string, SkillEntry>();
   const problems: SkillProblem[] = [];
+  const replaced: SkillEntry[] = [];
   for (const [root, source] of skillRoots(workspace)) {
     const found = scanRoot(root, source);
     problems.push(...found.problems);
     for (const s of found.skills) {
       const prev = byName.get(s.name);
-      if (prev) s.warnings.push(`It overrides the skill of the same name in ${prev.dir}.`);
+      if (prev?.source === "bundled") replaced.push(prev);
+      else if (prev) s.warnings.push(`It overrides the skill of the same name in ${prev.dir}.`);
       byName.set(s.name, s);
     }
   }
-  return { skills: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)), problems };
+  const sorted = (list: Iterable<SkillEntry>) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+  return { skills: sorted(byName.values()), problems, replaced: sorted(replaced) };
 }
 
 const RESOURCE_DEPTH = 4;

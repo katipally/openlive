@@ -131,13 +131,10 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
       readOnly: true,
       description: "Look at one app window: its accessibility tree, every element numbered, then a picture of it. Start here, and act on the numbers.",
       parameters: obj({ ...TARGET, screenshot: { type: "boolean", description: "Include the picture. Defaults to true; the tree alone is faster." } }),
+      // Safety stays in every prompt; the how-to is the computer-use skill, paid for only when loaded.
       promptGuidelines: [
-        "To work in an app, call get_app_state first and act on its numbered elements. Every action answers with the window's new state: read it before the next step. Element numbers go stale after any change, so only ever use numbers from the latest state.",
-        "Prefer the meaning over the pixels: set_value for a field, click with an element number, perform_action with an action the element lists. Use x and y from the picture only when no element fits.",
-        "An action's result says how sure it is. \"Read back\" means it was checked. Anything else is unproven until the state shows it, so never tell the user something was sent, saved, bought or deleted unless the state shows it.",
-        "Name the app by its name or its id from list_apps. Without one you get the window in front that is not OpenLive's own.",
         "Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that. Password managers are off limits.",
-        "In a browser, set the address field with set_value, then keypress Return.",
+        "Before working in an app, load the computer-use skill with activate_skill when it is offered: it says how to look, act and check your work here.",
       ],
       execute: (a: { app?: string; window_id?: number; screenshot?: boolean }) => look(a, "The window now."),
     },

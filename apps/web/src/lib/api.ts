@@ -99,8 +99,9 @@ export const api = {
   /** `workspace` adds that project's skills, read in place. */
   skills: (workspace = "") => fetch(`/api/skills${inWorkspace(workspace)}`).then(j<SkillListWire>),
   rescanSkills: (workspace = "") => fetch(`/api/skills/rescan${inWorkspace(workspace)}`, { method: "POST" }).then(j<SkillListWire>),
-  skill: (name: string, workspace = "") =>
-    fetch(`/api/skills/skill/${encodeURIComponent(name)}${inWorkspace(workspace)}`).then(j<{ skill: SkillWire; text: string }>),
+  /** `builtIn` reads the built-in skill, even where one of yours replaces it. */
+  skill: (name: string, workspace = "", builtIn = false) =>
+    fetch(`/api/skills/skill/${encodeURIComponent(name)}${builtIn ? "?source=bundled" : inWorkspace(workspace)}`).then(j<{ skill: SkillWire; text: string }>),
   createSkill: (b: { name: string; description: string; body: string }) => fetch("/api/skills", { method: "POST", body: JSON.stringify(b) }).then(j<SkillWire>),
   saveSkill: (name: string, text: string) => fetch(`/api/skills/skill/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ text }) }).then(j<SkillWire>),
   setSkillEnabled: (name: string, enabled: boolean, workspace = "") =>

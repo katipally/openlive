@@ -115,18 +115,21 @@ function SkillCard({ s, workspace, put, refresh }: { s: SkillWire; workspace: st
     <div className={cn(card, "gap-2 p-3", open && "col-span-full")}>
       <div className="flex items-center gap-2">
         <Tooltip label={s.name} truncated className="flex min-w-0 flex-1">
-          <span className={cn("min-w-0 truncate font-mono text-body font-medium text-foreground", !s.enabled && "opacity-60")}>{s.name}</span>
+          <span className={cn("min-w-0 truncate font-mono text-body font-medium text-foreground", (!s.enabled || s.replacedBy) && "opacity-60")}>{s.name}</span>
         </Tooltip>
-        <label className="flex cursor-pointer items-center">
-          <span className="sr-only">Use {s.name}</span>
-          <Switch on={s.enabled} onFlip={flip} />
-        </label>
+        {!s.replacedBy && (
+          <label className="flex cursor-pointer items-center">
+            <span className="sr-only">Use {s.name}</span>
+            <Switch on={s.enabled} onFlip={flip} />
+          </label>
+        )}
       </div>
       <Tooltip label={s.description} truncated className={cn("flex min-w-0 max-w-full flex-1", !s.enabled && "opacity-60")}>
         <p className="line-clamp-2 min-w-0 break-words text-label text-muted-foreground">{s.description}</p>
       </Tooltip>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         {builtIn && <BuiltInBadge />}
+        {s.replacedBy && <Badge>{s.replacedBy === "user" ? "Replaced by yours" : "Replaced by the project’s"}</Badge>}
         {s.source === "workspace" && <Badge tone="accent">Workspace</Badge>}
         {s.warnings.length > 0 && (
           <Tooltip label={s.warnings.join(" ")}>
@@ -154,7 +157,7 @@ function SkillCard({ s, workspace, put, refresh }: { s: SkillWire; workspace: st
 function Editor({ s, workspace, onSaved, onClose }: { s: SkillWire; workspace: string; onSaved: (s: SkillWire) => void; onClose: () => void }) {
   const { builtIn, own } = skillRole(s.source);
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ["skill", s.source, s.name, workspace], queryFn: () => api.skill(s.name, workspace), retry: 1, staleTime: 0, gcTime: 0,
+    queryKey: ["skill", s.source, s.name, workspace], queryFn: () => api.skill(s.name, workspace, builtIn), retry: 1, staleTime: 0, gcTime: 0,
   });
   const [text, setText] = useState<string | null>(null);
   const [problem, setProblem] = useState("");

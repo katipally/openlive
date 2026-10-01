@@ -30,10 +30,11 @@ export function skillImportSources(env: Env = process.env, home: string = homedi
 
 /**
  * Every source's skills, each marked when OpenLive already has one by that
- * name or an earlier source offers it. O(skills) with a map of names taken.
+ * name, built in or yours, or an earlier source offers it. O(skills) with a map of names taken.
  */
 export function previewSkills(sources: SkillSourceSpec[]): SkillImportSource[] {
-  const taken = new Map(catalog().skills.map((s) => [s.name, "your OpenLive skills"]));
+  // A built-in name is marked too: importing it replaces the built-in skill, which should never happen unnoticed.
+  const taken = new Map(catalog().skills.map((s) => [s.name, s.source === "bundled" ? "OpenLive's built-in skills" : "your OpenLive skills"]));
   return sources.map((spec) => {
     const found = scanRoot(spec.path, "user");
     return {

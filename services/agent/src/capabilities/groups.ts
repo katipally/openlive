@@ -13,6 +13,8 @@ export const GROUPS = {
   text: { name: "Text", icon: "type", description: "Types at your cursor and reads selections" },
   assistant: { name: "Assistant", icon: "sparkles", description: "Plans, remembers facts and sees what a call shares" },
   shell: { name: "Shell", icon: "terminal", description: "Runs commands on this computer", needs: "Needs the desktop app" },
+  skills: { name: "Skills", icon: "book", description: "Saves a workflow you describe as a new skill" },
+  connectors: { name: "Connectors", icon: "plug", description: "Adds, signs in to and checks your MCP connectors" },
 } as const satisfies Record<string, { name: string; icon: string; description: string; needs?: string }>;
 
 export type ToolGroupId = keyof typeof GROUPS;

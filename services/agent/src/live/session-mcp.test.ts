@@ -122,7 +122,7 @@ function connect(chatId: string, agentId: string | null = "codex", resumeSession
   return { ws, say, done, started };
 }
 
-const CALL_TOOLS = "delegate, update_todos, remember, look, clipboard_read, clipboard_write, open_url, list_dir, read_file, write_file, edit_file";
+const CALL_TOOLS = "delegate, update_todos, remember, look, clipboard_read, clipboard_write, open_url, list_dir, read_file, write_file, edit_file, save_skill, list_connectors, add_connector, connector_sign_in, reconnect_connector";
 
 test("a coding agent in a call uses look, the clipboard and remember as the built-in brain does", async () => {
   const prompts = await stubAgent();
@@ -133,7 +133,7 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
   await done();
 
   expect(prompts()[0]!.server).toBe("openlive");
-  expect(readFileSync(join(dir, "prompts.jsonl"), "utf8")).toContain('{"reads":["delegate","look","clipboard_read","list_dir","read_file"]}');
+  expect(readFileSync(join(dir, "prompts.jsonl"), "utf8")).toContain('{"reads":["delegate","look","clipboard_read","list_dir","read_file","list_connectors"]}');
   expect(prompts()[0]!.text).toContain(`a server called "openlive": ${CALL_TOOLS}.`);
   expect(ws.sent.find((m) => m.t === "tool_bridge")).toMatchObject({ op: "clipboard_write", arg: "copied", turn: 7 });
   expect(ws.sent.some((m) => m.t === "need_frame")).toBe(true);

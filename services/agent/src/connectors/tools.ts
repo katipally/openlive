@@ -100,7 +100,8 @@ export function connectorTool(row: ConnectorRow, t: CachedTool, name: string, ma
   };
 }
 
-async function openPage(s: Session, url: string): Promise<boolean> {
+/** Open a page where the session can: the device, or the client's bridge. False where neither is here. */
+export async function openPage(s: Session, url: string): Promise<boolean> {
   try {
     if (s.device) await s.device.control({ kind: "open_url", url });
     else if (s.openUrl) await s.openUrl(url);

@@ -97,5 +97,9 @@ esbuild.build({
 }).then(() => {
   copySherpa();
   copyOrt();
-  console.log("[pack-agent] wrote dist/agent/agent.mjs + native-worker.mjs");
+  // The built-in skills, read in place beside agent.mjs (bundledSkillsDir in catalog.ts). Cleared first so a removed one does not linger.
+  const skills = path.join(outdir, "skills");
+  fs.rmSync(skills, { recursive: true, force: true });
+  fs.cpSync(path.join(root, "services/agent/skills"), skills, { recursive: true });
+  console.log("[pack-agent] wrote dist/agent/agent.mjs + native-worker.mjs + skills/");
 }).catch((e) => { console.error(e); process.exit(1); });

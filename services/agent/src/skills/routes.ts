@@ -5,32 +5,42 @@ import { stringify } from "yaml";
 import { z } from "zod";
 import { disabledSkills, setSkillEnabled, skillsDir } from "@openlive/db";
 import { SKILL_DESCRIPTION_MAX, skillNameProblem, type SkillListWire, type SkillWire } from "@openlive/shared";
-import { catalog, rescan, resources, scanRoot, type SkillEntry } from "./catalog.js";
+import { bundledSkillsDir, catalog, rescan, resources, scanRoot, type SkillEntry } from "./catalog.js";
 import { parseSkill } from "./parse.js";
 import { copySkill, previewSkills, skillImportSources } from "./import.js";
 
 // The /skills REST surface, behind the agent's shared-secret gate. OpenLive's
 // own skills can be created, edited and removed; a workspace's are listed for
-// a `?workspace=` folder and only ever read. One skill's routes sit under
-// /skill/:name, because a skill may well be named "import".
+// a `?workspace=` folder and only ever read, as are the built-in ones. One
+// skill's routes sit under /skill/:name, because a skill may well be named "import".
 
 export const skillRoutes = new Hono();
 
-const wire = (s: SkillEntry, off: Set<string>): SkillWire => ({
+const wire = (s: SkillEntry, off: Set<string>, replacedBy?: SkillWire["replacedBy"]): SkillWire => ({
   name: s.name, description: s.description, source: s.source, dir: s.dir, enabled: !off.has(s.name),
   resources: resources(s.dir).files.length, warnings: s.warnings,
   ...(s.license && { license: s.license }), ...(s.compatibility && { compatibility: s.compatibility }),
+  ...(replacedBy && { replacedBy }),
 });
 
 function list(workspace = ""): SkillListWire {
   const off = disabledSkills();
-  const { skills, problems } = catalog(workspace);
-  return { dir: skillsDir(), skills: skills.map((s) => wire(s, off)), problems };
+  const { skills, problems, replaced } = catalog(workspace);
+  const winner = new Map(skills.map((s) => [s.name, s.source]));
+  return {
+    dir: skillsDir(),
+    skills: [...skills.map((s) => wire(s, off)), ...replaced.map((s) => wire(s, off, winner.get(s.name) as SkillWire["replacedBy"]))],
+    problems,
+  };
 }
 
 const workspaceOf = (c: { req: { query(k: string): string | undefined } }) => c.req.query("workspace") ?? "";
 /** OpenLive's own skill by name, the only kind these routes change. */
 const own = (name: string) => scanRoot(skillsDir(), "user").skills.find((s) => s.name === name);
+/** A skill OpenLive ships, by name. */
+export const builtIn = (name: string) => scanRoot(bundledSkillsDir(), "bundled").skills.find((s) => s.name === name);
+const locked = (name: string, what: string) =>
+  `${name} is built into OpenLive, so it cannot be ${what}. Turn it off instead, or make a skill of your own named ${name} to replace it.`;
 
 async function body<T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodType<T>): Promise<T | null> {
   try { const r = schema.safeParse(await c.req.json()); return r.success ? r.data : null; }
@@ -57,26 +67,40 @@ skillRoutes.post("/reveal", (c) => {
 
 const createSchema = z.object({ name: z.string(), description: z.string(), body: z.string().default("") });
 
-skillRoutes.post("/", async (c) => {
-  const b = await body(c, createSchema);
-  if (!b) return c.json({ error: "send { name, description, body }" }, 400);
-  const name = b.name.trim(), description = b.description.trim();
+/** What stops a new skill before anything is written, or "". */
+export function newSkillProblem(name: string, description: string): string {
   const bad = skillNameProblem(name);
-  if (bad) return c.json({ error: bad }, 400);
-  if (!description) return c.json({ error: "Describe what it does and when to use it." }, 400);
-  if (description.length > SKILL_DESCRIPTION_MAX) return c.json({ error: `A description is at most ${SKILL_DESCRIPTION_MAX} characters.` }, 400);
+  if (bad) return bad;
+  if (!description) return "Describe what it does and when to use it.";
+  if (description.length > SKILL_DESCRIPTION_MAX) return `A description is at most ${SKILL_DESCRIPTION_MAX} characters.`;
+  return "";
+}
+
+/** A new skill in OpenLive's own folder, for this route and the save_skill tool. */
+export function createSkill(raw: { name: string; description: string; body: string }): { skill: SkillWire } | { error: string; status: 400 | 409 | 500 } {
+  const name = raw.name.trim(), description = raw.description.trim();
+  const bad = newSkillProblem(name, description);
+  if (bad) return { error: bad, status: 400 };
   mkdirSync(skillsDir(), { recursive: true });
   const dir = join(skillsDir(), name);
   try { mkdirSync(dir); }
-  catch { return c.json({ error: `There is already a folder named ${name}.` }, 409); }
-  writeAtomic(join(dir, "SKILL.md"), `---\n${stringify({ name, description }, { lineWidth: 0 })}---\n\n${b.body.trim()}\n`);
+  catch { return { error: `There is already a folder named ${name}.`, status: 409 }; }
+  writeAtomic(join(dir, "SKILL.md"), `---\n${stringify({ name, description }, { lineWidth: 0 })}---\n\n${raw.body.trim()}\n`);
   const made = own(name);
-  return made ? c.json(wire(made, disabledSkills()), 201) : c.json({ error: "It was written but does not load." }, 500);
+  return made ? { skill: wire(made, disabledSkills()) } : { error: "It was written but does not load.", status: 500 };
+}
+
+skillRoutes.post("/", async (c) => {
+  const b = await body(c, createSchema);
+  if (!b) return c.json({ error: "send { name, description, body }" }, 400);
+  const r = createSkill(b);
+  return "skill" in r ? c.json(r.skill, 201) : c.json({ error: r.error }, r.status);
 });
 
+// `?source=bundled` reads the built-in skill even where one of yours replaces it.
 skillRoutes.get("/skill/:name", (c) => {
   const name = c.req.param("name");
-  const s = catalog(workspaceOf(c)).skills.find((k) => k.name === name);
+  const s = c.req.query("source") === "bundled" ? builtIn(name) : catalog(workspaceOf(c)).skills.find((k) => k.name === name);
   if (!s) return c.json({ error: "not found" }, 404);
   let text: string;
   try { text = readFileSync(s.file, "utf8"); } catch { return c.json({ error: "not found" }, 404); }
@@ -89,7 +113,7 @@ skillRoutes.put("/skill/:name", async (c) => {
   const b = await body(c, z.object({ text: z.string() }));
   if (!b) return c.json({ error: "send { text }" }, 400);
   const s = own(name);
-  if (!s) return c.json({ error: "not found" }, 404);
+  if (!s) return builtIn(name) ? c.json({ error: locked(name, "edited") }, 403) : c.json({ error: "not found" }, 404);
   const parsed = parseSkill(b.text, name);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   if (parsed.skill.name !== name) return c.json({ error: `Keep the name "${name}": it is the folder's name.` }, 400);
@@ -110,7 +134,7 @@ skillRoutes.post("/skill/:name/enabled", async (c) => {
 skillRoutes.delete("/skill/:name", async (c) => {
   const name = c.req.param("name");
   const s = own(name);
-  if (!s) return c.json({ error: "not found" }, 404);
+  if (!s) return builtIn(name) ? c.json({ error: locked(name, "removed") }, 403) : c.json({ error: "not found" }, 404);
   // A linked folder loses the link, never what it points to.
   if (lstatSync(s.dir).isSymbolicLink()) unlinkSync(s.dir);
   else rmSync(s.dir, { recursive: true, force: true });

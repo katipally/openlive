@@ -5,6 +5,8 @@ import { computerTools, SUPERSEDED } from "../computer/tools.js";
 import { ASSISTANT_TOOLS } from "./assistant.js";
 import { FILE_TOOLS } from "./files.js";
 import { WORKER_TOOLS } from "./web.js";
+import { saveSkill } from "../skills/tools.js";
+import { CONNECTOR_SETUP_TOOLS } from "../connectors/setup.js";
 import { disabledGroups } from "./groups.js";
 import type { DevicePort } from "./device.js";
 import type { ComputerPort } from "../computer/helper.js";
@@ -39,6 +41,8 @@ const builtins: ToolProvider = (s) => [
   ...machine(s),
   ...ASSISTANT_TOOLS,
   ...FILE_TOOLS,
+  saveSkill,
+  ...CONNECTOR_SETUP_TOOLS,
 ];
 
 /**

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Blocks, Folder, Globe, Monitor, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
+import { Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
 import type { CapabilitiesWire, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -14,7 +14,7 @@ import { BuiltInBadge, NoMatch, OneLine, QueryState, card, grid2, msg, tile } fr
 export const capabilitiesQuery = { queryKey: ["capabilities"], queryFn: api.capabilities };
 
 // The agent names an icon; one it does not know yet still draws.
-const ICONS: Record<string, LucideIcon> = { monitor: Monitor, folder: Folder, globe: Globe, type: Type, sparkles: Sparkles, terminal: SquareTerminal, bell: Bell, search: Search, undo: Undo2 };
+const ICONS: Record<string, LucideIcon> = { monitor: Monitor, folder: Folder, globe: Globe, type: Type, sparkles: Sparkles, terminal: SquareTerminal, bell: Bell, search: Search, undo: Undo2, book: BookOpen, plug: Plug };
 // Chips a card shows before "+N": about two short lines at the card's narrowest.
 const CHIPS = 4;
 

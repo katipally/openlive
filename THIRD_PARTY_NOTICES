@@ -17,7 +17,8 @@ Adapted in the computer-use helper and its client:
                                                              a paste (same runtime)
   native/openlive-cu/scripts/build.cjs               helper app bundle and signing
   services/agent/src/computer/helper.ts              socket launch, token and reaping
-  services/agent/src/computer/tools.ts               prompt guidance
+  services/agent/src/computer/tools.ts               prompt guidance (the safety line)
+  services/agent/skills/computer-use/SKILL.md        prompt guidance (the how-to)
 
 MIT License
 

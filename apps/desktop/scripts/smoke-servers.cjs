@@ -94,6 +94,10 @@ exports.default = async function smokeServers({ appOutDir, electronPlatformName,
     if (missing.length) throw new Error(`[smoke-servers] packaged ${server} is missing: ${missing.join(", ")}`);
   }
   assertTelemetryPackaged(resources);
+  // The built-in skills load from beside agent.mjs; without them the agent boots fine and offers none.
+  const skills = fs.existsSync(path.join(dist, "agent", "skills")) ? fs.readdirSync(path.join(dist, "agent", "skills")).filter((s) => !s.startsWith(".")) : [];
+  const missingSkills = skills.filter((s) => !fs.existsSync(path.join(resources, "agent", "skills", s, "SKILL.md")));
+  if (missingSkills.length) throw new Error(`[smoke-servers] packaged agent is missing built-in skills: ${missingSkills.join(", ")}`);
 
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "openlive-smoke-"));
   try {

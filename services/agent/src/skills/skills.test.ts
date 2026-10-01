@@ -7,6 +7,8 @@ const tmp = mkdtempSync(join(tmpdir(), "ol-skills-"));
 const userDir = join(tmp, "user-skills");
 process.env.OPENLIVE_HOME = join(tmp, "data");
 process.env.OPENLIVE_SKILLS_DIR = userDir;
+// Without the built-in skills: these cases are about the user's and a workspace's. bundled.test.ts covers those.
+process.env.OPENLIVE_BUNDLED_SKILLS_DIR = join(tmp, "no-bundled");
 const { parseSkill } = await import("./parse.ts");
 const { catalog, rescan, resources } = await import("./catalog.ts");
 const { skillTools, slashSkill } = await import("./tools.ts");
@@ -19,6 +21,7 @@ const { ToolSet } = await import("../capabilities/dispatch.ts");
 afterAll(() => {
   delete process.env.OPENLIVE_HOME;
   delete process.env.OPENLIVE_SKILLS_DIR;
+  delete process.env.OPENLIVE_BUNDLED_SKILLS_DIR;
   rmSync(tmp, { recursive: true, force: true });
 });
 
