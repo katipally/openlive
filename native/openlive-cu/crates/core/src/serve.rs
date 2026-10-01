@@ -249,7 +249,6 @@ impl Params {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::not_yet;
     use ::image::RgbaImage;
     use std::io::Cursor;
 
@@ -269,7 +268,7 @@ mod tests {
 
     impl Backend for Fake {
         fn platform(&self) -> &'static str { "macos" }
-        fn unsupported(&self) -> Option<String> { self.stub.then(|| not_yet("testos").message) }
+        fn unsupported(&self) -> Option<String> { self.stub.then(|| "computer use is not yet supported on testos".into()) }
         fn grants(&self) -> Vec<Grant> { vec![Grant { id: "accessibility", granted: true, settings_url: None, detail: None }] }
         fn request_grant(&mut self, _: &str) -> Result<(), CuError> { Ok(()) }
         fn list_apps(&mut self) -> Result<Vec<AppInfo>, CuError> { Ok(vec![app("com.apple.Notes")]) }

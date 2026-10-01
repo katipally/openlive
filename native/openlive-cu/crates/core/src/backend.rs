@@ -130,11 +130,6 @@ pub fn within(path: &Path, root: &Path) -> bool {
     root.components().count() > 0 && root.components().map(fold).all(|r| parts.next().as_ref() == Some(&r))
 }
 
-/// The error every stub backend returns until its phase lands.
-pub fn not_yet(platform: &str) -> CuError {
-    CuError::new(ErrorCode::UnsupportedPlatform, format!("computer use is not yet supported on {platform}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
