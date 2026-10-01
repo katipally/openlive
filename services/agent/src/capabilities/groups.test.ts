@@ -83,7 +83,10 @@ describe("the /capabilities API", () => {
     expect((await call("POST", "/exa-key", { key: "" })).json.exaKey).toBe(process.env.EXA_API_KEY?.trim() ? "env" : null);
   });
 
-  it("says connector tools on demand are not here yet", async () => {
-    expect((await call("GET", "/")).json.onDemand).toEqual({ available: false });
+  it("says how connector tools load, and switches the mode", async () => {
+    expect((await call("GET", "/")).json.onDemand).toEqual({ available: true, mode: "auto", active: false, toolCount: 0, threshold: { tools: 40, tokens: 8000 } });
+    expect((await call("POST", "/on-demand", { mode: "on" })).json.onDemand.mode).toBe("on");
+    expect((await call("POST", "/on-demand", { mode: "sometimes" })).status).toBe(400);
+    expect((await call("POST", "/on-demand", { mode: "auto" })).json.onDemand.mode).toBe("auto");
   });
 });

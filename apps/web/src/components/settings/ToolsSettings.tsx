@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
-import type { CapabilitiesWire, ToolGroupWire } from "@openlive/shared";
+import type { CapabilitiesWire, OnDemandMode, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
-import { asksFirst, chipOverflow, filterGroups } from "@/lib/capabilities";
-import { Chip, Input, Switch, Tooltip } from "@/components/ui";
+import { asksFirst, chipOverflow, filterGroups, onDemandCaption } from "@/lib/capabilities";
+import { Chip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
 import { BuiltInBadge, NoMatch, OneLine, QueryState, card, grid2, msg, tile } from "./common";
 
 export const capabilitiesQuery = { queryKey: ["capabilities"], queryFn: api.capabilities };
@@ -30,10 +30,29 @@ export function useFlipGroup() {
   };
 }
 
+const MODES: readonly SegOption<OnDemandMode>[] = [
+  { id: "auto", label: "Auto", title: "When many connector tools are on. Applies from the next call or Flow run." },
+  { id: "on", label: "On", title: "Always. Applies from the next call or Flow run." },
+  { id: "off", label: "Off", title: "Never. Applies from the next call or Flow run." },
+];
+
+/** Sets how connector tools load: moves at once, and goes back if the agent says no. */
+function useSetOnDemand() {
+  const qc = useQueryClient();
+  return (from: OnDemandMode, to: OnDemandMode) => {
+    const set = (mode: OnDemandMode) => qc.setQueryData<CapabilitiesWire>(capabilitiesQuery.queryKey, (d) => d && { ...d, onDemand: { ...d.onDemand, mode } });
+    set(to);
+    api.setOnDemandMode(to)
+      .then((d) => qc.setQueryData(capabilitiesQuery.queryKey, d))
+      .catch((e) => { set(from); toast(`Couldn’t change how connector tools load. ${msg(e)}`); });
+  };
+}
+
 /** OpenLive's own tools, in the groups they switch in. */
 export function ToolsSettings() {
   const { data, isLoading, error, refetch, isFetching } = useQuery({ ...capabilitiesQuery, retry: 1, refetchOnWindowFocus: true });
   const flip = useFlipGroup();
+  const setOnDemand = useSetOnDemand();
   const [filter, setFilter] = useState("");
   const shown = filterGroups(data?.groups ?? [], filter);
 
@@ -51,13 +70,16 @@ export function ToolsSettings() {
         </div>
       )}
       {data && (
-        <div id="set-capabilities-on-demand" className={cn(card, "flex-row items-center gap-3 p-card-x")}>
+        <div id="set-capabilities-on-demand" className={cn(card, "flex-row flex-wrap items-center gap-3 p-card-x")}>
           <span className={tile}><Zap aria-hidden /></span>
-          <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 flex-1 basis-48 flex-col">
             <span className="text-body font-medium text-foreground">Load connector tools on demand</span>
-            <OneLine text="Keeps prompts small when many connectors are on" className="text-label text-muted-foreground" />
+            <OneLine text={data.onDemand.available ? onDemandCaption(data.onDemand) : "Keeps prompts small when many connectors are on"} className="text-label text-muted-foreground" />
           </span>
-          {data.onDemand.available ? <Chip dot="accent">Auto</Chip> : <Chip>Coming soon</Chip>}
+          {data.onDemand.available ? (
+            <Segmented label="Load connector tools on demand" size="sm" options={MODES} value={data.onDemand.mode}
+              onChange={(m) => { if (m !== data.onDemand.mode) setOnDemand(data.onDemand.mode, m); }} />
+          ) : <Chip>Coming soon</Chip>}
         </div>
       )}
     </div>

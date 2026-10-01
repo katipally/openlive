@@ -22,10 +22,25 @@ export interface ToolGroupWire {
   tools: BuiltinToolWire[];
 }
 
+export type OnDemandMode = "auto" | "on" | "off";
+
+/** How connector tools reach a session: each its own tool, or found on demand
+ *  behind two. Decided when a session starts, for the whole session. */
+export interface OnDemandWire {
+  available: boolean;
+  mode: OnDemandMode;
+  /** Whether the next session would hold them back, as the mode and the count stand now. */
+  active: boolean;
+  /** Connector tools that are on. */
+  toolCount: number;
+  /** Past either, `auto` holds them back. */
+  threshold: { tools: number; tokens: number };
+}
+
 export interface CapabilitiesWire {
   groups: ToolGroupWire[];
   /** Connector tools loaded only when a task calls for them. */
-  onDemand: { available: boolean };
+  onDemand: OnDemandWire;
   /** Where the Exa key for web search comes from, if anywhere. The key itself never leaves the agent. */
   exaKey: "saved" | "env" | null;
 }

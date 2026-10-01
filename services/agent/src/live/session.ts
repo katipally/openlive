@@ -605,7 +605,9 @@ export class LiveSession {
 
   /** The call's tools, each with its chip. Built again when the folder changes, as a folder brings its own skills. */
   private callTools(): ToolSet {
-    return new ToolSet(registry.tools(CHAT, this.toolSession).list.map((t) => (OWN_UI.has(t.name) ? t : this.chipped(t))));
+    const set = registry.tools(CHAT, this.toolSession);
+    const chip = (t: Tool) => (OWN_UI.has(t.name) ? t : this.chipped(t));
+    return new ToolSet(set.list.map(chip), set.onDemand?.list.map(chip));
   }
 
   /** A tool with its chip in the running turn, the same whichever brain calls it. */

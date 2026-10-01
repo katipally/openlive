@@ -8,6 +8,8 @@ import { WORKER_TOOLS } from "./web.js";
 import { saveSkill } from "../skills/tools.js";
 import { CONNECTOR_SETUP_TOOLS } from "../connectors/setup.js";
 import { disabledGroups } from "./groups.js";
+import type { OnDemandMode } from "@openlive/shared";
+import { onDemandActive, onDemandMode, onDemandTools } from "./on-demand.js";
 import type { DevicePort } from "./device.js";
 import type { ComputerPort } from "../computer/helper.js";
 import type { Session, Tool } from "./types.js";
@@ -67,9 +69,11 @@ export class ToolRegistry {
    * The tools this session can run, in the order its mode leads with. A name
    * offered twice keeps its first registration, so a later provider can never
    * shadow a built-in. A group switched off in Settings is left out, for
-   * every brain and the MCP server alike. O(n log n) in the number of tools.
+   * every brain and the MCP server alike. Connector tools past the on-demand
+   * threshold are held back behind find_tools and use_tool, decided here once
+   * for the session's whole life. O(n log n) in the number of tools.
    */
-  tools(profile: Ordering, s: Session): ToolSet {
+  tools(profile: Ordering, s: Session, mode: OnDemandMode = onDemandMode()): ToolSet {
     const rank = new Map(profile.order.map((name, i) => [name, i]));
     const seen = new Set<string>();
     const off = disabledGroups();
@@ -80,7 +84,10 @@ export class ToolRegistry {
     });
     const at = (t: Tool, i: number) => rank.get(t.name) ?? profile.order.length + i;
     const ranked = offered.map((t, i) => ({ t, r: at(t, i) })).sort((a, b) => a.r - b.r);
-    return new ToolSet(ranked.map((x) => x.t));
+    const all = ranked.map((x) => x.t);
+    const held = all.filter((t) => t.connector);
+    if (!onDemandActive(mode, held)) return new ToolSet(all);
+    return new ToolSet([...all.filter((t) => !t.connector), ...onDemandTools(held)], held);
   }
 }
 

@@ -1,7 +1,7 @@
 // Capabilities settings, the pure half: how the Tools subtab narrows and shows
 // OpenLive's own tool groups. No React, no DOM, so it tests on its own.
 
-import type { ToolGroupWire } from "@openlive/shared";
+import type { OnDemandWire, ToolGroupWire } from "@openlive/shared";
 
 /** The first `max` items and how many are left for a "+N". */
 export function chipOverflow<T>(items: readonly T[], max: number): { shown: T[]; more: number } {
@@ -20,3 +20,13 @@ export const toolCount = (groups: readonly ToolGroupWire[]) => groups.reduce((n,
 
 /** How many of a group's tools ask before they act. */
 export const asksFirst = (g: ToolGroupWire) => g.tools.reduce((n, t) => n + (t.asksFirst ? 1 : 0), 0);
+
+const tools = (n: number) => `${n} connector tool${n === 1 ? "" : "s"}`;
+
+/** One line on how connector tools reach the next session. */
+export function onDemandCaption(d: OnDemandWire): string {
+  if (d.active) return `Active: ${tools(d.toolCount)} load on demand`;
+  if (d.mode === "off") return "Off: every connector tool goes with every request";
+  if (!d.toolCount) return "No connector tools are on yet";
+  return `Not needed yet: ${tools(d.toolCount)}, it starts past ${d.threshold.tools}`;
+}

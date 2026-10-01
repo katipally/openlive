@@ -1,4 +1,5 @@
 import { parsePartialJson } from "../flow/partial-json.js";
+import { closeMatches, FIND_TOOLS, unwrapUse, USE_TOOL } from "./on-demand.js";
 import type { Approve, ImagePart, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
 
 // Tool plumbing for every loop and the MCP server: repair what the model got
@@ -102,13 +103,16 @@ function propSchema(tool: Tool, key: string): Record<string, unknown> {
 export class ToolSet {
   private readonly exact = new Map<string, Tool>();
   private readonly loose = new Map<string, Tool>();
+  /** The connector tools held back for use_tool, when this session loads them on demand. */
+  readonly onDemand: ToolSet | null;
 
-  constructor(readonly list: readonly Tool[]) {
+  constructor(readonly list: readonly Tool[], held: readonly Tool[] = []) {
     for (const t of list) {
       this.exact.set(t.name, t);
       const r = reduce(t.name);
       if (!this.loose.has(r)) this.loose.set(r, t);
     }
+    this.onDemand = held.length ? new ToolSet(held) : null;
   }
 
   resolve(name: string): Tool | null {
@@ -252,10 +256,28 @@ interface Prepared {
 const errResult = (call: ToolCall, msg: string): DispatchResult =>
   ({ id: call.id, name: call.name, content: [text(msg)], details: { error: msg }, isError: true, terminate: false });
 
-function prepare(call: ToolCall, tools: ToolSet): Prepared {
+/** A call as the tool it reaches: use_tool's becomes the held-back tool it names. */
+function target(call: ToolCall, tools: ToolSet): { tool: Tool; raw: unknown } | { error: string } {
   const tool = tools.resolve(call.name);
-  if (!tool) return { call, tool: null, args: {}, error: `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}.` };
-  const normalized = normalizeArgs(tool, call.args);
+  const held = tools.onDemand;
+  if (tool && !(held && tool.name === USE_TOOL)) return { tool, raw: call.args };
+  if (!held) return { error: `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}.` };
+  if (!tool) {
+    const named = held.resolve(call.name);
+    return { error: named ? `${named.name} loads on demand: call ${USE_TOOL} with name "${named.name}" and its arguments.` : `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}. Connector tools are found with ${FIND_TOOLS}.` };
+  }
+  const use = unwrapUse(call.args);
+  const real = held.resolve(use.name);
+  if (real) return { tool: real, raw: use.args };
+  const close = closeMatches(use.name, held.list);
+  return { error: `No connector tool "${use.name}" is on in this session.${close.length ? ` Close: ${close.join(", ")}.` : ""} Search with ${FIND_TOOLS}.` };
+}
+
+function prepare(call: ToolCall, tools: ToolSet): Prepared {
+  const t = target(call, tools);
+  if ("error" in t) return { call, tool: null, args: {}, error: t.error };
+  const { tool } = t;
+  const normalized = normalizeArgs(tool, t.raw);
   const valid = validateArgs(tool, normalized);
   if (!valid.ok) return { call, tool, args: normalized, error: valid.error };
   return { call, tool, args: valid.value };

@@ -123,6 +123,8 @@ export interface Tool<P = any, D = any> {
   available?: (s: Session) => boolean;
   /** The built-in group Settings switches it with. Omitted: not switched as a group (connectors, skills). */
   group?: ToolGroupId;
+  /** The connector it comes from, by name. Such a tool may be held back and found on demand. */
+  connector?: string;
   execute(args: P, ctx: ToolCtx): Promise<ToolResult<D>>;
 }
 

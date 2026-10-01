@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolGroupWire } from "@openlive/shared";
-import { asksFirst, chipOverflow, filterGroups, toolCount } from "./capabilities";
+import { asksFirst, chipOverflow, filterGroups, onDemandCaption, toolCount } from "./capabilities";
 
 const group = (id: string, name: string, tools: [string, boolean][]): ToolGroupWire =>
   ({ id, name, icon: id, description: `${name} things`, enabled: true, tools: tools.map(([n, a]) => ({ name: n, description: `${n}.`, asksFirst: a })) });
@@ -29,5 +29,13 @@ describe("the Tools subtab", () => {
     expect(toolCount(groups)).toBe(4);
     expect(toolCount([])).toBe(0);
     expect(groups.map(asksFirst)).toEqual([2, 1]);
+  });
+
+  it("says in one line how connector tools load", () => {
+    const d = { available: true, mode: "auto" as const, active: false, toolCount: 0, threshold: { tools: 40, tokens: 8000 } };
+    expect(onDemandCaption({ ...d, active: true, toolCount: 212 })).toBe("Active: 212 connector tools load on demand");
+    expect(onDemandCaption({ ...d, toolCount: 12 })).toBe("Not needed yet: 12 connector tools, it starts past 40");
+    expect(onDemandCaption(d)).toBe("No connector tools are on yet");
+    expect(onDemandCaption({ ...d, mode: "off", toolCount: 1 })).toBe("Off: every connector tool goes with every request");
   });
 });

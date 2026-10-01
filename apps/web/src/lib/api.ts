@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire, OnDemandMode } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -116,6 +116,8 @@ export const api = {
   capabilities: () => fetch("/api/capabilities").then(j<CapabilitiesWire>),
   setToolGroupEnabled: (id: string, enabled: boolean) =>
     fetch(`/api/capabilities/groups/${encodeURIComponent(id)}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }).then(j<CapabilitiesWire>),
+  setOnDemandMode: (mode: OnDemandMode) =>
+    fetch("/api/capabilities/on-demand", { method: "POST", body: JSON.stringify({ mode }) }).then(j<CapabilitiesWire>),
   /** Write-only: "" clears it, and the reply only says whether one is saved. */
   setExaKey: (key: string) => fetch("/api/capabilities/exa-key", { method: "POST", body: JSON.stringify({ key }) }).then(j<CapabilitiesWire>),
   memory: () => fetch("/api/memory").then(j<MemoryWire>),

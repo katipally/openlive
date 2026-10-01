@@ -82,7 +82,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Coding agents", keywords: "install sign in sign out hide claude codex cursor acp", tab: "agents", anchor: "set-agents-list" },
 
   { label: "Tools", keywords: "built-in builtin tools computer use screen click files folder web research search fetch text type clipboard selection assistant todos shell command terminal turn off disable groups", tab: "capabilities", anchor: "set-capabilities-tools-list", reveal: capabilityReveal("tools") },
-  { label: "Load connector tools on demand", keywords: "auto lazy prompt size many connectors tools", tab: "capabilities", anchor: "set-capabilities-on-demand", reveal: capabilityReveal("tools") },
+  { label: "Load connector tools on demand", keywords: "auto on off lazy prompt size many connectors tools find_tools use_tool", tab: "capabilities", anchor: "set-capabilities-on-demand", reveal: capabilityReveal("tools") },
   { label: "Skills", keywords: "agent skills skill.md instructions slash command new create edit folder built-in", tab: "capabilities", anchor: "set-capabilities-skills-list", reveal: capabilityReveal("skills") },
   { label: "Import skills", keywords: "skills import claude code codex gemini agents copy", tab: "capabilities", anchor: "set-capabilities-skills-list", reveal: capabilityReveal("skills") },
   { label: "Connectors", keywords: "mcp servers tools plugins integrations add url json oauth sign in github slack notion", tab: "capabilities", anchor: "set-capabilities-connectors-list", reveal: capabilityReveal("connectors") },

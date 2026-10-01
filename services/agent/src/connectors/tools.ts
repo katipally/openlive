@@ -80,6 +80,7 @@ export function connectorTool(row: ConnectorRow, t: CachedTool, name: string, ma
     name,
     description: `${t.description || t.name} (${row.name})`.trim(),
     parameters: { type: "object", ...t.inputSchema },
+    connector: row.name,
     readOnly: t.readOnly,
     ...(!t.readOnly && { confirm: () => `use ${row.name}: ${t.name}` }),
     async execute(args, ctx) {
@@ -117,12 +118,21 @@ export async function openPage(s: Session, url: string): Promise<boolean> {
  */
 export function connectorTools(manager: ConnectorManager = connectors): ToolProvider {
   return () => {
-    const rows = listConnectorRows().filter((r) => r.enabled && (r.transport.type === "http" || r.spawnConsent));
+    const rows = runnable();
     manager.freshen(rows);
-    const names = exposedNames(rows);
-    return rows.flatMap((row) => {
-      const off = new Set(row.disabledTools);
-      return (row.tools ?? []).filter((t) => !off.has(t.name)).map((t) => connectorTool(row, t, names.get(row.slug)!.get(t.name)!, manager));
-    });
+    return toolsOf(rows, manager);
   };
+}
+
+/** The same tools without waking any server, for Settings to count. */
+export const listedConnectorTools = (manager: ConnectorManager = connectors): Tool[] => toolsOf(runnable(), manager);
+
+const runnable = () => listConnectorRows().filter((r) => r.enabled && (r.transport.type === "http" || r.spawnConsent));
+
+function toolsOf(rows: ConnectorRow[], manager: ConnectorManager): Tool[] {
+  const names = exposedNames(rows);
+  return rows.flatMap((row) => {
+    const off = new Set(row.disabledTools);
+    return (row.tools ?? []).filter((t) => !off.has(t.name)).map((t) => connectorTool(row, t, names.get(row.slug)!.get(t.name)!, manager));
+  });
 }

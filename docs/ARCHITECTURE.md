@@ -924,6 +924,29 @@ An MCP server the user adds once, offered to every brain in both modes.
   keep text and images (at most 4, each under 5 MB) and spell out resource
   links; text is capped at 20,000 characters. A coding agent reaches connectors
   only through the `openlive` MCP server: tokens never leave OpenLive.
+- **On demand** (`capabilities/on-demand.ts`). With many connector tools on,
+  `registry.tools` holds them back and offers two fixed tools in their place:
+  `find_tools(query, limit?)`, read-only, whose description carries the catalog
+  (each tool's first sentence under its connector, or past about 2k tokens its
+  names only) and which returns matches with their JSON Schemas, ranked by word
+  matches in name and connector (3) over description and argument names (1),
+  exact name first, ties by name; and `use_tool(name, arguments)`, which
+  dispatch unwraps into the real tool's call, so validation, repair, approval
+  (asked in the real tool's words), the input lock and telemetry are the real
+  tool's. `use_tool` reaches only what that session's set held back. The mode is
+  `connectorToolLoading` in settings.json, `auto | on | off`, default `auto`:
+  on past 40 connector tools or about 8k tokens of their schemas (Flow's own 38
+  tools are about 5.2k). It is decided when a session's `ToolSet` is built and
+  never changes under it, so the tools array heading the prompt cache stays
+  byte-identical. Every brain gets the same two tools, the `openlive` MCP server
+  included, Claude Code too: its own MCP tool search is off on a proxy host and
+  on some models, and our two tools work everywhere. Native tool search
+  (Anthropic `defer_loading`, OpenAI `tool_search`) is not used: it needs
+  provider blocks the adapters and session files do not carry, and Chat
+  Completions and local models have none. Skills are not held back:
+  `activate_skill` already loads them on demand. `/capabilities` reports
+  `onDemand` and `POST /capabilities/on-demand` sets the mode, from a Segmented
+  control on the Tools subtab.
 - **Setup tools** (`setup.ts`), built-ins in the Connectors group, for the
   `connector-setup` skill: `list_connectors` (read-only: id, where it runs,
   status, tool counts), `add_connector(url | json, name?, headers?)`, which asks

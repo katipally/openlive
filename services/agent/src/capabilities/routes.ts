@@ -4,15 +4,24 @@ import { getSetting, setSetting } from "@openlive/db";
 import type { CapabilitiesWire } from "@openlive/shared";
 import { builtinCatalog } from "./registry.js";
 import { disabledGroups, GROUPS, groupTools, setGroupEnabled, type ToolGroupId } from "./groups.js";
+import { AUTO_THRESHOLD, onDemandActive, onDemandMode, setOnDemandMode } from "./on-demand.js";
+import { listedConnectorTools } from "../connectors/tools.js";
 
 // The /capabilities REST surface, behind the agent's shared-secret gate: the
-// built-in tool groups Settings lists and switches, and the write-only Exa key.
+// built-in tool groups Settings lists and switches, how connector tools load,
+// and the write-only Exa key.
 
 export const capabilityRoutes = new Hono();
 
+function onDemand(): CapabilitiesWire["onDemand"] {
+  const mode = onDemandMode();
+  const tools = listedConnectorTools();
+  return { available: true, mode, active: onDemandActive(mode, tools), toolCount: tools.length, threshold: AUTO_THRESHOLD };
+}
+
 const wire = (): CapabilitiesWire => ({
   groups: groupTools(builtinCatalog(), disabledGroups()),
-  onDemand: { available: false },
+  onDemand: onDemand(),
   exaKey: getSetting("exa_api_key") ? "saved" : process.env.EXA_API_KEY?.trim() ? "env" : null,
 });
 
@@ -29,6 +38,13 @@ capabilityRoutes.post("/groups/:id/enabled", async (c) => {
   const b = await body(c, z.object({ enabled: z.boolean() }));
   if (!b) return c.json({ error: "Send enabled: true or false." }, 400);
   await setGroupEnabled(id as ToolGroupId, b.enabled);
+  return c.json(wire());
+});
+
+capabilityRoutes.post("/on-demand", async (c) => {
+  const b = await body(c, z.object({ mode: z.enum(["auto", "on", "off"]) }));
+  if (!b) return c.json({ error: "Send mode: auto, on or off." }, 400);
+  await setOnDemandMode(b.mode);
   return c.json(wire());
 });
 
