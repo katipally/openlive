@@ -72,6 +72,16 @@ describe("the computer-use helper", () => {
     expect(main).toContain(`process.platform === "linux" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu") }`);
     expect(read("scripts/check-native.cjs")).toContain(`linux: path.join(staged, "openlive-cu")`);
   });
+
+  it("is let to the front by main, which answers the agent's request by the same name", () => {
+    const main = read("main.cjs");
+    const agent = text(join(here, "..", "..", "services", "agent", "src", "computer", "helper.ts"));
+    expect(main).toContain(`msg?.openlive === "allow-foreground"`);
+    expect(main).toContain(`flowInput.load().allowSetForegroundWindow(pid)`);
+    expect(main).toContain(`child.postMessage({ openlive: "allow-foreground", id })`);
+    expect(agent).toContain(`port.postMessage({ openlive: "allow-foreground", id, pid })`);
+    expect(read("../../native/ol-input/index.d.ts")).toContain("export function allowSetForegroundWindow(pid: number): boolean;");
+  });
 });
 
 describe("hook sites", () => {

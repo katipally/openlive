@@ -113,7 +113,13 @@ export class ComputerHelper implements ComputerPort {
   /** Set when the helper said its backend is not ready on this platform. */
   private unsupported: string | null = null;
 
-  constructor(private opts: { locate: () => Launch | null; requestTimeoutMs?: number; connectTimeoutMs?: number }) {}
+  constructor(private opts: {
+    locate: () => Launch | null;
+    requestTimeoutMs?: number;
+    connectTimeoutMs?: number;
+    /** Lets the helper's pid raise a window, before every request. */
+    allowForeground?: (pid: number) => Promise<void>;
+  }) {}
 
   /** Whether a session should be offered the helper's tools. Never starts it. */
   available(): boolean {
@@ -131,6 +137,7 @@ export class ComputerHelper implements ComputerPort {
     if (this.unsupported) throw new HelperError("unsupported_platform", this.unsupported);
     if (this.resting()) throw new HelperError("helper_unavailable", "The computer-use helper keeps stopping, so it is resting for a minute. Try again shortly.");
     const run = await this.ensure();
+    if (this.opts.allowForeground && run.child.pid) await this.opts.allowForeground(run.child.pid);
     return this.send<T>(run, method, params);
   }
 
@@ -302,5 +309,39 @@ function reap(child: ChildProcess): void {
   child.once("exit", () => clearTimeout(timer));
 }
 
+/** What the agent sees of Electron's `process.parentPort`. */
+export interface MainPort {
+  postMessage(message: unknown): void;
+  on(event: "message", listener: (e: { data: unknown }) => void): unknown;
+  off(event: "message", listener: (e: { data: unknown }) => void): unknown;
+}
+
+/**
+ * Windows refuses SetForegroundWindow to a process that is not in front, and
+ * OpenLive's own window usually is when Chat drives another app. Electron main
+ * owns that window, so it lets the helper raise one (AllowSetForegroundWindow).
+ * The grant lapses at the next input, so it is asked for before every request,
+ * and the request waits for main's answer, or `timeoutMs` at most. Without a
+ * parent port (dev) there is nobody to ask.
+ */
+export function foregroundGrant(port: MainPort | undefined, timeoutMs = 250): (pid: number) => Promise<void> {
+  let nextId = 1;
+  return (pid) => new Promise<void>((done) => {
+    if (!port) return done();
+    const id = nextId++;
+    const finish = () => { clearTimeout(timer); port.off("message", answered); done(); };
+    const answered = (e: { data: unknown }) => {
+      const d = e.data as { openlive?: unknown; id?: unknown } | null;
+      if (d?.openlive === "allow-foreground" && d.id === id) finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    port.on("message", answered);
+    try { port.postMessage({ openlive: "allow-foreground", id, pid }); } catch { finish(); }
+  });
+}
+
 /** The server's one helper. */
-export const computer = new ComputerHelper({ locate: () => locateHelper() });
+export const computer = new ComputerHelper({
+  locate: () => locateHelper(),
+  ...(process.platform === "win32" && { allowForeground: foregroundGrant((process as unknown as { parentPort?: MainPort }).parentPort) }),
+});

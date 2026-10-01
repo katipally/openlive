@@ -745,7 +745,11 @@ and telemetry.
   - *Focus.* SetForegroundWindow, then UI Automation's SetFocus, and nothing
     else (no AttachThreadInput, no synthetic Alt). Keystrokes are refused when
     the app is still not in front; a click needs only to land on the app,
-    which the helper checks by hit test first.
+    which the helper checks by hit test first. Windows lets only the process
+    in front raise a window, and with OpenLive in front that is Electron main,
+    so before each helper request the agent asks main over its parent port and
+    main calls `AllowSetForegroundWindow(helperPid)` through ol-input. The
+    request waits for main's answer, 250 ms at most.
   - *The capture border.* WGC draws a yellow border while it captures.
     Turning it off officially needs a consent prompt and a packaged app's
     `graphicsCaptureWithoutBorder` capability; the helper is unpackaged, so it

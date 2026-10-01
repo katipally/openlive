@@ -597,6 +597,21 @@ pub fn selected_text() -> Option<String> {
     window::selection()
 }
 
+/// Lets process `pid` bring a window to the front. Windows grants that only to
+/// the process already in front, which is this one whenever OpenLive's window
+/// is. Other platforms have no such lock, so there it does nothing.
+#[napi]
+pub fn allow_set_foreground_window(pid: u32) -> bool {
+    #[cfg(windows)]
+    // SAFETY: a plain call on a pid, which fails harmlessly for one that is gone.
+    return unsafe { windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid) }.is_ok();
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 fn button(name: Option<String>) -> Result<control::Button> {
     match name {
         None => Ok(control::Button::Left),

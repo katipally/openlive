@@ -245,6 +245,16 @@ async function ensurePortsFree() {
 const restarts = {}; // name → { count, first }
 const serviceLabel = (name) => `${app.getName()} ${name}`;
 const OWN_SERVICES = new Set(["agent", "web"].map(serviceLabel));
+// Windows lets only the process in front raise a window, and that is this one
+// whenever OpenLive's window is. The agent asks before each computer-use helper
+// request, naming the helper's pid; the answer lets it go ahead.
+function allowForeground(child, { id, pid }) {
+  if (process.platform === "win32" && Number.isInteger(pid) && pid > 0) {
+    try { flowInput.load().allowSetForegroundWindow(pid); }
+    catch (e) { console.error("[computer] allow foreground:", e); }
+  }
+  child.postMessage({ openlive: "allow-foreground", id });
+}
 function spawnServer(name, scriptRel, env) {
   const script = path.join(process.resourcesPath, scriptRel);
   const child = utilityProcess.fork(script, [], {
@@ -255,7 +265,10 @@ function spawnServer(name, scriptRel, env) {
   const spawnedAt = Date.now();
   child.once("spawn", recordServerPids);
   // Only the agent reports this way; web-side results reach main from the renderer.
-  if (name === "agent") child.on("message", (msg) => telemetry.handleAgentMessage(msg));
+  if (name === "agent") child.on("message", (msg) => {
+    if (msg?.openlive === "allow-foreground") return allowForeground(child, msg);
+    telemetry.handleAgentMessage(msg);
+  });
   child.on("exit", (code) => {
     const i = children.indexOf(child); if (i >= 0) children.splice(i, 1);
     recordServerPids();

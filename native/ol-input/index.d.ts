@@ -186,6 +186,8 @@ export function openApp(name: string): void;
 export function openUrl(url: string): void;
 /** Null when the app or the platform will not say, not when nothing is selected. */
 export function selectedText(): string | null;
+/** Lets the process `pid` raise a window, which Windows only allows the process in front. False elsewhere, and when refused. */
+export function allowSetForegroundWindow(pid: number): boolean;
 
 /**
  * Where the pointer is now, or null when the platform will not say, which is

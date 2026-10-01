@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { ComputerHelper, HelperError, locateHelper, type Grant, type Handshake, type Launch } from "./helper.js";
+import { ComputerHelper, HelperError, foregroundGrant, locateHelper, type Grant, type Handshake, type Launch, type MainPort } from "./helper.js";
 
 const FAKE = fileURLToPath(new URL("./fake-helper.mjs", import.meta.url));
 const launch = (env: Record<string, string> = {}): Launch => ({ command: process.execPath, args: [FAKE], env });
 const started: ComputerHelper[] = [];
-const helper = (env: Record<string, string> = {}, opts: { requestTimeoutMs?: number } = {}) => {
+const helper = (env: Record<string, string> = {}, opts: { requestTimeoutMs?: number; allowForeground?: (pid: number) => Promise<void> } = {}) => {
   const h = new ComputerHelper({ locate: () => launch(env), ...opts });
   started.push(h);
   return h;
@@ -84,6 +84,45 @@ describe("the helper client", () => {
     const [apps, windows] = await Promise.all([h.call<{ apps: unknown[] }>("listApps"), h.call<{ windows: unknown[] }>("listWindows")]);
     expect(apps.apps).toHaveLength(1);
     expect(windows.windows).toHaveLength(1);
+  });
+});
+
+describe("the foreground grant", () => {
+  it("lets the helper's own pid raise a window before every request", async () => {
+    const pids: number[] = [];
+    const h = helper({}, { allowForeground: async (pid) => { pids.push(pid); } });
+    const hello = await h.call<Handshake>("handshake");
+    await h.call("permissions");
+    expect(pids).toEqual([hello.pid, hello.pid]);
+  });
+
+  const port = (answer: boolean) => {
+    const listeners = new Set<(e: { data: unknown }) => void>();
+    const sent: any[] = [];
+    const p: MainPort = {
+      postMessage: (m) => { sent.push(m); if (answer) queueMicrotask(() => { for (const l of listeners) l({ data: { openlive: "allow-foreground", id: (m as any).id } }); }); },
+      on: (_, l) => listeners.add(l),
+      off: (_, l) => listeners.delete(l),
+    };
+    return { p, sent, listeners };
+  };
+
+  it("asks main and goes ahead on its answer", async () => {
+    const { p, sent, listeners } = port(true);
+    const grant = foregroundGrant(p, 60_000);
+    await grant(42);
+    await grant(42);
+    expect(sent).toEqual([{ openlive: "allow-foreground", id: 1, pid: 42 }, { openlive: "allow-foreground", id: 2, pid: 42 }]);
+    expect(listeners.size).toBe(0);
+  });
+
+  it("goes ahead anyway when main does not answer, or there is no main", async () => {
+    const { p, listeners } = port(false);
+    const t0 = Date.now();
+    await foregroundGrant(p, 30)(42);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(25);
+    expect(listeners.size).toBe(0);
+    await foregroundGrant(undefined)(42);
   });
 });
 
