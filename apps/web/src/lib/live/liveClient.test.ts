@@ -96,3 +96,19 @@ it("drops asks from any turn but the latest and answers their machine calls empt
   expect(ws.sent.filter((m) => m.t === "tool_bridge_result")).toEqual([{ t: "tool_bridge_result", reqId: "b1", output: "" }]);
   client.close();
 });
+
+// The desktop app's main process holds the ol-input addon, so a call there can
+// reach the machine as Flow does; the server is told when it connects.
+it("asks for the device in a desktop call, and never in Flow or on the web", () => {
+  const urls: string[] = [];
+  vi.stubGlobal("WebSocket", class { static OPEN = 1; constructor(url: string) { urls.push(url); } send() {} close() {} });
+  vi.stubGlobal("location", { protocol: "http:", host: "localhost" });
+  const desktop = { addEventListener() {}, removeEventListener() {}, openlive: { flow: { device: async () => ({ ok: true, value: null }) } } };
+  for (const [win, flow] of [[desktop, false], [desktop, true], [{ addEventListener() {}, removeEventListener() {} }, false]] as const) {
+    vi.stubGlobal("window", win);
+    const client = new LiveClient({}, { flow });
+    client.connect("chat");
+    client.close();
+  }
+  expect(urls.map((u) => new URL(u, "http://localhost").searchParams.get("device"))).toEqual(["1", null, null]);
+});

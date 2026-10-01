@@ -468,13 +468,24 @@ export function useLiveSession(chatId: string) {
         client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
         if (jpeg) client.current?.sendFrame(jpeg);
       },
-      // OS bridge (clipboard / open_url) — runs through the Electron main process.
-      // On the web build there's no bridge, so we answer instantly (no dead air).
+      // OS bridge (clipboard / open_url / the device), run through the Electron
+      // main process. On the web build there's no bridge, so we answer instantly
+      // (no dead air).
       onToolBridge: async (reqId, op, arg) => {
-        const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
-        if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
-        try { client.current?.toolBridgeResult(reqId, await api.bridge(op, arg)); }
-        catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
+        const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string>; flow?: { device?: (fn: string, args: unknown) => Promise<{ ok: true; value: unknown } | { ok: false; error: string }> } } }).openlive;
+        try {
+          // One perception or control call into the addon, in the envelope the
+          // server's device port reads. The server answers the camera itself.
+          if (op === "flow_device") {
+            if (!api?.flow?.device) { client.current?.toolBridgeResult(reqId, JSON.stringify({ error: "That's only available in the OpenLive desktop app." })); return; }
+            const { fn, args } = JSON.parse(arg ?? "{}") as { fn?: string; args?: unknown };
+            const r = await api.flow.device(fn ?? "", args ?? {});
+            client.current?.toolBridgeResult(reqId, JSON.stringify(r.ok ? { value: r.value } : { error: r.error }));
+            return;
+          }
+          if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
+          client.current?.toolBridgeResult(reqId, await api.bridge(op, arg));
+        } catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
       },
     });
     client.current = c;

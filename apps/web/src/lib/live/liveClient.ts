@@ -103,7 +103,9 @@ export class LiveClient {
     const auth = tok ? `&token=${encodeURIComponent(tok)}` : "";
     // The language warms the prompt cache in it; absent for English, as on each turn.
     const { lang } = langField();
-    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${lang ? `&lang=${lang}` : ""}${this.opts.flow ? "&flow=1" : ""}`);
+    // A call in the desktop app can reach the machine itself, as Flow does.
+    const device = !this.opts.flow && typeof (window as { openlive?: { flow?: { device?: unknown } } }).openlive?.flow?.device === "function";
+    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${lang ? `&lang=${lang}` : ""}${this.opts.flow ? "&flow=1" : ""}${device ? "&device=1" : ""}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.publish("open");
