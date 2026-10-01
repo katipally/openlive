@@ -60,9 +60,14 @@ impl Stored {
     }
 }
 
+/// The path OpenLive names in `OPENLIVE_CU_PORTAL_TOKEN` (its home's
+/// `state/portal-token`), else, for a helper run on its own,
 /// `$XDG_STATE_HOME/openlive/computer-use/portal-token`, or under
-/// `~/.local/state` when it is unset, as the XDG base directory spec says.
-pub fn token_path(state_home: Option<&str>, home: Option<&str>) -> Option<PathBuf> {
+/// `~/.local/state` when that is unset, as the XDG base directory spec says.
+pub fn token_path(named: Option<&str>, state_home: Option<&str>, home: Option<&str>) -> Option<PathBuf> {
+    if let Some(n) = named.filter(|n| n.starts_with('/')) {
+        return Some(PathBuf::from(n));
+    }
     let base = match state_home.filter(|s| s.starts_with('/')) {
         Some(s) => PathBuf::from(s),
         None => PathBuf::from(home.filter(|h| !h.is_empty())?).join(".local").join("state"),
@@ -140,12 +145,15 @@ mod tests {
     }
 
     #[test]
-    fn the_token_lives_in_xdg_state() {
-        assert_eq!(token_path(Some("/s"), Some("/home/u")).unwrap(), PathBuf::from("/s/openlive/computer-use/portal-token"));
-        assert_eq!(token_path(None, Some("/home/u")).unwrap(), PathBuf::from("/home/u/.local/state/openlive/computer-use/portal-token"));
+    fn the_token_lives_where_openlive_says_else_in_xdg_state() {
+        assert_eq!(token_path(Some("/h/state/portal-token"), Some("/s"), Some("/home/u")).unwrap(), PathBuf::from("/h/state/portal-token"));
+        // A relative name is not a place; the helper falls back as if run on its own.
+        assert_eq!(token_path(Some("rel"), Some("/s"), Some("/home/u")).unwrap(), PathBuf::from("/s/openlive/computer-use/portal-token"));
+        assert_eq!(token_path(None, Some("/s"), Some("/home/u")).unwrap(), PathBuf::from("/s/openlive/computer-use/portal-token"));
+        assert_eq!(token_path(None, None, Some("/home/u")).unwrap(), PathBuf::from("/home/u/.local/state/openlive/computer-use/portal-token"));
         // A relative XDG_STATE_HOME is invalid by the spec and ignored.
-        assert_eq!(token_path(Some("rel"), Some("/home/u")).unwrap(), PathBuf::from("/home/u/.local/state/openlive/computer-use/portal-token"));
-        assert_eq!(token_path(None, None), None);
+        assert_eq!(token_path(None, Some("rel"), Some("/home/u")).unwrap(), PathBuf::from("/home/u/.local/state/openlive/computer-use/portal-token"));
+        assert_eq!(token_path(None, None, None), None);
     }
 
     #[test]

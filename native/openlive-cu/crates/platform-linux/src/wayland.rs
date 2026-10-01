@@ -71,7 +71,8 @@ pub struct Portal {
 }
 
 fn token_file() -> Option<PathBuf> {
-    portal::token_path(std::env::var("XDG_STATE_HOME").ok().as_deref(), std::env::var("HOME").ok().as_deref())
+    let var = |k: &str| std::env::var(k).ok();
+    portal::token_path(var("OPENLIVE_CU_PORTAL_TOKEN").as_deref(), var("XDG_STATE_HOME").as_deref(), var("HOME").as_deref())
 }
 
 fn read_token(file: &Option<PathBuf>) -> Option<Stored> {
