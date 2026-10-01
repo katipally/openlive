@@ -598,7 +598,70 @@ approve, run, tally).
   pointing) stay distinct.
 - **MCP** (`mcp.ts`). One server, named `openlive`, serves a session's `ToolSet`
   to a coding agent on a random loopback path, through the same dispatch and
-  approval.
+  approval. It is stateless (MCP SDK v2 `createMcpHandler`): each request gets
+  a fresh low-level `Server` over the same tools, so a 2025-era agent and a
+  2026-07-28 client both connect, and no agent's session can end another's.
+  The low-level `Server` rather than `McpServer`, because `McpServer` validates
+  names and arguments before a handler runs and would refuse the calls dispatch
+  repairs.
+
+## Connectors (`services/agent/src/connectors/`)
+
+An MCP server the user adds once, offered to every brain in both modes.
+
+- **Store** (`packages/db/src/connectors.ts`, `data/connectors.json`). Each
+  connector: name, a stable `slug`, a stdio (command, args, env, cwd) or http
+  (url, headers) transport, `enabled`, `disabledTools`, its `source` (added by
+  hand or imported from which tool), `spawnConsent`, an optional CIMD
+  `clientMetadataUrl`, and the tool list last seen (with the server's `ttlMs`).
+  Env values marked secret, every header value, OAuth tokens and OAuth client
+  credentials are `encryptSecret` ciphertext, the same AES-256-GCM as provider
+  keys; OAuth credentials are filed per issuer. The wire types are in
+  `packages/shared/src/connectors.ts` and carry secret names, never values.
+- **Connections** (`manager.ts`). One client per connector, shared by every
+  session, so a stdio server runs once. A connection opens on first use, reopens
+  with backoff after it drops (1 s doubling to 60 s, six tries), and every child
+  ends at shutdown. Status: `disabled`, `needs_consent`, `disconnected`,
+  `connecting`, `connected`, `needs_auth`, `error`. HTTP negotiates the
+  2026-07-28 era and falls back to the 2025 handshake, then to SSE; stdio uses
+  the 2025 handshake, since the 2026 probe on stdio starts a second copy of the
+  server.
+- **Spawning** (`spawn.ts`). The SDK spawns through cross-spawn, which is what
+  runs Windows `.cmd` shims (`npx`, `uvx`) without a shell. The PATH handed to it
+  is `widenedPath()`, the login shell's, as the coding agents get. A stdio server
+  never runs until the user consents (`POST /connectors/:id/consent`); a new
+  command or new arguments ask again.
+- **OAuth** (`oauth.ts`). Authorization code with PKCE; the redirect is
+  `http://127.0.0.1:<agent port>/connectors/oauth/callback`, the one agent route
+  exempt from the shared secret, guarded by its single-use state. The UI gets the
+  authorization URL back and opens it. CIMD when a `clientMetadataUrl` is set and
+  the server supports it, dynamic registration otherwise (and again when the
+  agent's port moved). The SDK checks `iss` on the callback (RFC 9207) and
+  refreshes tokens itself.
+- **Tools** (`tools.ts`), registered in `server.ts`. Each enabled tool becomes
+  `<slug>__<tool>`, cut to provider limits (64 chars, `[a-zA-Z0-9_-]`), with a
+  hash of the original pair ending a name that is too long or taken. The JSON
+  Schema passes through; `readOnlyHint` maps to `readOnly`, and every other tool
+  has `confirm`, so a call asks each time and Flow's consent covers it. Results
+  keep text and images (at most 4, each under 5 MB) and spell out resource
+  links; text is capped at 20,000 characters. A coding agent reaches connectors
+  only through the `openlive` MCP server: tokens never leave OpenLive.
+- **Elicitation.** A question the server asks mid-call goes to the newest call
+  running on that connector. In a call, URL and form modes reuse the ACP
+  elicitation card; elsewhere a URL opens in the browser and a form is declined.
+- **Import** (`import.ts`). Claude Desktop, Claude Code (user scope), Codex,
+  Cursor, Gemini CLI and VS Code, at each tool's path for the OS. Preview marks
+  duplicates of existing connectors; commit reads the files again and imports
+  only definitions, never a sign-in. Imported stdio servers wait for consent.
+- **API** (`routes.ts`, proxied by the web app at `/api/connectors`): list, add
+  (URL or pasted `mcpServers` JSON), update, remove, toggle a connector or a
+  tool, consent, reconnect, OAuth start/sign out and the callback, import
+  preview and commit.
+
+Project `.mcp.json` passthrough for coding agents (`agents/mcp-config.ts`) is a
+separate path and unchanged. Exa web search (`exa.ts`) stays a built-in client
+rather than a connector: `web_search` is a fixed tool the research worker relies
+on, and a connector would add a second search tool the user could remove.
 
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 
@@ -658,7 +721,7 @@ send is listed for users in [TELEMETRY.md](TELEMETRY.md).
 ```
 packages/shared    agent registry + node helpers, /live wire protocol, shared types, speech text normalization
 packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing, effort
-packages/db        JSON-file store: AES-256-GCM-encrypted keys, settings, conversations
+packages/db        JSON-file store: AES-256-GCM-encrypted keys, settings, conversations, connectors
 ```
 
 `packages/db` is deliberately JSON files, not SQLite — no native modules, so
