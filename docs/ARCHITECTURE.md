@@ -669,6 +669,83 @@ separate path and unchanged. Exa web search (`exa.ts`) stays a built-in client
 rather than a connector: `web_search` is a fixed tool the research worker relies
 on, and a connector would add a second search tool the user could remove.
 
+## Skills (`services/agent/src/skills/`)
+
+[Agent Skills](https://agentskills.io/specification) the user keeps once,
+offered to every brain in both modes: a folder with a `SKILL.md` (YAML
+frontmatter `name` and `description`, optional `license`, `compatibility`,
+`metadata`, `allowed-tools`) and optional `scripts/`, `references/`, `assets/`.
+
+- **Where** (`packages/db/src/paths.ts`, `skillsDir()`). `~/.openlive/skills`,
+  beside `~/.claude/skills` and `~/.agents/skills`, rather than under
+  `DATA_DIR`: that is the app's private store, hidden in packaged builds and
+  split between dev and packaged, and skills are files a person opens, edits and
+  shares. `OPENLIVE_SKILLS_DIR` moves it (tests). Which skills are switched off
+  is the only state OpenLive keeps, by name, in `data/skills.json`.
+- **Workspace skills.** A call with a bound folder also reads
+  `<folder>/.claude/skills` and `<folder>/.agents/skills`, in place and never
+  copied. The folder is one the user picked, so it is trusted as they are; a
+  cloned repository's skills therefore reach the model once that folder is
+  bound. A workspace skill overrides the user's skill of the same name, and
+  `.agents/skills` overrides `.claude/skills`; the winner carries a warning
+  naming the one it shadows. Flow has no workspace, so it sees the user's.
+- **Parse and scan** (`parse.ts`, `catalog.ts`). `yaml` for the frontmatter,
+  retried with colon-bearing values quoted (`description: Use when: ...` is
+  invalid YAML other clients accept). A missing or empty description, a name
+  outside `[a-z0-9-]`, or unreadable YAML skips the skill and lists it as a
+  problem; a name that does not match its folder, one over 64 characters or a
+  description over 1024 (cut to 1024 for the model) loads with a warning.
+  Creating or editing a skill in OpenLive holds the strict rule: the name is the
+  folder's. A scan stats each `SKILL.md` and parses only the ones whose mtime or
+  size changed: O(skill folders) stats per session start, plus a parse per
+  changed file. `POST /skills/rescan` clears the cache.
+- **Tools** (`tools.ts`), registered in `server.ts`, so an API brain gets them
+  natively and a coding agent over the `openlive` MCP server; nothing is written
+  into an agent's own folders. With no skill enabled neither tool is offered.
+  `activate_skill(name)` carries the catalog (name and description, about 100
+  tokens a skill) in its description and its `name` is an enum of the enabled
+  skills, so the system prompt gains nothing: the description already says when
+  to call it, and it reaches both kinds of brain the same way. It returns the
+  body in `<skill_content name="...">` with the skill's absolute folder and its
+  files listed, never read (at most 200, four levels deep), and is read again
+  from disk so an edit since the session began is what loads. A second load in
+  the same session is a one-line note. `read_skill_file(name, path)` reads one
+  file, fenced to the skill's folder by `confine` (lexical and realpath, so a
+  symlink out is refused), up to 2 MB read and 100,000 characters returned.
+  Both are read-only. A script runs through the brain's own shell tool (the
+  device `shell` for the built-in brain in the desktop app, the agent's own
+  for a coding agent), so it follows that tool's approval; the content names
+  the folder to run it from.
+- **Sessions.** A session's tool set is built from a scan at its start: each
+  call, a call's folder change (which rebuilds the call's tools, the MCP server
+  reading them per request), and each new or resumed Flow session. A rebuilt
+  set has nothing loaded yet, as the transcript it pairs with.
+- **Compaction.** Flow's `compact` and Chat's history cap carry every
+  `<skill_content>` block from what they drop into the note they leave
+  (`content.ts`, `carriedSkills`), once per skill, so a long run keeps the
+  instructions it is following.
+- **Typed `/name`.** In a call's text box, a message starting with `/name`
+  loads that skill before the turn, and the rest of the message is the turn.
+  The bound coding agent's own slash commands come first: a name the agent
+  advertises goes to the agent untouched. Spoken words never trigger it, and
+  Flow, which has no text box, does not.
+- **Import** (`import.ts`). Claude Code (`$CLAUDE_CONFIG_DIR` or `~/.claude`,
+  then `skills`), `~/.agents/skills`, Codex (`$CODEX_HOME` or `~/.codex`, then
+  `skills`) and Gemini CLI (`~/.gemini/skills`), the same relative path on every
+  OS under `os.homedir()`. Preview marks a name OpenLive already has, or an
+  earlier source offers. Commit finds each folder on disk again and copies it
+  (symlinks as their targets, without `.git` or `node_modules`) into a hidden
+  staging folder renamed into place, under the skill's name.
+- **API** (`routes.ts`, proxied by the web app at `/api/skills`): list (with
+  problems and warnings; `?workspace=` adds a folder's skills), get one with its
+  `SKILL.md`, create, replace `SKILL.md`, enable or disable, delete (the folder;
+  a linked folder loses only the link), rescan, reveal (the desktop opens the
+  folder; `main.cjs` allows it), import preview and commit. One skill's routes
+  sit under `/skills/skill/:name`, since a skill may be named `import`.
+- **Settings** (`apps/web/src/components/settings/SkillsSettings.tsx`, pure
+  logic in `lib/skills.ts`). The list includes the current call's folder's
+  skills, read-only.
+
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 
 Flow is the voice assistant for the whole machine, summoned with a double tap of
