@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -108,4 +108,10 @@ export const api = {
   importSkills: (items: { source: string; name: string }[]) =>
     fetch("/api/skills/import", { method: "POST", body: JSON.stringify({ items }) })
       .then(j<{ imported: string[]; skipped: { source: string; name: string; reason: string }[] }>),
+  /** Every change to the notes answers with the whole list, since the budget's cutoff moves. */
+  memory: () => fetch("/api/memory").then(j<MemoryWire>),
+  addNote: (text: string) => fetch("/api/memory", { method: "POST", body: JSON.stringify({ text }) }).then(j<MemoryWire>),
+  saveNote: (id: string, text: string) => fetch(`/api/memory/note/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ text }) }).then(j<MemoryWire>),
+  removeNote: (id: string) => fetch(`/api/memory/note/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<MemoryWire>),
+  clearNotes: () => fetch("/api/memory", { method: "DELETE" }).then(j<MemoryWire>),
 };

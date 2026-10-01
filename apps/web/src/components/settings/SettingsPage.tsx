@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, motion, stagger } from "motion/react";
-import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Plug, BookOpen } from "lucide-react";
+import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Plug, BookOpen, Brain } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -16,6 +16,7 @@ import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsSettings } from "./AgentsSettings";
 import { ConnectorsSettings } from "./ConnectorsSettings";
 import { SkillsSettings } from "./SkillsSettings";
+import { MemorySettings } from "./MemorySettings";
 import { AboutSettings } from "./AboutSettings";
 import { PrivacySettings } from "./PrivacySettings";
 import { FlowSettings } from "@/components/flow/FlowSettings";
@@ -36,6 +37,7 @@ export const SECTIONS = [
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
   { id: "connectors", label: "Connectors", sub: "MCP servers & tools", desc: "Tools from MCP servers, for every brain in Chat and Flow.", icon: Plug, Comp: ConnectorsSettings, shared: true, fresh: true },
   { id: "skills", label: "Skills", sub: "Agent Skills for every brain", desc: "Instructions for kinds of tasks, loaded by every brain in Chat and Flow.", icon: BookOpen, Comp: SkillsSettings, shared: true, fresh: true },
+  { id: "memory", label: "Memory", sub: "What it remembers about you", desc: "The notes every brain carries into Chat and Flow.", icon: Brain, Comp: MemorySettings, shared: true, fresh: true },
   { id: "chat", label: "Chat", sub: "Push-to-talk & narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "flow", label: "Flow", sub: "Trigger, typing & access", icon: Waves, Comp: FlowSettings },
   { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "", desktop: true },
@@ -319,7 +321,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine, Agents, Connectors and Skills are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
+        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine, Agents, Connectors, Skills and Memory are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>
