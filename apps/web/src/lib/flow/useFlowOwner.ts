@@ -703,6 +703,9 @@ export function useFlowOwner(): void {
       onPermission,
       onPermissionResolved: () => { permission.current = null; publish(); },
       onError: (message, code) => failTurn(message, code),
+      // A timer or reminder went off. The orb only says it while Flow is open and
+      // speaking; the notification covers the rest.
+      onReminder: (title, body) => { if (summoned.current && snap.current.speaking) engine.current?.announce(`${title}: ${body}`); },
     }, { flow: true });
     client.current.connect("");
 

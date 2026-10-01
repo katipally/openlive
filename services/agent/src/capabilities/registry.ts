@@ -7,6 +7,7 @@ import { FILE_TOOLS } from "./files.js";
 import { WORKER_TOOLS } from "./web.js";
 import { saveSkill } from "../skills/tools.js";
 import { CONNECTOR_SETUP_TOOLS } from "../connectors/setup.js";
+import { REMINDER_TOOLS } from "../reminders/tools.js";
 import { disabledGroups } from "./groups.js";
 import type { OnDemandMode } from "@openlive/shared";
 import { onDemandActive, onDemandMode, onDemandTools } from "./on-demand.js";
@@ -42,6 +43,7 @@ const builtins: ToolProvider = (s) => [
   ...TEXT_TOOLS,
   ...machine(s),
   ...ASSISTANT_TOOLS,
+  ...REMINDER_TOOLS,
   ...FILE_TOOLS,
   saveSkill,
   ...CONNECTOR_SETUP_TOOLS,

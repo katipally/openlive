@@ -26,6 +26,7 @@ import type { Approve, ContextProvider, FlowContext, Session } from "../capabili
 import type { Brain, Msg } from "../flow/types.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
+import { liveSockets, type ReminderMsg } from "../reminders/fire.js";
 
 // Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
 // Flow runtime lives in its own renderer, and a WebSocket cannot be shared across
@@ -272,12 +273,16 @@ export class FlowLiveSession {
   private tools = registry.tools(FLOW, this.toolSession);
   private tally = toolTally("flow");
 
+  /** A timer or reminder that went off, for the orb to say when Flow is open. */
+  private readonly hear = (m: ReminderMsg) => this.send(m);
+
   constructor(private ws: WebSocket) {
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (!isBinary) this.onText(data.toString()).catch((e) => log.error("flow", "text:", e));
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
+    liveSockets.add(this.hear);
   }
 
   // ── inbound ───────────────────────────────────────────────────────────────
@@ -776,6 +781,7 @@ export class FlowLiveSession {
   private dispose() {
     if (this.closed) return;
     this.closed = true;
+    liveSockets.delete(this.hear);
     this.ac?.abort();
     this.cancelPendingPermissions();
     for (const [reqId, r] of [...this.bridgePending]) { this.bridgePending.delete(reqId); r(""); }

@@ -301,6 +301,11 @@ export function useLiveSession(chatId: string) {
       },
       onClose: () => teardown(),
       onError: (m, code) => set({ error: m, errorCode: code, agentConnecting: false }),
+      // A timer or reminder went off: shown, and in a call said once the reply under way ends.
+      onReminder: (title, body) => {
+        toast(`${title}: ${body}`, "info");
+        engine.current?.announce(`${title}: ${body}`);
+      },
       // A session/load recovered prior turns (persisted server-side) — refetch so the
       // resumed transcript renders. preloadIfEmpty so a live turn the user started
       // during the refetch isn't wiped by the replace.

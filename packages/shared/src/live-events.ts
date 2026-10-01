@@ -171,6 +171,10 @@ export const liveServerMsgSchema = z.discriminatedUnion("t", [
   // Flow to its owner window and chat to the chat store, unchanged.
   z.object({ t: z.literal("flow"), event: flowEventSchema, turn: turnIdSchema.optional() }),
   z.object({ t: z.literal("error"), message: z.string(), code: errorClassSchema.optional() }),
+  // A timer or reminder went off. Sent to every open call and Flow socket, outside
+  // any turn; the client shows it and says "<title>: <body>" once the reply under
+  // way has ended.
+  z.object({ t: z.literal("reminder"), title: z.enum(["Reminder", "Timer"]), body: z.string() }),
 ]);
 export type LiveServerMsg = z.infer<typeof liveServerMsgSchema>;
 

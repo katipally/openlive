@@ -611,7 +611,7 @@ precheck, approve, run, tally).
   are `ToolProvider`s; the built-ins are one, and a provider registered later
   never shadows a name already taken.
 - **Groups** (`groups.ts`). Each built-in tool names its `group` (Computer use,
-  Files, Web research, Text, Assistant, Shell, Skills, Connectors); `GROUPS`
+  Files, Web research, Text, Assistant, Reminders, Shell, Skills, Connectors); `GROUPS`
   says how each reads in
   Settings. A group switched off is listed in `disabledToolGroups` in
   settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
@@ -1126,6 +1126,47 @@ preambles all call).
   bar with a segment per note, add, inline edit, delete and clear all, a filter,
   and the cards drawn 50 at a time.
 
+## Timers and reminders (`services/agent/src/reminders/`)
+
+Built-ins in the Reminders group, so every brain reaches them through the
+registry and the `openlive` MCP server: `set_timer(duration, label?)`,
+`remind(text, at? | in?, repeat?)`, `list_reminders(include_done?)` (read-only)
+and `cancel_reminder(id | text_match)`. None asks first: each only schedules a
+note to the user, says the time back for them to hear, and a cancel undoes it.
+
+- **Times** (`time.ts`, Intl alone). A duration is ISO 8601, seconds, or `1h30m`.
+  `at` without an offset is the user's local time; with one, as given; a bare
+  `18:00` is its next occurrence. A time past is refused with the time now.
+  Results say the time in words ("6:00 PM today (PDT)") for the reply to confirm.
+  Each item keeps the IANA zone it was set in, and a repeat (daily, weekdays,
+  weekly) comes round at the same wall-clock time there, so DST never moves it.
+- **The time in the prompt.** The Chat prompt carries only the date. A session
+  whose tools can schedule gets "It is now 3:04 PM on Thursday, ... (zone)" in the
+  request's transient tail, Chat's and Flow's, after the cached prefix, so the
+  system prompt stays byte-identical. A coding agent's turn has no transient
+  part, so it reads the time from `list_reminders` or a refusal, and a bare
+  clock time needs no date.
+- **Scheduler** (`scheduler.ts`). Items live in `state/reminders.json` under the
+  store's lock: every pending one and the newest 50 finished. At most 500 are
+  pending. One timer points at the soonest, recomputed on each add, cancel and
+  fire, an O(n) scan at that size. It never waits past 30 seconds before
+  reading the wall clock again: a Node timer stops while the machine sleeps and
+  never sees the clock jump, and this catches both on every OS, without
+  Electron, and keeps every delay under `setTimeout`'s 2^31-1 ms ceiling. On
+  start it re-arms what was pending; an item that fires more than a minute late
+  (OpenLive was closed, or asleep) says "Missed" and when it was due, and a
+  one-off is marked `missed`.
+- **Firing** (`fire.ts`). The agent posts `{ openlive: "notify" }` to Electron
+  main over its parent port, the channel the computer-use helper uses, and main
+  shows a native Notification titled Reminder or Timer that opens OpenLive when
+  clicked. Every open call and Flow socket also gets a `reminder` message: a
+  call shows a toast and says it, and Flow says it while the orb is open and
+  speaking, both through `VoiceEngine.announce`, which waits for the reply under way to end and for the
+  user to stop talking. With neither (web-only dev, nothing open) it is logged.
+- **API** (`routes.ts`, proxied at `/api/reminders`): `GET /reminders` lists
+  what is pending, `DELETE /reminders/:id` cancels one. The Reminders card on
+  the Tools subtab shows the next few, each with Cancel.
+
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 
 Flow is the voice assistant for the whole machine, summoned with a double tap of
@@ -1201,7 +1242,7 @@ userData.
   data/              openlive.db (+ -wal, -shm), voice-profiles.json, voice-accel.json,
                      models/, voices/, addressee-log.jsonl, addressee-head.json
   flow/              Flow's config.json, sessions/, assets/, lease.json
-  state/             skills.json (switched-off skills), window-state.json, appearance.json,
+  state/             skills.json (switched-off skills), reminders.json, window-state.json, appearance.json,
                      preferences.json, once.json, server-pids.json, telemetry.json,
                      telemetry-queue.jsonl, telemetry-off, portal-token (Linux),
                      migration.json (the move's record)

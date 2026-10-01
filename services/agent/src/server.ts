@@ -80,6 +80,12 @@ const { computer } = await import("./computer/helper.js");
 const { computerRoutes } = await import("./computer/routes.js");
 app.route("/computer", computerRoutes());
 
+// Timers and reminders: re-armed from disk, so what came due while OpenLive was closed fires now, as missed.
+const { reminderRoutes } = await import("./reminders/routes.js");
+const { reminders } = await import("./reminders/tools.js");
+app.route("/reminders", reminderRoutes);
+void reminders.start();
+
 const port = Number(process.env.AGENT_PORT ?? 8787);
 // Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
 // reaches it over localhost, and the web app's proxy routes reach it over localhost

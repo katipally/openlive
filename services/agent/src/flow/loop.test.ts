@@ -122,6 +122,19 @@ describe("runFlow", () => {
     ]);
   });
 
+  it("tells a session that can schedule the local time ahead of the screen, after the conversation", async () => {
+    const reqs: TurnRequest[] = [];
+    const brain = scripted([[{ type: "text_delta", delta: "set" }, { type: "turn_done", stop: "stop" }]]);
+    const stream = brain.stream.bind(brain);
+    brain.stream = (req, signal) => { reqs.push(structuredClone(req)); return stream(req, signal); };
+    const remind: Tool = { name: "remind", group: "reminders", description: "", parameters: { type: "object", properties: {} }, async execute() { return { content: [], details: null }; } };
+    const { run } = harness({ brain, tools: new ToolSet([...TEXT_TOOLS, remind]) });
+    run.session.foreground = { async capture() { return { capturedAt: 1, app: "Mail" }; } };
+    await collect(run);
+    expect(reqs[0]!.tail!.text).toMatch(/^It is now \d{1,2}:\d{2} [AP]M on \w+day, [^\n]+\.\n\nRight now \(read from the machine, not said by the user\):\napp: Mail$/);
+    expect(JSON.stringify(run.messages)).not.toContain("It is now");
+  });
+
   it("keeps window trees and pictures out of the transcript and sends only the newest, after it", async () => {
     let n = 0;
     const computer: ComputerPort = {

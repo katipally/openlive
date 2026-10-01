@@ -22,6 +22,7 @@ import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurn
 import { resolveLive } from "../providers.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
+import { liveSockets, type ReminderMsg } from "../reminders/fire.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" | "attachment" };
@@ -146,6 +147,8 @@ export class LiveSession {
   private mcp: ReturnType<typeof serveMcp> | null = null;
   /** The running turn's emit, so a tool shows its chip in that turn. */
   private toolEmit: Emit = () => {};
+  /** A timer or reminder that went off, for the client to show and say. */
+  private readonly hear = (m: ReminderMsg) => this.send(m);
 
   /** `device`: the client is the desktop app, which can reach the ol-input addon. */
   constructor(private ws: WebSocket, private chatId: string, private lang?: LanguageCode, device = false) {
@@ -172,6 +175,7 @@ export class LiveSession {
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
+    liveSockets.add(this.hear);
   }
 
   start(): Promise<void> { return (this.startup = this.boot()); }
@@ -717,6 +721,7 @@ export class LiveSession {
   private dispose() {
     if (this.closed) return;
     this.closed = true;
+    liveSockets.delete(this.hear);
     this.warmAc?.abort();
     this.ac?.abort();
     this.agentAc?.abort();

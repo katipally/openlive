@@ -93,6 +93,15 @@ describe("the computer-use helper", () => {
   });
 });
 
+describe("timers and reminders", () => {
+  it("are shown by main as the agent sends them, by the same message name", () => {
+    const main = read("main.cjs");
+    const agent = text(join(here, "..", "..", "services", "agent", "src", "reminders", "fire.ts"));
+    expect(main).toContain(`msg?.openlive === "notify"`);
+    expect(agent).toContain(`port?.postMessage({ openlive: "notify", title: m.title, body: m.body })`);
+  });
+});
+
 describe("hook sites", () => {
   const source = ["main.cjs", "flow-input.cjs", "flow-runtime.cjs"].map(read).join("\n");
   const all = (re: RegExp) => [...source.matchAll(re)].map((m) => m[1]);

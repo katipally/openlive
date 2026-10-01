@@ -269,6 +269,19 @@ function allowForeground(child, { id, pid }) {
   }
   child.postMessage({ openlive: "allow-foreground", id });
 }
+// A timer or reminder the agent fired. Shown even while OpenLive is in front:
+// unlike "finished", it is news the user cannot already see. Each is held until
+// clicked or closed, since a collected Notification drops its click on macOS.
+const reminderNotes = new Set();
+function showReminder({ title, body }) {
+  if (!Notification.isSupported() || (title !== "Reminder" && title !== "Timer")) return;
+  const n = new Notification({ title, body: String(body ?? "").slice(0, 240) });
+  const done = () => reminderNotes.delete(n);
+  n.on("click", () => { done(); void restoreMainWindow(); });
+  n.on("close", done);
+  reminderNotes.add(n);
+  n.show();
+}
 function spawnServer(name, scriptRel, env) {
   const script = path.join(process.resourcesPath, scriptRel);
   const child = utilityProcess.fork(script, [], {
@@ -281,6 +294,7 @@ function spawnServer(name, scriptRel, env) {
   // Only the agent reports this way; web-side results reach main from the renderer.
   if (name === "agent") child.on("message", (msg) => {
     if (msg?.openlive === "allow-foreground") return allowForeground(child, msg);
+    if (msg?.openlive === "notify") return showReminder(msg);
     telemetry.handleAgentMessage(msg);
   });
   child.on("exit", (code) => {

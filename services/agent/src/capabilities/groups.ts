@@ -12,6 +12,7 @@ export const GROUPS = {
   web: { name: "Web research", icon: "globe", description: "Searches and reads the web, with sources" },
   text: { name: "Text", icon: "type", description: "Types at your cursor and reads selections" },
   assistant: { name: "Assistant", icon: "sparkles", description: "Plans, remembers facts and sees what a call shares" },
+  reminders: { name: "Reminders", icon: "alarm", description: "Timers and reminders, even offline" },
   shell: { name: "Shell", icon: "terminal", description: "Runs commands on this computer", needs: "Needs the desktop app" },
   skills: { name: "Skills", icon: "book", description: "Saves a workflow you describe as a new skill" },
   connectors: { name: "Connectors", icon: "plug", description: "Adds, signs in to and checks your MCP connectors" },

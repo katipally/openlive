@@ -107,6 +107,8 @@ const voiceKey = (v: ReplyVoice) => `${v.engine}|${v.voice}|${v.speed}|${v.lang}
 const FEED_MARGIN = 2;
 const FEED_FLOOR_S = 1;
 const PACE_WEIGHT = 0.3;
+// How often a held announcement looks again for a gap in the conversation.
+const ANNOUNCE_POLL_MS = 200;
 
 /** A chunk in the TTS chain: its text, characters, and audio seconds still to come. */
 type Job = { text: string; epoch: number; chars: number; sec: number };
@@ -194,6 +196,9 @@ export class VoiceEngine {
   // A reply is under way: from its user turn or first delta to its end or cut. Only
   // then does endAgentTurn idle the engine; a line said outside one idles itself.
   private replyOpen = false;
+  // Lines from outside the conversation (a reminder going off), held for a gap in it.
+  private announcing: string[] = [];
+  private announceTimer: ReturnType<typeof setTimeout> | undefined;
   // The segment in progress started as the agent's own voice through the speakers.
   private echo = false;
   // The segment in progress cut into the agent's reply: said to be acted on now.
@@ -1073,6 +1078,26 @@ export class VoiceEngine {
     if (!this.replyOpen) { const ep = this.epoch; void this.ttsChain.then(() => this.waitDrainThenIdle(ep)); }
   }
 
+  /** A line from outside the conversation, like a reminder going off. Said once
+   *  the reply under way has ended, after its last words, and never while the
+   *  user is talking or being transcribed. Those ends arrive by different paths,
+   *  so a held line looks again every ANNOUNCE_POLL_MS rather than hooking each. */
+  announce(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    this.announcing.push(t);
+    this.sayAnnounced();
+  }
+  private sayAnnounced() {
+    clearTimeout(this.announceTimer);
+    if (this.stopped || !this.announcing.length) return;
+    if (this.replyOpen || this.hearing || this.finalizing || this.deferred.length || this.tentative) {
+      this.announceTimer = setTimeout(() => this.sayAnnounced(), ANNOUNCE_POLL_MS);
+      return;
+    }
+    for (const line of this.announcing.splice(0)) this.say(line);
+  }
+
   // Stop the agent's LOCAL audio without telling the server (no cancel). Used to
   // silence a modal's spoken question the instant the user answers it. Does NOT set
   // acceptingReply=false: the turn CONTINUES after the modal answer, so its follow-up
@@ -1200,6 +1225,7 @@ export class VoiceEngine {
     this.deferred = [];
     clearInterval(this.keepWarm);
     clearTimeout(this.feedTimer);
+    clearTimeout(this.announceTimer);
     this.clearHold();
     this.ptt = false;
     this.epoch++;

@@ -9,6 +9,7 @@ import { liveReasoning, resolveLive, resolveVision, type ResolvedLive } from "..
 import { prepareToolImages } from "../tool-images.js";
 import { trimImages } from "../flow/retention.js";
 import { CARRIED_HEAD, carriedSkills } from "../skills/content.js";
+import { clockNote } from "../reminders/tools.js";
 
 type Frame = { data: string; mime: string; source?: "camera" | "screen" | "attachment" };
 
@@ -210,9 +211,11 @@ export class LiveTurnRunner {
         const trimmed = trimImages(this.messages);
         if (trimmed) this.messages.splice(0, this.messages.length, ...trimmed);
         const last = step === MAX_STEPS;
-        // The newest window state rides after the conversation on this request only, so no stored message changes.
+        // The local time and the newest window state ride after the conversation on this request only, so no stored message changes.
         const shown = newestState.get(this.messages);
-        const sent: Message[] = shown ? [...this.messages, { role: "user", ...shown, transient: true }] : this.messages;
+        const clock = clockNote(this.tools.list);
+        const tail = clock || shown ? { text: [clock, shown?.text].filter(Boolean).join("\n\n"), ...(shown?.images && { images: shown.images }) } : null;
+        const sent: Message[] = tail ? [...this.messages, { role: "user", ...tail, transient: true }] : this.messages;
         // The view joins after the tool pictures are prepared: frames go to whatever model is picked, as above.
         const ask = async (bare: boolean) => collectTurn(
           streamProvider(provider, apiKey ?? undefined, { model, messages: withView(await prepareToolImages(sent, live, signal, this.described), view), tools: bare ? [] : toolDefs, ...(last && !bare && { toolChoice: "none" as const }), ...reasoning, maxTokens: 4096 }, signal),

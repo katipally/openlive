@@ -1,4 +1,4 @@
-import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire, OnDemandMode } from "@openlive/shared";
+import type { Provider, ChatMessage, HistoryWorkspace, ConnectorWire, ConnectorPatch, ConnectorImportSource, SkillListWire, SkillWire, SkillImportSource, MemoryWire, CapabilitiesWire, OnDemandMode, RemindersWire } from "@openlive/shared";
 import { providerKeyChanged, seedServerSettings, serverSettingsChanged } from "./settingChanges";
 
 export interface ModelInfo {
@@ -125,4 +125,7 @@ export const api = {
   saveNote: (id: string, text: string) => fetch(`/api/memory/note/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ text }) }).then(j<MemoryWire>),
   removeNote: (id: string) => fetch(`/api/memory/note/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<MemoryWire>),
   clearNotes: () => fetch("/api/memory", { method: "DELETE" }).then(j<MemoryWire>),
+  /** Pending timers and reminders, soonest first. Cancelling answers with the rest. */
+  reminders: () => fetch("/api/reminders").then(j<RemindersWire>),
+  cancelReminder: (id: string) => fetch(`/api/reminders/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<RemindersWire>),
 };

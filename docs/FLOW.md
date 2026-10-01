@@ -109,6 +109,7 @@ answer you out loud, or do something on the machine.
 | Windows and apps | `window_activate`, `window_move`, `window_resize`, `window_minimize`, `window_close`, `open_app`, `open_url` |
 | Commands | `shell` (runs in your home folder through your login shell, 30 second limit) |
 | OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `update_todos` (a checklist for a long job), `remember` (memory shared with calls and every brain) |
+| Reminders | `set_timer`, `remind` (at a local time or in a while, optionally daily, weekdays or weekly), `list_reminders`, `cancel_reminder`: they go off with a notification and a spoken line even after Flow closes, and work offline |
 
 Every action hands back a fresh screenshot, so the model checks that the step
 worked before the next one. Only the newest three screenshots stay in the model's

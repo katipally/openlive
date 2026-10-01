@@ -1,6 +1,7 @@
 import { allContent, asMessage, asStateTail, dispatch, newestState, shownName, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
 import { allowAll } from "../capabilities/approval.js";
 import { READ_TOOL, USE_TOOL } from "../capabilities/on-demand.js";
+import { clockNote } from "../reminders/tools.js";
 import type { Approve, Session } from "../capabilities/types.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
@@ -197,7 +198,7 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       };
 
       const shown = newestState.get(messages);
-      const said = [shown?.text, formatContext(context)].filter(Boolean).join("\n\n");
+      const said = [clockNote(tools.list), shown?.text, formatContext(context)].filter(Boolean).join("\n\n");
       const tail = said ? { text: said, ...(shown?.images && { images: shown.images }) } : undefined;
 
       for await (const ev of brain.stream({ systemPrompt, messages: [...messages], tools: specs, tail }, signal)) {

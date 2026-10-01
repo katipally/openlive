@@ -220,6 +220,44 @@ it("drops held text on a barge-in, and voices nothing of it later", async () => 
   eng.stop();
 });
 
+// A reminder going off mid-reply waits for the reply's last words, and is never said over the user.
+it("says an announcement after the reply under way ends, never inside it", async () => {
+  const eng = replyWith(() => 0);
+  eng.feedAgentDelta("Here is the first part. ");
+  eng.announce("Reminder: call the bank");
+  eng.feedAgentDelta("And here is the last part.");
+  await new Promise((r) => setTimeout(r, 450));
+  expect(tts.texts).not.toContain("Reminder: call the bank");
+  eng.endAgentTurn();
+  await new Promise((r) => setTimeout(r, 250));
+  await (eng as any).ttsChain;
+  expect(tts.texts.at(-1)).toBe("Reminder: call the bank");
+  expect(tts.texts.slice(0, -1).join(" ")).toBe("Here is the first part. And here is the last part.");
+  eng.stop();
+});
+
+it("holds an announcement while the user is talking or being transcribed, and drops it on hang-up", async () => {
+  const eng = replyWith(() => 0);
+  Object.assign(eng, { hearing: true });
+  eng.announce("Timer: Time's up.");
+  await new Promise((r) => setTimeout(r, 250));
+  expect(tts.texts).toEqual([]);
+  Object.assign(eng, { hearing: false, finalizing: true });
+  await new Promise((r) => setTimeout(r, 250));
+  expect(tts.texts).toEqual([]);
+  Object.assign(eng, { finalizing: false });
+  await new Promise((r) => setTimeout(r, 250));
+  await (eng as any).ttsChain;
+  expect(tts.texts).toEqual(["Timer: Time's up."]);
+
+  Object.assign(eng, { hearing: true });
+  eng.announce("Reminder: never said");
+  eng.stop();
+  Object.assign(eng, { hearing: false });
+  await new Promise((r) => setTimeout(r, 250));
+  expect(tts.texts).toEqual(["Timer: Time's up."]);
+});
+
 it("voices nothing, and asks no engine, once stopped", async () => {
   const eng = new VoiceEngine({ onPhase() {}, onAgentText() {} } as never, playNow as never);
   tts.chunks = [tone([[0, 300]], 300)];

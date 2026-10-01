@@ -38,6 +38,8 @@ await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 await setSetting("liveProviderId", "ollama");
 await setSetting("liveModel", "stub");
 await setSetting("ollamaBaseUrl", `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+// These requests are read message by message; the local time the reminder tools add to each is not what this file tests.
+await setSetting("disabledToolGroups", "reminders");
 
 afterAll(() => {
   server.close();

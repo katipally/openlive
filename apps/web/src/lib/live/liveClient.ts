@@ -42,6 +42,8 @@ export interface LiveHandlers {
    *  using, and whether the coding agent is running. */
   onBoundState?: (agentId: AgentId | null, cwd: string, agentActive: boolean) => void;
   onError?: (message: string, code?: ErrorClass) => void;
+  /** A timer or reminder went off, outside any turn. */
+  onReminder?: (title: string, body: string) => void;
 }
 
 /** The session language a turn carries, read as it is sent; English is left
@@ -158,6 +160,7 @@ export class LiveClient {
         case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
         case "reload_history": return this.h.onReloadHistory?.();
         case "error": return this.h.onError?.(m.message, m.code);
+        case "reminder": return this.h.onReminder?.(m.title, m.body);
       }
     };
     this.ws = ws;

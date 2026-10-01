@@ -208,3 +208,18 @@ test("the shared view and the window state ride in one transient message, the vi
   expect(tail.images!.map((i) => i.data)).toEqual(["SCR1", "JPG6"]);
   expect(tail.text).toMatch(/^\[You're viewing the user's screen live right now[^]*\n\nThe newest window state, left by look[^]*tree 6$/);
 });
+
+test("a call that can schedule is told the local time after the conversation, never in its stored turns or system prompt", async () => {
+  asked.length = 0;
+  final = "speak";
+  const scheduling = new ToolSet([{ ...look.list[0]!, group: "reminders" }]);
+  const runner = new LiveTurnRunner(scheduling, {}, { approve: allowAll });
+  await runner.runTurn("remind me at six", [], () => {}, new AbortController().signal);
+  expect(asked.length).toBeGreaterThan(1);
+  for (const r of asked) {
+    expect(transients(r)).toHaveLength(1);
+    expect(transients(r)[0]!.text).toMatch(/^It is now \d{1,2}:\d{2} [AP]M on \w+day, /);
+    expect(r.messages[0]).toEqual(asked[0]!.messages[0]);
+  }
+  expect(JSON.stringify(stored(runner))).not.toContain("It is now");
+});

@@ -2,21 +2,24 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
-import type { CapabilitiesWire, OnDemandMode, ToolGroupWire } from "@openlive/shared";
+import { AlarmClock, Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
+import type { CapabilitiesWire, OnDemandMode, ReminderWire, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { asksFirst, chipOverflow, filterGroups, onDemandCaption } from "@/lib/capabilities";
-import { Chip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
+import { Button, Chip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
 import { BuiltInBadge, NoMatch, OneLine, QueryState, card, grid2, msg, tile } from "./common";
 
 export const capabilitiesQuery = { queryKey: ["capabilities"], queryFn: api.capabilities };
 
 // The agent names an icon; one it does not know yet still draws.
-const ICONS: Record<string, LucideIcon> = { monitor: Monitor, folder: Folder, globe: Globe, type: Type, sparkles: Sparkles, terminal: SquareTerminal, bell: Bell, search: Search, undo: Undo2, book: BookOpen, plug: Plug };
+const ICONS: Record<string, LucideIcon> = { monitor: Monitor, folder: Folder, globe: Globe, type: Type, sparkles: Sparkles, terminal: SquareTerminal, bell: Bell, search: Search, undo: Undo2, book: BookOpen, plug: Plug, alarm: AlarmClock };
 // Chips a card shows before "+N": about two short lines at the card's narrowest.
 const CHIPS = 4;
+// Upcoming timers and reminders the Reminders card lists before "and N more".
+const UPCOMING = 3;
+const upcomingQuery = { queryKey: ["reminders"], queryFn: api.reminders };
 
 /** Turns a built-in group on or off: moves at once, and goes back if the agent says no. */
 export function useFlipGroup() {
@@ -123,12 +126,44 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
           </button>
         )}
       </div>
+      {g.id === "reminders" && g.enabled && <Upcoming />}
       {(asks > 0 || g.needs) && (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
           {asks > 0 && <span className="inline-flex items-center gap-1.5"><span aria-hidden className="size-1.5 rounded-full bg-arc" />{asks} ask first</span>}
           {g.needs && <span>{g.needs}</span>}
         </span>
       )}
+    </div>
+  );
+}
+
+/** "Thu 6:00 PM", in the viewer's own locale and zone, and how it repeats. */
+const when = (r: ReminderWire) =>
+  `${new Date(r.dueAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}${r.repeat === "none" ? "" : `, ${r.repeat}`}`;
+
+/** The next few timers and reminders, each with Cancel. Refetched every minute, as they go off on their own. */
+function Upcoming() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ ...upcomingQuery, refetchInterval: 60_000, refetchOnWindowFocus: true });
+  if (!data) return null;
+  const cancel = (r: ReminderWire) => api.cancelReminder(r.id)
+    .then((d) => qc.setQueryData(upcomingQuery.queryKey, d))
+    .catch((e) => toast(`Couldn’t cancel that. ${msg(e)}`));
+  const more = data.items.length - UPCOMING;
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+      <span className="text-caption text-muted-foreground">Upcoming</span>
+      {data.items.length === 0 && <span className="text-label text-faint">Nothing yet. Ask in a call or in Flow, like “remind me at 6 to call the bank”.</span>}
+      {data.items.slice(0, UPCOMING).map((r) => (
+        <div key={r.id} className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 flex-col">
+            <OneLine text={r.text || "Timer"} className="text-label text-foreground" />
+            <span className="text-caption text-muted-foreground">{r.kind === "timer" ? "Timer, " : ""}{when(r)}</span>
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => void cancel(r)} aria-label={`Cancel ${r.text || "the timer"}`}>Cancel</Button>
+        </div>
+      ))}
+      {more > 0 && <span className="text-caption text-faint">and {more} more</span>}
     </div>
   );
 }
