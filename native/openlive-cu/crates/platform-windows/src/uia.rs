@@ -289,9 +289,23 @@ fn ran(name: &str, verified: bool) -> ActionReport {
 
 /// What a left click means to the element: Invoke, Toggle, SelectionItem.Select,
 /// then ExpandCollapse. Everything but Invoke is read back. `None` when the element has none of them.
+///
+/// An item in a list, a tree or a tab strip selects first: its Invoke is the
+/// double click (Explorer opens the file), not what one click does.
 pub fn press(el: &IUIAutomationElement) -> Option<ActionReport> {
+    let item = matches!(int(el, UIA_ControlTypePropertyId), Some(control::LIST_ITEM | control::DATA_ITEM | control::TREE_ITEM | control::TAB_ITEM));
     // SAFETY: UIA pattern calls on a live element; each failure falls through to the next pattern.
     unsafe {
+        let select = || {
+            let p = pattern::<IUIAutomationSelectionItemPattern>(el, UIA_SelectionItemPatternId)?;
+            p.Select().ok()?;
+            Some(ran("Select", p.CurrentIsSelected().is_ok_and(|s| s.as_bool())))
+        };
+        if item {
+            if let Some(done) = select() {
+                return Some(done);
+            }
+        }
         if let Some(p) = pattern::<IUIAutomationInvokePattern>(el, UIA_InvokePatternId) {
             if p.Invoke().is_ok() {
                 return Some(ran("Invoke", false));
@@ -303,12 +317,7 @@ pub fn press(el: &IUIAutomationElement) -> Option<ActionReport> {
                 return Some(ran("Toggle", before.is_some() && p.CurrentToggleState().ok() != before));
             }
         }
-        if let Some(p) = pattern::<IUIAutomationSelectionItemPattern>(el, UIA_SelectionItemPatternId) {
-            if p.Select().is_ok() {
-                return Some(ran("Select", p.CurrentIsSelected().is_ok_and(|s| s.as_bool())));
-            }
-        }
-        expand_or_collapse(el, None)
+        select().or_else(|| expand_or_collapse(el, None))
     }
 }
 
