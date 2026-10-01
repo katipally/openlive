@@ -84,7 +84,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Stay open after the last reply", keywords: "idle timeout close", tab: "flow", anchor: "set-flow-voice" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },
   { label: "How text goes in", keywords: "typing paste type insertion clipboard timing", tab: "flow", anchor: "set-flow-typing" },
-  { label: "Access", keywords: "permissions microphone accessibility screen recording consent", tab: "flow", anchor: "set-flow-access" },
+  { label: "Access", keywords: "permissions microphone accessibility screen recording consent computer use helper", tab: "flow", anchor: "set-flow-access" },
 
   { label: "Share anonymous usage", keywords: "telemetry analytics usage data tracking diagnostics opt out collect send privacy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
   { label: "What is shared", keywords: "events list telemetry data collected transparency", tab: "privacy", anchor: "set-privacy-usage", desktop: true },

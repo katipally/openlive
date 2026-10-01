@@ -14,6 +14,7 @@ import { dndNote } from "@/lib/flow/quiet";
 import { keyListenerNote } from "@/lib/flow/failure";
 import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS, type PipelineConfig } from "@/lib/live/pipelineConfig";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
+import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
 import { LinkRow, useSettingsNav } from "@/components/settings/nav";
 import { BrainPicker } from "./BrainPicker";
@@ -167,6 +168,7 @@ function SharedLink({ onGo, children }: { onGo: () => void; children: React.Reac
 export function AccessRows({ config, save, askedFrom = "flow_settings" }: { config: FlowConfig | null; save: (patch: FlowConfigPatch) => void; askedFrom?: PermissionAskedFrom }) {
   // Polled while shown: macOS never calls back when a grant is given.
   const { caps, error, refresh } = useFlowCapabilities(true);
+  const computer = useComputerGrants(isDesktop && isMac);
   if (!isDesktop) return <p className="text-label text-muted-foreground">Available in the desktop app.</p>;
 
   const perms = caps?.permissions ?? null;
@@ -192,6 +194,10 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
       <Status label="Screen" ok={!!perms?.screenRecording && caps?.report?.capture !== false}
         state={!perms?.screenRecording ? "Not allowed" : caps?.report?.capture === false ? "Reopen OpenLive to use it" : "Allowed"}
         action={perms?.screenRecording ? undefined : { label: "Allow", run: ask("screen") }} settings={settings("screen")} />
+      {computer.status?.available && computer.status.grants.map((g) => (
+        <Status key={g.id} label={`Computer use: ${g.id === "accessibility" ? "Accessibility" : "Screen"}`} ok={g.granted}
+          state={g.granted ? "Allowed" : "Not allowed"} action={{ label: "Allow", run: () => computer.request(g.id) }} />
+      ))}
       <Status label="Act on this machine" ok={consent} state={consent ? "Allowed" : "Asks first"}
         action={{
           label: consent ? "Take it back" : "Allow",
@@ -199,6 +205,21 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
         }} keep />
     </ListGroup>
   );
+}
+
+/** The computer-use helper's grants, polled while shown for the same reason as Flow's. */
+function useComputerGrants(enabled: boolean) {
+  const [status, setStatus] = useState<ComputerStatus | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    const read = () => api.computerPermissions().then((s) => { if (live) setStatus(s); }).catch(() => {});
+    void read();
+    const timer = setInterval(read, 2000);
+    return () => { live = false; clearInterval(timer); };
+  }, [enabled]);
+  const request = (id: ComputerGrant["id"]) => void api.requestComputerPermission(id).then(setStatus).catch(() => {});
+  return { status, request };
 }
 
 function Toggle({ label, detail, on, onFlip }: { label: string; detail?: string; on: boolean; onFlip: (v: boolean) => void }) {
