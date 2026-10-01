@@ -163,3 +163,9 @@ linux:
   category: AudioVideo
   artifactName: ${productName}-${version}-linux.${ext}
   icon: build/icons
+  # The computer-use helper, beside the app's resources, as on Windows. Inside
+  # the AppImage it runs from the mounted image; Electron main names it to the
+  # agent as OPENLIVE_CU_HELPER.
+  extraResources:
+    - from: dist/computer-use/openlive-cu
+      to: openlive-cu

@@ -168,7 +168,8 @@ function SharedLink({ onGo, children }: { onGo: () => void; children: React.Reac
 export function AccessRows({ config, save, askedFrom = "flow_settings" }: { config: FlowConfig | null; save: (patch: FlowConfigPatch) => void; askedFrom?: PermissionAskedFrom }) {
   // Polled while shown: macOS never calls back when a grant is given.
   const { caps, error, refresh } = useFlowCapabilities(true);
-  const computer = useComputerGrants(isDesktop && isMac);
+  // Windows has no grant to give the helper; macOS and Linux do.
+  const computer = useComputerGrants(isDesktop && (isMac || desktopPlatform === "linux"));
   if (!isDesktop) return <p className="text-label text-muted-foreground">Available in the desktop app.</p>;
 
   const perms = caps?.permissions ?? null;
@@ -196,7 +197,8 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
         action={perms?.screenRecording ? undefined : { label: "Allow", run: ask("screen") }} settings={settings("screen")} />
       {computer.status?.available && computer.status.grants.map((g) => (
         <Status key={g.id} label={`Computer use: ${g.id === "accessibility" ? "Accessibility" : "Screen"}`} ok={g.granted}
-          state={g.granted ? "Allowed" : "Not allowed"} action={{ label: "Allow", run: () => computer.request(g.id) }} />
+          state={g.granted ? "Allowed" : "Not allowed"} action={{ label: "Allow", run: () => computer.request(g.id) }}
+          detail={g.granted ? undefined : g.detail} />
       ))}
       <Status label="Act on this machine" ok={consent} state={consent ? "Allowed" : "Asks first"}
         action={{
@@ -233,11 +235,11 @@ function Toggle({ label, detail, on, onFlip }: { label: string; detail?: string;
 /** A grant: a dot, a word, and the one thing to do about it. The action hides
  *  once granted, except where granting is also the way back out (`keep`).
  *  `settings` is the way in by hand, for when the prompt is not wanted. */
-function Status({ label, ok, state, action, keep, settings }: {
-  label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void;
+function Status({ label, ok, state, action, keep, settings, detail }: {
+  label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void; detail?: string;
 }) {
   return (
-    <ListRow label={label}>
+    <ListRow label={label} detail={detail}>
       <span className="flex shrink-0 items-center gap-2 text-caption text-muted-foreground">
         <span className={cn("size-1.5 rounded-full", ok ? "bg-success" : "bg-arc")} />
         {state}

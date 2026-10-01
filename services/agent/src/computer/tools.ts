@@ -25,7 +25,7 @@ const text = (t: string): TextPart => ({ type: "text", text: t });
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 
 const TARGET = {
-  app: { type: "string", description: "The app: its name or its id from list_apps (a bundle id on a Mac, an executable on Windows). Omit to keep using the last app, or the app in front at the start." },
+  app: { type: "string", description: "The app: its name or its id from list_apps (a bundle id on a Mac, an executable on Windows and Linux). Omit to keep using the last app, or the app in front at the start." },
   window_id: { type: "integer", description: "One of the app's windows, from list_windows. Omit for its focused window." },
 };
 const ELEMENT = { type: "integer", description: "An element number from the latest state of this window" };
@@ -104,7 +104,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     {
       name: "list_apps",
       readOnly: true,
-      description: "The apps running on this machine, with their ids (bundle ids on a Mac, executables on Windows), the one in front first.",
+      description: "The apps running on this machine, with their ids (bundle ids on a Mac, executables on Windows and Linux), the one in front first.",
       parameters: obj({}),
       async execute() {
         const { apps } = await computer.call<{ apps: AppInfo[] }>("listApps");
@@ -197,7 +197,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "keypress",
-      description: "Press a key or a shortcut in the app, as [\"Return\"] or [\"cmdorctrl\", \"shift\", \"p\"]; cmdorctrl is cmd on a Mac and ctrl elsewhere, and cmd elsewhere is the Windows key. Enter usually commits something, so read the state that comes back.",
+      description: "Press a key or a shortcut in the app, as [\"Return\"] or [\"cmdorctrl\", \"shift\", \"p\"]; cmdorctrl is cmd on a Mac and ctrl elsewhere, and cmd elsewhere is the Windows or Super key. Enter usually commits something, so read the state that comes back.",
       parameters: obj({ keys: { type: "array", items: { type: "string" }, description: "The keys held together; the last one is the key" }, ...TARGET }, ["keys"]),
       confirm: (a) => `press ${keyList(a).join("+")} in ${where(a)}`,
       execute: act((a) => (keyList(a).length > 1 ? "hotkey" : "pressKey"), (a) => {

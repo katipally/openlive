@@ -60,7 +60,7 @@ describe("electron-builder files", () => {
 });
 
 describe("the computer-use helper", () => {
-  it("ships where Electron main tells the agent to find it, on macOS and Windows", () => {
+  it("ships where Electron main tells the agent to find it, on macOS, Windows and Linux", () => {
     const builder = read("electron-builder.yml");
     const main = read("main.cjs");
     expect(builder).toMatch(/- from: "dist\/computer-use\/OpenLive Computer Use.app"\n\s+to: "OpenLive Computer Use.app"/);
@@ -68,6 +68,9 @@ describe("the computer-use helper", () => {
     expect(builder).toMatch(/- from: dist\/computer-use\/openlive-cu.exe\n\s+to: openlive-cu.exe/);
     expect(main).toContain(`process.platform === "win32" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu.exe") }`);
     expect(read("scripts/check-native.cjs")).toContain(`win32: path.join(staged, "openlive-cu.exe")`);
+    expect(builder).toMatch(/- from: dist\/computer-use\/openlive-cu\n\s+to: openlive-cu\n/);
+    expect(main).toContain(`process.platform === "linux" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu") }`);
+    expect(read("scripts/check-native.cjs")).toContain(`linux: path.join(staged, "openlive-cu")`);
   });
 });
 

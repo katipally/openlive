@@ -303,6 +303,7 @@ async function startServers() {
     // The computer-use helper the agent drives; its own app, so its grants are its own.
     ...(process.platform === "darwin" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "OpenLive Computer Use.app", "Contents", "MacOS", "openlive-cu") }),
     ...(process.platform === "win32" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu.exe") }),
+    ...(process.platform === "linux" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "openlive-cu") }),
     // Where OpenLive is installed: the helper never picks a window from there as
     // the default target, so "look at the app" in Chat is not OpenLive itself.
     OPENLIVE_CU_OWN_ROOT: process.platform === "darwin" ? path.resolve(process.execPath, "..", "..", "..") : path.dirname(process.execPath),

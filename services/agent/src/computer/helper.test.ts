@@ -88,8 +88,12 @@ describe("the helper client", () => {
 });
 
 describe("locateHelper", () => {
-  it("has nothing to offer where the backend is not built yet", () => {
-    expect(locateHelper({ OPENLIVE_CU_HELPER: process.execPath }, "linux")).toBeNull();
+  it("has nothing to offer where there is no backend", () => {
+    expect(locateHelper({ OPENLIVE_CU_HELPER: process.execPath }, "freebsd")).toBeNull();
+  });
+
+  it("runs the packaged Linux executable Electron main names", () => {
+    expect(locateHelper({ OPENLIVE_CU_HELPER: process.execPath }, "linux")).toEqual({ command: process.execPath });
   });
 
   it("runs the packaged Windows executable Electron main names", () => {

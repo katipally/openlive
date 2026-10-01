@@ -21,8 +21,8 @@ import { log } from "../log.js";
 
 /** Must equal the helper's PROTOCOL_VERSION. */
 export const PROTOCOL = 1;
-/** Platforms whose helper backend is real. Linux (5c) joins here. */
-const SUPPORTED = new Set<NodeJS.Platform>(["darwin", "win32"]);
+/** Platforms whose helper backend is real. */
+const SUPPORTED = new Set<NodeJS.Platform>(["darwin", "win32", "linux"]);
 const CONNECT_TIMEOUT_MS = 10_000;
 /** A tree walk of a busy window plus a capture fits well inside this; a hung helper does not. */
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -53,7 +53,7 @@ export interface ComputerPort {
 // ── wire types, mirroring crates/core/src/protocol.rs ───────────────────────
 
 export interface Handshake { protocol: number; version: string; platform: string; ready: boolean; reason?: string; pid: number }
-export interface Grant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string }
+export interface Grant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string; detail?: string }
 export interface AppInfo { name: string; bundleId?: string; pid: number; active: boolean }
 export interface WindowInfo { id: number; appName: string; bundleId?: string; pid: number; title?: string; x: number; y: number; width: number; height: number; onScreen: boolean }
 export interface Snapshot {
@@ -158,7 +158,9 @@ export class ComputerHelper implements ComputerPort {
   private async start(): Promise<Running> {
     const launch = this.opts.locate();
     if (!launch) throw new HelperError("helper_missing", "The computer-use helper is not installed on this machine.");
-    const dir = mkdtempSync(join(tmpdir(), "openlive-cu-"));
+    // On Linux the session's runtime directory (tmpfs, this user's alone) when there is one, as the XDG spec has sockets live.
+    const runtime = process.platform === "linux" ? process.env.XDG_RUNTIME_DIR : undefined;
+    const dir = mkdtempSync(join(runtime && existsSync(runtime) ? runtime : tmpdir(), "openlive-cu-"));
     const token = randomBytes(24).toString("base64url");
     const tokenFile = join(dir, "token");
     writeFileSync(tokenFile, token, { mode: 0o600 });

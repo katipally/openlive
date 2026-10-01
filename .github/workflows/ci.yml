@@ -97,9 +97,24 @@ jobs:
       # The ol-input native addon is Rust; without it Flow can't load in the build.
       - uses: dtolnay/rust-toolchain@stable
 
-      # The computer-use helper's core, and this OS's backend (a stub until it lands).
+      # A desktop for the computer-use helper: a virtual X display, a session
+      # bus that starts the accessibility bus on demand, and one GTK 3 app.
+      - name: Desktop for the computer-use smoke test
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb dbus at-spi2-core gtk-3-examples
+
+      # The helper's core and Linux backend, then the built helper against that
+      # desktop: handshake, permissions, listWindows, and the app's tree and
+      # picture over its private socket, plus the backend's read-only live
+      # check. Nothing is clicked or typed.
       - name: Test computer-use helper
-        run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
+        run: |
+          xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- sh -c '
+            gtk3-widget-factory & sleep 3
+            cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace &&
+            cargo test --manifest-path native/openlive-cu/Cargo.toml -p openlive-cu-linux -- --ignored --nocapture'
+        env:
+          OPENLIVE_CU_SMOKE: "1"
+          OPENLIVE_CU_SMOKE_APP: gtk3-widget-factory
 
       - name: Pack web + agent + native
         run: |

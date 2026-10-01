@@ -22,7 +22,7 @@ export interface AppSettings {
 export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
 
 /** The computer-use helper's own grants, separate from OpenLive's: macOS asks for them by its name. */
-export interface ComputerGrant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string }
+export interface ComputerGrant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string; detail?: string }
 export interface ComputerStatus { available: boolean; grants: ComputerGrant[]; error?: string }
 
 async function j<T>(res: Response): Promise<T> {
@@ -70,7 +70,7 @@ export const api = {
         effort: { id: string; label: string; values: { id: string; name: string }[]; currentId: string | null } | null;
       }>),
   computerPermissions: () => fetch("/api/computer/permissions").then(j<ComputerStatus>),
-  /** Puts up the system prompt for one grant and opens its page in System Settings. */
+  /** Asks the system for one grant: its prompt and settings page on macOS, the screen sharing dialog on Wayland. */
   requestComputerPermission: (id: ComputerGrant["id"]) =>
     fetch("/api/computer/permissions/request", { method: "POST", body: JSON.stringify({ id }) }).then(j<ComputerStatus>),
   connectors: () => fetch("/api/connectors").then(j<{ connectors: ConnectorWire[] }>).then((r) => r.connectors),
