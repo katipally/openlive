@@ -71,19 +71,24 @@ export interface ActionResult { action: ActionReport; state?: Snapshot; stateErr
 
 /**
  * Where the helper is, or null where there is none to run. Packaged, Electron
- * main names it in OPENLIVE_CU_HELPER; set but empty, there is none, which is
- * how tests and anyone who wants ol-input's tools turn it off. Otherwise it is
- * the dev build in native/openlive-cu/dist, run without disclaiming (see disclaim.rs).
+ * main names it in OPENLIVE_CU_HELPER, and OPENLIVE_CU_OWN_ROOT (OpenLive's
+ * install) rides along in the inherited env; set but empty, there is none,
+ * which is how tests and anyone who wants ol-input's tools turn it off.
+ * Otherwise it is the dev build in native/openlive-cu/dist, run without
+ * disclaiming (see disclaim.rs), with the repo as OpenLive's own root: the dev
+ * Electron runs from its node_modules, so its windows are never the default target.
  */
 export function locateHelper(env: NodeJS.ProcessEnv = process.env, platform = process.platform): Launch | null {
   if (!SUPPORTED.has(platform)) return null;
   const named = env.OPENLIVE_CU_HELPER;
   if (named !== undefined) return named && existsSync(named) ? { command: named } : null;
-  const dist = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "native", "openlive-cu", "dist");
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+  const dist = join(repo, "native", "openlive-cu", "dist");
   const command = platform === "darwin"
     ? join(dist, "OpenLive Computer Use.app", "Contents", "MacOS", "openlive-cu")
     : join(dist, platform === "win32" ? "openlive-cu.exe" : "openlive-cu");
-  return existsSync(command) ? { command, env: { OPENLIVE_CU_DISCLAIM: env.OPENLIVE_CU_DISCLAIM ?? "0" } } : null;
+  if (!existsSync(command)) return null;
+  return { command, env: { OPENLIVE_CU_DISCLAIM: env.OPENLIVE_CU_DISCLAIM ?? "0", OPENLIVE_CU_OWN_ROOT: env.OPENLIVE_CU_OWN_ROOT ?? repo } };
 }
 
 interface Running {

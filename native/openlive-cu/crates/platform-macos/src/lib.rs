@@ -19,12 +19,13 @@ use objc2_application_services::{kAXTrustedCheckOptionPrompt, AXIsProcessTrusted
 use objc2_core_foundation::{kCFRunLoopDefaultMode, CFBoolean, CFDictionary, CFNumber, CFRunLoop, CFString, CFType};
 use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
 use objc2_foundation::{NSString, NSURL};
-use openlive_cu_core::backend::{Action, Backend, Button, ClickAt, Direction, Observation, Resolved};
+use openlive_cu_core::backend::{own_root, within, Action, Backend, Button, ClickAt, Direction, Observation, Resolved};
 use openlive_cu_core::keys::Chord;
 use openlive_cu_core::protocol::{ActionReport, AppInfo, Grant, Rect, WindowInfo};
 use openlive_cu_core::tree::{pretty_action, render, tree_text};
 use openlive_cu_core::{CuError, ErrorCode};
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -75,6 +76,9 @@ pub struct MacBackend {
     /// The elements of each window's last observation, by window id: what element indexes refer to.
     elements: HashMap<u64, Vec<Element>>,
     enhanced: HashSet<i32>,
+    /// Pressed by `mouseDown` and not yet released: moves meanwhile are drags.
+    held: Option<Button>,
+    own_root: Option<PathBuf>,
 }
 
 impl Default for MacBackend {
@@ -87,7 +91,7 @@ impl MacBackend {
     pub fn new() -> Self {
         // SAFETY: setting the global AX messaging timeout on the system-wide element.
         unsafe { AXUIElement::new_system_wide().set_messaging_timeout(AX_TIMEOUT_SECONDS) };
-        MacBackend { elements: HashMap::new(), enhanced: HashSet::new() }
+        MacBackend { elements: HashMap::new(), enhanced: HashSet::new(), held: None, own_root: own_root() }
     }
 
     fn element(&self, target: &Resolved, index: usize) -> Result<&Element, CuError> {
@@ -140,11 +144,25 @@ fn running() -> Vec<Retained<NSRunningApplication>> {
     NSWorkspace::sharedWorkspace().runningApplications().iter().collect()
 }
 
-/// `None` is the app in front; `pid:<n>`, a bundle id, or a name otherwise.
-fn find_app(query: Option<&str>) -> Result<Retained<NSRunningApplication>, CuError> {
+/// OpenLive itself: this helper, or an app run from where OpenLive is installed.
+fn is_own(app: &NSRunningApplication, root: Option<&Path>) -> bool {
+    app.processIdentifier() == std::process::id() as i32
+        || root.is_some_and(|r| app.executableURL().and_then(|u| u.path()).is_some_and(|p| within(Path::new(&p.to_string()), r)))
+}
+
+/// `None` is the app in front, or, when that is OpenLive, the app owning the
+/// frontmost window that is not; `pid:<n>`, a bundle id, or a name otherwise.
+fn find_app(query: Option<&str>, root: Option<&Path>) -> Result<Retained<NSRunningApplication>, CuError> {
     let not_found = |q: &str| CuError::new(ErrorCode::AppNotFound, format!("no running app matches '{q}'; call listApps for the names and bundle ids"));
     let Some(q) = query.map(str::trim).filter(|q| !q.is_empty()) else {
-        return NSWorkspace::sharedWorkspace().frontmostApplication().ok_or_else(|| not_found("the app in front"));
+        if let Some(front) = NSWorkspace::sharedWorkspace().frontmostApplication().filter(|a| !is_own(a, root)) {
+            return Ok(front);
+        }
+        // The window list runs front to back.
+        return cg::windows().into_iter()
+            .filter_map(|w| NSRunningApplication::runningApplicationWithProcessIdentifier(w.pid))
+            .find(|a| a.activationPolicy() == NSApplicationActivationPolicy::Regular && !is_own(a, root))
+            .ok_or_else(|| not_found("the app in front"));
     };
     if let Some(pid) = q.strip_prefix("pid:").and_then(|p| p.trim().parse().ok()) {
         return NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(|| not_found(q));
@@ -303,7 +321,7 @@ impl Backend for MacBackend {
     }
 
     fn list_windows(&mut self, app: Option<&str>) -> Result<Vec<WindowInfo>, CuError> {
-        let only = app.map(|q| find_app(Some(q)).map(|a| a.processIdentifier())).transpose()?;
+        let only = app.map(|q| find_app(Some(q), None).map(|a| a.processIdentifier())).transpose()?;
         let mut bundles: HashMap<i32, Option<String>> = HashMap::new();
         Ok(cg::windows().into_iter().filter(|w| only.is_none_or(|p| p == w.pid)).map(|w| {
             let bundle_id = bundles.entry(w.pid).or_insert_with(|| {
@@ -314,7 +332,7 @@ impl Backend for MacBackend {
     }
 
     fn resolve(&mut self, app: Option<&str>, window: Option<u64>) -> Result<Resolved, CuError> {
-        let running = find_app(app)?;
+        let running = find_app(app, self.own_root.as_deref())?;
         let info = app_info(&running);
         let mine: Vec<cg::CgWindow> = cg::windows().into_iter().filter(|w| w.pid == info.pid).collect();
         // SAFETY: AX element for a live pid.
@@ -454,6 +472,27 @@ impl Backend for MacBackend {
                 require_hit(target, from)?;
                 input::drag(from, to)?;
                 Ok(synthetic("drag"))
+            }
+            Action::Move { at } => {
+                let at = self.point(target, *at)?;
+                require_hit(target, at)?;
+                input::move_to(at, self.held)?;
+                Ok(synthetic("move"))
+            }
+            Action::MouseDown { at, button } => {
+                let at = self.point(target, *at)?;
+                focus(target);
+                require_hit(target, at)?;
+                input::press_button(at, *button, true)?;
+                self.held = Some(*button);
+                Ok(synthetic("mouseDown"))
+            }
+            Action::MouseUp { at, button } => {
+                // No hit test: a button left down breaks the user's next click wherever the pointer is.
+                let at = self.point(target, *at)?;
+                input::press_button(at, *button, false)?;
+                self.held = None;
+                Ok(synthetic("mouseUp"))
             }
         }
     }

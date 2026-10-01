@@ -30,6 +30,7 @@ const TARGET = {
 };
 const ELEMENT = { type: "integer", description: "An element number from the latest state of this window" };
 const PIXEL = (axis: string) => ({ type: "integer", description: `${axis} in the latest picture of this window, only when no element fits` });
+const BUTTON = { button: { type: "string", enum: ["left", "right", "middle"], description: "Defaults to left" } };
 
 export interface ComputerToolOpts {
   computer: ComputerPort;
@@ -129,7 +130,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
         "To work in an app, call get_app_state first and act on its numbered elements. Every action answers with the window's new state: read it before the next step. Element numbers go stale after any change, so only ever use numbers from the latest state.",
         "Prefer the meaning over the pixels: set_value for a field, click with an element number, perform_action with an action the element lists. Use x and y from the picture only when no element fits.",
         "An action's result says how sure it is. \"Read back\" means it was checked. Anything else is unproven until the state shows it, so never tell the user something was sent, saved, bought or deleted unless the state shows it.",
-        "Name the app by its name or bundle id. Without one you get the app in front, which in a call is OpenLive itself.",
+        "Name the app by its name or bundle id. Without one you get the window in front that is not OpenLive's own.",
         "Do not send, submit, buy, delete, or change account settings unless the user asked for exactly that. Password managers are off limits.",
         "In a browser, set the address field with set_value, then keypress Return.",
       ],
@@ -196,7 +197,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "keypress",
-      description: "Press a key or a shortcut in the app, as [\"Return\"] or [\"cmd\", \"shift\", \"p\"]. Enter usually commits something, so read the state that comes back.",
+      description: "Press a key or a shortcut in the app, as [\"Return\"] or [\"cmdorctrl\", \"shift\", \"p\"]; cmdorctrl is cmd on a Mac and ctrl elsewhere, and cmd elsewhere is the Windows key. Enter usually commits something, so read the state that comes back.",
       parameters: obj({ keys: { type: "array", items: { type: "string" }, description: "The keys held together; the last one is the key" }, ...TARGET }, ["keys"]),
       confirm: (a) => `press ${keyList(a).join("+")} in ${where(a)}`,
       execute: act((a) => (keyList(a).length > 1 ? "hotkey" : "pressKey"), (a) => {
@@ -216,6 +217,26 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
       }, ["direction"]),
       confirm: (a) => `scroll in ${where(a)}`,
       execute: act("scroll", (a) => ({ ...at(a), direction: a.direction, ...(a.pages && { pages: a.pages }) }), SETTLE_MS.default),
+    },
+    {
+      name: "move",
+      description: "Move the pointer onto an element or a point without pressing anything, to reveal a hover state such as a tooltip or a menu that opens on hover.",
+      parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...TARGET }),
+      execute: act("move", at, SETTLE_MS.default),
+    },
+    {
+      name: "mouse_down",
+      description: "Press and hold a mouse button on an element or a point. Pair it with mouse_up, after any moves, for a gesture click and drag cannot express.",
+      parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...BUTTON, ...TARGET }),
+      confirm: (a) => `press the mouse in ${where(a)}`,
+      execute: act("mouseDown", (a) => ({ ...at(a), ...(a.button && { button: a.button }) }), SETTLE_MS.default),
+    },
+    {
+      name: "mouse_up",
+      description: "Release the mouse button mouse_down is holding, on an element or a point.",
+      parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...BUTTON, ...TARGET }),
+      confirm: (a) => `release the mouse in ${where(a)}`,
+      execute: act("mouseUp", (a) => ({ ...at(a), ...(a.button && { button: a.button }) }), SETTLE_MS.commit),
     },
     {
       name: "drag",

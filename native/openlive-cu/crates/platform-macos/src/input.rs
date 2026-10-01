@@ -73,6 +73,31 @@ pub fn click(at: (f64, f64), button: Button, count: u8) -> Result<(), CuError> {
     Ok(())
 }
 
+/// The pointer alone. With a button held (a `mouse_down` before) it is a drag event, as the app expects.
+pub fn move_to(at: (f64, f64), held: Option<Button>) -> Result<(), CuError> {
+    let src = source()?;
+    let (kind, b) = match held {
+        Some(button) => {
+            let (_, _, dragged, b) = mouse_types(button);
+            (dragged, b)
+        }
+        None => (CGEventType::MouseMoved, CGMouseButton::Left),
+    };
+    mouse(&src, kind, CGPoint { x: at.0, y: at.1 }, b, 0)
+}
+
+/// Half a click. A press moves there first, as `click` does, so the app sees the pointer arrive.
+pub fn press_button(at: (f64, f64), button: Button, down: bool) -> Result<(), CuError> {
+    let src = source()?;
+    let at = CGPoint { x: at.0, y: at.1 };
+    let (press, release, _, b) = mouse_types(button);
+    if down {
+        mouse(&src, CGEventType::MouseMoved, at, b, 0)?;
+        sleep(PAUSE);
+    }
+    mouse(&src, if down { press } else { release }, at, b, 1)
+}
+
 pub fn drag(from: (f64, f64), to: (f64, f64)) -> Result<(), CuError> {
     let src = source()?;
     let (down, up, dragged, b) = mouse_types(Button::Left);

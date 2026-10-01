@@ -63,7 +63,14 @@ describe("the computer tools", () => {
     await byName(tools, "scroll").execute({ x: 10, y: 20, direction: "down", pages: 2 }, ctx);
     await byName(tools, "drag").execute({ from_element: 1, to_x: 5, to_y: 6 }, ctx);
     await byName(tools, "perform_action").execute({ element: 1, action: "scroll down" }, ctx);
-    expect(calls.map((c) => c.method)).toEqual(["pasteText", "pressKey", "hotkey", "scroll", "drag", "performSecondaryAction"]);
+    await byName(tools, "move").execute({ element: 2 }, ctx);
+    await byName(tools, "mouse_down").execute({ x: 3, y: 4, button: "right" }, ctx);
+    await byName(tools, "mouse_up").execute({ x: 5, y: 6 }, ctx);
+    expect(calls.map((c) => c.method)).toEqual(["pasteText", "pressKey", "hotkey", "scroll", "drag", "performSecondaryAction", "move", "mouseDown", "mouseUp"]);
+    expect(calls[6].params).toMatchObject({ elementIndex: 2 });
+    expect(calls[7].params).toMatchObject({ x: 3, y: 4, button: "right" });
+    expect(calls[8].params).toMatchObject({ x: 5, y: 6 });
+    expect(calls[8].params.button).toBeUndefined();
     expect(calls[2].params.key).toBe("cmd+shift+p");
     expect(calls[3].params).toMatchObject({ x: 10, y: 20, direction: "down", pages: 2 });
     expect(calls[4].params).toMatchObject({ fromElementIndex: 1, toX: 5, toY: 6 });
@@ -93,7 +100,9 @@ describe("the computer tools", () => {
     const tools = computerTools({ computer: recorder().port, device });
     const reads = tools.filter((t) => t.readOnly).map((t) => t.name).sort();
     expect(reads).toEqual(["get_app_state", "list_apps", "list_windows", "read_screen_text", "wait"]);
-    for (const t of tools.filter((t) => !t.readOnly)) expect(t.confirm, t.name).toBeTypeOf("function");
+    // A hover asks nothing, as ol-input's move does not.
+    for (const t of tools.filter((t) => !t.readOnly && t.name !== "move")) expect(t.confirm, t.name).toBeTypeOf("function");
+    expect(byName(tools, "move").confirm).toBeUndefined();
     expect(byName(tools, "click").confirm!({ app: "Notes" })).toBe("click in Notes");
   });
 

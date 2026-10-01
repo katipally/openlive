@@ -106,7 +106,8 @@ impl<B: Backend> Server<B> {
                 let target = self.resolve(&p)?;
                 to_value(self.snapshot(&target, p.opt("screenshot")?.unwrap_or(true))?)
             }
-            "click" | "performSecondaryAction" | "setValue" | "typeText" | "pasteText" | "pressKey" | "hotkey" | "scroll" | "drag" => {
+            "click" | "performSecondaryAction" | "setValue" | "typeText" | "pasteText" | "pressKey" | "hotkey" | "scroll" | "drag"
+            | "move" | "mouseDown" | "mouseUp" => {
                 let target = self.resolve(&p)?;
                 let action = self.action(method, &p, &target)?;
                 let report = self.backend.act(&target, &action)?;
@@ -175,12 +176,7 @@ impl<B: Backend> Server<B> {
         let mac = self.backend.platform() == "macos";
         Ok(match method {
             "click" => {
-                let button = match p.opt::<String>("button")?.as_deref().unwrap_or("left") {
-                    "left" => Button::Left,
-                    "right" => Button::Right,
-                    "middle" => Button::Middle,
-                    b => return Err(CuError::invalid(format!("unknown button '{b}'"))),
-                };
+                let button = button(p)?;
                 let count = p.opt::<u8>("count")?.unwrap_or(1);
                 if !(1..=MAX_CLICKS).contains(&count) {
                     return Err(CuError::invalid(format!("count must be 1 to {MAX_CLICKS}")));
@@ -210,9 +206,21 @@ impl<B: Backend> Server<B> {
                 from: self.at(p, target, "fromElementIndex", "fromX", "fromY")?,
                 to: self.at(p, target, "toElementIndex", "toX", "toY")?,
             },
+            "move" => Action::Move { at: self.at(p, target, "elementIndex", "x", "y")? },
+            "mouseDown" => Action::MouseDown { at: self.at(p, target, "elementIndex", "x", "y")?, button: button(p)? },
+            "mouseUp" => Action::MouseUp { at: self.at(p, target, "elementIndex", "x", "y")?, button: button(p)? },
             _ => unreachable!("routed by handle"),
         })
     }
+}
+
+fn button(p: &Params) -> Result<Button, CuError> {
+    Ok(match p.opt::<String>("button")?.as_deref().unwrap_or("left") {
+        "left" => Button::Left,
+        "right" => Button::Right,
+        "middle" => Button::Middle,
+        b => return Err(CuError::invalid(format!("unknown button '{b}'"))),
+    })
 }
 
 fn nonempty(text: String) -> Result<String, CuError> {
@@ -364,6 +372,22 @@ mod tests {
         assert_eq!(v["state"]["treeText"], "0 window N");
         assert_eq!(s.backend.observed, 1);
         assert_eq!(s.backend.acted[0], Action::Click { at: ClickAt::Element(3), button: Button::Right, count: 1 });
+    }
+
+    #[test]
+    fn hover_and_half_clicks_take_an_element_or_a_point() {
+        let mut s = server(Fake::default());
+        s.handle("move", json!({ "elementIndex": 2 })).unwrap();
+        s.handle("getAppState", json!({})).unwrap();
+        s.handle("mouseDown", json!({ "x": 0, "y": 0, "button": "right" })).unwrap();
+        s.handle("mouseUp", json!({ "x": 800, "y": 600 })).unwrap();
+        assert_eq!(s.backend.acted, vec![
+            Action::Move { at: ClickAt::Element(2) },
+            Action::MouseDown { at: ClickAt::Point(100.0, 100.0), button: Button::Right },
+            Action::MouseUp { at: ClickAt::Point(500.0, 400.0), button: Button::Left },
+        ]);
+        assert!(s.handle("mouseDown", json!({ "elementIndex": 1, "button": "thumb" })).is_err());
+        assert!(s.handle("move", json!({})).unwrap_err().message.contains("elementIndex"));
     }
 
     #[test]

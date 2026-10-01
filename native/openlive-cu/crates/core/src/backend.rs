@@ -5,6 +5,7 @@
 use crate::keys::Chord;
 use crate::protocol::{ActionReport, AppInfo, CuError, ErrorCode, Grant, WindowInfo};
 use ::image::RgbaImage;
+use std::path::{Path, PathBuf};
 
 /// The app and window a request is about, resolved once per request.
 #[derive(Debug, Clone)]
@@ -57,6 +58,12 @@ pub enum Action {
     PressKey { chord: Chord, hotkey: bool },
     Scroll { at: ClickAt, direction: Direction, pages: f64 },
     Drag { from: ClickAt, to: ClickAt },
+    /// The pointer alone, for a hover state. While a button is held it drags.
+    Move { at: ClickAt },
+    /// Half a click, for a gesture `click` and `drag` cannot express. A backend
+    /// remembers the held button so a `Move` before the `MouseUp` drags.
+    MouseDown { at: ClickAt, button: Button },
+    MouseUp { at: ClickAt, button: Button },
 }
 
 pub trait Backend {
@@ -79,13 +86,15 @@ pub trait Backend {
     fn act(&mut self, target: &Resolved, action: &Action) -> Result<ActionReport, CuError>;
 }
 
-/// Password managers stay out of reach whatever the model is asked to do.
-/// macOS bundle ids now; Windows and Linux add their executable and desktop ids.
+/// Password managers stay out of reach whatever the model is asked to do: macOS
+/// bundle ids, then Windows executables (the id the Windows backend reports).
 pub const BLOCKED_APPS: &[&str] = &[
     "com.1password.1password", "com.1password.safari", "com.agilebits.onepassword7",
     "com.bitwarden.desktop", "com.dashlane.dashlanephonefinal", "com.lastpass.lastpass",
     "com.nordsec.nordpass", "me.proton.pass.electron", "me.proton.pass.catalyst",
     "com.apple.keychainaccess", "com.apple.passwords",
+    "1password.exe", "bitwarden.exe", "dashlane.exe", "lastpass.exe", "nordpass.exe", "proton pass.exe",
+    "keepass.exe", "keepassxc.exe", "enpass.exe", "roboform.exe", "keeper.exe", "passwordsafe.exe",
 ];
 
 pub fn refuse_blocked(app: &AppInfo) -> Result<(), CuError> {
@@ -98,7 +107,48 @@ pub fn refuse_blocked(app: &AppInfo) -> Result<(), CuError> {
     }
 }
 
+/// Where OpenLive itself runs from (`OPENLIVE_CU_OWN_ROOT`, set by the client).
+/// An app whose executable lies inside is OpenLive's own window, never the
+/// default target: in Chat the window in front is OpenLive's.
+pub fn own_root() -> Option<PathBuf> {
+    std::env::var_os("OPENLIVE_CU_OWN_ROOT").filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// Whether `path` lies inside `root`, component by component. Case is ignored
+/// where the file system ignores it by default (macOS and Windows).
+pub fn within(path: &Path, root: &Path) -> bool {
+    let fold = |c: std::path::Component| {
+        let s = c.as_os_str().to_string_lossy().into_owned();
+        if cfg!(any(target_os = "macos", windows)) { s.to_lowercase() } else { s }
+    };
+    let mut parts = path.components().map(fold);
+    root.components().count() > 0 && root.components().map(fold).all(|r| parts.next().as_ref() == Some(&r))
+}
+
 /// The error every stub backend returns until its phase lands.
 pub fn not_yet(platform: &str) -> CuError {
     CuError::new(ErrorCode::UnsupportedPlatform, format!("computer use is not yet supported on {platform}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn within_compares_whole_components() {
+        assert!(within(Path::new("/Applications/OpenLive.app/Contents/MacOS/OpenLive"), Path::new("/Applications/OpenLive.app")));
+        assert!(within(Path::new("/Applications/OpenLive.app"), Path::new("/Applications/OpenLive.app/")));
+        assert!(!within(Path::new("/Applications/OpenLive.app.old/x"), Path::new("/Applications/OpenLive.app")));
+        assert!(!within(Path::new("/Applications"), Path::new("/Applications/OpenLive.app")));
+        assert!(!within(Path::new("/x"), Path::new("")));
+        if cfg!(any(target_os = "macos", windows)) {
+            assert!(within(Path::new("/applications/openlive.app/x"), Path::new("/Applications/OpenLive.app")));
+        }
+    }
+
+    #[test]
+    fn blocks_windows_password_managers_by_executable() {
+        let app = AppInfo { name: "KeePassXC".into(), bundle_id: Some("KeePassXC.exe".into()), pid: 1, active: false };
+        assert_eq!(refuse_blocked(&app).unwrap_err().code, ErrorCode::AppBlocked);
+    }
 }

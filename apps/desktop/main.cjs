@@ -302,6 +302,9 @@ async function startServers() {
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN,
     // The computer-use helper the agent drives; its own app, so its grants are its own.
     ...(process.platform === "darwin" && { OPENLIVE_CU_HELPER: path.join(process.resourcesPath, "OpenLive Computer Use.app", "Contents", "MacOS", "openlive-cu") }),
+    // Where OpenLive is installed: the helper never picks a window from there as
+    // the default target, so "look at the app" in Chat is not OpenLive itself.
+    OPENLIVE_CU_OWN_ROOT: process.platform === "darwin" ? path.resolve(process.execPath, "..", "..", "..") : path.dirname(process.execPath),
   });
   // Web (Next standalone) serves the UI + the /api settings routes (JSON store).
   // AGENT_PORT: the /api/voice proxy forwards to the agent on localhost.

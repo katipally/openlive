@@ -28,7 +28,7 @@ const snapshot = (app = "Notes") => ({
   screenshot: { data: PIXEL, mime: "image/png", width: 1280, height: 960 },
 });
 
-const ACTIONS = new Set(["click", "performSecondaryAction", "setValue", "typeText", "pasteText", "pressKey", "hotkey", "scroll", "drag"]);
+const ACTIONS = new Set(["click", "performSecondaryAction", "setValue", "typeText", "pasteText", "pressKey", "hotkey", "scroll", "drag", "move", "mouseDown", "mouseUp"]);
 
 function answer(method, params) {
   if (method === "handshake") return { protocol: 1, version: "0.0.0", platform: "fake", ready: process.env.FAKE_CU_READY !== "0", reason: "not here", pid: process.pid };

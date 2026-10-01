@@ -55,14 +55,14 @@ describe("the registry", () => {
 
 describe("the machine's tools with the computer-use helper", () => {
   const computer = { call: async () => ({}) } as ComputerPort;
-  const HELPER = ["list_apps", "list_windows", "get_app_state", "wait", "read_screen_text", "click", "perform_action", "set_value", "type", "keypress", "scroll", "drag"];
+  const HELPER = ["list_apps", "list_windows", "get_app_state", "wait", "read_screen_text", "click", "perform_action", "set_value", "type", "keypress", "scroll", "drag", "move", "mouse_down", "mouse_up"];
   const KEPT = ["get_window", "camera_frame", "window_activate", "window_move", "window_resize", "window_minimize", "window_close", "open_app", "open_url", "shell"];
 
   it("offers one coherent surface: the helper's tools, plus what only ol-input does", () => {
     const flowNames = names(FLOW, { ...flow, computer });
     expect(new Set(flowNames).size).toBe(flowNames.length);
     expect(flowNames.slice(5, 5 + HELPER.length + KEPT.length).sort()).toEqual([...HELPER, ...KEPT].sort());
-    for (const gone of ["screenshot", "double_click", "right_click", "move", "mouse_down", "mouse_up"]) expect(flowNames).not.toContain(gone);
+    for (const gone of ["screenshot", "double_click", "right_click"]) expect(flowNames).not.toContain(gone);
     expect(flowNames.slice(0, 5)).toEqual(["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context"]);
   });
 
