@@ -208,6 +208,14 @@ export async function setSetting(key: string, value: string): Promise<void> {
   });
 }
 
+/** One setting's read-modify-write, under the store's lock, so a note saved by the agent and one edited from the web never lose each other. */
+export async function updateSetting(key: string, fn: (cur: string | undefined) => string): Promise<void> {
+  await updateJson<Record<string, string>>(SETTINGS, {}, (s) => {
+    s[key] = fn(s[key]);
+    return s;
+  });
+}
+
 export function getAllSettings(): Record<string, string> {
   return readJson<Record<string, string>>(SETTINGS, {});
 }

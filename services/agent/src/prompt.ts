@@ -3,6 +3,7 @@
 import { getSetting } from "@openlive/db";
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
 import { toolGuidelines } from "./capabilities/dispatch.js";
+import { notesInUse } from "./memory/notes.js";
 import type { Tool } from "./capabilities/types.js";
 
 /** Every brain in every mode, Flow and calls alike. */
@@ -52,13 +53,10 @@ export const WORKER_PROMPT = `You are OpenLive's research assistant. You do NOT 
 // the built-in brain and to every other agent.
 export const SHARED_MEMORY = "\n[When the user asks you to remember something, or tells you a lasting fact about themselves, save it with OpenLive's remember tool, never your own memory files or notes: OpenLive's memory is shared with every brain the user talks to, and yours is not.]";
 
-/** The facts the `remember` tool saved, whichever brain saved them. */
+/** The facts the `remember` tool saved, whichever brain saved them, as many as the prompt budget holds (newest first). */
 export function rememberedNotes(): string {
-  try {
-    const arr = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
-    if (arr.length) return `\n\n---\nWHAT YOU REMEMBER ABOUT THIS USER (saved earlier; use naturally, don't recite):\n${arr.map((n) => `- ${n}`).join("\n")}`;
-  } catch { /* no notes */ }
-  return "";
+  const notes = notesInUse();
+  return notes.length ? `\n\n---\nWHAT YOU REMEMBER ABOUT THIS USER (saved earlier; use naturally, don't recite):\n${notes.map((n) => `- ${n.text}`).join("\n")}` : "";
 }
 
 /** The user's own instructions from Settings → General, "" when unset. Every

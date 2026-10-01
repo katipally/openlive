@@ -15,7 +15,8 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-call-mcp-"));
 process.env.OPENLIVE_DATA_DIR = dir;
 const { LiveSession } = await import("./session.ts");
-const { getSetting, listMessages, setSetting } = await import("@openlive/db");
+const { listMessages, setSetting } = await import("@openlive/db");
+const { readNotes } = await import("../memory/notes.ts");
 
 afterAll(() => {
   delete process.env.OPENLIVE_DATA_DIR;
@@ -136,7 +137,7 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
   expect(prompts()[0]!.text).toContain(`a server called "openlive": ${CALL_TOOLS}.`);
   expect(ws.sent.find((m) => m.t === "tool_bridge")).toMatchObject({ op: "clipboard_write", arg: "copied", turn: 7 });
   expect(ws.sent.some((m) => m.t === "need_frame")).toBe(true);
-  expect(JSON.parse(getSetting("agent_notes") ?? "[]")).toEqual(["Likes tea."]);
+  expect(readNotes().map((n) => n.text)).toEqual(["Likes tea."]);
   // The built-in brain's chips, and the agent's own tool as a card; the agent's
   // report of OpenLive's tools is not a second copy of them.
   const chips = ws.sent.filter((m) => m.event?.type === "tool_start");

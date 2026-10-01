@@ -111,7 +111,8 @@ const dataDir = mkdtempSync(join(tmpdir(), "ol-flow-ws-"));
 process.env.OPENLIVE_DATA_DIR = dataDir;
 afterAll(() => { delete process.env.OPENLIVE_DATA_DIR; rmSync(dataDir, { recursive: true, force: true }); });
 const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
-const { getSetting, setSetting } = await import("@openlive/db");
+const { setSetting } = await import("@openlive/db");
+const { readNotes } = await import("../memory/notes.js");
 const { cancelledText, sentAside } = await import("../turn.js");
 const { limits } = await import("../telemetry/limits.js");
 const { validateEvent, validateFact } = createRequire(import.meta.url)("../../../../apps/desktop/telemetry/validate.cjs");
@@ -585,7 +586,7 @@ describe("OpenLive's memory in Flow", () => {
     await until(() => turnsDone(ws) === 1);
     expect(fake.reqs[0]!.tools.map((t) => t.name)).toContain("remember");
     expect(fake.reqs[0]!.systemPrompt).toContain("Their name is Ada.");
-    expect(JSON.parse(getSetting("agent_notes")!)).toEqual(["Their name is Ada.", "They drink tea."]);
+    expect(readNotes().map((n) => n.text)).toEqual(["Their name is Ada.", "They drink tea."]);
     ws.emit("close");
 
     // A coding agent: the same tool over MCP, the notes and the rule in its preamble.
@@ -599,7 +600,7 @@ describe("OpenLive's memory in Flow", () => {
     expect(fake.preamble).toContain("save it with OpenLive's remember tool, never your own memory files");
     const remember = fake.mcp!.tools.resolve("remember")!;
     await remember.execute({ note: "They live in Oslo." }, {} as never);
-    expect(JSON.parse(getSetting("agent_notes")!)).toContain("They live in Oslo.");
+    expect(readNotes().map((n) => n.text)).toContain("They live in Oslo.");
     ws2.emit("close");
   });
 });

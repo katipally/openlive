@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getSetting, setSetting } from "@openlive/db";
+import { addNote } from "../memory/notes.js";
 import { runWorker } from "../live/worker.js";
 import { params } from "./web.js";
 import { noParams } from "./text.js";
@@ -52,11 +52,9 @@ const remember: Tool<{ note: string }, null> = {
   parameters: params({ note: z.string().describe("The fact to remember, as one short sentence") }),
   promptGuidelines: ["`remember` — save a lasting fact about the user."],
   async execute(args) {
-    const note = String(args.note ?? "").trim().slice(0, 240);
-    if (!note) return text("Nothing to remember.");
     try {
-      const cur = JSON.parse(getSetting("agent_notes") ?? "[]") as string[];
-      if (!cur.includes(note)) { cur.push(note); await setSetting("agent_notes", JSON.stringify(cur.slice(-50))); }
+      const r = await addNote(String(args.note ?? ""));
+      if (!r.ok) return text({ empty: "Nothing to remember.", duplicate: "Already remembered.", full: "Memory is full. Tell the user to delete some notes in Settings, Memory." }[r.reason]);
     } catch { /* best-effort */ }
     return text("Got it — I'll remember that.");
   },

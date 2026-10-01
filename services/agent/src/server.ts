@@ -54,6 +54,10 @@ const { skillTools } = await import("./skills/tools.js");
 registry.register(skillTools());
 app.route("/skills", skillRoutes);
 
+// The notes `remember` keeps, listed and edited from Settings.
+const { memoryRoutes } = await import("./memory/routes.js");
+app.route("/memory", memoryRoutes);
+
 // Computer use: one helper for every session, started on first use. Its own grants, for Access settings.
 const { computer } = await import("./computer/helper.js");
 const { computerRoutes } = await import("./computer/routes.js");

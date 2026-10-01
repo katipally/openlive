@@ -9,3 +9,4 @@ export * from "./telemetry-schema";
 export * from "./telemetry";
 export * from "./connectors";
 export * from "./skills";
+export * from "./memory";
