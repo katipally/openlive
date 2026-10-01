@@ -1,5 +1,6 @@
-import { allContent, asMessage, asStateTail, dispatch, newestState, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
+import { allContent, asMessage, asStateTail, dispatch, newestState, shownName, toolSpecs, type ToolCall, type ToolSet, type ToolTally, type Verdict } from "../capabilities/dispatch.js";
 import { allowAll } from "../capabilities/approval.js";
+import { READ_TOOL, USE_TOOL } from "../capabilities/on-demand.js";
 import type { Approve, Session } from "../capabilities/types.js";
 import { trimImages } from "./retention.js";
 import { formatContext } from "./prompt.js";
@@ -166,6 +167,8 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
       let reasoning = "";
       let signature: string | undefined;
       const calls: ToolCall[] = [];
+      /** read_tool and use_tool calls whose start waits for the tool they name. */
+      const unnamed = new Set<string>();
       open = calls;
       // Resolved once per call, by whoever needs it first, and reused by dispatch.
       const preflighted = new Map<string, Promise<Verdict>>();
@@ -201,7 +204,13 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
         if (ev.type === "text_delta") { text += ev.delta; yield { type: "text_delta", delta: ev.delta }; continue; }
         if (ev.type === "reasoning") { reasoning += ev.delta; continue; }
         if (ev.type === "reasoning_signature") { signature = ev.signature; continue; }
-        if (ev.type === "tool_start") { calls.push({ id: ev.id, name: ev.name, args: {} }); yield { type: "tool_start", id: ev.id, name: ev.name }; continue; }
+        if (ev.type === "tool_start") {
+          calls.push({ id: ev.id, name: ev.name, args: {} });
+          // Which connector tool read_tool or use_tool runs is only known once its arguments are in.
+          const wrapper = !!tools.onDemand && [READ_TOOL, USE_TOOL].includes(tools.resolve(ev.name)?.name ?? "");
+          if (wrapper) unnamed.add(ev.id); else yield { type: "tool_start", id: ev.id, name: ev.name };
+          continue;
+        }
         if (ev.type === "tool_args_delta") {
           yield { type: "tool_args_delta", id: ev.id, argsPartial: ev.argsPartial };
           // The insertion sink is forward-only, so handing it the growing text is
@@ -215,7 +224,9 @@ export async function* runFlow(run: FlowRun): AsyncGenerator<FlowEvent> {
         if (ev.type === "tool_end") {
           const call = calls.find((c) => c.id === ev.id);
           if (call) call.args = ev.args; else calls.push({ id: ev.id, name: ev.name, args: ev.args });
-          yield { type: "tool_call", id: ev.id, name: ev.name, args: ev.args };
+          const name = shownName({ id: ev.id, name: ev.name, args: ev.args }, tools);
+          if (unnamed.delete(ev.id)) yield { type: "tool_start", id: ev.id, name };
+          yield { type: "tool_call", id: ev.id, name, args: ev.args };
           continue;
         }
         if (ev.type === "turn_done") { stop = ev.stop; usage = ev.usage; continue; }

@@ -1,5 +1,5 @@
 import { parsePartialJson } from "../flow/partial-json.js";
-import { closeMatches, FIND_TOOLS, unwrapUse, USE_TOOL } from "./on-demand.js";
+import { closeMatches, FIND_TOOLS, READ_TOOL, unwrapUse, USE_TOOL } from "./on-demand.js";
 import type { Approve, ImagePart, TextPart, Tool, ToolCtx, ToolResult } from "./types.js";
 
 // Tool plumbing for every loop and the MCP server: repair what the model got
@@ -256,21 +256,29 @@ interface Prepared {
 const errResult = (call: ToolCall, msg: string): DispatchResult =>
   ({ id: call.id, name: call.name, content: [text(msg)], details: { error: msg }, isError: true, terminate: false });
 
-/** A call as the tool it reaches: use_tool's becomes the held-back tool it names. */
+/** A call as the tool it reaches: read_tool's and use_tool's become the held-back tool they name. */
 function target(call: ToolCall, tools: ToolSet): { tool: Tool; raw: unknown } | { error: string } {
   const tool = tools.resolve(call.name);
   const held = tools.onDemand;
-  if (tool && !(held && tool.name === USE_TOOL)) return { tool, raw: call.args };
+  if (tool && !(held && (tool.name === USE_TOOL || tool.name === READ_TOOL))) return { tool, raw: call.args };
   if (!held) return { error: `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}.` };
   if (!tool) {
     const named = held.resolve(call.name);
-    return { error: named ? `${named.name} loads on demand: call ${USE_TOOL} with name "${named.name}" and its arguments.` : `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}. Connector tools are found with ${FIND_TOOLS}.` };
+    return { error: named ? `${named.name} loads on demand: call ${named.readOnly ? READ_TOOL : USE_TOOL} with name "${named.name}" and its arguments.` : `Unknown tool "${call.name}". Available: ${tools.list.map((t) => t.name).join(", ")}. Connector tools are found with ${FIND_TOOLS}.` };
   }
   const use = unwrapUse(call.args);
   const real = held.resolve(use.name);
+  if (real && tool.name === READ_TOOL && !real.readOnly) return { error: `${real.name} changes something, so ${READ_TOOL} does not run it. Call ${USE_TOOL} with the same name and arguments.` };
   if (real) return { tool: real, raw: use.args };
   const close = closeMatches(use.name, held.list);
   return { error: `No connector tool "${use.name}" is on in this session.${close.length ? ` Close: ${close.join(", ")}.` : ""} Search with ${FIND_TOOLS}.` };
+}
+
+/** The tool a call reaches, by name, for whatever shows or records it: read_tool's
+ *  and use_tool's is the connector tool they run. The call's own name when it reaches none. */
+export function shownName(call: ToolCall, tools: ToolSet): string {
+  const t = target(call, tools);
+  return "tool" in t ? t.tool.name : call.name;
 }
 
 function prepare(call: ToolCall, tools: ToolSet): Prepared {

@@ -5,12 +5,14 @@ import type { TextPart, Tool } from "./types.js";
 
 // Connector tools loaded on demand. With many connectors on, every request would
 // carry hundreds of schemas: slow, costly, and models pick tools worse. Instead
-// a session that holds them back gets two fixed tools, find_tools and use_tool,
-// whatever the brain. The tools array never changes within a session, so the
-// prompt cache it heads stays whole; what a search finds arrives as a tool
-// result, after the cached prefix. use_tool is unwrapped by dispatch into the
-// real tool's call, so validation, approval, the input lock and telemetry are
-// the real tool's own.
+// a session that holds them back gets three fixed tools, find_tools, read_tool
+// and use_tool, whatever the brain. The tools array never changes within a
+// session, so the prompt cache it heads stays whole; what a search finds arrives
+// as a tool result, after the cached prefix. read_tool and use_tool are unwrapped
+// by dispatch into the real tool's call, so validation, approval, the input lock
+// and telemetry are the real tool's own. read_tool exists only to be marked
+// read-only over MCP: Codex asks before any tool not so marked, and one wrapper
+// for everything could never carry the mark.
 //
 // Not native tool search (Anthropic's defer_loading, OpenAI's tool_search): both
 // need provider blocks our adapters and session files do not carry, and the
@@ -19,6 +21,7 @@ import type { TextPart, Tool } from "./types.js";
 
 export const FIND_TOOLS = "find_tools";
 export const USE_TOOL = "use_tool";
+export const READ_TOOL = "read_tool";
 
 /** settings.json key. */
 const MODE_KEY = "connectorToolLoading";
@@ -135,7 +138,7 @@ function findTools(held: readonly Tool[]): Tool<{ query: string; limit?: number 
   const idx = index(held);
   return {
     name: FIND_TOOLS,
-    description: `Find a connector tool by what it does. Connector tools are not offered as tools of their own here: search with a few words of the task, a connector's name or a tool's exact name, then run what you found with ${USE_TOOL}. Each result comes with its arguments' JSON schema.\n\n<connector_tools>\n${catalog(held)}\n</connector_tools>`,
+    description: `Find a connector tool by what it does. Connector tools are not offered as tools of their own here: search with a few words of the task, a connector's name or a tool's exact name, then run what you found with the tool its result names: ${READ_TOOL} for one that only reads, ${USE_TOOL} for the rest. Each result comes with its arguments' JSON schema.\n\n<connector_tools>\n${catalog(held)}\n</connector_tools>`,
     parameters: {
       type: "object",
       properties: {
@@ -148,15 +151,15 @@ function findTools(held: readonly Tool[]): Tool<{ query: string; limit?: number 
     async execute({ query, limit }) {
       const found = rank(query, idx, Math.min(20, Math.max(1, limit ?? 5)));
       if (!found.length) return { content: [text(`No connector tool matched "${query}". Try other words, or a name from the list in ${FIND_TOOLS}'s description.`)], details: { found: [] } };
-      const body = found.map((t) => `${t.name} (${t.connector}${t.confirm ? ", asks the user first" : ""}): ${oneLine(own(t))}\nArguments: ${JSON.stringify(t.parameters)}`).join("\n\n");
-      return { content: [text(`${body}\n\nRun one with ${USE_TOOL}: {"name": "<tool name>", "arguments": {...}}.`)], details: { found: found.map((t) => t.name) } };
+      const body = found.map((t) => `${t.name} (${t.connector}${t.confirm ? ", asks the user first" : ""}; run with ${t.readOnly ? READ_TOOL : USE_TOOL}): ${oneLine(own(t))}\nArguments: ${JSON.stringify(t.parameters)}`).join("\n\n");
+      return { content: [text(`${body}\n\nRun one with the tool named beside it: {"name": "<tool name>", "arguments": {...}}.`)], details: { found: found.map((t) => t.name) } };
     },
   };
 }
 
-const useTool: Tool = {
-  name: USE_TOOL,
-  description: `Run a connector tool that ${FIND_TOOLS} showed you: its full name, and arguments matching the schema ${FIND_TOOLS} gave. It asks the user first whenever that tool would.`,
+const wrapper = (name: string, description: string, readOnly = false): Tool => ({
+  name,
+  description,
   parameters: {
     type: "object",
     properties: {
@@ -165,14 +168,19 @@ const useTool: Tool = {
     },
     required: ["name"],
   },
+  ...(readOnly && { readOnly }),
   // Dispatch runs the real tool in its place, so this only answers a session with nothing held back.
   async execute() { throw new Error("No connector tools load on demand in this session."); },
-};
+});
 
-/** The two tools a session gets in place of the connector tools it holds back. */
-export const onDemandTools = (held: readonly Tool[]): Tool[] => [findTools(held), useTool];
+const readTool = wrapper(READ_TOOL, `Run a connector tool that only reads, as ${FIND_TOOLS} marks it: its full name, and arguments matching the schema ${FIND_TOOLS} gave. A tool that changes something is refused here: run that one with ${USE_TOOL}.`, true);
 
-/** use_tool's arguments as the real call: the name, and its arguments wherever the model put them. */
+const useTool = wrapper(USE_TOOL, `Run any connector tool that ${FIND_TOOLS} showed you: its full name, and arguments matching the schema ${FIND_TOOLS} gave. It asks the user first whenever that tool would.`);
+
+/** The tools a session gets in place of the connector tools it holds back. */
+export const onDemandTools = (held: readonly Tool[]): Tool[] => [findTools(held), readTool, useTool];
+
+/** read_tool's or use_tool's arguments as the real call: the name, and its arguments wherever the model put them. */
 export function unwrapUse(args: Record<string, unknown>): { name: string; args: unknown } {
   const { name, tool, arguments: inner, ...rest } = args;
   const n = typeof name === "string" ? name : typeof tool === "string" ? tool : "";

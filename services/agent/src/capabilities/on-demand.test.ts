@@ -5,12 +5,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import type { CachedTool, ConnectorRow } from "@openlive/db";
 import type { Approve, Tool } from "./types.js";
-import type { Brain, TurnRequest } from "../flow/types.js";
+import type { Brain, Msg, TurnRequest } from "../flow/types.js";
 
 // Its own home: the mode set here must not reach another file's sessions.
 const dir = mkdtempSync(join(tmpdir(), "ol-on-demand-"));
 process.env.OPENLIVE_HOME = dir;
-const { AUTO_THRESHOLD, FIND_TOOLS, onDemandActive, onDemandMode, setOnDemandMode, USE_TOOL } = await import("./on-demand.js");
+const { AUTO_THRESHOLD, FIND_TOOLS, onDemandActive, onDemandMode, READ_TOOL, setOnDemandMode, USE_TOOL } = await import("./on-demand.js");
 const { ToolRegistry, registry: shared } = await import("./registry.js");
 const { dispatchAll, toolSpecs } = await import("./dispatch.js");
 const { askEach } = await import("./approval.js");
@@ -83,7 +83,7 @@ describe("the mode", () => {
     const r = withConnectors();
     const before = r.tools(CHAT, session);
     const specs = JSON.stringify(toolSpecs(before.list));
-    expect(before.list.map((t) => t.name)).toEqual(expect.arrayContaining([FIND_TOOLS, USE_TOOL]));
+    expect(before.list.map((t) => t.name)).toEqual(expect.arrayContaining([FIND_TOOLS, READ_TOOL, USE_TOOL]));
     expect(before.list.some((t) => t.connector)).toBe(false);
     await setOnDemandMode("off");
     try {
@@ -98,18 +98,18 @@ describe("the mode", () => {
   it("keeps OpenLive's own tools as real tools", () => {
     const own = shared.tools(CHAT, session, "off").list.map((t) => t.name);
     const set = withConnectors().tools(CHAT, session, "on");
-    expect(set.list.map((t) => t.name)).toEqual([...own, FIND_TOOLS, USE_TOOL]);
+    expect(set.list.map((t) => t.name)).toEqual([...own, FIND_TOOLS, READ_TOOL, USE_TOOL]);
   });
 });
 
 describe("the tools array within a session", () => {
-  it("is byte-identical on every step, through find_tools and use_tool", async () => {
+  it("is byte-identical on every step, through find_tools, use_tool and read_tool", async () => {
     const tools = withConnectors().tools(FLOW, session, "auto");
     const seen: string[] = [];
     const turns = [
       [{ type: "tool_start", id: "a", name: FIND_TOOLS }, { type: "tool_end", id: "a", name: FIND_TOOLS, args: { query: "create a notion page" } }, { type: "turn_done", stop: "tools" }],
       [{ type: "tool_start", id: "b", name: USE_TOOL }, { type: "tool_end", id: "b", name: USE_TOOL, args: { name: "notion__create_page", arguments: { title: "Plan" } } }, { type: "turn_done", stop: "tools" }],
-      [{ type: "tool_start", id: "c", name: USE_TOOL }, { type: "tool_end", id: "c", name: USE_TOOL, args: { name: "notion__search", arguments: { query: "plan" } } }, { type: "turn_done", stop: "tools" }],
+      [{ type: "tool_start", id: "c", name: READ_TOOL }, { type: "tool_end", id: "c", name: READ_TOOL, args: { name: "notion__search", arguments: { query: "plan" } } }, { type: "turn_done", stop: "tools" }],
       [{ type: "text_delta", delta: "Done." }, { type: "turn_done", stop: "stop" }],
     ];
     let turn = 0;
@@ -117,14 +117,24 @@ describe("the tools array within a session", () => {
       id: "scripted",
       async *stream(req: TurnRequest) { seen.push(JSON.stringify(req.tools)); yield* turns[turn++]!; },
     } as unknown as Brain;
-    const results: string[] = [];
-    for await (const e of runFlow({ brain, tools, messages: [{ role: "user", text: "make a page" }], signal: new AbortController().signal, session, getSystemPrompt: () => "system" })) {
+    const results: string[] = [], named: string[] = [];
+    const messages: Msg[] = [{ role: "user", text: "make a page" }];
+    for await (const e of runFlow({ brain, tools, messages, signal: new AbortController().signal, session, getSystemPrompt: () => "system" })) {
       if (e.type === "tool_result") results.push(`${e.name}: ${textOf(e)}`);
+      if (e.type === "tool_start" || e.type === "tool_call") named.push(`${e.type} ${e.name}`);
     }
     expect(seen).toHaveLength(4);
     expect(new Set(seen).size).toBe(1);
-    expect(results[0]).toContain("notion__create_page (Notion, asks the user first)");
+    expect(results[0]).toContain("notion__create_page (Notion, asks the user first; run with use_tool)");
+    expect(results[0]).toContain("notion__search (Notion; run with read_tool)");
     expect(results.slice(1)).toEqual(["notion__create_page: create_page done", "notion__search: search done"]);
+    // The orb and the session file name the tool that ran; the model's own transcript keeps the call it made.
+    expect(named).toEqual([
+      `tool_start ${FIND_TOOLS}`, `tool_call ${FIND_TOOLS}`,
+      "tool_start notion__create_page", "tool_call notion__create_page",
+      "tool_start notion__search", "tool_call notion__search",
+    ]);
+    expect(messages.flatMap((m) => (m.role === "assistant" ? m.toolCalls?.map((c) => c.name) ?? [] : []))).toEqual([FIND_TOOLS, USE_TOOL, READ_TOOL]);
 
     // What a 200-tool fixture costs every request, both ways.
     const all = JSON.stringify(toolSpecs(withConnectors().tools(FLOW, session, "off").list)).length;
@@ -178,9 +188,32 @@ describe("use_tool", () => {
     expect(textOf(r!)).toMatch(/^No connector tool "notion__create_page" is on in this session\. Close: notion__search, notion__action_0, /);
   });
 
-  it("points a direct call of a held-back tool at use_tool", async () => {
-    const [r] = await dispatchAll([call("notion__search", { query: "x" })], set(), ctx(), { approve: approve(true) });
-    expect(textOf(r!)).toBe(`notion__search loads on demand: call ${USE_TOOL} with name "notion__search" and its arguments.`);
+  it("points a direct call of a held-back tool at read_tool or use_tool, as it only reads or not", async () => {
+    const [read] = await dispatchAll([call("notion__search", { query: "x" })], set(), ctx(), { approve: approve(true) });
+    expect(textOf(read!)).toBe(`notion__search loads on demand: call ${READ_TOOL} with name "notion__search" and its arguments.`);
+    const [act] = await dispatchAll([call("notion__create_page", { title: "x" })], set(), ctx(), { approve: approve(true) });
+    expect(textOf(act!)).toBe(`notion__create_page loads on demand: call ${USE_TOOL} with name "notion__create_page" and its arguments.`);
+  });
+});
+
+describe("read_tool", () => {
+  const set = () => withConnectors().tools(CHAT, session, "on");
+
+  it("runs a tool that only reads, as that tool, without asking", async () => {
+    calls.length = 0;
+    const asked: string[] = [];
+    const [r] = await dispatchAll([call(READ_TOOL, { name: "notion__search", arguments: { query: "x" } })], set(), ctx(), { approve: askEach(async (q) => { asked.push(q); return false; }) });
+    expect(r).toMatchObject({ name: "notion__search", isError: false });
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([{ tool: "search", args: { query: "x" } }]);
+  });
+
+  it("refuses a tool that changes something, pointing at use_tool, and runs nothing", async () => {
+    calls.length = 0;
+    const [r] = await dispatchAll([call(READ_TOOL, { name: "notion__create_page", arguments: { title: "Plan" } })], set(), ctx(), { approve: askEach(async () => true) });
+    expect(r!.isError).toBe(true);
+    expect(textOf(r!)).toBe(`notion__create_page changes something, so ${READ_TOOL} does not run it. Call ${USE_TOOL} with the same name and arguments.`);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -225,12 +258,32 @@ describe("the MCP server in on-demand mode", () => {
     expect(listed.map((t) => t.name)).toEqual(set.list.map((t) => t.name));
     expect(listed.some((t) => t.name.includes("__"))).toBe(false);
     expect(listed.find((t) => t.name === FIND_TOOLS)?.annotations?.readOnlyHint).toBe(true);
+    // Codex runs what is marked read-only without asking, and asks before the rest.
+    expect(listed.find((t) => t.name === READ_TOOL)?.annotations?.readOnlyHint).toBe(true);
+    expect(listed.find((t) => t.name === USE_TOOL)?.annotations?.readOnlyHint).toBeUndefined();
 
     const found = await client.callTool({ name: FIND_TOOLS, arguments: { query: "create page" } });
     expect((found.content as { text: string }[])[0]!.text).toContain("notion__create_page");
     const used = await client.callTool({ name: USE_TOOL, arguments: { name: "notion__create_page", arguments: { title: "Plan" } } });
     expect(used.isError).toBe(false);
     expect(asked).toEqual(["OpenLive wants to use Notion: create_page. Allow it?"]);
+    await client.close();
+  });
+
+  it("tells the session the tool that ran, not the one that ran it", async () => {
+    const seen: string[] = [];
+    const server = mcpServer({ tools: withConnectors().tools(CHAT, session, "on"), ctx, onCall: (e) => { seen.push(`${e.type} ${String(e.name)}`); } });
+    const client = new Client({ name: "test", version: "1" });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(b), client.connect(a)]);
+    await client.callTool({ name: READ_TOOL, arguments: { name: "notion__search", arguments: { query: "x" } } });
+    await client.callTool({ name: USE_TOOL, arguments: { name: "notion__create_page", arguments: { title: "Plan" } } });
+    await client.callTool({ name: READ_TOOL, arguments: { name: "notion__create_page", arguments: { title: "Plan" } } });
+    expect(seen).toEqual([
+      "tool_call notion__search", "tool_result notion__search",
+      "tool_call notion__create_page", "tool_result notion__create_page",
+      `tool_call ${READ_TOOL}`, `tool_result ${READ_TOOL}`,
+    ]);
     await client.close();
   });
 });
