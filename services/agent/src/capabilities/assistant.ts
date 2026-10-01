@@ -16,6 +16,7 @@ const text = (t: string): ToolResult<null> => ({ content: [{ type: "text", text:
 // and its findings come back for the brain to say.
 const delegate: Tool<{ task: string }, null> = {
   name: "delegate",
+  group: "web",
   description: "Hand off anything that needs the web — a search, a lookup, reading a page, checking a current fact — to your assistant, who has those tools. Give the task in one clear line. Say a short natural line to the user FIRST ('let me look that up'), then delegate: your assistant works while you talk, and reports back what it found for you to relay. Don't delegate things you already know — answer those instantly.",
   parameters: params({ task: z.string().describe("The lookup/research task, in one line") }),
   readOnly: true,
@@ -34,6 +35,7 @@ const delegate: Tool<{ task: string }, null> = {
 
 const updateTodos: Tool<{ items: { text: string; done: boolean }[] }, null> = {
   name: "update_todos",
+  group: "assistant",
   description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
   parameters: params({ items: z.array(z.object({ text: z.string(), done: z.boolean() })).min(1).max(8) }),
   promptGuidelines: ["`update_todos` — a multi-step task checklist."],
@@ -48,6 +50,7 @@ const updateTodos: Tool<{ items: { text: string; done: boolean }[] }, null> = {
 // prompt carries from the next turn on (see rememberedNotes).
 const remember: Tool<{ note: string }, null> = {
   name: "remember",
+  group: "assistant",
   description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",
   parameters: params({ note: z.string().describe("The fact to remember, as one short sentence") }),
   promptGuidelines: ["`remember` — save a lasting fact about the user."],
@@ -65,6 +68,7 @@ const remember: Tool<{ note: string }, null> = {
 // capture of the machine's own display, sized for the coordinates control takes.
 const look: Tool<Record<string, never>, null> = {
   name: "look",
+  group: "assistant",
   readOnly: true,
   description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
   parameters: noParams,

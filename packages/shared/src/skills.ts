@@ -16,8 +16,9 @@ export function skillNameProblem(name: string): string {
   return "";
 }
 
-/** `user`: OpenLive's own folder. `workspace`: the bound project's .agents/skills or .claude/skills, read in place. */
-export type SkillSource = "user" | "workspace";
+/** `user`: OpenLive's own folder. `workspace`: the bound project's .agents/skills or .claude/skills, read in place.
+ *  `bundled`: shipped with OpenLive, read-only. */
+export type SkillSource = "user" | "workspace" | "bundled";
 
 export interface SkillWire {
   name: string;

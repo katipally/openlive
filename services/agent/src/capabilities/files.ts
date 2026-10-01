@@ -58,6 +58,7 @@ async function matchOnce(abs: string, find: string): Promise<string> {
 
 const listDir: Tool<{ path?: string }, null> = {
   name: "list_dir",
+  group: "files",
   description: "List files and folders inside the user's workspace project folder. Pass a relative subpath to look deeper, or omit for the workspace root. Read-only, no approval needed.",
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative subpath inside the workspace (optional; default is the root)" } }, additionalProperties: false },
   readOnly: true,
@@ -80,6 +81,7 @@ const listDir: Tool<{ path?: string }, null> = {
 
 const readFileTool: Tool<{ path: string }, null> = {
   name: "read_file",
+  group: "files",
   description: "Read a text file inside the user's workspace folder and return its contents. Read-only, no approval needed.",
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative path to the file inside the workspace" } }, required: ["path"], additionalProperties: false },
   readOnly: true,
@@ -96,6 +98,7 @@ const readFileTool: Tool<{ path: string }, null> = {
 
 const writeFileTool: Tool<{ path: string; content: string }, null> = {
   name: "write_file",
+  group: "files",
   description: "Create a new file or overwrite an existing one inside the user's workspace folder. The user is asked to approve before anything is written.",
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative path inside the workspace" }, content: { type: "string", description: "The full file contents to write" } }, required: ["path", "content"], additionalProperties: false },
   available: hasWorkspace,
@@ -115,6 +118,7 @@ const writeFileTool: Tool<{ path: string; content: string }, null> = {
 
 const editFileTool: Tool<{ path: string; find: string; replace: string }, null> = {
   name: "edit_file",
+  group: "files",
   description: "Make a targeted change to a text file in the user's workspace by replacing an exact snippet with new text (the snippet must appear exactly once). The user approves before it's applied. For a full rewrite use write_file instead.",
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative path inside the workspace" }, find: { type: "string", description: "The exact text to replace — must appear exactly once" }, replace: { type: "string", description: "The new text" } }, required: ["path", "find", "replace"], additionalProperties: false },
   available: hasWorkspace,

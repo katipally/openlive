@@ -67,6 +67,10 @@ const { skillTools } = await import("./skills/tools.js");
 registry.register(skillTools());
 app.route("/skills", skillRoutes);
 
+// OpenLive's own tool groups, listed and switched from Settings.
+const { capabilityRoutes } = await import("./capabilities/routes.js");
+app.route("/capabilities", capabilityRoutes);
+
 // The notes `remember` keeps, listed and edited from Settings.
 const { memoryRoutes } = await import("./memory/routes.js");
 app.route("/memory", memoryRoutes);

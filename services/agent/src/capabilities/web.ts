@@ -86,6 +86,7 @@ async function resolvePublicAddrs(hostname: string): Promise<string[] | null> {
 
 const webSearch: Tool<{ query: string }, null> = {
   name: "web_search",
+  group: "web",
   description: "Search the web for current or factual info — news, weather, prices, recent events, a specific fact. Returns titles, URLs, and highlights (fetch_url a result for its full text).",
   parameters: params({ query: z.string().describe("What to search for") }),
   readOnly: true,
@@ -107,6 +108,7 @@ const webSearch: Tool<{ query: string }, null> = {
 
 const fetchUrl: Tool<{ url: string }, null> = {
   name: "fetch_url",
+  group: "web",
   description: "Fetch a public web page and return its readable text. Use for a specific URL. Returns plain text (scripts/markup stripped).",
   parameters: params({ url: z.string().describe("The absolute http(s) URL to fetch") }),
   readOnly: true,

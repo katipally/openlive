@@ -175,6 +175,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
   const perception: Tool[] = [
     {
       name: "screenshot",
+      group: "computer",
       readOnly: true,
       description: "Look at the screen. Returns a picture of a display, or of one window, with the size you must use for coordinates.",
       parameters: obj({ display_id: { type: "integer", description: "Which display. Omit for the one in front." }, window_id: { type: "integer", description: "Capture just this window instead." } }, []),
@@ -190,6 +191,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "read_screen_text",
+      group: "computer",
       readOnly: true,
       description: "Read the text on screen with OCR, with where each piece of text sits in the screenshot it was read from. Those coordinates are the ones click takes.",
       parameters: obj({ display_id: { type: "integer" }, window_id: { type: "integer" } }, []),
@@ -205,6 +207,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "wait",
+      group: "computer",
       readOnly: true,
       description: "Let the screen catch up, then look again. For a page still loading, an app still starting, or anything that was not finished when you last looked.",
       parameters: obj({ seconds: { type: "number", description: "How long to wait, up to 10. Defaults to 1." } }, []),
@@ -217,6 +220,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "list_windows",
+      group: "computer",
       readOnly: true,
       description: "Every open window: the app, the window title when the system will say it, and its position and size in desktop coordinates. Those are not screenshot coordinates: to click something in a window, take a screenshot.",
       parameters: obj({}, []),
@@ -228,6 +232,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "get_window",
+      group: "computer",
       readOnly: true,
       description: "Details of one window, or of the window in front when you do not name one. Its position and size are desktop coordinates, not screenshot coordinates.",
       parameters: obj({ window_id: { type: "integer", description: "Omit for the window in front." } }, []),
@@ -241,6 +246,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
     },
     {
       name: "camera_frame",
+      group: "computer",
       readOnly: true,
       description: "One frame from the user's camera, for when they ask about something they are holding up or pointing at.",
       parameters: obj({}, []),
@@ -254,6 +260,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
 
   const control = CONTROL_ACTIONS.map((spec) => withAutoScreenshot({
     name: spec.name,
+    group: "computer",
     description: spec.description,
     parameters: obj(spec.properties, spec.required),
     ...(spec.ask && { confirm: spec.ask }),
@@ -268,6 +275,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
 
   const shell: Tool<{ command: string }, { code: number; stdout: string; stderr: string }> = {
     name: "shell",
+    group: "shell",
     description: "Run a shell command on the user's machine and read its output. Use it for things a command does well, never for clicking around an app.",
     parameters: obj({ command: { type: "string", description: "The command line to run" } }, ["command"]),
     confirm: (a) => `run this command: ${a.command}`,
@@ -343,6 +351,7 @@ const OPEN_URL = {
  */
 export const bridgedOpenUrl: Tool<{ url: string }, null> = {
   name: "open_url",
+  group: "computer",
   description: OPEN_URL.description,
   parameters: obj(OPEN_URL.properties, ["url"]),
   available: (s) => !s.device && !!s.openUrl,

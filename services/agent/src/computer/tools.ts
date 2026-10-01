@@ -105,6 +105,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
   return [
     {
       name: "list_apps",
+      group: "computer",
       readOnly: true,
       description: "The apps running on this machine, with their ids (bundle ids on a Mac, executables on Windows and Linux), the one in front first.",
       parameters: obj({}),
@@ -115,6 +116,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "list_windows",
+      group: "computer",
       readOnly: true,
       description: "Open windows, of one app or of all, with ids and desktop positions. The ids work with get_app_state and with the window_ tools; the positions are desktop coordinates, never a place to click.",
       parameters: obj({ app: TARGET.app }),
@@ -125,6 +127,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "get_app_state",
+      group: "computer",
       readOnly: true,
       description: "Look at one app window: its accessibility tree, every element numbered, then a picture of it. Start here, and act on the numbers.",
       parameters: obj({ ...TARGET, screenshot: { type: "boolean", description: "Include the picture. Defaults to true; the tree alone is faster." } }),
@@ -140,6 +143,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "wait",
+      group: "computer",
       readOnly: true,
       description: "Let the app catch up, then look again. For a page still loading or an app still starting.",
       parameters: obj({ ...TARGET, seconds: { type: "number", description: "How long, up to 10. Defaults to 1." } }),
@@ -151,6 +155,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "read_screen_text",
+      group: "computer",
       readOnly: true,
       description: "Read the text in a window's picture with OCR, with where each piece sits in that picture. For text the tree does not carry, such as a canvas or an image. Those positions are what click takes as x and y.",
       parameters: obj(TARGET),
@@ -166,6 +171,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "click",
+      group: "computer",
       description: "Click an element by its number, or a point in the latest picture. Presses it through accessibility when it can, which works even when the window is behind another.",
       parameters: obj({
         element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"),
@@ -178,6 +184,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "perform_action",
+      group: "computer",
       description: "Run one of the secondary actions an element lists in the state (\"Secondary Actions: ...\"), by that name.",
       parameters: obj({ element: ELEMENT, action: { type: "string", description: "One of the element's listed actions" }, ...TARGET }, ["element", "action"]),
       confirm: (a) => `${a.action} in ${where(a)}`,
@@ -185,6 +192,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "set_value",
+      group: "computer",
       description: "Set a field's whole value directly: a text field, a search box, a slider, a checkbox. Replaces what is there. The surest way to fill a field.",
       parameters: obj({ element: ELEMENT, value: { type: "string" }, ...TARGET }, ["element", "value"]),
       confirm: (a) => `fill in a field in ${where(a)}`,
@@ -192,6 +200,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "type",
+      group: "computer",
       description: "Type text into whatever has focus in the app, after clicking into the field. For a field you can name, set_value is surer. For putting the user's own words in their document, use insert_text instead.",
       parameters: obj({ text: { type: "string" }, paste: { type: "boolean", description: "Paste it through the clipboard instead, for long text. The user's clipboard is put back after." }, ...TARGET }, ["text"]),
       confirm: (a) => `type ${String(a.text).length} characters in ${where(a)}`,
@@ -199,6 +208,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "keypress",
+      group: "computer",
       description: "Press a key or a shortcut in the app, as [\"Return\"] or [\"cmdorctrl\", \"shift\", \"p\"]; cmdorctrl is cmd on a Mac and ctrl elsewhere, and cmd elsewhere is the Windows or Super key. Enter usually commits something, so read the state that comes back.",
       parameters: obj({ keys: { type: "array", items: { type: "string" }, description: "The keys held together; the last one is the key" }, ...TARGET }, ["keys"]),
       confirm: (a) => `press ${keyList(a).join("+")} in ${where(a)}`,
@@ -210,6 +220,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "scroll",
+      group: "computer",
       description: "Scroll an element (by its number) or the point under x and y, by pages.",
       parameters: obj({
         element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"),
@@ -222,12 +233,14 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "move",
+      group: "computer",
       description: "Move the pointer onto an element or a point without pressing anything, to reveal a hover state such as a tooltip or a menu that opens on hover.",
       parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...TARGET }),
       execute: act("move", at, SETTLE_MS.default),
     },
     {
       name: "mouse_down",
+      group: "computer",
       description: "Press and hold a mouse button on an element or a point. Pair it with mouse_up, after any moves, for a gesture click and drag cannot express.",
       parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...BUTTON, ...TARGET }),
       confirm: (a) => `press the mouse in ${where(a)}`,
@@ -235,6 +248,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "mouse_up",
+      group: "computer",
       description: "Release the mouse button mouse_down is holding, on an element or a point.",
       parameters: obj({ element: ELEMENT, x: PIXEL("Horizontal position"), y: PIXEL("Vertical position"), ...BUTTON, ...TARGET }),
       confirm: (a) => `release the mouse in ${where(a)}`,
@@ -242,6 +256,7 @@ export function computerTools(opts: ComputerToolOpts): Tool[] {
     },
     {
       name: "drag",
+      group: "computer",
       description: "Drag from one element or point to another: a slider thumb, a file onto a folder, a selection.",
       parameters: obj({
         from_element: ELEMENT, to_element: ELEMENT,

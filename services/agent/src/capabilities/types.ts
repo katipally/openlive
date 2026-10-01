@@ -2,6 +2,7 @@ import type { FlowContentWire, FlowContextWire, SseEvent } from "@openlive/share
 import type { DevicePort } from "./device.js";
 import type { ComputerPort } from "../computer/helper.js";
 import type { ElicitationAnswer, ElicitationAsk } from "../agents/index.js";
+import type { ToolGroupId } from "./groups.js";
 
 // One tool shape for every surface. Chat's loop, Flow's loop and the MCP server
 // a coding agent reaches all run the same `Tool` through the same dispatch.
@@ -120,6 +121,8 @@ export interface Tool<P = any, D = any> {
   precheck?: (args: P, ctx: ToolCtx) => Promise<void> | void;
   /** Whether a session can run it at all. Omitted: every session. */
   available?: (s: Session) => boolean;
+  /** The built-in group Settings switches it with. Omitted: not switched as a group (connectors, skills). */
+  group?: ToolGroupId;
   execute(args: P, ctx: ToolCtx): Promise<ToolResult<D>>;
 }
 

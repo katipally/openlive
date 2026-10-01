@@ -8,6 +8,8 @@ import { getSetting } from "@openlive/db";
 
 let client: Client | null = null;
 let connecting: Promise<Client> | null = null;
+/** The address the client was opened with: a key saved in Settings since then opens a new one. */
+let clientUrl = "";
 
 function exaUrl(): URL {
   const key = (getSetting("exa_api_key") || process.env.EXA_API_KEY || "").trim();
@@ -18,12 +20,15 @@ function exaUrl(): URL {
 }
 
 async function getClient(): Promise<Client> {
-  if (client) return client;
+  const url = exaUrl();
+  if (client && clientUrl === url.href) return client;
   if (connecting) return connecting;
   connecting = (async () => {
+    void client?.close().catch(() => {});
     const c = new Client({ name: "openlive", version: "0.1.0" });
-    await c.connect(new StreamableHTTPClientTransport(exaUrl()));
+    await c.connect(new StreamableHTTPClientTransport(url));
     client = c;
+    clientUrl = url.href;
     return c;
   })();
   try { return await connecting; }

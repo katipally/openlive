@@ -610,6 +610,14 @@ precheck, approve, run, tally).
   `ToolSet`, ordered for the mode and looked up by name in O(1). Sources of tools
   are `ToolProvider`s; the built-ins are one, and a provider registered later
   never shadows a name already taken.
+- **Groups** (`groups.ts`). Each built-in tool names its `group` (Computer use,
+  Files, Web research, Text, Assistant, Shell); `GROUPS` says how each reads in
+  Settings. A group switched off is listed in `disabledToolGroups` in
+  settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
+  every new session, every brain and the MCP server alike. `/capabilities`
+  (`routes.ts`, proxied at `/api/capabilities`) lists the groups from
+  `builtinCatalog()`, switches one, and saves or clears the Exa key, which it
+  never sends back.
 - **Profiles** (`profiles.ts`). `CHAT` and `FLOW` set the order the model sees,
   the system prompt (each builder renders the guidelines of the tools the
   session has), and the approval policy: a call asks before each action that
@@ -926,8 +934,10 @@ An MCP server the user adds once, offered to every brain in both modes.
   (URL or pasted `mcpServers` JSON), update, remove, toggle a connector or a
   tool, consent, reconnect, OAuth start/sign out and the callback, import
   preview and commit.
-- **Settings** (`apps/web/src/components/settings/ConnectorsSettings.tsx`, pure
-  logic in `lib/connectors.ts`). The agent pushes nothing, so the page refetches
+- **Settings** (`apps/web/src/components/settings/ConnectorsSettings.tsx`, the
+  Connectors subtab of Capabilities, pure logic in `lib/connectors.ts`). Exa web
+  search is pinned on top as a built-in row whose switch is the Web research
+  group's. The agent pushes nothing, so the page refetches
   on focus, every 2 s while a connector is connecting, and on a backoff (2 s, then
   5 s, then 10 s, for at most five minutes) while a sign-in is open in the
   browser. Secret values are write-only: an edit shows a saved one as set and
@@ -1012,9 +1022,10 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
   a linked folder loses only the link), rescan, reveal (the desktop opens the
   folder; `main.cjs` allows it), import preview and commit. One skill's routes
   sit under `/skills/skill/:name`, since a skill may be named `import`.
-- **Settings** (`apps/web/src/components/settings/SkillsSettings.tsx`, pure
-  logic in `lib/skills.ts`). The list includes the current call's folder's
-  skills, read-only.
+- **Settings** (`apps/web/src/components/settings/SkillsSettings.tsx`, the Skills
+  subtab of Capabilities, pure logic in `lib/skills.ts`). Built-in skills
+  (`source: "bundled"`) and the current call's folder's skills are read-only;
+  only your own folder's skills edit or remove.
 
 ## Memory (`services/agent/src/memory/`)
 
@@ -1045,8 +1056,8 @@ preambles all call).
   (`/memory/note/:id`), clear all. Each answers with the whole list, newest first
   with its `inUse` flags and the budget used, since one change moves the cutoff.
 - **Settings** (`MemorySettings.tsx`, pure logic in `lib/memory.ts`): a budget
-  meter, add, inline edit, delete and clear all, a filter past 8 notes, and the
-  list drawn 50 at a time.
+  bar with a segment per note, add, inline edit, delete and clear all, a filter,
+  and the cards drawn 50 at a time.
 
 ## Flow (`services/agent/src/flow/`, `apps/desktop/flow-*.cjs`)
 

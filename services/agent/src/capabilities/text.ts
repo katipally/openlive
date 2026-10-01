@@ -47,6 +47,7 @@ export const noParams = { type: "object", properties: {}, additionalProperties: 
 
 const insertText: Tool<{ text: string }, { inserted: number }> = {
   name: "insert_text",
+  group: "text",
   description: "Type text into the app the user is in right now, at their cursor. Use this whenever they asked for words rather than an answer: a message, a commit message, a paragraph, a rewrite. Write only the text itself, no preamble and no quotes around it.",
   parameters: { type: "object", properties: { text: { type: "string", description: "Exactly the text to type, nothing else" } }, required: ["text"], additionalProperties: false },
   promptGuidelines: [
@@ -63,6 +64,7 @@ const insertText: Tool<{ text: string }, { inserted: number }> = {
 
 const readSelection: Tool<Record<string, never>, { selection: string }> = {
   name: "read_selection",
+  group: "text",
   description: "Read the text the user currently has selected in the app they are in.",
   parameters: noParams,
   readOnly: true,
@@ -78,6 +80,7 @@ const readSelection: Tool<Record<string, never>, { selection: string }> = {
 
 const clipboardRead: Tool<Record<string, never>, { text: string }> = {
   name: "clipboard_read",
+  group: "text",
   description: "Read the text currently on the user's clipboard: what they just copied.",
   parameters: noParams,
   readOnly: true,
@@ -90,6 +93,7 @@ const clipboardRead: Tool<Record<string, never>, { text: string }> = {
 
 const clipboardWrite: Tool<{ text: string }, { text: string }> = {
   name: "clipboard_write",
+  group: "text",
   description: "Put text on the user's clipboard so they can paste it themselves. Prefer insert_text when they want it typed where they are.",
   parameters: { type: "object", properties: { text: { type: "string", description: "The text to copy" } }, required: ["text"], additionalProperties: false },
   available: (s) => !!s.clipboard,
@@ -101,6 +105,7 @@ const clipboardWrite: Tool<{ text: string }, { text: string }> = {
 
 const getContext: Tool<Record<string, never>, { context: unknown }> = {
   name: "get_context",
+  group: "text",
   description: "What the user is looking at: the foreground app, its window title, any selected text, and the page URL when it is a browser.",
   parameters: noParams,
   readOnly: true,
