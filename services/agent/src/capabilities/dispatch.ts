@@ -262,7 +262,7 @@ function prepare(call: ToolCall, tools: ToolSet): Prepared {
 /**
  * Run a batch of tool calls.
  *
- * Order is the whole point: normalize, validate, preflight SEQUENTIALLY so a
+ * Order is the whole point: normalize, validate, precheck, preflight SEQUENTIALLY so a
  * first-run consent is taken once, not once per call, then execute in parallel.
  * Results are yielded in completion order for the UI; the returned array is in
  * assistant source order, which is the only order providers accept.
@@ -282,6 +282,8 @@ export async function* dispatch(
   for (const p of prepared) {
     if (p.error || !p.tool) continue;
     if (ctx.signal.aborted) { p.error = "Cancelled before it ran."; continue; }
+    try { await p.tool.precheck?.(p.args, { ...ctx, callId: p.call.id }); }
+    catch (e) { p.error = errText(e); continue; }
     try {
       const already = opts.preflighted?.get(p.call.id);
       const verdict = await (already ?? opts.approve({ tool: p.tool, args: p.args }, ctx.signal));

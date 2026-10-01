@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { asMessage, dispatch, normalizeArgs, ToolSet, validateArgs, type DispatchResult } from "./dispatch.js";
 import { ForwardOnlyInsertion, TEXT_TOOLS } from "./text.js";
 import { allowAll } from "./approval.js";
+import { FILE_TOOLS } from "./files.js";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Approve, ClipboardPort, Tool, ToolCtx } from "./types.js";
 
 const tools = new ToolSet(TEXT_TOOLS);
@@ -226,6 +230,35 @@ describe("dispatch", () => {
     const { results } = await drain(dispatch([{ id: "a", name: "t", args: {} }], new ToolSet([t]), ctxOf({ signal: ac.signal }), { approve: allowAll }));
     expect(execute).not.toHaveBeenCalled();
     expect(results[0]).toMatchObject({ isError: true });
+  });
+});
+
+describe("precheck", () => {
+  const files = new ToolSet(FILE_TOOLS);
+  const asked = () => { const approve = vi.fn<Approve>(async () => ({})); return approve; };
+  const textOf = (r: DispatchResult) => (r.content[0] as { text: string }).text;
+
+  it("refuses before asking when no workspace is set", async () => {
+    const approve = asked();
+    const { results } = await drain(dispatch([{ id: "1", name: "write_file", args: { path: "a.txt", content: "x" } }], files, ctxOf({ workspace: () => "" }), { approve }));
+    expect(approve).not.toHaveBeenCalled();
+    expect(textOf(results[0]!)).toContain("No workspace folder");
+  });
+
+  it("refuses before asking when the edit snippet does not match once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ol-precheck-"));
+    writeFileSync(join(dir, "a.txt"), "one two two");
+    const approve = asked();
+    const ctx = ctxOf({ workspace: () => dir });
+    const edit = (find: string) => drain(dispatch([{ id: "1", name: "edit_file", args: { path: "a.txt", find, replace: "x" } }], files, ctx, { approve }));
+    expect(textOf((await edit("three")).results[0]!)).toContain("Couldn't find that exact text");
+    expect(textOf((await edit("two")).results[0]!)).toContain("appears 2 times");
+    expect(approve).not.toHaveBeenCalled();
+    const ok = await edit("one");
+    expect(approve).toHaveBeenCalledOnce();
+    expect(ok.results[0]!.isError).toBe(false);
+    expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("x two two");
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

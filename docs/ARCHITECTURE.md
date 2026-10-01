@@ -591,11 +591,13 @@ tools come from the shared registry below.
 
 Chat and Flow keep their own loops (`LiveTurnRunner`, `runFlow`) but draw on one
 tool registry, and both run every call through one `dispatch` (repair, validate,
-approve, run, tally).
+precheck, approve, run, tally).
 
 - **One `Tool` type** (`types.ts`): name, description, JSON Schema, optional
   prompt guidelines, `readOnly` (sent over MCP as `readOnlyHint`), `confirm`
-  (it changes something, and this is the question to ask first), and
+  (it changes something, and this is the question to ask first), `precheck`
+  (cheap checks run before the approval prompt, so nobody approves a call that
+  would fail: the file tools check the workspace and the edit snippet), and
   `available(session)`, which reads what the session can reach: the app in front
   and insertion (Flow), the clipboard, the device addon, a live share (`look`, a
   call), a workspace (the file tools, a call).

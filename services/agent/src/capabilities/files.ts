@@ -45,6 +45,17 @@ const within = (ctx: ToolCtx, rel: string) => confine(root(ctx), rel) ?? fail("T
 const relPath = (args: { path?: unknown }) => String(args?.path ?? "").trim() || fail("No file path given.");
 const hasWorkspace = (s: { workspace?: () => string }) => !!s.workspace;
 
+/** The file's text, when `find` appears in it exactly once. */
+async function matchOnce(abs: string, find: string): Promise<string> {
+  if (!find) return fail("No 'find' text given.");
+  let body: string;
+  try { body = await readFile(abs, "utf8"); } catch (e: any) { return fail(`Couldn't read that file: ${String(e?.message ?? e)}`); }
+  const hits = body.split(find).length - 1;
+  if (hits === 0) return fail("Couldn't find that exact text. Read the file first to get the snippet right.");
+  if (hits > 1) return fail(`That snippet appears ${hits} times. Make it more specific so it matches exactly once.`);
+  return body;
+}
+
 const listDir: Tool<{ path?: string }, null> = {
   name: "list_dir",
   description: "List files and folders inside the user's workspace project folder. Pass a relative subpath to look deeper, or omit for the workspace root. Read-only, no approval needed.",
@@ -89,6 +100,7 @@ const writeFileTool: Tool<{ path: string; content: string }, null> = {
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative path inside the workspace" }, content: { type: "string", description: "The full file contents to write" } }, required: ["path", "content"], additionalProperties: false },
   available: hasWorkspace,
   confirm: (a) => `create or overwrite ${String(a.path ?? "").trim()} (${String(a.content ?? "").length} chars) in your workspace`,
+  precheck: (args, ctx) => { within(ctx, relPath(args)); },
   async execute(args, ctx) {
     const rel = relPath(args);
     const abs = within(ctx, rel);
@@ -107,16 +119,13 @@ const editFileTool: Tool<{ path: string; find: string; replace: string }, null> 
   parameters: { type: "object", properties: { path: { type: "string", description: "Relative path inside the workspace" }, find: { type: "string", description: "The exact text to replace — must appear exactly once" }, replace: { type: "string", description: "The new text" } }, required: ["path", "find", "replace"], additionalProperties: false },
   available: hasWorkspace,
   confirm: (a) => `edit ${String(a.path ?? "").trim()} in your workspace`,
+  precheck: async (args, ctx) => { await matchOnce(within(ctx, relPath(args)), String(args?.find ?? "")); },
   async execute(args, ctx) {
     const rel = relPath(args);
     const abs = within(ctx, rel);
     const find = String(args?.find ?? ""); const replace = String(args?.replace ?? "");
-    if (!find) return fail("No 'find' text given.");
-    let body: string;
-    try { body = await readFile(abs, "utf8"); } catch (e: any) { return fail(`Couldn't read that file: ${String(e?.message ?? e)}`); }
-    const hits = body.split(find).length - 1;
-    if (hits === 0) return fail("Couldn't find that exact text — read the file first to get the snippet right.");
-    if (hits > 1) return fail(`That snippet appears ${hits} times — make it more specific so it matches exactly once.`);
+    // Again, since the file may have changed while the person was deciding.
+    const body = await matchOnce(abs, find);
     try { await writeFile(abs, body.replace(find, replace), "utf8"); }
     catch (e: any) { return fail(`Couldn't write that file: ${String(e?.message ?? e)}`); }
     return t(`Edited ${rel}.`);

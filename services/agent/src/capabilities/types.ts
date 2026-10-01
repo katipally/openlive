@@ -110,6 +110,9 @@ export interface Tool<P = any, D = any> {
   /** It changes something the user may want to stop first. Finishes the
    *  sentence "OpenLive wants to …" for a policy that asks per action. */
   confirm?: (args: P) => string;
+  /** Cheap checks dispatch runs before asking for approval, so nobody is asked
+   *  to approve a call that would fail anyway. Throws to refuse, as `execute` does. */
+  precheck?: (args: P, ctx: ToolCtx) => Promise<void> | void;
   /** Whether a session can run it at all. Omitted: every session. */
   available?: (s: Session) => boolean;
   execute(args: P, ctx: ToolCtx): Promise<ToolResult<D>>;
