@@ -8,7 +8,7 @@ import { DICTATE_LIMITS } from "./shared";
 // never fails the parse. Unknown keys survive a write untouched, so an older
 // build cannot silently destroy a newer build's settings.
 
-export const FLOW_CONFIG_VERSION = 7;
+export const FLOW_CONFIG_VERSION = 8;
 
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
@@ -155,6 +155,12 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
   6: (raw) => {
     const brain = obj(raw.brain);
     return { ...raw, brain: { ...brain, override: brain.kind === "acp" }, voice: { ...obj(raw.voice), turnOverride: null } };
+  },
+  // v7 held a paste's modifiers 100 ms by default; v8's default is 50. A file
+  // still on the old default moves with it, and any other value was chosen.
+  7: (raw) => {
+    const insertion = obj(raw.insertion);
+    return insertion.modifierHoldMs === 100 ? { ...raw, insertion: { ...insertion, modifierHoldMs: 50 } } : raw;
   },
 };
 

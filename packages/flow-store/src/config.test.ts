@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
+import { CONFIG_V7_FIXTURE } from "./config.v7.fixture";
 import { dictateBrain, flowBrain, flowTurn } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
@@ -143,7 +144,7 @@ test("a v6 API brain already was Chat's, so its override stays off", () => {
   expect(flowBrain(cfg).kind).toBe("api");
 });
 
-test("an older file walks every migration into v7", () => {
+test("an older file walks every migration into the current version", () => {
   const cfg = parseFlowConfig(CONFIG_V1_FIXTURE);
   expect(cfg.brain.override).toBe(false);
   expect(cfg.voice.turnOverride).toBeNull();
@@ -156,6 +157,22 @@ test("a decided override survives a write, and a v7 file is not migrated again",
   expect(flowBrain(off).kind).toBe("api");
   expect(flowTurn(off)).toBeNull();
   expect(parseFlowConfig({ version: 7, voice: { turnOverride: "yes" } }).voice.turnOverride).toBe(false);
+});
+
+test("the frozen v7 fixture moves off the old 100 ms modifier hold and keeps the rest", () => {
+  const cfg = parseFlowConfig(CONFIG_V7_FIXTURE);
+  expect(cfg.version).toBe(FLOW_CONFIG_VERSION);
+  expect(cfg.insertion).toEqual({ method: "paste", modifierHoldMs: 50, clipboardQuietMs: 200, clipboardTimeoutMs: 8000, restoreClipboard: true });
+  expect(cfg.dictate.polish).toEqual({ enabled: true, tone: "casual" });
+  expect(cfg.voice.turnOverride).toBe(false);
+});
+
+test("a modifier hold someone chose survives the move, and a current file is not moved", () => {
+  for (const ms of [0, 30, 99, 150]) expect(parseFlowConfig({ version: 7, insertion: { modifierHoldMs: ms } }).insertion.modifierHoldMs).toBe(ms);
+  expect(parseFlowConfig({ version: 7 }).insertion.modifierHoldMs).toBe(50);
+  expect(parseFlowConfig({ version: FLOW_CONFIG_VERSION, insertion: { modifierHoldMs: 100 } }).insertion.modifierHoldMs).toBe(100);
+  // An older file still on the old default moves too.
+  expect(parseFlowConfig(CONFIG_V6_FIXTURE).insertion.modifierHoldMs).toBe(50);
 });
 
 test("clamps turn-taking to what the voice pipeline will accept", () => {
