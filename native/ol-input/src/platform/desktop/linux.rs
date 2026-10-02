@@ -9,6 +9,7 @@
 
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::capture::{Bitmap, Display};
 use crate::control::Button;
@@ -345,6 +346,54 @@ pub fn selected_text() -> Option<String> {
         }
     }
     None
+}
+
+/// Asks AT-SPI for the focused accessible of the active window, through the
+/// GObject bindings most desktops ship: one line, its role name and whether it
+/// is EDITABLE. Prints nothing where it cannot tell.
+const ATSPI_FOCUS: &str = r#"
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+S = Atspi.StateType
+M = Atspi.CollectionMatchType.ALL
+desktop = Atspi.get_desktop(0)
+for app in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count())):
+    for win in (app.get_child_at_index(j) for j in range(app.get_child_count() if app else 0)):
+        if win and win.get_state_set().contains(S.ACTIVE):
+            rule = Atspi.MatchRule.new(Atspi.StateSet.new([S.FOCUSED]), M, {}, M, [], M, [], M, False)
+            found = win.get_collection_iface().get_matches(rule, Atspi.CollectionSortOrder.CANONICAL, 1, True)
+            if found:
+                print(found[0].get_role_name() + "\t" + str(int(found[0].get_state_set().contains(S.EDITABLE))))
+            raise SystemExit
+"#;
+
+/// A session bus with no accessibility on it can keep a client waiting on
+/// D-Bus timeouts, so the answer is given up on well before then.
+const ATSPI_WAIT: Duration = Duration::from_millis(800);
+
+pub fn focus_editable() -> Option<bool> {
+    which("python3")?;
+    let mut child = Command::new("python3")
+        .args(["-c", ATSPI_FOCUS])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + ATSPI_WAIT;
+    while child.try_wait().ok()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    let (role, editable) = out.trim().split_once('\t')?;
+    crate::focus::atspi(role, editable == "1")
 }
 
 pub fn guard_injection() -> Result<(), String> {

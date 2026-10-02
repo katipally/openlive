@@ -55,6 +55,11 @@ extern "C" {
         attribute: *const c_void,
         value: *const c_void,
     ) -> i32;
+    fn AXUIElementIsAttributeSettable(
+        element: *mut c_void,
+        attribute: *const c_void,
+        settable: *mut u8,
+    ) -> i32;
     fn AXUIElementPerformAction(element: *mut c_void, action: *const c_void) -> i32;
     fn AXValueCreate(value_type: u32, value: *const c_void) -> *mut c_void;
     fn AXValueGetValue(value: *mut c_void, value_type: u32, out: *mut c_void) -> bool;
@@ -519,6 +524,29 @@ pub fn open_url(url: &str) -> Result<(), String> {
     open(&[url])
 }
 
+/// The focused element, retained: the caller releases it. Asked of the app in
+/// front, since the system-wide element answered kAXErrorCannotComplete on the
+/// addon's worker thread where the app's own answered.
+fn ax_focused() -> Option<*mut c_void> {
+    let pid: i32 = unsafe {
+        let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        msg_send![app, processIdentifier]
+    };
+    let app = unsafe { AXUIElementCreateApplication(pid) };
+    if app.is_null() {
+        return None;
+    }
+    let focused_key = cfstring("AXFocusedUIElement");
+    let mut focused: *mut c_void = ptr::null_mut();
+    let status = unsafe { AXUIElementCopyAttributeValue(app, as_cf(&focused_key), &mut focused) };
+    unsafe { CFRelease(app.cast()) };
+    (status == 0 && !focused.is_null()).then_some(focused)
+}
+
 pub fn selected_text() -> Option<String> {
     let system = unsafe { AXUIElementCreateSystemWide() };
     if system.is_null() {
@@ -543,6 +571,28 @@ pub fn selected_text() -> Option<String> {
     let text = unsafe { to_string(selected.cast()) };
     unsafe { CFRelease(selected.cast()) };
     text
+}
+
+pub fn focus_editable() -> Option<bool> {
+    let focused = ax_focused()?;
+    let role_key = cfstring("AXRole");
+    let mut role: *mut c_void = ptr::null_mut();
+    let role = unsafe {
+        if AXUIElementCopyAttributeValue(focused, as_cf(&role_key), &mut role) == 0 && !role.is_null() {
+            let text = to_string(role.cast());
+            CFRelease(role.cast());
+            text
+        } else {
+            None
+        }
+    };
+    let settable = ["AXValue", "AXSelectedTextRange"].iter().any(|attribute| {
+        let mut yes = 0u8;
+        let key = cfstring(attribute);
+        unsafe { AXUIElementIsAttributeSettable(focused, as_cf(&key), &mut yes) == 0 && yes != 0 }
+    });
+    unsafe { CFRelease(focused.cast()) };
+    crate::focus::ax(role.as_deref(), settable)
 }
 
 /// macOS has no equivalent of Windows' elevated-window block: an app allowed to

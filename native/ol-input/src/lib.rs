@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod control;
 pub mod coordinator;
 pub mod coords;
+pub mod focus;
 pub mod hook;
 pub mod inject;
 pub mod motion;
@@ -677,6 +678,29 @@ pub fn open_url(url: String) -> Result<()> {
 #[napi]
 pub fn selected_text() -> Option<String> {
     window::selection()
+}
+
+/// Asking the focused app can wait on it, so it runs off the main thread.
+pub struct FocusTask;
+
+impl napi::Task for FocusTask {
+    type Output = Option<bool>;
+    type JsValue = Option<bool>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(focus::editable())
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// Whether the focused element takes typed text. Null when the platform or
+/// the app will not say, which is not the same as no.
+#[napi]
+pub fn focus_editable() -> AsyncTask<FocusTask> {
+    AsyncTask::new(FocusTask)
 }
 
 /// Lets process `pid` bring a window to the front. Windows grants that only to

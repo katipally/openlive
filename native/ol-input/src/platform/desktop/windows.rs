@@ -22,7 +22,8 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
+    CUIAutomation, IUIAutomation, IUIAutomationTextPattern, IUIAutomationValuePattern,
+    UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -418,6 +419,22 @@ pub fn open_app(name: &str) -> Result<(), String> {
 
 pub fn open_url(url: &str) -> Result<(), String> {
     shell_execute("open", url)
+}
+
+pub fn focus_editable() -> Option<bool> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).ok()?;
+        let focused = automation.GetFocusedElement().ok()?;
+        let control = focused.CurrentControlType().ok().map(|c| c.0);
+        let writable = focused
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            .and_then(|value| value.CurrentIsReadOnly())
+            .ok()
+            .map(|read_only| !read_only.as_bool());
+        let text = focused.GetCurrentPattern(UIA_TextPatternId).is_ok();
+        crate::focus::uia(control, writable, text)
+    }
 }
 
 /// UI Automation is the only way to read a selection out of an arbitrary app.

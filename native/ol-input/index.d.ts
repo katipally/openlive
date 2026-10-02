@@ -205,6 +205,8 @@ export function openApp(name: string): void;
 export function openUrl(url: string): void;
 /** Null when the app or the platform will not say, not when nothing is selected. */
 export function selectedText(): string | null;
+/** Whether the focused element takes typed text. Null when the platform or the app will not say. */
+export function focusEditable(): Promise<boolean | null>;
 /** Lets the process `pid` raise a window, which Windows only allows the process in front. False elsewhere, and when refused. */
 export function allowSetForegroundWindow(pid: number): boolean;
 
