@@ -31,7 +31,7 @@ macOS, Windows and Linux.
 |---|---|
 | Hold the key (Right Option ⌥ on macOS, Right Alt elsewhere) | Push to talk. Letting go types what you said. A quick tap types nothing. |
 | Double-tap the key | Hands-free: each finished sentence is typed as you go. One more tap stops it. |
-| The mic button beside Flow's orb | Hands-free on or off. |
+| The mic button above Flow's orb | Hands-free on or off. |
 | Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It starts once Flow's reply ends. |
 
 Dictate is off until you turn it on in Settings > Dictate. The key is watched,

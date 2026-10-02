@@ -83,9 +83,9 @@ transcript, not on the orb.
 | Speaking | Blue, moving with the voice | Flow is saying the reply. |
 | Error | Dark red, with a failure card | The turn failed; the card says why. |
 
-**Hover controls.** Point at the orb and the buttons appear beside it: close
-Flow on the left; on the right, the mic, which turns hands-free
-[Dictate](DICTATE.md) on or off, then open OpenLive.
+**Hover controls.** Point at the orb and three buttons appear around it: close
+Flow on the left, open OpenLive on the right, and above it the mic, which turns
+hands-free [Dictate](DICTATE.md) on or off and fills chartreuse while it is on.
 
 ![Hover controls](../assets/flow-orb-hover.png)
 
