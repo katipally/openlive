@@ -43,6 +43,10 @@ void import("./voice/accel.js").then((a) => a.refreshDevice()).catch((e) => log.
 const { agentRoutes } = await import("./agents/models-route.js");
 app.route("/agents", agentRoutes);
 
+// Dictate's AI polish and command mode: one rewrite by whichever brain Dictate thinks with.
+const { dictateRoutes } = await import("./dictate/routes.js");
+app.route("/dictate", dictateRoutes);
+
 // MCP connectors: added once, offered to every brain in both modes through the registry.
 const { connectorRoutes } = await import("./connectors/routes.js");
 const { connectorTools } = await import("./connectors/tools.js");
