@@ -90,7 +90,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
               <LinkRow icon={SlidersHorizontal} label="Your own API key" detail="Any provider, your own model" value="Models" onGo={() => openSettingsTab("models")} />
               <LinkRow icon={Bot} label="A coding agent" detail="Claude Code, Codex, Cursor and more" value="Agents" onGo={() => openSettingsTab("agents")} />
             </ListGroup>
-            <p className="flex flex-wrap items-center gap-2 text-label text-muted-strong">Chat talks to <AgentSelect /></p>
+            <div className="flex flex-wrap items-center gap-2 text-label text-muted-strong">Chat talks to <AgentSelect /></div>
           </>
         )}
 
