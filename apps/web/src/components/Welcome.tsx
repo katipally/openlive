@@ -142,7 +142,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
                 Tap <Keycap>{CONTROL}</Keycap> <Keycap>{CONTROL}</Keycap> in any app and say &ldquo;Summarize this page&rdquo;
               </Try>
               <Try label="Dictate" onGo={() => finish("dictate")}>
-                In any text box, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" /> and say &ldquo;Running five minutes late&rdquo;
+                {config?.dictate.enabled ? "In any text box" : "Turn it on, then click into any text box"}, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" /> and say &ldquo;Running five minutes late&rdquo;
               </Try>
             </ListGroup>
           </>
