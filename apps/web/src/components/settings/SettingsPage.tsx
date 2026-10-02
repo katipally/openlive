@@ -32,21 +32,21 @@ import { capabilityTab, resolveSettingsTab, searchSettings, type SettingsEntry, 
 export const SECTIONS = [
   { id: "general", label: "General", sub: "Look, startup, typing", desc: "Look, startup and typing.", icon: Settings2, Comp: GeneralSettings },
   { id: "flow", label: "Flow", sub: "Trigger, brain, access", desc: "Talk to your computer from anywhere.", icon: Waves, Comp: FlowSettings, group: "Modes" },
-  { id: "dictate", label: "Dictate", sub: "Hotkey, cleanup, words", desc: "Talk instead of type, in any app.", icon: Mic, Comp: DictateSettings, group: "Modes", fresh: true },
+  { id: "dictate", label: "Dictate", sub: "Hotkey, cleanup, words", desc: "Talk instead of type, in any app.", icon: Mic, Comp: DictateSettings, group: "Modes" },
   { id: "chat", label: "Chat", sub: "Push-to-talk, narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "models", label: "Models", sub: "API · BYOK", desc: "Your own key, your own model.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Intelligence", shared: true },
   { id: "agents", label: "Agents", sub: "Install, sign in", desc: "Coding agents that can think for Chat, Flow and Dictate.", icon: Bot, Comp: AgentsSettings, Action: AgentsRecheck, group: "Intelligence", shared: true, wide: true },
-  { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, fresh: true, wide: true },
-  { id: "memory", label: "Memory", sub: "Facts about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, group: "Intelligence", shared: true, fresh: true, wide: true },
+  { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, wide: true },
+  { id: "memory", label: "Memory", sub: "Facts about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, group: "Intelligence", shared: true, wide: true },
   { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in every mode.", icon: AudioWaveform, Comp: VoiceSettings, group: "Voice", shared: true },
-  { id: "engine", label: "Speech engine", sub: "VAD · STT · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, group: "Voice", shared: true, fresh: true },
+  { id: "engine", label: "Speech engine", sub: "VAD · STT · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, group: "Voice", shared: true },
   { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use.", icon: ShieldCheck, Comp: PrivacySettings, group: "App", desktop: true },
   { id: "about", label: "About", sub: "Version, links", desc: "Version, your data and links.", icon: Info, Comp: AboutSettings, group: "App" },
 ] as const satisfies readonly Sec[];
 type TabId = (typeof SECTIONS)[number]["id"];
 interface Sec {
   id: SettingsTabId; label: string; sub: string; icon: typeof Info; Comp: () => React.ReactNode;
-  group?: "Modes" | "Intelligence" | "Voice" | "App"; desc?: string; shared?: boolean; fresh?: boolean;
+  group?: "Modes" | "Intelligence" | "Voice" | "App"; desc?: string; shared?: boolean;
   /** The one action beside the page's title. */
   Action?: () => React.ReactNode;
   /** Cards side by side: a wider column than the reading width. */
