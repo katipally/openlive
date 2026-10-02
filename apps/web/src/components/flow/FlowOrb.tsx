@@ -58,8 +58,6 @@ const orbPhase = (s: FlowSnapshot): WaveOrbState => {
   if (s.dictate) return s.dictate.phase === "idle" ? "dictateIdle" : s.dictate.phase === "listening" ? "dictateListening" : "dictateProcessing";
   return s.phase === "confirming" ? "listening" : s.phase;
 };
-/** Dictate's listening colour, for the hands-free ring. */
-const DICTATE_RING = "rgb(198 241 53 / 0.45)";
 
 export function FlowOrb() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
@@ -323,7 +321,7 @@ export function FlowOrb() {
         <div data-hit className="relative">
           <Orb phase={orbPhase(s)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
           {s.dictate?.handsFree && (
-            <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed" style={{ borderColor: DICTATE_RING }} />
+            <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed border-foreground/30" />
           )}
         </div>
         <Control label={s.dictate?.handsFree ? "Stop dictating" : "Dictate hands-free"} shown={hovered} pressed={!!s.dictate?.handsFree}
