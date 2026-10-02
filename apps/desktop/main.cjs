@@ -1277,6 +1277,41 @@ function onSessionEnd() {
   try { fs.writeFileSync(pidFile(), "[]"); } catch { /* best-effort */ }
 }
 
+// ── Settings > About: reset local data ───────────────────────────────────────
+// Asked in a native dialog, since page script can call this too (a model-authored
+// canvas runs in-origin). Stops both servers, clears this app's browser storage,
+// empties the home and starts again. Coding agents keep their own folders
+// (~/.claude, ~/.codex and the like), which sit outside the home and are never touched.
+function wireResetIpc() {
+  ipcMain.handle("openlive:reset-data", async (e) => {
+    if (!sentBy(e, mainWin)) return { error: "Only OpenLive's window can reset its data." };
+    if (DEV) return { error: `A dev checkout's servers run from pnpm, so OpenLive cannot stop them. Stop them and empty ${HOME} yourself.` };
+    const refused = home.wipeRefusal(HOME);
+    if (refused) return { error: `Reset refused: ${refused}` };
+    const { response } = await dialog.showMessageBox(mainWin, {
+      type: "warning", buttons: ["Erase everything", "Cancel"], defaultId: 1, cancelId: 1,
+      message: "Erase all of OpenLive's data on this computer?",
+      detail: `Everything in ${HOME} goes: chats, Dictate history, memory, settings, skills, saved keys, logs, downloaded voice models and the files in Flow's workspace. It cannot be undone, and OpenLive starts again fresh.\n\nYour coding agents keep their own sessions and logins. If usage data is off, it stays off.`,
+    });
+    if (response !== 0) return { cancelled: true };
+    const { enabled, noticeSeen } = telemetry.getStatus();
+    app.isQuitting = true;
+    await killChildren();
+    const ses = session.defaultSession;
+    await ses.clearStorageData({ origin: new URL(WEB_URL).origin }).catch((err) => console.error("[reset] storage:", err));
+    await ses.clearCache().catch((err) => console.error("[reset] cache:", err));
+    // Nothing awaits from here to the exit, so no timer of this process writes into the emptied home.
+    let failed = null;
+    try { home.wipeHome(HOME); } catch (err) { failed = err; }
+    if (noticeSeen && !enabled) {
+      try { home.privateDir(PATHS.state); fs.writeFileSync(stateFile("telemetry-off"), "", { mode: 0o600 }); } catch { /* the notice asks again */ }
+    }
+    if (failed) dialog.showErrorBox("OpenLive could not erase everything", `${failed.message || failed}\n\nWhat is left is in ${HOME}. OpenLive starts again now.`);
+    app.relaunch();
+    app.exit(0);
+  });
+}
+
 // ── telemetry: what pages and Chromium report ────────────────────────────────
 // Only the main window and Flow's owner may speak (the orb only draws), and each
 // message is checked against the schema in telemetry before it is kept.
@@ -1488,6 +1523,7 @@ async function boot() {
   wireBridgeIpc();
   wirePowerEvents();
   wireTelemetryIpc();
+  wireResetIpc();
   wireCrashReports();
   wireFlowIpc();
   // Hook effects drive Flow's cascade, which lives in the owner renderer.

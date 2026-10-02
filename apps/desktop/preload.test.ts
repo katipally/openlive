@@ -149,3 +149,11 @@ describe("window.openlive.flow", () => {
     expect(seen).toEqual([true, false, false]);
   });
 });
+
+describe("window.openlive.resetData", () => {
+  it("asks main over its own channel, never the agent tools' bridge", async () => {
+    const { api, calls } = load();
+    await api.resetData();
+    expect(calls.invoke).toEqual([["openlive:reset-data"]]);
+  });
+});

@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld("openlive", {
   // Settings → General: whether locking the screen ends Flow and calls, as sleep
   // does (boolean sets, undefined reads). Resolves to what main now holds.
   endOnLock: (v) => ipcRenderer.invoke("openlive:end-on-lock", v),
+  // Settings → About: erase the OpenLive folder and this app's browser storage,
+  // then restart. Main asks in a native dialog first. Resolves only when it does
+  // not go ahead: { cancelled } | { error }.
+  resetData: () => ipcRenderer.invoke("openlive:reset-data"),
   // Settings → Models: an Ollama address off this computer. Main asks in a native
   // dialog and writes it itself. Resolves to { settings } | { cancelled } | { error }.
   confirmOllamaUrl: (url) => ipcRenderer.invoke("openlive:confirm-ollama-url", url),
