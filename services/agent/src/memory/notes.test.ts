@@ -85,7 +85,7 @@ describe("saving a note", () => {
 
 describe("the remember tool", () => {
   it("saves, and answers a repeat and an empty note plainly", async () => {
-    expect(await said("They drink tea.")).toMatch(/^Got it/);
+    expect(await said("They drink tea.")).toBe("Remembered.");
     expect(await said("they drink  TEA.")).toBe("Already remembered.");
     expect(await said("  ")).toBe("Nothing to remember.");
     expect(stored().map((n: { text: string }) => n.text)).toEqual(["They drink tea."]);

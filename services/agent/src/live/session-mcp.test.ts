@@ -149,8 +149,8 @@ test("a coding agent in a call uses look, the clipboard and remember as the buil
   const reply = ws.sent.filter((m) => m.event?.type === "text_delta").map((m) => m.event.text).join("");
   const [copied, remembered, looked] = reply.split(" | ");
   expect(copied).toBe("clipboard_write ok");
-  expect(remembered).toMatch(/^Got it/);
-  expect(looked).toMatch(/^This is what the user's camera is showing right now.* image$/);
+  expect(remembered).toBe("Remembered.");
+  expect(looked).toMatch(/^The user's camera, right now.* image$/);
   // Reported as the built-in brain's would be: each tool under its group, the agent's own beside them.
   expect(["t_clipboard", "t_memory", "t_look", "interrupted"].map(total)).toEqual([1, 1, 1, 0]);
   expect(callFacts()).toContainEqual({ camera_used: true });

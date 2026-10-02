@@ -157,7 +157,7 @@ export function deviceTools(opts: DeviceToolOpts): Tool[] {
       // screenshot of the old window looks exactly like a page that never
       // navigated.
       const front = await device.foreground().catch(() => null);
-      const here = front ? `In front now: ${front.appName}${front.title ? ` — "${front.title}"` : ""}.` : "";
+      const here = front ? `In front now: ${front.appName}${front.title ? `, "${front.title}"` : ""}.` : "";
       try {
         // Keep photographing the same window only while it is still the window
         // in front. Anything else — it closed, or the action put something else

@@ -17,14 +17,14 @@ const text = (t: string): ToolResult<null> => ({ content: [{ type: "text", text:
 const delegate: Tool<{ task: string }, null> = {
   name: "delegate",
   group: "web",
-  description: "Hand off anything that needs the web — a search, a lookup, reading a page, checking a current fact — to your assistant, who has those tools. Give the task in one clear line. Say a short natural line to the user FIRST ('let me look that up'), then delegate: your assistant works while you talk, and reports back what it found for you to relay. Don't delegate things you already know — answer those instantly.",
+  description: "Hand anything that needs the web (a search, a lookup, reading a page, checking a current fact) to your assistant, who has those tools, as one clear line. It works while you talk and reports back what it found for you to relay.",
   parameters: params({ task: z.string().describe("The lookup/research task, in one line") }),
   readOnly: true,
   promptGuidelines: [
-    "You have an assistant who owns the web tools — you don't search yourself, you hand work off with `delegate` (give the task in one clear line).",
-    "DELEGATE whenever the answer depends on the real world right now or on facts you can't be sure of: weather, news, prices, scores, schedules, \"latest / current / today / who won / what's happening\", any specific number or fact you'd otherwise be guessing at, OR any time the user asks you to look something up or use a tool. When in doubt between guessing and checking — CHECK. A wrong confident answer is worse than a short pause.",
-    "Don't delegate what's genuinely stable and you plainly know (the capital of France, simple math, today's date — you're given that above). Answer those instantly.",
-    "ALWAYS say one short, natural line to the user FIRST, THEN delegate — \"yeah, let me look that up\", \"one sec, checking that\". Your voice fills the wait; they can see your assistant working. When it reports back, tell them what it found, plainly and short.",
+    "You don't search the web yourself: your assistant owns those tools, and you hand it work with `delegate`.",
+    "DELEGATE whenever the answer depends on the real world right now or on a fact you'd otherwise guess: weather, news, prices, scores, schedules, who won, what's happening, any specific number. Also whenever the user asks you to look something up. When in doubt between guessing and checking, CHECK: a wrong confident answer is worse than a short pause.",
+    "Don't delegate what's stable and you plainly know (the capital of France, simple math, today's date, which you're given). Answer those instantly.",
+    "ALWAYS say one short, natural line FIRST (\"yeah, let me look that up\"), THEN delegate. Your voice fills the wait while they watch your assistant work. When it reports back, tell them what it found, plainly and short.",
   ],
   async execute(args, ctx) {
     const task = String(args.task ?? "").trim();
@@ -38,7 +38,7 @@ const updateTodos: Tool<{ items: { text: string; done: boolean }[] }, null> = {
   group: "assistant",
   description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
   parameters: params({ items: z.array(z.object({ text: z.string(), done: z.boolean() })).min(1).max(8) }),
-  promptGuidelines: ["`update_todos` — a multi-step task checklist."],
+  promptGuidelines: ["`update_todos`: a checklist for a multi-step task."],
   async execute(args, ctx) {
     const items = Array.isArray(args?.items) ? args.items.map((i) => ({ text: String(i?.text ?? ""), done: !!i?.done })).filter((i) => i.text) : [];
     await ctx.emit?.({ type: "todos", items });
@@ -51,15 +51,15 @@ const updateTodos: Tool<{ items: { text: string; done: boolean }[] }, null> = {
 const remember: Tool<{ note: string }, null> = {
   name: "remember",
   group: "assistant",
-  description: "Save a short fact worth keeping across turns and future calls — the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll automatically know remembered facts next time.",
+  description: "Save a short fact worth keeping across turns and future calls: the user's name, a preference, an ongoing goal. Use sparingly, one clear fact at a time. You'll know remembered facts next time.",
   parameters: params({ note: z.string().describe("The fact to remember, as one short sentence") }),
-  promptGuidelines: ["`remember` — save a lasting fact about the user."],
+  promptGuidelines: ["`remember`: save a lasting fact about the user."],
   async execute(args) {
     try {
       const r = await addNote(String(args.note ?? ""));
       if (!r.ok) return text({ empty: "Nothing to remember.", duplicate: "Already remembered.", full: "Memory is full. Tell the user to delete some notes in Settings, Memory." }[r.reason]);
     } catch { /* best-effort */ }
-    return text("Got it — I'll remember that.");
+    return text("Remembered.");
   },
 };
 
@@ -70,17 +70,17 @@ const look: Tool<Record<string, never>, null> = {
   name: "look",
   group: "assistant",
   readOnly: true,
-  description: "Capture a fresh, higher-resolution frame from the user's camera and see it right now. Use when you need a closer or more current look at what the user is showing you. If the camera is off this returns nothing — then ask the user to turn it on.",
+  description: "A fresh, higher-resolution frame of what the user is sharing (camera or screen), for a closer or more current look. With nothing shared it returns nothing: ask them to turn on their camera or share their screen.",
   parameters: noParams,
-  promptGuidelines: ["Need a closer or sharper look — to read a small label, a serial, a setting? Call `look`; it grabs a crisper current frame. Nothing shared and you need to see? Ask them to turn on their camera or share their screen."],
+  promptGuidelines: ["Need a sharper look, to read a small label, a serial, a setting? Call `look`. Nothing shared and you need to see? Ask them to turn on their camera or share their screen."],
   available: (s) => !!s.share,
   async execute(_args, ctx) {
     const showing = ctx.share!.showing();
     if (!showing) return text("Nothing is being shared right now. Ask the user to turn on their camera or share their screen.");
     const frame = await ctx.share!.frame();
-    if (!frame) return text("Couldn't grab a fresh frame (it timed out). Ask the user to check their camera / screen share.");
+    if (!frame) return text("No fresh frame: it timed out. Ask the user to check their camera or screen share.");
     return {
-      content: [{ type: "text", text: `This is what the user's ${showing} is showing right now — talk about it naturally, as what you're both looking at.` }, { type: "image", ...frame }],
+      content: [{ type: "text", text: `The user's ${showing}, right now. Talk about it as what you're both looking at.` }, { type: "image", ...frame }],
       details: null,
     };
   },

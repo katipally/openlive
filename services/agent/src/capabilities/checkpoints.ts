@@ -232,7 +232,7 @@ const targets = new WeakMap<object, Edit>();
 const undoEdit: Tool<{ id?: string; path?: string; force?: boolean }, { edit: Edit }> = {
   name: "undo_edit",
   group: "find",
-  description: `Undo a file edit: put the file back as it was before it, or remove it if the edit created it. Give an id from list_edits, or a path for that file's latest edit, or neither for the latest edit of all. Refuses when the file changed after that edit unless force is true; only force after the user agrees to lose those changes. The undo is itself an edit, so undoing it again redoes. ${SCOPE}`,
+  description: "Undo a file edit made with write_file or edit_file: put the file back as it was, or remove it if the edit created it. Give an id from list_edits, a path for that file's latest edit, or neither for the latest of all. Refuses when the file changed since, unless force is true; force only after the user agrees to lose those changes. Undoing an undo redoes it.",
   parameters: {
     type: "object",
     properties: {

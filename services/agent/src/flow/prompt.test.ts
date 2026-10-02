@@ -46,8 +46,8 @@ test("both modes' prompts carry the lines of the tools the session has, and only
   const clipboard = { read: async () => "", write: async () => {} };
   const call = registry.tools(CHAT, { clipboard, openUrl: async () => "", share: { showing: () => null, frame: async () => null }, workspace: () => "" }).list;
   const chatPrompt = CHAT.prompt(call);
-  expect(chatPrompt).toContain("- You have an assistant who owns the web tools");
-  expect(chatPrompt).toContain("- Read before you edit so your snippet matches exactly.");
+  expect(chatPrompt).toContain("- You don't search the web yourself: your assistant owns those tools");
+  expect(chatPrompt).toContain("- Read before you edit, so your snippet matches exactly.");
   expect(chatPrompt).toContain("Call `look`");
   expect(chatPrompt).not.toContain("insert_text them");
   expect(CHAT.prompt(call, "de")).toBe(`${chatPrompt}\n\n---\nAlways reply in German.`);
@@ -55,7 +55,7 @@ test("both modes' prompts carry the lines of the tools the session has, and only
   const flow = registry.tools(FLOW, { foreground: { capture: async () => null }, insert: { commit: async () => {}, end: async () => {}, abandon: async () => {}, committed: () => "" }, clipboard }).list;
   const flowPrompt = FLOW.prompt(flow);
   expect(flowPrompt).toContain("- When they want words in their app, insert_text them");
-  expect(flowPrompt).toContain("- You have an assistant who owns the web tools");
+  expect(flowPrompt).toContain("- You don't search the web yourself: your assistant owns those tools");
   expect(flowPrompt).not.toContain("Call `look`");
   expect(flowPrompt).not.toContain("Read before you edit");
 });

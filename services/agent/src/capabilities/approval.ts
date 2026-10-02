@@ -26,7 +26,7 @@ export interface ConsentOpts {
 }
 
 export const CONSENT_QUESTION =
-  "Before I do that: is it alright for me to act on this machine — type, click, and run things you ask for?";
+  "Before I do that: is it alright for me to act on this machine, to type, click, and run things you ask for?";
 
 // The model reads these as the tool's result, and a result that points at the
 // settings has it telling a person who just said no to go and say yes.

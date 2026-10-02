@@ -295,7 +295,7 @@ describe("evidence after an action", () => {
     });
     await byName(tools, "screenshot").execute({}, ctx);
     const r = await byName(tools, "keypress").execute({ keys: ["enter"] }, ctx);
-    expect(textOf(r)).toContain('In front now: Brave Browser — "Namecheap"');
+    expect(textOf(r)).toContain('In front now: Brave Browser, "Namecheap"');
   });
 
   it("photographs the display once the window it was watching is no longer in front", async () => {
