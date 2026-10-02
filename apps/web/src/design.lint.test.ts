@@ -23,7 +23,6 @@ const ALLOW: { rule: Rule; file: string; reason: string }[] = [
   { rule: "color-literal", file: "app/global-error.tsx", reason: "Renders when the app itself failed, so it cannot lean on globals.css." },
   { rule: "color-literal", file: "components/live/Composer.tsx", reason: "A canvas fill under a pasted picture, so a transparent PNG does not turn black as a JPEG." },
   { rule: "arbitrary-value", file: "components/flow/FlowOrb.tsx", reason: "The orb window's look is deferred (build plan)." },
-  { rule: "raw-duration", file: "components/flow/FlowOrb.tsx", reason: "The orb window's look is deferred (build plan)." },
   { rule: "raw-duration", file: "components/settings/VoicesSettings.tsx", reason: "duration-1000 is the one-second recording clock the bar follows, not a motion choice." },
 ];
 

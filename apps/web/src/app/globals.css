@@ -41,6 +41,8 @@
   --color-icon-info: var(--icon-info);
   --color-muted-strong: var(--muted-strong);
   --color-arc-text: var(--arc-text);
+  --color-dictate: var(--dictate);
+  --color-dictate-foreground: var(--dictate-foreground);
   --color-surface-raised: var(--surface-raised);
   /* The one dim behind every modal, sheet and drawer, in both themes and looks. */
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -200,6 +202,10 @@
   /* --arc as words: 5.35:1 on --background, 5.89:1 on --card, 4.84:1 on an
      arc/10 tint. The fill stays bright; #e2701f as text was 2.7:1. */
   --arc-text: #9a4a0a;
+  /* Dictate's chartreuse (the orb's dictate palettes in lib/waveOrb.ts), one in
+     both themes, so its mic button matches the orb it sits on. */
+  --dictate: #c6f135;
+  --dictate-foreground: #0b0b0c;
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.16);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);

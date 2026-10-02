@@ -41,10 +41,6 @@ const ORB_SIZE = 64;
 /** How far the orb's glow reaches past it. The window's bottom edge would cut
  *  it off, so the orb sits at least this far above that edge. */
 const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
-/** The hover controls sit this far off the ball, inside its faint outer glow. */
-const CONTROL_GAP = 10;
-/** A hover control's width (size-8), for placing a second one beside it. */
-const CONTROL_SIZE = 32;
 
 /** One solid surface for every panel in the window. */
 const PANEL = "border border-border bg-surface shadow-card";
@@ -325,9 +321,14 @@ export function FlowOrb() {
         </div>
       )}
 
-      {/* The controls flank the orb out of flow, so showing them never moves it
-          out from under the pointer that asked for them. Each is a hit only while
-          drawn, so the air beside the orb stays click-through. */}
+      {/* The controls keep their places whether drawn or not, so showing them
+          never moves the orb out from under the pointer that asked for them.
+          Each is a hit only while drawn, so the air around the orb stays
+          click-through. */}
+      <Control label={s.dictate?.handsFree ? "Stop dictation" : "Start dictation"} shown={hovered} on={!!s.dictate?.handsFree}
+        onClick={() => cmd({ t: "dictateToggle" })} side="top">
+        <Mic className="size-4" />
+      </Control>
       <div className="relative shrink-0">
         <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })} side="left"><X className="size-4" /></Control>
         {/* flow-root keeps the canvas's negative margins (its glow) inside this box,
@@ -338,11 +339,7 @@ export function FlowOrb() {
             <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed border-foreground/30" />
           )}
         </div>
-        <Control label={s.dictate?.handsFree ? "Stop dictating" : "Dictate hands-free"} shown={hovered} pressed={!!s.dictate?.handsFree}
-          onClick={() => cmd({ t: "dictateToggle" })} side="right">
-          <Mic className={cn("size-4", s.dictate?.handsFree && "fill-current")} />
-        </Control>
-        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right" nth={1}><Maximize2 className="size-[15px]" /></Control>
+        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right"><Maximize2 className="size-4" /></Control>
       </div>
     </div>
   );
@@ -403,18 +400,30 @@ function CallOrb({ call }: { call: CallOrbState }) {
   );
 }
 
-/** A button beside the orb, on its `side`, growing out of the orb's edge;
- *  `nth` places it further out, past the ones before it. */
-function Control({ label, shown, onClick, side, nth = 0, pressed, children }: {
-  label: string; shown: boolean; onClick: () => void; side: "left" | "right"; nth?: number; pressed?: boolean; children: React.ReactNode;
+/** Where each control sits. The offset goes on the tooltip's anchor, never as
+ *  a margin on the button inside it: the anchor would grow by the margin and
+ *  lie over a neighbour, taking its clicks and showing the wrong tooltip. The
+ *  gap leaves each inside the orb's faint outer glow. The top one is in the
+ *  column's flow, its slot kept while hidden. */
+const CONTROL_PLACE = {
+  left: "absolute right-full top-1/2 mr-2.5 -translate-y-1/2",
+  right: "absolute left-full top-1/2 ml-2.5 -translate-y-1/2",
+  top: "shrink-0",
+};
+const CONTROL_GROW = { left: "origin-right", right: "origin-left", top: "origin-bottom" };
+
+/** A round button around the orb, growing out of its edge on hover, or on
+ *  keyboard focus. `on` is a toggle that is on, drawn in Dictate's chartreuse. */
+function Control({ label, shown, onClick, side, on, children }: {
+  label: string; shown: boolean; onClick: () => void; side: keyof typeof CONTROL_PLACE; on?: boolean; children: React.ReactNode;
 }) {
-  const gap = CONTROL_GAP + nth * (CONTROL_SIZE + CONTROL_GAP / 2);
   return (
-    <Tooltip label={label} className={cn("absolute top-1/2 -translate-y-1/2", side === "left" ? "right-full" : "left-full", !shown && "pointer-events-none")}>
-      <button type="button" onClick={onClick} aria-label={label} aria-pressed={pressed} data-hit={shown || undefined}
-        style={side === "left" ? { marginRight: gap } : { marginLeft: gap }}
-        className={cn("grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-card transition duration-200 ease-out hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]",
-          side === "left" ? "origin-right" : "origin-left", shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0")}>
+    <Tooltip label={label} className={cn(CONTROL_PLACE[side], !shown && "pointer-events-none")}>
+      <button type="button" onClick={onClick} aria-label={label} data-hit={shown || undefined}
+        className={cn("grid size-8 place-items-center rounded-full border shadow-card transition duration-fast ease-standard active:scale-90 [-webkit-app-region:no-drag]",
+          on ? "border-transparent bg-dictate text-dictate-foreground hover:bg-dictate/85"
+            : "border-border bg-surface text-muted-strong hover:border-border-heavy hover:bg-card hover:text-foreground",
+          CONTROL_GROW[side], shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0 focus-visible:scale-100 focus-visible:opacity-100")}>
         {children}
       </button>
     </Tooltip>
