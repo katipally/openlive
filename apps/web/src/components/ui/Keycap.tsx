@@ -8,3 +8,13 @@ export function Keycap({ children, className }: { children: React.ReactNode; cla
     </kbd>
   );
 }
+
+/** A hotkey as its keys, one cap each (⌃ ⌃, Shift Right Alt). `label` is what a
+ *  screen reader says in place of the symbols. */
+export function Keycaps({ keys, label, className }: { keys: readonly string[]; label: string; className?: string }) {
+  return (
+    <span role="img" aria-label={label} className={cn("inline-flex shrink-0 flex-wrap items-center gap-1", className)}>
+      {keys.map((k, i) => <Keycap key={i} className="text-label">{k}</Keycap>)}
+    </span>
+  );
+}

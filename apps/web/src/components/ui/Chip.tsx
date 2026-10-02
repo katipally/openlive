@@ -6,8 +6,11 @@ import { cn } from "@/lib/cn";
 // title (New, Experimental, Active). Both wrap long text instead of clipping.
 
 const DOT = { success: "bg-success", arc: "bg-arc", accent: "bg-accent", muted: "bg-muted-foreground", danger: "bg-destructive-fill" } as const;
+export type DotTone = keyof typeof DOT;
+/** A status dot's colour, for a dot drawn outside a Chip. */
+export const dotTone = (tone: DotTone) => DOT[tone];
 
-export function Chip({ children, dot, className }: { children: ReactNode; dot?: keyof typeof DOT; className?: string }) {
+export function Chip({ children, dot, className }: { children: ReactNode; dot?: DotTone; className?: string }) {
   return (
     <span className={cn("inline-flex min-h-6 max-w-full items-center gap-1.5 break-words rounded-full bg-chip px-2.5 py-0.5 text-caption font-medium text-muted-strong [&_svg]:size-3 [&_svg]:shrink-0", className)}>
       {dot && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", DOT[dot])} />}

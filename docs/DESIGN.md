@@ -70,15 +70,34 @@ Everything below comes from `@/components/ui`.
 | `Segmented` | A choice of 2 to 5 short options | `options`, `size`, `wrap`, `unavailable` greys one out with a reason, `count` beside a label |
 | `Switch`, `Checkbox`, `Radio`, `RadioGroup` | On/off, multi and single choice | `Switch` for settings that apply at once |
 | `Slider`, `Range` | A labelled setting value; a bare track (seek bar) | `commitOnRelease` for slow writes; `small` thumb |
-| `Chip`, `Badge`, `pill` | A status capsule with a dot; a tag beside a title; a capsule you press | `dot` success, arc, accent, muted, danger; `tone` neutral, accent, arc, danger |
+| `Chip`, `Badge`, `pill`, `dotTone()` | A status capsule with a dot; a tag beside a title; a capsule you press; a dot's colour on its own | `dot` success, arc, accent, muted, danger; `tone` neutral, accent, arc, danger |
 | `Notice`, `notice()` | A tinted note in the page (a missing key, a slow path, an error) | `tone` warning (default), danger, info; `notice(tone, true)` on a button |
-| `ListGroup`, `ListRow`, `groupLabel` | Settings-style grouped rows; the small-caps heading | `label`, `detail`, `asLabel` |
+| `ListGroup`, `ListRow`, `groupLabel` | Settings-style grouped rows; the small-caps heading | `label`, `detail` (a few words), `info` (longer help behind an info mark), `asLabel` |
 | `SidePanelHeader`, `sidePanel()` | A panel's header (title, detail line, icon buttons); the panel surface | `sidePanel(true)` floats: dialogs, sheets, the palette |
 | `Tooltip` | Every tooltip | `label`, `keys` for a shortcut, `truncated` to show only when cut off |
 | `InfoTip` | Help beside a label, in place of a paragraph | `label` |
 | `Disclosure`, `Advanced` | An animated collapsible body; the "Advanced" fold in settings | caller owns `open`; `Advanced` remembers per `id` |
 | `Swap` | One icon turning into another | `id` changes to swap |
-| `Keycap` | A key in a shortcut | |
+| `Keycap`, `Keycaps` | A key in a shortcut; a whole hotkey, one cap per key | `Keycaps` takes `keys` and the `label` a screen reader says |
+
+### Settings pages
+
+Every page of Settings is built from the same few parts, so they read alike:
+
+- **Page header**: drawn by `SettingsPage` from the section's `label`, `desc`
+  (one short line) and at most one `Action`. A page never draws its own.
+- **Sections**: `Section` (`settings/Section.tsx`), a title and one line.
+- **Rows**: `ListGroup` of `ListRow`s. One control per row, a detail of six
+  words or fewer, anything longer in `info`.
+- **Subtabs**: `Segmented` with a `count` per option.
+- **Hotkeys**: `Keycaps`.
+- **Links to another page**: `LinkRow` (`settings/nav.tsx`), with an `icon` when
+  the row leads a group.
+- **Cards** (`settings/common.tsx`): `StatusCard` (icon, name, `StatusDot` tone
+  and word, one `action`, the rest in `more`), `MoreMenu` for any other ⋯.
+- **States** (`settings/common.tsx`): `EmptyState` (one line, one action, an
+  optional `icon`), `LoadingRows`, and `QueryState` for loading or an inline
+  error with Retry.
 
 ## Layering and overlays
 
