@@ -63,6 +63,9 @@ export default function Home() {
   // The first-run notice goes first: two overlays would contend for the same first look.
   const [noticePending, setNoticePending] = useState(false);
   const [welcomePending, setWelcomePending] = useState(false);
+  // Welcome already showed the modes and the agent picker, so the home tour right after it skips those.
+  const [welcomedNow, setWelcomedNow] = useState(false);
+  useEffect(() => { if (welcomePending) setWelcomedNow(true); }, [welcomePending]);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
   // opening Live doesn't stall on "Preparing…". Only when the weights are already
@@ -183,8 +186,8 @@ export default function Home() {
             </footer>
 
             <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
-              { target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
-              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
+              ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
+              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." }],
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
               { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },
