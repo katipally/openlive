@@ -1,6 +1,6 @@
 {
   "name": "openlive",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.27.1",

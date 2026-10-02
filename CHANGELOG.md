@@ -6,6 +6,8 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-02
+
 ### Added
 - **Dictate.** Hold Right Alt (Right Option on macOS) and talk; letting go
   types the cleaned-up words where your cursor is, in any app, with no brain and
@@ -15,6 +17,13 @@ Releases before 0.1.9 predate this file — see the
   heard, which shimmers with a spinner while it is cleaned up or polished. Turn it on in Settings > Dictate, where the
   key can be changed (with a warning where Right Alt may be AltGr). See
   [docs/DICTATE.md](docs/DICTATE.md).
+- **Dictate is a home mode beside Chat and Flow.** Its home turns it on and
+  off, shows its keys as this computer names them, puts tone, AI polish,
+  language and words one press away, and lists the last few dictations to
+  copy. The mode switch, the command palette and the shortcuts sheet know it.
+- **A first-run welcome.** Once, for someone new: the three modes, where the
+  thinking comes from, what the computer has to allow, and one thing to try in
+  each. Every step can be skipped. The home tour now starts after it.
 - **On-device cleanup for Dictate**, each rule its own switch: punctuation,
   filler words, backtrack ("actually", "no wait", "scratch that"), spoken lists
   and numbers.
@@ -54,82 +63,6 @@ Releases before 0.1.9 predate this file — see the
   the installer on Windows, an AppImage kept outside Downloads on Linux. Run
   from the DMG or a download, it waits for that launch. Settings > General
   turns it off, and it stays off.
-
-### Removed
-- **Mini mode.** The floating always-on-top call bar, its tray item and its
-  global talk hotkey (Settings → General → Mini mode) are gone. A call now shows
-  on the orb above the dock whenever the OpenLive window is minimised or hidden,
-  with mute, open and end. Closing the window ends the call.
-- **Flow's "Let me talk over it" switch.** Speaking always stops Flow now.
-  Saved settings that still carry it load as before.
-
-### Changed
-- **The app's remembered state lives in the OpenLive folder.** The voice
-  pipeline, push-to-talk, per-chat agent and folder, per-agent model picks,
-  recent folders, first-run and tour flags, and open sections moved from the
-  browser's storage into `state/ui.json`, so a backup of the folder has them
-  and clearing Chromium's profile no longer loses them. Each moves over once,
-  on the first launch of this version.
-- **Settings, regrouped.** General leads, then **Modes** (Flow, Dictate,
-  Chat), **Intelligence** (Models, Agents, Capabilities, Memory), **Voice**
-  (Voice, Speech engine) and **App** (Privacy, About), each with a line short
-  enough to read whole. A narrow window folds the list to icons, each named on
-  hover.
-- **Typing at cursor moved to General.** Paste or type and the Advanced
-  timing now live in Settings > General, shared by Flow and Dictate; Flow
-  links there. Saved choices carry over.
-- **Pastes hold their modifier 50 ms, down from 100.** A setup still on the
-  old 100 ms default moves to 50; any other value you set stays.
-- **A shorter tray menu.** It reads: the status in plain words with the Flow
-  hotkey (**Flow is ready · Double-tap ⌃**), **Open OpenLive**, **Start Flow**,
-  **Settings…** and **Quit OpenLive**. **Flow armed** moved to Settings > Flow
-  as **Listen for the Flow hotkey**; **Flow settings…** is gone, and
-  **Settings…** opens Settings.
-- **Computer use keeps the prompt cache warm.** Only the newest window state
-  (element tree and picture) goes to the model, after the conversation and
-  never into it, and the app in front no longer rides in the system prompt, so
-  every step reuses the cached conversation instead of resending it. Window
-  pictures go as JPEG when that is smaller, about half the bytes.
-- **Hidden windows stop polling.** Settings' permission checks and refreshing
-  lists wait while the OpenLive window is hidden or minimised and catch up the
-  moment it is back.
-- **Released builds no longer let a page open Flow.** The page trigger that
-  opens Flow as a double Ctrl would is registered only in dev builds, where
-  tests use it, so no script in the app window can turn the mic on.
-- **A cough or a "mm-hmm" no longer cuts the voice off.** In a call and in Flow,
-  a sound over a reply pauses it at once, and it goes on from the same word
-  when the sound was a cough, a laugh, a bump or a backchannel ("yeah", "okay",
-  "right", "uh-huh", and their equivalents in every session language). Any
-  other word, or talk that runs on, stops it as before. A cough while the
-  agent is still working no longer cancels its work. A laugh of any length
-  ("ha", "hahaha", "jajaja", "哈哈", "ㅋㅋㅋ") and a throat sound ("ugh",
-  "ahem", "hmm") count as sounds too, in every session language. Only what you
-  said in full decides, so a laugh half-heard as words no longer cuts it.
-- **Answering an ask by voice is instant.** A spoken "yes" or "no" to a
-  permission ask, in a call or in Flow, goes through the moment you stop
-  instead of waiting out the pause for more. Once the question has been said,
-  the orb shows it is waiting on you rather than still speaking, and Flow's
-  question card has a Stop button.
-- **A voice that is not downloaded says so.** When the picked speech or voice
-  engine is not on this computer yet, its card in Settings → Voice reads "Not
-  downloaded, using Kokoro" (or whatever stands in), and the call lobby offers
-  the download next to Start. The fallback no longer logs an error.
-- **Settings opens on General and goes back where you came from.** The close
-  button is now "Back to Chat / Flow / OpenLive / call" at the top of the
-  sidebar; Esc and Back still work.
-- **API mode answers only from the provider you chose.** When the chosen provider
-  had no key, Chat and Flow used to answer from another provider that had one,
-  while Flow said it was not set up. Now every screen and every turn resolve the
-  choice the same way: no key means not ready, with the fix in Settings.
-- **Newer on-device voice runtimes.** Live voice now runs on ONNX Runtime Web
-  1.30, Transformers.js 4.3 and voice activity detection 0.0.31, and voice
-  cloning on sherpa-onnx 1.13.8. The files the voice detector loads now always
-  match the runtime it was built against.
-- **Voice detection runs Silero v6.2.** It makes fewer mistakes on noisy
-  rooms, soft or unusual voices and phone-quality mics, at the same speed.
-  Settings → Voice → VAD can switch back to v5.
-
-### Added
 - **Four more coding agents: Gemini CLI, GitHub Copilot, Kiro and Pi.** Install,
   sign in, pick them per conversation or for Flow, and talk, like the others.
   Copilot is in public preview. Pi runs through the `pi-acp` adapter, which drops
@@ -347,6 +280,80 @@ Releases before 0.1.9 predate this file — see the
   a tool returns. A model that cannot see gets the vision model's description
   instead, when one is set in Settings → Models, and otherwise a plain note that
   a picture was not sent, so it never claims to see it.
+
+### Removed
+- **Mini mode.** The floating always-on-top call bar, its tray item and its
+  global talk hotkey (Settings → General → Mini mode) are gone. A call now shows
+  on the orb above the dock whenever the OpenLive window is minimised or hidden,
+  with mute, open and end. Closing the window ends the call.
+- **Flow's "Let me talk over it" switch.** Speaking always stops Flow now.
+  Saved settings that still carry it load as before.
+
+### Changed
+- **The app's remembered state lives in the OpenLive folder.** The voice
+  pipeline, push-to-talk, per-chat agent and folder, per-agent model picks,
+  recent folders, first-run and tour flags, and open sections moved from the
+  browser's storage into `state/ui.json`, so a backup of the folder has them
+  and clearing Chromium's profile no longer loses them. Each moves over once,
+  on the first launch of this version.
+- **Settings, regrouped.** General leads, then **Modes** (Flow, Dictate,
+  Chat), **Intelligence** (Models, Agents, Capabilities, Memory), **Voice**
+  (Voice, Speech engine) and **App** (Privacy, About), each with a line short
+  enough to read whole. A narrow window folds the list to icons, each named on
+  hover.
+- **Typing at cursor moved to General.** Paste or type and the Advanced
+  timing now live in Settings > General, shared by Flow and Dictate; Flow
+  links there. Saved choices carry over.
+- **Pastes hold their modifier 50 ms, down from 100.** A setup still on the
+  old 100 ms default moves to 50; any other value you set stays.
+- **A shorter tray menu.** It reads: the status in plain words with the Flow
+  hotkey (**Flow is ready · Double-tap ⌃**), **Open OpenLive**, **Start Flow**,
+  **Settings…** and **Quit OpenLive**. **Flow armed** moved to Settings > Flow
+  as **Listen for the Flow hotkey**; **Flow settings…** is gone, and
+  **Settings…** opens Settings.
+- **Computer use keeps the prompt cache warm.** Only the newest window state
+  (element tree and picture) goes to the model, after the conversation and
+  never into it, and the app in front no longer rides in the system prompt, so
+  every step reuses the cached conversation instead of resending it. Window
+  pictures go as JPEG when that is smaller, about half the bytes.
+- **Hidden windows stop polling.** Settings' permission checks and refreshing
+  lists wait while the OpenLive window is hidden or minimised and catch up the
+  moment it is back.
+- **Released builds no longer let a page open Flow.** The page trigger that
+  opens Flow as a double Ctrl would is registered only in dev builds, where
+  tests use it, so no script in the app window can turn the mic on.
+- **A cough or a "mm-hmm" no longer cuts the voice off.** In a call and in Flow,
+  a sound over a reply pauses it at once, and it goes on from the same word
+  when the sound was a cough, a laugh, a bump or a backchannel ("yeah", "okay",
+  "right", "uh-huh", and their equivalents in every session language). Any
+  other word, or talk that runs on, stops it as before. A cough while the
+  agent is still working no longer cancels its work. A laugh of any length
+  ("ha", "hahaha", "jajaja", "哈哈", "ㅋㅋㅋ") and a throat sound ("ugh",
+  "ahem", "hmm") count as sounds too, in every session language. Only what you
+  said in full decides, so a laugh half-heard as words no longer cuts it.
+- **Answering an ask by voice is instant.** A spoken "yes" or "no" to a
+  permission ask, in a call or in Flow, goes through the moment you stop
+  instead of waiting out the pause for more. Once the question has been said,
+  the orb shows it is waiting on you rather than still speaking, and Flow's
+  question card has a Stop button.
+- **A voice that is not downloaded says so.** When the picked speech or voice
+  engine is not on this computer yet, its card in Settings → Voice reads "Not
+  downloaded, using Kokoro" (or whatever stands in), and the call lobby offers
+  the download next to Start. The fallback no longer logs an error.
+- **Settings opens on General and goes back where you came from.** The close
+  button is now "Back to Chat / Flow / OpenLive / call" at the top of the
+  sidebar; Esc and Back still work.
+- **API mode answers only from the provider you chose.** When the chosen provider
+  had no key, Chat and Flow used to answer from another provider that had one,
+  while Flow said it was not set up. Now every screen and every turn resolve the
+  choice the same way: no key means not ready, with the fix in Settings.
+- **Newer on-device voice runtimes.** Live voice now runs on ONNX Runtime Web
+  1.30, Transformers.js 4.3 and voice activity detection 0.0.31, and voice
+  cloning on sherpa-onnx 1.13.8. The files the voice detector loads now always
+  match the runtime it was built against.
+- **Voice detection runs Silero v6.2.** It makes fewer mistakes on noisy
+  rooms, soft or unusual voices and phone-quality mics, at the same speed.
+  Settings → Voice → VAD can switch back to v5.
 
 ### Fixed
 - **The home tour after Welcome skips what Welcome just showed.** Right after
