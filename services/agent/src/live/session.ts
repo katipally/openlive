@@ -22,7 +22,7 @@ import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurn
 import { resolveLive } from "../providers.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
-import { liveSockets, type ReminderMsg } from "../reminders/fire.js";
+import { hearReminders, liveSockets, type ReminderMsg } from "../reminders/fire.js";
 
 type Frame = { data: string; mime: string };
 type TurnFrame = Frame & { source: "camera" | "screen" | "attachment" };
@@ -173,7 +173,7 @@ export class LiveSession {
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
-    liveSockets.add(this.hear);
+    hearReminders(this.hear);
   }
 
   start(): Promise<void> { return (this.startup = this.boot()); }

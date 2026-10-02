@@ -1179,7 +1179,9 @@ note to the user, says the time back for them to hear, and a cancel undoes it.
   clicked. Every open call and Flow socket also gets a `reminder` message: a
   call shows a toast and says it, and Flow says it while the orb is open and
   speaking, both through `VoiceEngine.announce`, which waits for the reply under way to end and for the
-  user to stop talking. With neither (web-only dev, nothing open) it is logged.
+  user to stop talking. With neither (web-only dev, nothing open) it is logged
+  and kept, the newest 20, and the next call or Flow socket to open hears each
+  as missed.
 - **API** (`routes.ts`, proxied at `/api/reminders`): `GET /reminders` lists
   what is pending, `DELETE /reminders/:id` cancels one. The Reminders card on
   the Tools subtab shows the next few, each with Cancel.

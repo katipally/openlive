@@ -11,7 +11,7 @@ process.env.OPENLIVE_HOME = dir;
 process.env.TZ = "America/Los_Angeles";
 const { reminderTools, clockNote } = await import("./tools.js");
 const { Scheduler } = await import("./scheduler.js");
-const { deliver, liveSockets, reminderMsg } = await import("./fire.js");
+const { deliver, hearReminders, liveSockets, reminderMsg } = await import("./fire.js");
 const { ToolSet, dispatchAll } = await import("../capabilities/dispatch.js");
 const { allowAll } = await import("../capabilities/approval.js");
 const { registry } = await import("../capabilities/registry.js");
@@ -164,10 +164,16 @@ describe("firing", () => {
     expect(heard).toEqual([{ t: "reminder", title: "Reminder", body: "call the bank" }, { t: "reminder", title: "Timer", body: "pasta. Time's up." }]);
   });
 
-  it("only logs with no desktop app and no session open", () => {
+  it("with no desktop app and no session open, keeps it for the next session to hear as missed", () => {
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
     deliver(bank, false, undefined);
-    expect(warn).toHaveBeenCalledWith("[reminders]", "Reminder: call the bank (nothing open to show it)");
+    expect(warn).toHaveBeenCalledWith("[reminders]", "Reminder: call the bank (nothing open to show it yet)");
     warn.mockRestore();
+    const heard: unknown[] = [];
+    const late = (m: unknown) => heard.push(m);
+    hearReminders(late);
+    hearReminders(late);
+    liveSockets.delete(late);
+    expect(heard).toEqual([reminderMsg(bank, true)]);
   });
 });

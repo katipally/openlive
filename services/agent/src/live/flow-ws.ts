@@ -26,7 +26,7 @@ import type { Approve, ContextProvider, FlowContext, Session } from "../capabili
 import type { Brain, Msg } from "../flow/types.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
-import { liveSockets, type ReminderMsg } from "../reminders/fire.js";
+import { hearReminders, liveSockets, type ReminderMsg } from "../reminders/fire.js";
 
 // Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
 // Flow runtime lives in its own renderer, and a WebSocket cannot be shared across
@@ -305,7 +305,7 @@ export class FlowLiveSession {
     });
     ws.on("close", () => this.dispose());
     ws.on("error", () => this.dispose());
-    liveSockets.add(this.hear);
+    hearReminders(this.hear);
   }
 
   // ── inbound ───────────────────────────────────────────────────────────────
