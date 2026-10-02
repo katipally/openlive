@@ -1,6 +1,8 @@
 "use client";
 
-import { Bug, createLucideIcon, ExternalLink, FolderOpen, RotateCcw } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Bug, createLucideIcon, ExternalLink, FolderOpen, RotateCcw, Trash2 } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { resetTours } from "@/components/SpotlightTour";
 import { bridge, isDesktop } from "@/lib/platform";
@@ -9,10 +11,11 @@ import { reportProblem } from "@/lib/reportProblem";
 import { toast } from "@/lib/toast";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { useBrainId } from "@/lib/useBrainId";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
 import { card, OneLine } from "./common";
-import { Button, ListGroup, ListRow } from "@/components/ui";
+import { Button, ListGroup, ListRow, sidePanel } from "@/components/ui";
 
 // lucide-react 1.0 dropped its brand icons; this is its last Github mark (ISC).
 // Each node needs a key: lucide renders the nodes as an array of siblings.
@@ -38,17 +41,7 @@ export function AboutSettings() {
         </div>
       </div>
 
-      {isDesktop && bridge && (
-        <Section id="set-about-folder" title="OpenLive folder" desc="Settings, memory, connectors (mcp.json), skills, chats and logs.">
-          <ListGroup>
-            <ListRow label="Show OpenLive folder" detail="Keys and tokens stay encrypted">
-              <Button size="sm" onClick={() => void bridge?.("open_home").then((r) => { if (r !== "Opened.") toast(r); })}>
-                <FolderOpen aria-hidden /> Open
-              </Button>
-            </ListRow>
-          </ListGroup>
-        </Section>
-      )}
+      <YourData />
 
       <Section id="set-about-tours" title="Tours" desc="The short walkthroughs each screen shows the first time.">
         <ListGroup>
@@ -81,3 +74,56 @@ export function AboutSettings() {
 }
 
 const linkRow = "group flex min-h-row items-center gap-3 py-2 text-body text-foreground";
+
+/** Where everything OpenLive keeps lives, and the way to start over. */
+function YourData() {
+  const home = useQuery({ queryKey: ["openlive-home"], queryFn: async () => {
+    const r = await fetch("/api/home", { cache: "no-store" });
+    if (!r.ok) throw new Error("The folder could not be read.");
+    return ((await r.json()) as { home: string }).home;
+  }, staleTime: Infinity }).data;
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <Section id="set-about-data" title="Your data" desc="Settings, memory, connectors (mcp.json), skills, chats, Dictate history and logs. All on this machine.">
+      <ListGroup>
+        <ListRow label="OpenLive folder" detail={<span className="break-all font-mono">{home ?? "\u2026"}</span>}>
+          {isDesktop && bridge && (
+            <Button size="sm" onClick={() => void bridge?.("open_home").then((r) => { if (r !== "Opened.") toast(r); })}>
+              <FolderOpen aria-hidden /> Open folder
+            </Button>
+          )}
+        </ListRow>
+        <ListRow label="Reset local data" detail="Erase everything here and start fresh">
+          <Button size="sm" variant="destructive" onClick={() => setConfirming(true)}>
+            <Trash2 aria-hidden /> Reset local data&hellip;
+          </Button>
+        </ListRow>
+      </ListGroup>
+      {confirming && <ResetConfirm onClose={() => setConfirming(false)} />}
+    </Section>
+  );
+}
+
+function ResetConfirm({ onClose }: { onClose: () => void }) {
+  const root = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(root, true, onClose);
+  return (
+    <div ref={root} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-modal grid place-items-center scrim px-4">
+      <div role="alertdialog" aria-modal="true" aria-labelledby={titleId} className={cn(sidePanel(true), "animate-modal-in w-full max-w-md gap-3 p-4")}>
+        <h2 id={titleId} className="text-callout font-semibold text-foreground">Reset local data?</h2>
+        <p className="break-words text-label leading-relaxed text-muted-foreground">
+          This erases your chats, Dictate history, memory, settings and saved keys from this machine. It cannot be undone.
+          Your coding agents keep their own sessions and logins.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="destructive" onClick={() => { resetLocalData(); onClose(); }}>Erase everything</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function resetLocalData(): void {}

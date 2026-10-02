@@ -122,6 +122,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Request deletion", keywords: "delete erase remove my data gdpr ccpa right to be forgotten privacy email", tab: "privacy", anchor: "set-privacy-data", desktop: true },
   { label: "Report a problem", keywords: "bug issue github feedback broken help", tab: "privacy", anchor: "set-privacy-report", desktop: true },
 
+  { label: "Your data", keywords: "openlive folder data location path open reset erase delete start over local", tab: "about", anchor: "set-about-data" },
   { label: "Links", keywords: "github releases changelog issue", tab: "about", anchor: "set-about-links" },
   { label: "Replay tours", keywords: "walkthrough onboarding tips help reset", tab: "about", anchor: "set-about-tours" },
 ];
