@@ -768,6 +768,8 @@ export function useFlowOwner(): void {
         turnActive.current = false;
         armed.current = false;
         void api.suspend();
+        // Dictate may hold the microphone with Flow closed.
+        dictate.yield();
         // A close, not a stop: a stop would leave the orb up through sleep.
         onClose("sleep_or_lock");
         teardownMic();
