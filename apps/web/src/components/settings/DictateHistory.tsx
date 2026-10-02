@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
 import type { DictateKeep, Dictation, FlowConfig } from "@openlive/flow-store";
@@ -60,11 +60,18 @@ export function DictateHistory({ own, insertion, save }: { own: FlowConfig["dict
     if (r.ok) qc.setQueryData(historyQuery.queryKey, await r.json());
     else toast("That could not be deleted.");
   };
-  const keep = async (k: DictateKeep) => { save({ history: k }); await qc.invalidateQueries({ queryKey: historyQuery.queryKey }); };
+  const keep = (k: DictateKeep) => save({ history: k });
+  // The list is pruned to the new length when it is next read, which has to wait for the save to land.
+  const kept = useRef(own.history);
+  useEffect(() => {
+    if (kept.current === own.history) return;
+    kept.current = own.history;
+    void qc.invalidateQueries({ queryKey: historyQuery.queryKey });
+  }, [own.history, qc]);
 
   const head = (
     <span className="flex flex-wrap items-center gap-1.5">
-      <Select value={own.history} onChange={(e) => void keep(e.target.value as DictateKeep)} aria-label="How long to keep dictations">
+      <Select value={own.history} onChange={(e) => keep(e.target.value as DictateKeep)} aria-label="How long to keep dictations">
         {KEEPS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
       </Select>
       {items.length > 0 && <ConfirmButton label="Clear all" confirm={`Delete all ${items.length}`} onConfirm={() => drop()} />}
