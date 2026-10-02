@@ -142,11 +142,12 @@ export default function Home() {
           </motion.main>
         ) : (
           <motion.main key="chat" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-            {/* Frameless-window drag handle: a top strip clear of the window controls
-                (top-left). Desktop only (.desktop). Settings lives in the hero CTA row
+            {/* Frameless-window drag handle: a title-bar-high strip clear of the macOS
+                traffic lights and the Windows/Linux caption buttons, both (the
+                server cannot tell which this window has). Desktop only (.desktop). Settings lives in the hero CTA row
                 below — no duplicate corner gear. The hole is the mode switch's; see
                 SwitchHole for why the strip has to cut it rather than the switch. */}
-            <div className="app-drag fixed left-[90px] right-16 top-0 z-0 h-10"><SwitchHole /></div>
+            <div className="app-drag fixed left-traffic-lights right-window-controls top-0 z-0 h-14"><SwitchHole /></div>
 
 
             <div ref={heroRef} className="flex max-w-full flex-col items-center gap-7">
