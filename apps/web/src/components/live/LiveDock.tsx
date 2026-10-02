@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -15,12 +15,11 @@ import { InCall } from "./InCall";
 import { PermissionPrompt } from "./AgentControls";
 import { ElicitationPrompt } from "./ElicitationPrompt";
 import { openliveBridge, setPanelCmdHandler } from "@/lib/live/panelBridge";
+import { useHydrated } from "@/lib/useHydrated";
 
 // Hosts one live call: a full-page lobby before the call (self-preview, agent /
 // model pick, devices, model download) then the full-screen in-call view — both
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
-const noSubscribe = () => () => {};
-
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
   const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp } = useLiveSession(chatId);
   // Narrow selector: this component must NOT subscribe to the hot per-chunk
@@ -77,7 +76,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   // The lobby reads this machine (cameras, WebGPU), which the server cannot, so a
   // chat reopened at launch mounts it just after hydration instead of mismatching.
   // Until then its bare surface (Lobby's root) covers the home, which would flash.
-  const hydrated = useSyncExternalStore(noSubscribe, () => true, () => false);
+  const hydrated = useHydrated();
   if (!hydrated) return <div data-covering="stage" className="fixed inset-0 z-stage bg-background" />;
 
   return (

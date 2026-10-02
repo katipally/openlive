@@ -13,6 +13,7 @@ import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { Button, Tooltip } from "@/components/ui";
 import { useAppVersion } from "@/lib/useAppVersion";
+import { useHydrated } from "@/lib/useHydrated";
 import { SETTINGS_KEYS } from "@/lib/platform";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
@@ -58,6 +59,7 @@ export default function Home() {
   const mode = useUi((s) => s.mode);
   const settingsOpen = useUi((s) => s.settingsOpen);
   const reduce = useReducedMotion();
+  const hydrated = useHydrated();
   // The first-run notice goes first: two overlays would contend for the same first look.
   const [noticePending, setNoticePending] = useState(false);
   const [welcomePending, setWelcomePending] = useState(false);
@@ -132,11 +134,11 @@ export default function Home() {
       <AnimatePresence initial={false} mode="popLayout" custom={dir}>
         {view === "flow" ? (
           <motion.main key="flow" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col text-left">
-            <FlowShell />
+            {hydrated && <FlowShell />}
           </motion.main>
         ) : view === "dictate" ? (
           <motion.main key="dictate" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col text-left">
-            <DictateHome />
+            {hydrated && <DictateHome />}
           </motion.main>
         ) : (
           <motion.main key="chat" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col items-center justify-center px-6 text-center">
