@@ -939,7 +939,10 @@ An MCP server the user adds once, offered to every brain in both modes.
   any MCP tool not marked `readOnlyHint`, and one wrapper for everything could
   never carry the mark. The events a call shows and records (Flow's orb and
   session file, a coding agent's MCP calls) name the real tool too, as Chat's
-  chips do; the model's own transcript keeps the call it made. Both reach only
+  chips do, and every surface shows it as its connector and tool in words with
+  the connector's monogram, never as `slug__tool` (`toolMeta`, and the call's
+  gist from the shared `toolSummary`); the model's own transcript keeps the
+  call it made. Both reach only
   what that session's set held back. The mode is
   `connectorToolLoading` in settings.json, `auto | on | off`, default `auto`:
   on past 40 connector tools or about 8k tokens of their schemas (Flow's own 38
