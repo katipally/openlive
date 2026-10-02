@@ -87,14 +87,11 @@ export function InCall(props: InCallProps) {
   };
 
   // Transcript sidebar: resizable width + open/closed, both remembered.
-  const [panelOpen, setPanelOpen] = useState(() => (typeof window === "undefined" ? true : localStorage.getItem("ol-transcript-open") !== "0"));
-  const [panelW, setPanelW] = useState(() => {
-    if (typeof window === "undefined") return 360;
-    const v = Number(localStorage.getItem("ol-transcript-w"));
-    return v >= 280 && v <= 640 ? v : 360;
-  });
-  useEffect(() => { localStorage.setItem("ol-transcript-open", panelOpen ? "1" : "0"); }, [panelOpen]);
-  useEffect(() => { localStorage.setItem("ol-transcript-w", String(panelW)); }, [panelW]);
+  const panelOpen = useUi((s) => s.transcriptOpen);
+  const setPanelOpen = (v: boolean | ((open: boolean) => boolean)) =>
+    useUi.setState((s) => ({ transcriptOpen: typeof v === "function" ? v(s.transcriptOpen) : v }));
+  const panelW = useUi((s) => s.transcriptWidth);
+  const setPanelW = (w: number) => useUi.setState({ transcriptWidth: w });
   // The call's width, live through a resize, so the panel can float over a
   // stage that no longer has room beside it.
   const body = useRef<HTMLDivElement>(null);

@@ -3,8 +3,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { MotionConfig } from "motion/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { useUi } from "@/lib/uiStore";
+import { seedPersisted, type Saved } from "@/lib/persist";
+import { migrateLocalStorage } from "@/lib/migrateLocal";
 import { warmupOnLaunch } from "@/lib/live/warmup";
 import { useAppearanceSync } from "@/lib/look";
 import { watchRendererErrors } from "@/lib/rendererError";
@@ -17,7 +19,12 @@ function AppearanceSync() {
   return null;
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ saved, children }: { saved: Saved; children: ReactNode }) {
+  // Before anything below renders, on the server and in the page alike, so both
+  // draw the remembered view and hydration matches.
+  useState(() => seedPersisted(saved));
+  // Before the first paint the page owns: what an older version left in localStorage.
+  useLayoutEffect(() => void migrateLocalStorage(), []);
   const [client] = useState(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } } }),
   );

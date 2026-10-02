@@ -65,9 +65,8 @@ export function HistorySidebar() {
   const [limit, setLimit] = useState(PAGE);
   // "all" = every session, including ones the agents' own CLIs created;
   // "openlive" = only sessions started from OpenLive.
-  const [filter, setFilter] = useState<"all" | "openlive">(() =>
-    typeof window !== "undefined" && localStorage.getItem("ol-sessions-filter") === "openlive" ? "openlive" : "all");
-  useEffect(() => { localStorage.setItem("ol-sessions-filter", filter); }, [filter]);
+  const filter = useUi((s) => s.sessionsFilter);
+  const setFilter = (f: "all" | "openlive") => useUi.setState({ sessionsFilter: f });
   const { data: workspaces = [], isLoading, error } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
   const pendingDeletes = usePendingDeletes((st) => st.keys);
   const overrides = useHistoryOverrides((st) => st.titles);

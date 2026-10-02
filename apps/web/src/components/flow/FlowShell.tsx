@@ -6,7 +6,8 @@ import { isDesktop, isMacDesktop } from "@/lib/platform";
 import { flowBridge } from "@/lib/flow/bridge";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
-import { FLOW_ONBOARDED_DONE, FLOW_ONBOARDED_KEY, flowOnboardingStep } from "@/lib/flow/onboarding";
+import { FLOW_ONBOARDED_DONE, flowOnboardingStep } from "@/lib/flow/onboarding";
+import { useOnboarding } from "@/lib/prefs";
 import { FlowHome } from "./FlowHome";
 import { FlowOnboarding } from "./FlowOnboarding";
 import { SwitchHole } from "./ModeSwitch";
@@ -15,8 +16,8 @@ import { SwitchHole } from "./ModeSwitch";
 // over it, and a first run in front until the person has been asked for what
 // Flow needs.
 
-const firstStep = (): 1 | 2 | null => { try { return flowOnboardingStep(localStorage.getItem(FLOW_ONBOARDED_KEY)); } catch { return null; } };
-const markSeen = (): void => { try { localStorage.setItem(FLOW_ONBOARDED_KEY, FLOW_ONBOARDED_DONE); } catch { /* private mode */ } };
+const firstStep = (): 1 | 2 | null => flowOnboardingStep(useOnboarding.getState().flowOnboarded);
+const markSeen = (): void => { useOnboarding.setState({ flowOnboarded: FLOW_ONBOARDED_DONE }); };
 
 export function FlowShell() {
   const [sessionId, setSessionId] = useState<string | null>(null);

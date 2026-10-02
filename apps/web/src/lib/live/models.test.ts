@@ -43,6 +43,8 @@ beforeEach(async () => {
   models = await import("./models");
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+/** The voice pipeline as saved, in the prefs module this test's `models` reads. */
+const savedPipeline = async (pipeline: Record<string, unknown>) => (await import("../prefs")).useVoicePrefs.setState({ pipeline });
 
 /** A /tts response that streams `chunks` and then ends. */
 const spoken = (chunks: Float32Array[]) => new Response(new ReadableStream<Uint8Array>({
@@ -227,7 +229,7 @@ describe("a browser voice the agent runs", () => {
 
   it("loads no browser Supertonic for a call the agent speaks, and does once its copy is gone", async () => {
     vi.stubGlobal("window", {});
-    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ stt: { engine: "parakeet" }, tts: { engine: "supertonic" } }), setItem: () => {} });
+    await savedPipeline({ stt: { engine: "parakeet" }, tts: { engine: "supertonic" } });
     let installed = true;
     vi.stubGlobal("fetch", agent(async () => spoken([]), () => listing(installed)));
     await models.loadModels(() => {});
@@ -263,7 +265,7 @@ describe("no voice for the language", () => {
 describe("keep-warm", () => {
   it("sends no warm-up for an engine that just served a real sentence, and one after a quiet minute", async () => {
     vi.stubGlobal("window", {});
-    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ stt: { engine: "whisper" }, tts: { engine: "pocket" } }), setItem: () => {} });
+    await savedPipeline({ stt: { engine: "whisper" }, tts: { engine: "pocket" } });
     const fetch = vi.fn(async () => spoken([new Float32Array([0.1])]));
     vi.stubGlobal("fetch", fetch);
     await models.ttsStream("Hello.", { engine: "pocket-int8" }, () => {});
@@ -301,9 +303,9 @@ describe("cloned voice", () => {
 });
 
 describe("native STT fallback", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.stubGlobal("window", {});
-    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ stt: { engine: "parakeet" }, tts: { engine: "kitten" } }), setItem: () => {} });
+    await savedPipeline({ stt: { engine: "parakeet" }, tts: { engine: "kitten" } });
   });
 
   it("loads the worker on demand and transcribes the same utterance with Whisper", async () => {
@@ -371,11 +373,9 @@ describe("native STT fallback", () => {
 });
 
 describe("modelsCached", () => {
-  it("asks for nothing after a switch to native engines when Smart-Turn already loaded", () => {
-    const store: Record<string, string> = {
-      "openlive-pipeline-v1": JSON.stringify({ stt: { engine: "parakeet" }, tts: { engine: "kitten" } }),
-      "openlive-models-ready-v1": "wasm:tiny:kokoro",
-    };
+  it("asks for nothing after a switch to native engines when Smart-Turn already loaded", async () => {
+    const store: Record<string, string> = { "openlive-models-ready-v1": "wasm:tiny:kokoro" };
+    await savedPipeline({ stt: { engine: "parakeet" }, tts: { engine: "kitten" } });
     vi.stubGlobal("window", {});
     vi.stubGlobal("localStorage", { getItem: (k: string) => store[k] ?? null, setItem: () => {} });
     expect(models.modelsCached()).toBe(true);

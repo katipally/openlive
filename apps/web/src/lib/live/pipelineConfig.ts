@@ -1,13 +1,14 @@
 // Browser-only config for the voice pipeline (VAD · STT · turn · TTS).
-// Lives in localStorage because the renderer drives the whole pipeline: the
-// in-browser models run here, and the native engines are stateless calls to
-// the local agent, so there's nothing to persist server-side. Read fresh on
+// Owned by the renderer because it drives the whole pipeline: the in-browser
+// models run here, and the native engines are stateless calls to the local
+// agent. Saved in ui.json's voice group (lib/prefs.ts). Read fresh on
 // each TTS/turn call so a settings change applies to
 // the next spoken sentence with no restart; VAD knobs are baked into MicVAD at
 // construction, so they apply on the next session start.
 
 import { LANGUAGE_CODES, type LanguageCode } from "@openlive/shared";
 import type { LexiconEntry } from "@openlive/shared/speech/lexicon";
+import { useVoicePrefs } from "../prefs";
 
 export type WhisperSize = "tiny" | "base" | "small" | "large-v3-turbo";
 export const WHISPER_SIZE_IDS: readonly WhisperSize[] = ["tiny", "base", "small", "large-v3-turbo"];
@@ -471,7 +472,7 @@ const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.m
 const oneOf = <T extends string>(x: unknown, allowed: readonly T[], d: T): T => (allowed.includes(x as T) ? (x as T) : d);
 const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
 
-// Caps keep a pasted or corrupted list from filling localStorage; a thousand
+// Caps keep a pasted or corrupted list from filling ui.json; a thousand
 // entries compile in well under a millisecond.
 export const PRONUNCIATION_LIMITS = { entries: 1000, from: 100, to: 200 } as const;
 /** Saved dictionary entries, each trimmed and capped; one without a word is dropped. O(entries). */
@@ -544,14 +545,9 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
 /** Clamp a typed config the same way (it may hold a stale engine or voice). Pure. */
 export const clampPipelineConfig = (c: PipelineConfig): PipelineConfig => mergePipelineConfig(c);
 
-const KEY = "openlive-pipeline-v1";
-
 export function loadPipelineConfig(): PipelineConfig {
-  if (typeof window === "undefined") return DEFAULT_PIPELINE_CONFIG;
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? mergePipelineConfig(JSON.parse(raw)) : DEFAULT_PIPELINE_CONFIG;
-  } catch { return DEFAULT_PIPELINE_CONFIG; }
+  const saved = useVoicePrefs.getState().pipeline;
+  return saved ? mergePipelineConfig(saved) : DEFAULT_PIPELINE_CONFIG;
 }
 
 // The Voice and Speech engine tabs edit this config from several places (speed, engine,
@@ -565,7 +561,7 @@ export function onPipelineConfig(fn: (c: PipelineConfig) => void): () => void {
 
 export function savePipelineConfig(c: PipelineConfig): PipelineConfig {
   const clamped = clampPipelineConfig(c);
-  try { localStorage.setItem(KEY, JSON.stringify(clamped)); } catch { /* private mode / SSR */ }
+  useVoicePrefs.setState({ pipeline: clamped as unknown as Record<string, unknown> });
   for (const fn of listeners) fn(clamped);
   return clamped;
 }

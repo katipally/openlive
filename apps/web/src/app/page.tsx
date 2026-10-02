@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
-import { APP_MODES, restoreMode, useUi } from "@/lib/uiStore";
+import { APP_MODES, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
@@ -61,10 +61,6 @@ export default function Home() {
   // The first-run notice goes first: two overlays would contend for the same first look.
   const [noticePending, setNoticePending] = useState(false);
   const [welcomePending, setWelcomePending] = useState(false);
-
-  // The saved mode, applied after mount: this store is evaluated during SSR too,
-  // so seeding it from localStorage there would be a hydration mismatch.
-  useEffect(restoreMode, []);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
   // opening Live doesn't stall on "Preparing…". Only when the weights are already

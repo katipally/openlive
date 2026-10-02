@@ -141,7 +141,7 @@ export function flowConfigChanged(before: FlowConfig | undefined, after: FlowCon
   if (!before.consent.granted && after.consent.granted) telemetry.track("onboarding_step", { step: "flow_consent_granted" });
 }
 
-// ── voice pipeline (localStorage) ─────────────────────────────────────────
+// ── voice pipeline (ui.json) ─────────────────────────────────────────────
 /** Pure. A language change swaps the engines with it, and that counts as the one change. */
 export function pipelineChanges(a: PipelineConfig, b: PipelineConfig): Change[] {
   const out: Change[] = [];

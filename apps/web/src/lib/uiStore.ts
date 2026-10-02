@@ -1,13 +1,15 @@
-import { create } from "zustand";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { featureUsed } from "@/lib/featureUse";
-import { capabilityTab, type CapabilityTab } from "@/lib/settingsSearch";
+import { persisted, savedGroup, type Fields } from "@/lib/persist";
+import { capabilityTab, resolveSettingsTab, type CapabilityTab } from "@/lib/settingsSearch";
 
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `chat-${Date.now()}`);
 
 // App-wide UI state: the settings modal, whether the live UI is open, the active
 // conversation id (so the top bar can start a new one / resume a past one without
-// prop-drilling), and which half of the app the window shows.
+// prop-drilling), and which half of the app the window shows. What the main
+// window shows is remembered in ui.json (lib/persist.ts) and comes back on the
+// next launch: the mode, the open chat, the open Settings tab.
 interface UiState {
   settingsOpen: boolean;
   settingsTab: string | null;             // deep-link a tab when opening (consumed by the modal)
@@ -18,6 +20,8 @@ interface UiState {
   /** The row a deep link asked for, consumed with `settingsTab`. */
   settingsJump: SettingsJump | null;
   closeSettings: () => void;
+  /** The Settings tab on screen, kept by SettingsPage so a relaunch reopens it. */
+  settingsShown: string | null;
   /** The Capabilities subtab: the one a deep link or this viewer last chose. */
   capabilitiesTab: CapabilityTab;
   setCapabilitiesTab: (t: CapabilityTab) => void;
@@ -37,6 +41,11 @@ interface UiState {
   setPaletteOpen: (v: boolean) => void;
   shortcutsOpen: boolean;
   setShortcutsOpen: (v: boolean) => void;
+  /** History's filter: every session, or only those started in OpenLive. */
+  sessionsFilter: "all" | "openlive";
+  /** The call's transcript panel, open or not, and its width in px. */
+  transcriptOpen: boolean;
+  transcriptWidth: number;
 }
 
 export type AppMode = "chat" | "flow" | "dictate";
@@ -44,20 +53,27 @@ export const APP_MODES: readonly AppMode[] = ["chat", "flow", "dictate"];
 export const MODE_LABEL: Record<AppMode, string> = { chat: "Chat", flow: "Flow", dictate: "Dictate" };
 export interface SettingsJump { anchor: string; reveal?: string }
 
-const MODE_KEY = "openlive-mode";
-const CAPABILITIES_KEY = "openlive-capabilities-tab";
+export const TRANSCRIPT_WIDTH = { min: 280, max: 640, initial: 360 } as const;
 
-/** The saved mode, or "chat", and the last Capabilities subtab. Read on mount rather than at module load: this
- *  store is evaluated during SSR too, and seeding it from localStorage there is
- *  a hydration mismatch waiting to happen. */
-export function restoreMode(): void {
-  try {
-    const saved = localStorage.getItem(MODE_KEY);
-    const mode = APP_MODES.find((m) => m === saved);
-    if (mode) useUi.setState({ mode });
-    const tab = capabilityTab(localStorage.getItem(CAPABILITIES_KEY));
-    if (tab) useUi.setState({ capabilitiesTab: tab });
-  } catch { /* private mode */ }
+// Only the main window says what is on screen: Flow's hidden windows hold this
+// store too, and saving their idle copy would close the chat the person left open.
+const mainWindow = () => typeof location !== "undefined" && location.pathname === "/";
+
+/** Saved fields into state. The layout has already dropped a chat that is gone. */
+function restore(f: Fields): Partial<UiState> {
+  const out: Partial<UiState> = {};
+  const mode = APP_MODES.find((m) => m === f.mode);
+  if (mode) out.mode = mode;
+  const sub = capabilityTab(typeof f.capabilitiesTab === "string" ? f.capabilitiesTab : null);
+  if (sub) out.capabilitiesTab = sub;
+  if (typeof f.openChat === "string" && f.openChat && f.openChat.length <= 200) Object.assign(out, { activeChatId: f.openChat, liveOpen: true });
+  const tab = resolveSettingsTab(typeof f.settings === "string" ? f.settings : null);
+  if (tab) Object.assign(out, { settingsOpen: true, settingsTab: tab, settingsShown: tab, settingsOrigin: out.liveOpen ? "OpenLive" : MODE_LABEL[out.mode ?? "chat"] });
+  if (f.sessionsFilter === "all" || f.sessionsFilter === "openlive") out.sessionsFilter = f.sessionsFilter;
+  if (typeof f.transcriptOpen === "boolean") out.transcriptOpen = f.transcriptOpen;
+  const w = f.transcriptWidth;
+  if (typeof w === "number" && w >= TRANSCRIPT_WIDTH.min && w <= TRANSCRIPT_WIDTH.max) out.transcriptWidth = w;
+  return out;
 }
 
 /** What Settings goes back to, named as the person sees it: the call, the
@@ -70,8 +86,9 @@ function settingsOrigin(s: UiState): string {
   return MODE_LABEL[s.mode];
 }
 
-export const useUi = create<UiState>((set, get) => ({
+export const useUi = persisted<UiState>("ui", (set, get) => ({
   settingsOpen: false,
+  settingsShown: null,
   settingsTab: null,
   settingsJump: null,
   settingsOrigin: "Chat",
@@ -86,10 +103,7 @@ export const useUi = create<UiState>((set, get) => ({
   },
   closeSettings: () => set({ settingsOpen: false }),
   capabilitiesTab: "tools",
-  setCapabilitiesTab: (t) => {
-    try { localStorage.setItem(CAPABILITIES_KEY, t); } catch { /* private mode: kept for this run only */ }
-    set({ capabilitiesTab: t });
-  },
+  setCapabilitiesTab: (t) => set({ capabilitiesTab: t }),
   liveOpen: false,
   setLiveOpen: (v) => {
     if (v && !get().liveOpen) featureUsed("n_lobby_open");
@@ -108,10 +122,7 @@ export const useUi = create<UiState>((set, get) => ({
   resumeChat: (id) => set({ activeChatId: id }),
   newConversation: () => set({ activeChatId: newId() }),
   mode: "chat",
-  setMode: (mode) => {
-    set({ mode });
-    try { localStorage.setItem(MODE_KEY, mode); } catch { /* private mode */ }
-  },
+  setMode: (mode) => set({ mode }),
   paletteOpen: false,
   setPaletteOpen: (v) => {
     if (v && !get().paletteOpen) featureUsed("n_palette_open");
@@ -122,4 +133,19 @@ export const useUi = create<UiState>((set, get) => ({
     if (v && !get().shortcutsOpen) featureUsed("n_shortcuts_sheet");
     set(v ? { shortcutsOpen: true, paletteOpen: false } : { shortcutsOpen: false });
   },
-}));
+  sessionsFilter: "all",
+  transcriptOpen: true,
+  transcriptWidth: TRANSCRIPT_WIDTH.initial,
+}), {
+  partialize: (s) => (mainWindow() ? {
+    mode: s.mode,
+    capabilitiesTab: s.capabilitiesTab,
+    openChat: s.liveOpen ? s.activeChatId : null,
+    settings: s.settingsOpen ? s.settingsShown : null,
+    sessionsFilter: s.sessionsFilter,
+    transcriptOpen: s.transcriptOpen,
+    transcriptWidth: s.transcriptWidth,
+  } : savedGroup("ui")),
+  clean: restore,
+  live: false,
+});

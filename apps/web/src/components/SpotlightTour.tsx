@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUi } from "@/lib/uiStore";
+import { useOnboarding } from "@/lib/prefs";
 import { tourClosed, tourRun, type TourExit } from "@/lib/featureUse";
 import { Button } from "@/components/ui";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -11,22 +12,16 @@ import { useFocusTrap } from "@/lib/useFocusTrap";
 // Reusable first-visit SPOTLIGHT tour: dims the page with a cutout + accent ring
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
 // tooltip at it. Each surface mounts its own <SpotlightTour id steps/> — the
-// tour runs ONCE per id (localStorage), is fully skippable (Skip/Escape/×), and
+// tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/×), and
 // follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
 // transitions) — no imperative animation against elements that may not exist,
 // which is what made the previous GSAP version spam "target not found".
 export interface TourStep { target: string; title: string; body: string }
 
-const seenKey = (id: string) => `openlive-tour-${id}`;
-export const tourSeen = (id: string): boolean => { try { return !!localStorage.getItem(seenKey(id)); } catch { return true; } };
-const markSeen = (id: string) => { try { localStorage.setItem(seenKey(id), "1"); } catch { /* private mode */ } };
+export const tourSeen = (id: string): boolean => useOnboarding.getState().tours.includes(id);
+const markSeen = (id: string) => { if (!tourSeen(id)) useOnboarding.setState((s) => ({ tours: [...s.tours, id] })); };
 /** Forgets every tour, so each plays again the next time its screen shows. */
-export function resetTours() {
-  try {
-    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((k) => k?.startsWith(seenKey("")));
-    for (const k of keys) localStorage.removeItem(k!);
-  } catch { /* private mode: nothing was stored */ }
-}
+export function resetTours(): void { useOnboarding.setState({ tours: [] }); }
 
 export function SpotlightTour({ id, steps, active = true }: { id: string; steps: TourStep[]; active?: boolean }) {
   const [show, setShow] = useState(false);

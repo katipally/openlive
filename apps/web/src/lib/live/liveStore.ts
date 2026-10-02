@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ModelProgress } from "./models";
 import type { ErrorClass } from "@openlive/shared";
 import type { AgentId, AgentMeta, ElicitationWire, PermissionOption } from "./liveClient";
+import { useVoicePrefs } from "../prefs";
 
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
 
@@ -84,7 +85,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   downloadTotal: 0,
   downloadModels: [],
   muted: false,
-  pttEnabled: typeof window !== "undefined" && localStorage.getItem("openlive-ptt-enabled") === "1",
+  pttEnabled: false,
   cameraOn: false,
   screenOn: false,
   screenStream: null,
@@ -122,3 +123,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   termExit: (terminalId, exitCode) =>
     set((s) => ({ terminals: { ...s.terminals, [terminalId]: { ...(s.terminals[terminalId] ?? { output: "", truncated: false }), exitCode } } })),
 }));
+
+// Push-to-talk's arming is remembered (lib/prefs.ts); a call reads it from here.
+useLiveStore.setState({ pttEnabled: useVoicePrefs.getState().pttEnabled });
+useVoicePrefs.subscribe((p) => { if (p.pttEnabled !== useLiveStore.getState().pttEnabled) useLiveStore.setState({ pttEnabled: p.pttEnabled }); });

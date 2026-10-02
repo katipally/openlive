@@ -22,6 +22,7 @@ import { speechFacts } from "./speechFacts";
 import { featureUsed } from "../featureUse";
 import { reportSetting } from "../settingChanges";
 import { telemetry } from "../telemetry";
+import { agentPrefsOf, chatPrefsOf, setAgentPrefs, setChatPrefs, useSessionPrefs } from "../prefs";
 import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
 
 const NO_BANDS = [0, 0, 0, 0, 0];
@@ -33,48 +34,43 @@ function abToBase64(ab: ArrayBuffer): string {
   return btoa(bin);
 }
 
-// Per-conversation agent bind, remembered browser-side (localStorage) so reopening
+// Per-conversation agent bind, remembered in ui.json (lib/prefs.ts) so reopening
 // a conversation resumes the same agent. Sent to the server on connect + on change.
 function readBind(chatId: string): AgentId | null {
-  try { const v = localStorage.getItem(`openlive-bind:${chatId}`); return v && isAgentId(v) ? v : null; } catch { return null; }
+  const v = chatPrefsOf(chatId).bind;
+  return v && isAgentId(v) ? v : null;
 }
 // Spoken-answer interpreters for permission (yes/no) + elicitation (form-fill).
 // Pure — extracted to ./modalAnswer so they're unit-tested (modalAnswer.test.ts).
 
-/** Set a conversation's agent bind (store + localStorage). The live session pushes
+/** Set a conversation's agent bind (store + ui.json). The live session pushes
  *  the change to the server via its boundAgent effect. Usable outside the call
  *  (e.g. the top-bar selector) — takes effect on the next connect if idle. */
 export function setConversationBind(chatId: string, agentId: AgentId | null) {
   useLiveStore.getState().set({ boundAgent: agentId });
-  try { localStorage.setItem(`openlive-bind:${chatId}`, agentId ?? ""); } catch { /* private mode */ }
+  setChatPrefs(chatId, { bind: agentId ?? "" });
 }
 
-function readCwd(chatId: string): string {
-  try { return localStorage.getItem(`openlive-cwd:${chatId}`) ?? ""; } catch { return ""; }
-}
-const RECENT_KEY = "openlive-recent-folders";
+const readCwd = (chatId: string): string => chatPrefsOf(chatId).cwd ?? "";
 /** Recently-used project folders (most-recent first), for the top-bar quick-switch. */
-export function recentFolders(): string[] {
-  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 8) : []; }
-  catch { return []; }
-}
+export const recentFolders = (): string[] => useSessionPrefs.getState().recentFolders;
 function addRecentFolder(path: string) {
   if (!path) return;
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify([path, ...recentFolders().filter((p) => p !== path)].slice(0, 8))); } catch { /* private mode */ }
+  useSessionPrefs.setState({ recentFolders: [path, ...recentFolders().filter((p) => p !== path)].slice(0, 8) });
 }
-/** Set a conversation's project folder (store + localStorage + recents). The live
+/** Set a conversation's project folder (store + ui.json + recents). The live
  *  session pushes it to the server (restarting the agent there) via its effect. */
 export function setConversationFolder(chatId: string, cwd: string) {
   useLiveStore.getState().set({ boundCwd: cwd });
-  try { localStorage.setItem(`openlive-cwd:${chatId}`, cwd); } catch { /* private mode */ }
+  setChatPrefs(chatId, { cwd });
   addRecentFolder(cwd);
 }
 
 // Resuming one of an agent's OWN external sessions (from History): remember the ACP
 // session id so the initial bind loadSession-s it. Sent on connect only.
-function readResume(chatId: string): string { try { return localStorage.getItem(`openlive-resume:${chatId}`) ?? ""; } catch { return ""; } }
+const readResume = (chatId: string): string => chatPrefsOf(chatId).resume ?? "";
 export function setConversationResume(chatId: string, sessionId: string) {
-  try { localStorage.setItem(`openlive-resume:${chatId}`, sessionId); } catch { /* private mode */ }
+  setChatPrefs(chatId, { resume: sessionId });
 }
 
 // The live client of the ACTIVE session, so top-bar controls (rendered outside the
@@ -87,9 +83,9 @@ let activeLiveClient: LiveClient | null = null;
 export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
   if (!agentId) return null;
   try {
-    const v = localStorage.getItem(`openlive-meta:${agentId}`);
-    if (!v) return null;
-    const meta = JSON.parse(v) as AgentMeta;
+    const prefs = agentPrefsOf(agentId);
+    if (!prefs.meta) return null;
+    const meta = structuredClone(prefs.meta) as unknown as AgentMeta;
     if (!Array.isArray(meta.options)) meta.options = []; // tolerate pre-config-options caches
     if (!Array.isArray(meta.commands)) meta.commands = [];
     // Mode + model have their OWN dedicated pickers; drop any config option in those
@@ -98,38 +94,37 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
     meta.options = meta.options.filter((o) => o.category !== "mode" && o.category !== "model");
     // Reflect the user's remembered model/mode/option preference (validated against
     // the cached set) so the pre-call pickers show their last choice.
-    const mp = localStorage.getItem(`openlive-model:${agentId}`);
+    const mp = prefs.model;
     if (mp && meta.models.some((m) => m.id === mp)) meta.currentModelId = mp;
-    const dp = localStorage.getItem(`openlive-mode:${agentId}`);
+    const dp = prefs.mode;
     if (dp && meta.modes.some((m) => m.id === dp)) meta.currentModeId = dp;
     for (const o of meta.options) {
-      const p = localStorage.getItem(`openlive-opt:${agentId}:${o.id}`);
+      const p = prefs.opts?.[o.id];
       if (p && o.values.some((v) => v.id === p)) o.currentId = p;
     }
     return meta;
   } catch { return null; }
 }
-const readPref = (key: string) => { try { return localStorage.getItem(key) || null; } catch { return null; } };
 
 export function setConversationModel(modelId: string) {
   const agent = useLiveStore.getState().boundAgent;
   const shown = (useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent))?.currentModelId;
   if (agent && modelId !== shown) reportSetting({ setting: "agent_model", value: "changed", subject: agent });
-  if (agent) { try { localStorage.setItem(`openlive-model:${agent}`, modelId); } catch { /* */ } }
+  if (agent) setAgentPrefs(agent, { model: modelId });
   activeLiveClient?.setModel(modelId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
   if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModelId: modelId } });
 }
 export function setConversationMode(modeId: string) {
   const agent = useLiveStore.getState().boundAgent;
-  if (agent) { try { localStorage.setItem(`openlive-mode:${agent}`, modeId); } catch { /* */ } }
+  if (agent) setAgentPrefs(agent, { mode: modeId });
   activeLiveClient?.setMode(modeId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
   if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModeId: modeId } });
 }
 export function setConversationOption(optionId: string, valueId: string) {
   const agent = useLiveStore.getState().boundAgent;
-  if (agent) { try { localStorage.setItem(`openlive-opt:${agent}:${optionId}`, valueId); } catch { /* */ } }
+  if (agent) setAgentPrefs(agent, { opts: { [optionId]: valueId } });
   activeLiveClient?.setOption(optionId, valueId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
   if (m) useLiveStore.getState().set({ agentMeta: { ...m, options: m.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) } });
@@ -352,16 +347,17 @@ export function useLiveSession(chatId: string) {
       // The bound agent reported its selectable models/modes (or a switch landed).
       onAgentMeta: (meta) => {
         const agent = useLiveStore.getState().boundAgent;
-        if (agent) { try { localStorage.setItem(`openlive-meta:${agent}`, JSON.stringify(meta)); } catch { /* */ } }
+        if (agent) setAgentPrefs(agent, { meta: meta as unknown as Record<string, unknown> });
         set({ agentMeta: meta, agentConnecting: false });
         // Apply the remembered model/mode preference now the agent's set is known.
         if (agent) {
-          const pm = readPref(`openlive-model:${agent}`);
+          const prefs = agentPrefsOf(agent);
+          const pm = prefs.model;
           if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
-          const pd = readPref(`openlive-mode:${agent}`);
+          const pd = prefs.mode;
           if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
           for (const o of meta.options ?? []) {
-            const p = readPref(`openlive-opt:${agent}:${o.id}`);
+            const p = prefs.opts?.[o.id];
             if (p && p !== o.currentId && o.values.some((v) => v.id === p)) client.current?.setOption(o.id, p);
           }
         }
@@ -519,7 +515,7 @@ export function useLiveSession(chatId: string) {
     fact.current.mark = perf.mark();
     // NOTE: boundAgent/boundCwd/agentMeta are deliberately NOT touched here. The
     // store is already synced per-conversation (the chatId effect below), and
-    // re-reading localStorage at Start raced it: a pick saved under another chatId
+    // re-reading the saved picks at Start raced it: a pick saved under another chatId
     // clobbered the store with "", the change-effect re-bound with no folder, and
     // the agent silently fell back — folder chip full, session empty.
     set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null });

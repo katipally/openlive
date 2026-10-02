@@ -94,6 +94,8 @@ export function SettingsPage() {
   // a close from outside, like a palette command, hides without one.)
   useEffect(() => setVisible(openStore), [openStore]);
   useEffect(() => { if (visible) featureUsed(`n_settings_tab_${tab}`); }, [visible, tab]);
+  // Remembered, so a relaunch reopens this tab (uiStore's `settings` field).
+  useEffect(() => { if (openStore) useUi.setState({ settingsShown: tab }); }, [openStore, tab]);
   // Closing with the search focused hides the input without a blur event, so
   // `searching` has to be reset here or the rail stays unfolded next time.
   useEffect(() => { if (!visible) { setQuery(""); setActive(0); setSearching(false); } }, [visible]);

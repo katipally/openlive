@@ -836,10 +836,9 @@ it("another voice the gate ignores, onset included, teaches the room's noise flo
   expect(eng.noiseFloor).toBeGreaterThan(floor);
 });
 
-it("with the voiceprint off, a segment's onset is unlearned the same, and a frame reads no settings", () => {
-  let reads = 0;
-  vi.stubGlobal("window", {});
-  vi.stubGlobal("localStorage", { getItem: () => { reads++; return null; } });
+it("with the voiceprint off, a segment's onset is unlearned the same, and a frame reads no settings", async () => {
+  const { useVoicePrefs } = await import("../prefs");
+  const reads = vi.spyOn(useVoicePrefs, "getState");
   try {
     const { eng } = overReply("idle");
     const floor = eng.noiseFloor;
@@ -848,10 +847,10 @@ it("with the voiceprint off, a segment's onset is unlearned the same, and a fram
     expect(raised).toBeGreaterThan(floor);
     eng.onSpeechStart();
     expect(eng.noiseFloor).toBe(floor);
-    reads = 0;
+    reads.mockClear();
     for (let i = 0; i < 100; i++) eng.onFrame(frame, true);
-    expect(reads).toBe(0);
-  } finally { vi.unstubAllGlobals(); }
+    expect(reads).not.toHaveBeenCalled();
+  } finally { reads.mockRestore(); }
 });
 
 /** The side talk check on for `run`, answering `side`; what it was asked comes back. */

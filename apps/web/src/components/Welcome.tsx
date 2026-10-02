@@ -14,7 +14,8 @@ import { tile } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
-import { afterWelcome, allGranted, FLOW_ONBOARDED_KEY } from "@/lib/flow/onboarding";
+import { afterWelcome, allGranted } from "@/lib/flow/onboarding";
+import { useOnboarding } from "@/lib/prefs";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { useUi, type AppMode } from "@/lib/uiStore";
@@ -25,7 +26,6 @@ import { cn } from "@/lib/cn";
 // thing to try in each mode. Skippable at every step. Flow keeps its own
 // onboarding for what only it needs.
 
-const WELCOMED_KEY = "openlive-welcomed";
 const STEPS = 4;
 const LINE: Record<AppMode, string> = {
   chat: "A voice call with your AI, in this window.",
@@ -34,15 +34,13 @@ const LINE: Record<AppMode, string> = {
 };
 
 /** Owed to someone who has never been welcomed and never seen the home tour, which every earlier version showed. */
-const owed = (): boolean => { try { return localStorage.getItem(WELCOMED_KEY) !== "1" && !tourSeen("home"); } catch { return false; } };
-const markSeen = (): void => { try { localStorage.setItem(WELCOMED_KEY, "1"); } catch { /* private mode: shown again next launch */ } };
+const owed = (): boolean => !useOnboarding.getState().welcomed && !tourSeen("home");
+const markSeen = (): void => { useOnboarding.setState({ welcomed: true }); };
 /** Flow's first run opens past its access step when this one covered it. */
 const coverFlowAccess = (passed: boolean, granted: boolean): void => {
-  try {
-    const flag = localStorage.getItem(FLOW_ONBOARDED_KEY);
-    const next = afterWelcome(flag, passed, granted);
-    if (next !== null && next !== flag) localStorage.setItem(FLOW_ONBOARDED_KEY, next);
-  } catch { /* private mode: Flow asks again */ }
+  const flag = useOnboarding.getState().flowOnboarded;
+  const next = afterWelcome(flag, passed, granted);
+  if (next !== null && next !== flag) useOnboarding.setState({ flowOnboarded: next });
 };
 
 /** `onPending` tells the page while it is up, so the home tour waits its turn. */
@@ -59,7 +57,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   const settingsOpen = useUi((s) => s.settingsOpen);
   const root = useRef<HTMLDivElement>(null);
 
-  // Decided after mount: localStorage is not there during SSR.
+  // Decided after mount, so the first frame is the home it covers.
   useEffect(() => setOpen(owed()), []);
   useEffect(() => onPending(open), [open, onPending]);
 

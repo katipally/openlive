@@ -1,7 +1,7 @@
 // Guards the untrusted-config merge/clamp, the saved-shape migration and the
 // language rules: the only non-trivial logic here.
 import assert from "node:assert";
-import { test, vi } from "vitest";
+import { test } from "vitest";
 import { LANGUAGE_CODES } from "@openlive/shared";
 import {
   mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, browserModels, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
@@ -9,6 +9,7 @@ import {
   defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig,
   type PipelineConfig,
 } from "./pipelineConfig.ts";
+import { useVoicePrefs } from "../prefs.ts";
 
 /** The defaults with restricted-license models allowed, for tests that pick one. */
 const OPEN: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, allowRestricted: true };
@@ -305,15 +306,12 @@ test("restricted: an engine picked before the gate keeps working, and the OK per
   assert.equal(pocket.allowRestricted, false);
   assert.equal(pickCompatible(pocket, "en").cfg.tts.variant, "pocket-int8");
   assert.equal(mergePipelineConfig({ allowRestricted: "yes" }).allowRestricted, false);
-  const store = new Map<string, string>();
-  vi.stubGlobal("window", {});
-  vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
   try {
     savePipelineConfig(chooseVariant(OPEN, "tts", "piper-en_US-lessac-medium-int8"));
     const loaded = loadPipelineConfig();
     assert.equal(loaded.allowRestricted, true);
     assert.equal(loaded.tts.variant, "piper-en_US-lessac-medium-int8");
-  } finally { vi.unstubAllGlobals(); }
+  } finally { useVoicePrefs.setState({ pipeline: null }); }
 });
 
 test("pickCompatible leaves a config that already speaks the language alone", () => {

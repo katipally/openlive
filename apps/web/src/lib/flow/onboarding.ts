@@ -1,6 +1,7 @@
 import type { FlowCapabilities } from "./bridge";
 
-// How far Flow's first run has got, kept under one key: "1" once it is done,
+// How far Flow's first run has got, kept as one flag (lib/prefs.ts; its old
+// localStorage key is FLOW_ONBOARDED_KEY, for lib/migrateLocal.ts): "1" once it is done,
 // "access" once the app's Welcome covered its access step, which shows the same
 // rows. Only the brain step is left then.
 

@@ -6,18 +6,16 @@ import { isControlTarget, isTextTarget } from "./keyTargets";
 import { featureUsed } from "../featureUse";
 import { reportSetting } from "../settingChanges";
 import { telemetry } from "../telemetry";
+import { useVoicePrefs } from "../prefs";
 
 
 /** In-app Space behavior (Settings → General): "hold" = press-and-hold to talk;
  *  "toggle" = tap to start, tap to stop. */
 export type VoiceInputMode = "hold" | "toggle";
-const MODE_KEY = "openlive-voice-input";
-export function voiceInputMode(): VoiceInputMode {
-  try { return localStorage.getItem(MODE_KEY) === "toggle" ? "toggle" : "hold"; } catch { return "hold"; }
-}
+export const voiceInputMode = (): VoiceInputMode => useVoicePrefs.getState().inputMode;
 export function setVoiceInputMode(m: VoiceInputMode): void {
   if (m !== voiceInputMode()) reportSetting({ setting: "voice_input_mode", value: m });
-  try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
+  useVoicePrefs.setState({ inputMode: m });
 }
 
 /** Arm/disarm push-to-talk (the in-call toggle next to the mic). OFF by default —
@@ -30,8 +28,7 @@ export function setPttEnabled(on: boolean): void {
     if (on) featureUsed("n_ptt_toggle");
     else telemetry.count("n_ptt_toggle");
   }
-  useLiveStore.getState().set({ pttEnabled: on });
-  try { localStorage.setItem("openlive-ptt-enabled", on ? "1" : ""); } catch { /* private mode */ }
+  useVoicePrefs.setState({ pttEnabled: on }); // liveStore follows it
   // Disarming mid-hold is the caller's job (it has the session's pttUp) — the
   // engine owns the held-audio state, not this store flag.
 }
