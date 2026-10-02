@@ -106,7 +106,7 @@ const BOUNDARY = /[.,!?;:…]$/;
 
 /**
  * The command `said` ends with, and what was said before it, when the command
- * is all of it or follows a sentence end or a pause. "I will press enter later"
+ * is all of it or follows a sentence end, a pause or a new sentence's capital. "I will press enter later"
  * and "tell him to press enter" are words, not commands. `on` are the ones
  * switched on. English only, as cleanup is. O(n).
  */
@@ -119,7 +119,10 @@ export function spokenCommand(said: string, on: ReadonlySet<SpokenCommand>): { c
     const n = tokens.length;
     if (n < k || cores.slice(n - k).join(" ") !== phrase) continue;
     if (n === k) return { command, before: "" };
-    if (ALONE_ONLY.has(command) || !BOUNDARY.test(tokens[n - k - 1]!)) continue;
+    const prev = tokens[n - k - 1]!;
+    // A speech engine that drops the period before a pause still capitalizes what follows it: "Hello there New line."
+    const restarts = /^\p{Lu}/u.test(tokens[n - k]!) && !/^\p{Lu}/u.test(prev);
+    if (ALONE_ONLY.has(command) || !(BOUNDARY.test(prev) || restarts)) continue;
     return { command, before: tokens.slice(0, n - k).join(" ") };
   }
   return null;

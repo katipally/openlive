@@ -148,7 +148,8 @@ what to do, let go.
 ## Spoken commands
 
 Each has its own switch in Settings > Dictate > Commands. A command counts when
-it is the whole of what was said, or comes after a sentence end or a pause:
+it is the whole of what was said, or comes after a sentence end or a pause
+(or a capital where the speech engine began a sentence without a period):
 "Sounds good. Press enter." types "Sounds good." then presses Enter, while "I
 will press enter later" is typed as said. English only, as cleanup is.
 

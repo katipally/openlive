@@ -63,6 +63,7 @@ describe("spoken commands", () => {
   it("hears one at the tail after a sentence end or a pause", () => {
     expect(spokenCommand("Sounds good. Press enter.", ALL)).toEqual({ command: "enter", before: "Sounds good." });
     expect(spokenCommand("First point, new line", ALL)).toEqual({ command: "newLine", before: "First point," });
+    expect(spokenCommand("Hello there New line.", ALL)).toEqual({ command: "newLine", before: "Hello there" });
   });
 
   it("leaves the words alone when they are part of the sentence", () => {
@@ -70,6 +71,7 @@ describe("spoken commands", () => {
     expect(spokenCommand("Tell him to press enter.", ALL)).toBeNull();
     expect(spokenCommand("Start a new line of products", ALL)).toBeNull();
     expect(spokenCommand("That was bad. Undo that.", ALL)).toBeNull();
+    expect(spokenCommand("We watched Visit New Line", ALL)).toBeNull();
   });
 
   it("ignores a command that is switched off", () => {
