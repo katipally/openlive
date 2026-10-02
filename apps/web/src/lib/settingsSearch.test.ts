@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CAPABILITY_TABS, capabilityReveal, capabilityTab, resolveSettingsTab, searchSettings, SETTINGS_INDEX, type SettingsEntry } from "./settingsSearch";
 
@@ -162,5 +164,36 @@ describe("resolveSettingsTab", () => {
     expect(resolveSettingsTab("nope")).toBeNull();
     expect(resolveSettingsTab(null)).toBeNull();
     expect(resolveSettingsTab("")).toBeNull();
+  });
+});
+
+describe("deep links", () => {
+  const SRC = join(import.meta.dirname, "..");
+  const tsx = (dir: string): string[] => readdirSync(join(SRC, dir)).flatMap((f) => {
+    const p = join(dir, f);
+    return statSync(join(SRC, p)).isDirectory() ? tsx(p) : p.endsWith(".tsx") ? [p] : [];
+  });
+  const source = tsx("components").map((f) => readFileSync(join(SRC, f), "utf8")).join("\n");
+  const ids = new Set([...source.matchAll(/\bid="(set-[\w-]+)"/g)].map((m) => m[1]!));
+  // A Segmented with an anchor gives each option the id `<anchor>-<option>`.
+  const segmented = [...source.matchAll(/\banchor="(set-[\w-]+)"/g)].map((m) => m[1]!);
+  const rendered = (id: string) => ids.has(id) || segmented.some((a) => id.startsWith(`${a}-`) && source.includes(`id: "${id.slice(a.length + 1)}"`));
+  // Engine stages and Capabilities subtabs are built from their lists; the tests above pin those.
+  const literal = (anchor: string) => !anchor.startsWith("set-engine-stage-") && !anchor.startsWith("set-capabilities");
+
+  it("every search result lands on an id Settings renders", () => {
+    for (const e of SETTINGS_INDEX.filter((e) => e.tab !== "capabilities" && literal(e.anchor))) {
+      expect(rendered(e.anchor), e.anchor).toBe(true);
+      if (e.reveal && literal(e.reveal)) expect(rendered(e.reveal), e.reveal).toBe(true);
+    }
+  });
+
+  it("every link into Settings from outside it lands too", () => {
+    const links = [...source.matchAll(/\{ anchor: "(set-[\w-]+)"(?:, reveal: "(set-[\w-]+)")? \}/g)];
+    expect(links.length).toBeGreaterThan(0);
+    for (const [, anchor, reveal] of links) {
+      expect(rendered(anchor!), anchor).toBe(true);
+      if (reveal) expect(rendered(reveal), reveal).toBe(true);
+    }
   });
 });
