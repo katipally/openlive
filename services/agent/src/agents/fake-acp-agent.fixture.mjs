@@ -3,7 +3,7 @@
 // blocks back as its reply so the test can see exactly what was sent. Flags pick
 // an agent's quirks: --legacy-models (models as session state, set by
 // session/set_model), --no-http-mcp (advertises it takes no http MCP; any agent
-// echoes the MCP servers it was given on "[mcp]"), --auth-required (session/new says auth_required),
+// echoes the MCP servers it was given on "[mcp]" and Codex's toolless env on "[launch]"), --auth-required (session/new says auth_required),
 // --pid-file=<path> (writes its pid there, so a test can see it is gone).
 // On "[pi]" it plays pi-acp's pi: loads the extension next to $PI_ACP_PI_COMMAND and echoes
 // the launcher and what the extension registered.
@@ -84,6 +84,7 @@ conn = new AgentSideConnection(() => ({
       await text(p.sessionId, JSON.stringify({ launcher, registered }));
       return { stopReason: "end_turn" };
     }
+    if (first.includes("[launch]")) { await text(p.sessionId, JSON.stringify([process.env.INITIAL_AGENT_MODE ?? null, JSON.parse(process.env.CODEX_CONFIG ?? "{}")["features.shell_tool"] ?? null])); return { stopReason: "end_turn" }; }
     if (first.includes("[mcp]")) { await text(p.sessionId, JSON.stringify(servers.map((s) => s.name))); return { stopReason: "end_turn" }; }
     await text(p.sessionId, JSON.stringify(p.prompt.map((b) => b.text ?? b.type)));
     return { stopReason: "end_turn" };

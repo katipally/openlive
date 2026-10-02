@@ -9,7 +9,8 @@ import { log } from "../log.js";
 // Dictate's one-shot rewrites: AI polish of what was said, and command mode's
 // "do this to the selection". Either brain answers, API or coding agent, with
 // text alone: no tools are offered to an API brain, and a coding agent is
-// started with none of OpenLive's and has every permission it asks for refused.
+// started with none of OpenLive's, none of its own where its launch can say so,
+// and has every permission it asks for refused.
 // The caller holds the deadline and falls back to the text it already has, so
 // nothing said is lost to a slow or failing brain.
 
@@ -90,7 +91,7 @@ function drop(h: Held) {
 async function startAgent(brain: FlowBrain): Promise<AcpAgent> {
   if (!isAgentId(brain.agentId)) throw new Error("Pick a coding agent for Dictate in Settings > Dictate.");
   let meta: AgentMeta | null = null;
-  const agent = new AcpAgent(brain.agentId, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), preamble: PREAMBLE, onMeta: (m) => { meta = m; } });
+  const agent = new AcpAgent(brain.agentId, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), preamble: PREAMBLE, toolless: true, onMeta: (m) => { meta = m; } });
   const ac = new AbortController();
   const bell = setTimeout(() => ac.abort(), START_MS);
   try { await agent.start(ac.signal); }

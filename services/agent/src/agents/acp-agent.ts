@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { statSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { AgentCapabilities, AvailableCommand, Client, RequestPermissionRequest, RequestPermissionResponse, SessionConfigOption, SessionInfo, SessionModeState, SessionNotification, SessionUpdate } from "@agentclientprotocol/sdk";
@@ -10,6 +11,7 @@ import {
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
+import { layout, resolveHome } from "@openlive/shared/home";
 import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
 import { PERMISSION_CANCELLED } from "./types.js";
@@ -72,12 +74,16 @@ export function callPreamble(hosted: string[]): string {
 //   • allowedTools: a server OpenLive hosts carries its own tools, which run
 //     on OpenLive's terms as they do for the built-in brain, so no agent-side ask.
 // Other agents have no such channel, so they keep the first-turn preamble.
-const buildClaudeMeta = (text: string, hosted: string[]) => ({
+// A toolless session (Dictate's rewrite) gets no built-in tool (`tools: []`), no MCP
+// server but the ones passed (none), and is not saved for `claude --resume`
+// (claude-agent-sdk's Options, read against adapter 0.81.2).
+const buildClaudeMeta = (text: string, hosted: string[], toolless = false) => ({
   claudeCode: {
     options: {
-      persistSession: true,
+      persistSession: !toolless,
       systemPrompt: { type: "preset", preset: "claude_code", append: text },
       allowedTools: hosted.map((s) => `mcp__${s}`),
+      ...(toolless ? { tools: [], strictMcpConfig: true, disallowedTools: ["mcp__*"] } : {}),
     },
   },
 });
@@ -100,12 +106,30 @@ export interface AcpOpts {
   /** The caller will persist session/load's replay, so resume must replay: the
    *  chat is empty. Otherwise session/resume, which skips the replay, is enough. */
   replay?: boolean;
+  /** Starts the agent with no tools where its launch can say so (the registry's
+   *  `toolless`): a session that only ever answers in text. */
+  toolless?: boolean;
   /** Initialize only, no session: enough to ask the agent for its session list. */
   connectOnly?: boolean;
   /** A look at the agent (its model list, its session list), not a session that serves anyone: starting it is not a first start. */
   probe?: boolean;
   /** How the session came up: `none` when no earlier one was asked for, `fell_back` when it was and a fresh one started. */
   onResumed?: (how: "none" | "resumed" | "loaded" | "fell_back") => void;
+}
+
+/** The registry's `toolless` launch, with Gemini's policy written where `--policy` can read it. */
+function toollessLaunch(id: AgentId): { args: string[]; env: Record<string, string> } {
+  const t = AGENT_REGISTRY[id].acp.toolless ?? {};
+  const args = [...(t.args ?? [])];
+  if (t.policyToml) {
+    const dir = layout(resolveHome()).cache;
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${id}-toolless-policy.toml`);
+    writeFileSync(file, t.policyToml);
+    // Windows spawns through a shell, which splits an unquoted path at its spaces.
+    args.push("--policy", process.platform === "win32" ? `"${file}"` : file);
+  }
+  return { args, env: t.env ?? {} };
 }
 
 function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[]; cwd: string } {
@@ -190,7 +214,8 @@ export class AcpAgent implements Agent {
     const isWin = process.platform === "win32";
     const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
     if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length) this.bridge = piBridge(http);
-    const child = spawn(cfg.command, cfg.args, {
+    const toolless = this.opts.toolless ? toollessLaunch(this.id) : { args: [], env: {} };
+    const child = spawn(cfg.command, [...cfg.args, ...toolless.args], {
       cwd: cfg.cwd,
       // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
       // refuses to exec without a shell (ENOENT) — so bind Claude Code/Codex/OpenCode
@@ -208,6 +233,7 @@ export class AcpAgent implements Agent {
         // (verified 2026-09-27 against claude 2.1.283 / adapter 0.81.2).
         ...(AGENT_REGISTRY[this.id].acp.env ?? {}),
         ...this.bridge?.env,
+        ...toolless.env,
       },
       stdio: ["pipe", "pipe", "pipe"],
       // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
@@ -304,7 +330,7 @@ export class AcpAgent implements Agent {
     if (this.hosted.length < asked.length) log.warn(`agent:${this.id}`, "it accepts no MCP over http, so OpenLive's tools are not attached");
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the
     // first user message stays clean; everyone else gets the PREAMBLE prepended.
-    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText(), this.hosted.map((s) => s.name)) : undefined;
+    const meta = quirks.preamble === "systemPrompt" ? buildClaudeMeta(this.preambleText(), this.hosted.map((s) => s.name), this.opts.toolless) : undefined;
     if (meta) this.sentPreamble = true;
     this.meta = { ...this.meta, resumeAcrossRestart: canLoad && quirks.resumeAcrossRestart };
     // MCP passthrough: the project's own .mcp.json rides along for agents that
@@ -313,7 +339,7 @@ export class AcpAgent implements Agent {
     // the project's file, so a native-MCP agent cannot double-register them.
     const mcpServers = [
       ...(this.bridge ? [] : this.hosted),
-      ...(quirks.mcp === "passthrough" ? readProjectMcpServers(cwd, init) : []),
+      ...(quirks.mcp === "passthrough" && !this.opts.toolless ? readProjectMcpServers(cwd, init) : []),
     ];
 
     let resumed = false;

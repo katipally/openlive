@@ -88,8 +88,22 @@ export interface AgentDef {
      *  files sessions where `claude --resume` finds them — verified 2026-07-15
      *  against claude 2.1.198 / adapter 0.59.0). */
     env?: Record<string, string>;
+    /** How a session that may only answer in text (Dictate's rewrite) starts with
+     *  no tools: extra adapter args and env, and for Gemini a policy passed as
+     *  `--policy <file>`. An agent without one keeps its tools with every ask
+     *  refused. Claude's goes through `_meta.claudeCode.options` instead. */
+    toolless?: { args?: string[]; env?: Record<string, string>; policyToml?: string };
   };
 }
+
+// Codex's tools as features, each switched off; checked with `codex -c ... features
+// list` against codex 0.156.1, the one codex-acp 1.13.1 bundles. Its config takes
+// dotted keys, as `-c` does.
+const CODEX_NO_TOOLS = {
+  ...Object.fromEntries(["shell_tool", "unified_exec", "multi_agent", "apps", "plugins", "browser_use", "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "skill_search", "tool_suggest", "sleep_tool"].map((f) => [`features.${f}`, false])),
+  web_search: "disabled",
+  include_apply_patch_tool: false,
+};
 
 // Facts verified 2026-07-16 against each tool's CLI on this machine (auth
 // subcommands, credential store locations) and each ACP adapter's distribution.
@@ -144,7 +158,11 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "codex-rollout",
     externalDeletable: true,
     credProbe: { kind: "file", path: "~/.codex/auth.json" },
-    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    acp: {
+      resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true,
+      // codex-acp merges CODEX_CONFIG into each session's config; read-only asks before any write.
+      toolless: { env: { CODEX_CONFIG: JSON.stringify(CODEX_NO_TOOLS), INITIAL_AGENT_MODE: "read-only" } },
+    },
     startHint: "Make sure `codex` is installed and signed in (run `codex`).",
   },
   "cursor": {
@@ -193,7 +211,9 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     sessionParser: "opencode-sqlite",
     externalDeletable: false,
     credProbe: { kind: "json", path: "~/.local/share/opencode/auth.json", rule: "nonEmptyObject" },
-    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    // OPENCODE_PERMISSION merges into its permission config; with every one denied
+    // `opencode debug agent build` lists no tool on (1.18.33).
+    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true, toolless: { env: { OPENCODE_PERMISSION: '{"*":"deny"}' } } },
     startHint: "Make sure OpenCode is installed (opencode.ai) and signed in — run `opencode` in a terminal once.",
   },
   "hermes": {
@@ -283,7 +303,12 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
         { kind: "fileMatch", path: "~/.gemini/.env", pattern: "^(export\\s+)?(GEMINI|GOOGLE)_API_KEY=.+" },
       ],
     },
-    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true },
+    acp: {
+      resumeAcrossRestart: true, preamble: "firstMessage", mcp: "passthrough", terminal: true,
+      // Its policy engine's `*` matches every tool, built-in or MCP, and a deny
+      // takes the tool out of the model's view (docs/reference/policy-engine.md, 0.37.1).
+      toolless: { policyToml: '[[rule]]\ntoolName = "*"\ndecision = "deny"\npriority = 999\n' },
+    },
     startHint: "Make sure Gemini CLI 0.33 or newer is installed and signed in (run `gemini` once and pick how to sign in).",
   },
   "copilot": {
@@ -305,7 +330,12 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // The token lives in the system credential store; config.json (commented JSON)
     // keeps the signed-in user. GH_TOKEN-style env auth is not visible here.
     credProbe: { kind: "fileMatch", path: "~/.copilot/config.json", pattern: "^\\s*\"lastLoggedInUser\"\\s*:\\s*\\{" },
-    acp: { resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: true },
+    acp: {
+      resumeAcrossRestart: true, preamble: "firstMessage", mcp: "native", terminal: true,
+      // `copilot help permissions` (1.0.91): a kind with no argument denies all of it,
+      // without asking. Reads and the user's own MCP servers stay, every ask refused.
+      toolless: { args: ["--deny-tool=shell", "--deny-tool=write", "--deny-tool=url", "--disable-builtin-mcps"] },
+    },
     startHint: "Make sure GitHub Copilot CLI is installed and signed in (run `copilot login`).",
   },
   "kiro": {

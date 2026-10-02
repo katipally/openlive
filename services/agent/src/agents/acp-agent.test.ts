@@ -2,7 +2,7 @@
 // slash commands, boolean config options, session/list paging and session/resume
 // with its fallback. Plus the pure mappers they rest on.
 import assert from "node:assert";
-import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,6 +179,20 @@ test("a probe (the model list, the session list) starting an agent is not a firs
 
 const flagged = (flag: string) => { adapter.command = `${process.execPath} ${FIXTURE} ${flag}`; };
 const hosted = { type: "http" as const, name: "openlive", url: "http://127.0.0.1:1/mcp/x", headers: [] };
+
+test("a toolless session starts with the registry's no-tools launch and none of the project's MCP servers", async () => {
+  const project = mkdtempSync(join(tmpdir(), "acp-toolless-"));
+  writeFileSync(join(project, ".mcp.json"), JSON.stringify({ mcpServers: { local: { command: "x" } } }));
+  const plain = agent({ cwd: project }).a;
+  await plain.start(new AbortController().signal);
+  assert.deepEqual(await said(plain, { text: "[launch]" }), [null, null]);
+  assert.deepEqual(await said(plain, { text: "[mcp]" }), ["local"]);
+
+  const toolless = agent({ cwd: project, toolless: true }).a;
+  await toolless.start(new AbortController().signal);
+  assert.deepEqual(await said(toolless, { text: "[launch]" }), ["read-only", false]);
+  assert.deepEqual(await said(toolless, { text: "[mcp]" }), []);
+}, 20_000);
 
 test("OpenLive's tools go to an agent that is silent about http MCP, and are held back, with their preamble, from one that says it takes none", async () => {
   const silent = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" }).a;
