@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlarmClock, Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
+import { AlarmClock, Bell, Blocks, BookOpen, Folder, Globe, Monitor, Plug, Search, ShieldQuestion, Sparkles, SquareTerminal, Type, Undo2, Zap, type LucideIcon } from "lucide-react";
+import { ToolGlyph } from "@/components/live/ToolGlyph";
 import type { CapabilitiesWire, EditWire, OnDemandMode, ReminderWire, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -119,7 +120,7 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
         {shown.map((t) => (
           <Tooltip key={t.name} label={t.asksFirst ? `${t.description} Asks first.` : t.description}>
             <span tabIndex={0} className="rounded-full">
-              <Chip className="font-mono">{t.name}</Chip>
+              <Chip className="font-mono"><ToolGlyph tool={t.name} className="text-current" />{t.name}{t.asksFirst && <ShieldQuestion aria-label="Asks first" />}</Chip>
             </span>
           </Tooltip>
         ))}

@@ -12,7 +12,7 @@ import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { labelJudgment } from "./addressee";
 import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
-import { kindMeta } from "./toolMeta";
+import { kindMeta, toolActive } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
 import { useLiveStore, type TypedDraft } from "./liveStore";
@@ -427,7 +427,7 @@ export function useLiveSession(chatId: string) {
         if (e.type === "tool_start") {
           engine.current?.endAgentStep();
           closeSpokenSegment(); // don't let the pre-tool text re-emit after the tool part
-          set({ toolStatus: e.tool });
+          set({ toolStatus: toolActive(e.tool, e.summary) });
           if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
           return;
         }

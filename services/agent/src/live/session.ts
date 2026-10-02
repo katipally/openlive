@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, toolSummary, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import type { Approve, Emit, Session, Tool } from "../capabilities/types.js";
@@ -32,8 +32,6 @@ const BRIDGE_TIMEOUT_MS = 5_000;
 const OWN_UI = new Set(["delegate", "update_todos"]);
 /** Kinds given, so a no is counted as one and the client maps a spoken answer. */
 const ALLOW_OR_DENY: PermissionAskOption[] = [{ id: "allow", label: "Allow", kind: "allow_once" }, { id: "deny", label: "Deny", kind: "reject_once" }];
-/** The argument a chip names, the first one a tool has. */
-const CHIP_ARGS = ["url", "note", "path", "command", "name"];
 
 // Some providers (e.g. MiniMax) leak control-token fragments like "[e[" into the
 // text stream. Scrub ONLY those bracket-pair fragments — NOT every bracket: coding
@@ -620,8 +618,8 @@ export class LiveSession {
       ...t,
       execute: async (args, ctx) => {
         const id = randomUUID();
-        const named = CHIP_ARGS.map((k) => args?.[k]).find((v) => typeof v === "string" && v);
-        await this.toolEmit({ type: "tool_start", id, tool: t.name, ...(named && { summary: named }) });
+        const summary = toolSummary(t.name, args);
+        await this.toolEmit({ type: "tool_start", id, tool: t.name, ...(summary && { summary }) });
         try { return await t.execute(args, ctx); } finally { await this.toolEmit({ type: "tool_done", id }); }
       },
     };

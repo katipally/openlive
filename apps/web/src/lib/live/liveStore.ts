@@ -30,7 +30,7 @@ interface LiveState {
   agentCaption: string;
   agentCaptionAt: number[]; // each caption word's onset (ms after agentCaptionStart): paces the word-by-word caption reveal
   agentCaptionStart: number; // performance.now() when the current agent chunk began voicing
-  toolStatus: string; // active tool name while a tool is running (""), drives the live "Searching the web…" cue
+  toolStatus: string; // the running tool in words ("" when none), drives the live "Searching the web…" cue
   holdUntil: number | null; // mid-thought pause held: epoch-ms when it auto-sends (drives "waiting for you… tap to send")
   pttActive: boolean;       // push-to-talk currently held (space / global hotkey)
   pttEnabled: boolean;      // push-to-talk armed (opt-in via the in-call toggle; persisted)

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ErrorClass, FlowCloseReason, FlowContextWire, FlowEventWire } from "@openlive/shared";
+import { toolSummary, type ErrorClass, type FlowCloseReason, type FlowContextWire, type FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
 import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
 import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
-import { agentToolLabel, toolMeta } from "@/lib/live/toolMeta";
+import { agentToolLabel, toolActive } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { log } from "@/lib/log";
@@ -515,7 +515,10 @@ export function useFlowOwner(): void {
           return;
         case "tool_start":
           if (snap.current.speaking) engine.current?.endAgentStep();
-          return setPhase("acting", e.kind ? agentToolLabel(e.kind, e.target) : toolMeta(e.name).active);
+          return setPhase("acting", e.kind ? agentToolLabel(e.kind, e.target) : toolActive(e.name, e.target));
+        case "tool_call":
+          // An API brain's call names its arguments only once they are all in.
+          return setPhase("acting", toolActive(e.name, toolSummary(e.name, e.args)));
         case "tool_result":
           // Deliberately nothing. A run of tool calls is one continuous piece of
           // work, and bouncing the orb back to thinking between every pair of

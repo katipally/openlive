@@ -1,5 +1,6 @@
 import type { Part } from "../chatStore";
 import { segmentTurn, type Segment } from "../live/timeline";
+import { toolSummary } from "@openlive/shared";
 import { agentToolLabel, toolMeta } from "../live/toolMeta";
 import type { FlowSessionEntry } from "./sessions";
 
@@ -12,7 +13,7 @@ export type ToolStatus = "running" | "done" | "failed" | "stopped" | "declined" 
 
 export interface FlowTool {
   id: string;
-  /** The raw tool name, for the tooltip. */
+  /** The raw tool name, for its icon or connector monogram. */
   name: string;
   label: string;
   status: ToolStatus;
@@ -38,7 +39,11 @@ export interface FlowTimeline {
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const time = (iso: string) => new Date(iso).getTime();
 
-const labelOf = (e: FlowSessionEntry) => (str(e.kind) ? agentToolLabel(str(e.kind), str(e.target)) : toolMeta(str(e.name)).label);
+function labelOf(e: FlowSessionEntry): string {
+  if (str(e.kind)) return agentToolLabel(str(e.kind), str(e.target));
+  const gist = e.args && typeof e.args === "object" ? toolSummary(str(e.name), e.args as Record<string, unknown>) : undefined;
+  return gist ? `${toolMeta(str(e.name)).label} · ${gist}` : toolMeta(str(e.name)).label;
+}
 
 function statusOf(e: FlowSessionEntry): ToolStatus {
   if (e.isError !== true) return "done";
@@ -85,6 +90,7 @@ export function flowTimeline(entries: FlowSessionEntry[], assets: { name: string
       const known = tools.get(id);
       const t: FlowTool = known ?? { id, name: str(e.name), label: str(e.name) ? labelOf(e) : "A tool", status: "running", shots: [] };
       if (e.type === "tool_call") {
+        if (t.name) t.label = labelOf(e);
         t.args = argsOf(e.args);
         started.set(id, time(e.timestamp));
       } else {

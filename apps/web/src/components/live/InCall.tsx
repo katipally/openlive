@@ -6,7 +6,6 @@ import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, P
 import { animate } from "motion/react";
 import { EXIT, GENTLE, useMotionTokens } from "@/lib/motion";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
-import { toolMeta } from "@/lib/live/toolMeta";
 import { captionWindow } from "@/lib/live/voiceText";
 import { captionWords, wordsHeard } from "@openlive/shared/speech/timing";
 import { useUi } from "@/lib/uiStore";
@@ -242,7 +241,7 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
 
   // Status line: a live tool cue while a tool runs, "Warming up…" right after
   // connecting (both blue shimmer), push-to-talk while held, otherwise the phase label.
-  const statusLabel = pttActive ? "Push-to-talk: release to send" : toolStatus ? `${toolMeta(toolStatus).active}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
+  const statusLabel = pttActive ? "Push-to-talk: release to send" : toolStatus ? `${toolStatus}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
   if (pill) return (

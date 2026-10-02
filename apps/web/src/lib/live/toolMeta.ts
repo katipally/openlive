@@ -1,9 +1,11 @@
-import { AlarmClock, AppWindow, ArrowLeftRight, Bookmark, Brain, Camera, Clipboard, ExternalLink, Eye, FileSearch, FolderInput, Globe, Hammer, Hourglass, Keyboard, ListTodo, MousePointerClick, Pencil, ScanText, Search, Terminal, TextCursorInput, Trash2, Undo2, Wrench } from "lucide-react";
+import { AlarmClock, AppWindow, ArrowLeftRight, BookOpen, Bookmark, BookPlus, Brain, Camera, Clipboard, ExternalLink, Eye, FilePen, FileSearch, FileText, FolderInput, FolderOpen, Globe, Hammer, Hourglass, Keyboard, LayoutGrid, ListTodo, LogIn, MousePointerClick, PackageSearch, Pencil, Plug, RefreshCw, ScanText, Search, Sparkles, Terminal, TextCursorInput, Trash2, Undo2, Users, Wrench } from "lucide-react";
 import type { ToolKind } from "@openlive/shared";
 
-// Human labels + icon per tool — shared by the transcript (chips) and the in-call
-// status line, so "Searching the web" reads the same everywhere.
-export const TOOL_META: Record<string, { label: string; active: string; icon: typeof Wrench }> = {
+// Human labels + icon per tool, shared by the transcript (chips), the in-call
+// status line and Flow, so "Searching the web" reads the same everywhere.
+// `label` is said once it is done, `active` while it runs.
+export interface ToolMeta { label: string; active: string; icon: typeof Wrench; connector?: string }
+export const TOOL_META: Record<string, ToolMeta> = {
   web_search: { label: "Searched the web", active: "Searching the web", icon: Search },
   fetch_url: { label: "Read a page", active: "Reading a page", icon: Globe },
   remember: { label: "Saved a note", active: "Saving a note", icon: Bookmark },
@@ -50,10 +52,50 @@ export const TOOL_META: Record<string, { label: string; active: string; icon: ty
   find_files: { label: "Searched your files", active: "Searching your files", icon: FileSearch },
   list_edits: { label: "Checked recent edits", active: "Checking recent edits", icon: Undo2 },
   undo_edit: { label: "Undid an edit", active: "Undoing an edit", icon: Undo2 },
+
+  list_dir: { label: "Listed a folder", active: "Listing a folder", icon: FolderOpen },
+  read_file: { label: "Read a file", active: "Reading a file", icon: FileText },
+  write_file: { label: "Wrote a file", active: "Writing a file", icon: FilePen },
+  edit_file: { label: "Edited a file", active: "Editing a file", icon: Pencil },
+
+  list_apps: { label: "Listed your apps", active: "Checking your apps", icon: LayoutGrid },
+  get_app_state: { label: "Looked at an app", active: "Looking at an app", icon: AppWindow },
+  perform_action: { label: "Acted in an app", active: "Acting in an app", icon: MousePointerClick },
+  set_value: { label: "Filled in a field", active: "Filling in a field", icon: TextCursorInput },
+
+  activate_skill: { label: "Loaded a skill", active: "Loading a skill", icon: Sparkles },
+  read_skill_file: { label: "Read a skill file", active: "Reading a skill file", icon: BookOpen },
+  save_skill: { label: "Saved a skill", active: "Saving a skill", icon: BookPlus },
+
+  find_tools: { label: "Looked for a tool", active: "Looking for a tool", icon: PackageSearch },
+  // Shown as the connector tool they run; these only show when that is unknown.
+  read_tool: { label: "Used a connector", active: "Using a connector", icon: Plug },
+  use_tool: { label: "Used a connector", active: "Using a connector", icon: Plug },
+  list_connectors: { label: "Checked your connectors", active: "Checking your connectors", icon: Plug },
+  add_connector: { label: "Added a connector", active: "Adding a connector", icon: Plug },
+  connector_sign_in: { label: "Opened a sign-in", active: "Signing in", icon: LogIn },
+  reconnect_connector: { label: "Reconnected a connector", active: "Reconnecting", icon: RefreshCw },
+
+  delegate: { label: "Asked the assistant", active: "Asking the assistant", icon: Users },
 };
 
-export const toolMeta = (tool: string) =>
-  TOOL_META[tool] ?? { label: tool.replace(/_/g, " "), active: `Using ${tool.replace(/_/g, " ")}`, icon: Wrench };
+/** "many_tools-server" as "Many tools server". */
+const words = (s: string) => { const w = s.replace(/[_-]+/g, " ").trim(); return w.charAt(0).toUpperCase() + w.slice(1); };
+
+/** A connector tool is named `<connector>__<tool>`: it shows as both, in words. */
+export function toolMeta(tool: string): ToolMeta {
+  const known = TOOL_META[tool];
+  if (known) return known;
+  const cut = tool.indexOf("__");
+  if (cut > 0) {
+    const connector = words(tool.slice(0, cut)), label = `${connector} · ${words(tool.slice(cut + 2))}`;
+    return { label, active: label, icon: Plug, connector };
+  }
+  return { label: words(tool), active: `Using ${words(tool).toLowerCase()}`, icon: Wrench };
+}
+
+/** The tool at work, with its gist when it has one: "Setting a timer · 10 min". */
+export const toolActive = (tool: string, summary?: string) => (summary ? `${toolMeta(tool).active} · ${summary}` : toolMeta(tool).active);
 
 // ACP tool-call kinds (coding agents) → icon + spoken-status verb. Zed's
 // kind→icon mapping, translated to lucide.

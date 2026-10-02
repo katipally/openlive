@@ -6,7 +6,7 @@ import { AlertCircle, AppWindow, ChevronRight, CircleDashed, Hand, MessageSquare
 import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
 import { cn } from "@/lib/cn";
 import type { Part } from "@/lib/chatStore";
-import { toolMeta } from "@/lib/live/toolMeta";
+import { ToolGlyph } from "@/components/live/ToolGlyph";
 import { formatDuration, summarizeWork, type Segment, type ToolPart } from "@/lib/live/timeline";
 import { stamp } from "@/lib/flow/format";
 import { assetUrl, type FlowSessionDetail } from "@/lib/flow/sessions";
@@ -153,7 +153,6 @@ const QUIET = new Set<FlowTool["status"]>(["stopped", "declined", "unanswered"])
  *  under it as thumbnails that open larger. */
 function ToolRow({ tool: t, sessionId, onZoom }: { tool: FlowTool; sessionId: string; onZoom: (url: string) => void }) {
   const [open, setOpen] = useState(false);
-  const Icon = toolMeta(t.name).icon;
   const failed = t.status === "failed";
   const has = !!t.args;
   return (
@@ -163,8 +162,8 @@ function ToolRow({ tool: t, sessionId, onZoom }: { tool: FlowTool; sessionId: st
         {failed ? <AlertCircle aria-hidden className="size-3.5 shrink-0 text-destructive-text" />
           : QUIET.has(t.status) ? <Slash aria-hidden className="size-3.5 shrink-0 text-faint" />
           : t.status === "running" ? <CircleDashed aria-hidden className="size-3.5 shrink-0 text-faint" />
-          : <Icon aria-hidden className="size-3.5 shrink-0 text-faint" />}
-        <Tooltip label={t.name} className="min-w-0">
+          : <ToolGlyph tool={t.name} />}
+        <Tooltip label={t.label} truncated className="min-w-0">
           <span className={cn("truncate", failed && "text-destructive-text")}>{t.label}</span>
         </Tooltip>
         {t.status !== "done" && <span className={cn("shrink-0 text-micro", failed ? "text-destructive-text" : "text-faint")}>{statusWord(t.status)}</span>}

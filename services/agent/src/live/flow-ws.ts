@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { WebSocket } from "ws";
-import type { FlowContentWire, LanguageCode, LiveServerMsg, ToolCallState } from "@openlive/shared";
+import { toolSummary, type FlowContentWire, type LanguageCode, type LiveServerMsg, type ToolCallState } from "@openlive/shared";
 import { classifyError, flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
@@ -634,7 +634,10 @@ export class FlowLiveSession {
       // what it did if the server says so.
       // The orb shows a tool at work whichever brain called it.
       onCall: (event) => {
-        if (event.type === "tool_call") this.send({ t: "flow", event: { type: "tool_start", id: String(event.id), name: String(event.name) }, turn: this.replyTurn });
+        if (event.type === "tool_call") {
+          const target = toolSummary(String(event.name), event.args as Record<string, unknown>);
+          this.send({ t: "flow", event: { type: "tool_start", id: String(event.id), name: String(event.name), ...(target && { target }) }, turn: this.replyTurn });
+        }
         const stopped = !this.ac || this.ac.signal.aborted;
         this.write(() => this.record(event, stopped));
       },

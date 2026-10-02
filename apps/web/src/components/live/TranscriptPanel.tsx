@@ -15,6 +15,7 @@ import { usePointerDrag } from "@/lib/usePointerDrag";
 import { formatDuration, segmentTurn, summarizeWork, type ToolPart } from "@/lib/live/timeline";
 import { useMotionTokens } from "@/lib/motion";
 import { Disclosure, Button, SidePanelHeader, sidePanel, Swap, Tooltip } from "@/components/ui";
+import { ToolGlyph } from "./ToolGlyph";
 import { ToolCallCard } from "./ToolCallCard";
 import { Composer, type ComposerHandle } from "./Composer";
 
@@ -400,14 +401,13 @@ function ReasoningRow({ text, live }: { text: string; live: boolean }) {
 function ToolRow({ part }: { part: Extract<Part, { kind: "tool" }> }) {
   const [full, setFull] = useState(false);
   const m = meta(part.tool);
-  const Icon = m.icon;
   const failed = part.done && part.detail === "error";
   return (
     <button type="button" onClick={() => part.summary && setFull((v) => !v)} aria-expanded={part.summary ? full : undefined}
       className={cn("animate-fade-in flex min-h-7 w-full min-w-0 items-center gap-2 text-left text-label text-muted-foreground", part.summary && "transition hover:text-foreground", full && "items-start py-1")}>
       {!part.done ? <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-accent" />
         : failed ? <AlertCircle aria-hidden className="size-3.5 shrink-0 text-destructive" />
-        : <Icon aria-hidden className="size-3.5 shrink-0 text-faint" />}
+        : <ToolGlyph tool={part.tool} />}
       <span className={cn("shrink-0", failed && "text-destructive")}>{part.done ? m.label : `${m.active}…`}</span>
       {failed && <span className="shrink-0 text-micro text-destructive">failed</span>}
       {part.summary && <span className={cn("min-w-0 font-mono text-caption text-faint", full ? "whitespace-pre-wrap break-words" : "truncate")}>{part.summary}</span>}
