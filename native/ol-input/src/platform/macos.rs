@@ -150,20 +150,87 @@ pub fn carbon_modifiers(modifiers: Modifiers) -> u32 {
 pub fn virtual_keycode(key: Key) -> Option<u16> {
     use Key::*;
     Some(match key {
-        A => 0, S => 1, D => 2, F => 3, H => 4, G => 5, Z => 6, X => 7, C => 8, V => 9,
-        B => 11, Q => 12, W => 13, E => 14, R => 15, Y => 16, T => 17,
-        Num1 => 18, Num2 => 19, Num3 => 20, Num4 => 21, Num6 => 22, Num5 => 23,
-        Equal => 24, Num9 => 25, Num7 => 26, Minus => 27, Num8 => 28, Num0 => 29,
-        RightBracket => 30, O => 31, U => 32, LeftBracket => 33, I => 34, P => 35,
-        Return => 36, L => 37, J => 38, Quote => 39, K => 40, Semicolon => 41,
-        Backslash => 42, Comma => 43, Slash => 44, N => 45, M => 46, Period => 47,
-        Tab => 48, Space => 49, Grave => 50, Delete => 51, Escape => 53,
-        F17 => 64, F18 => 79, F19 => 80, F20 => 90,
-        F5 => 96, F6 => 97, F7 => 98, F3 => 99, F8 => 100, F9 => 101, F11 => 103,
-        F13 => 105, F16 => 106, F14 => 107, F10 => 109, F12 => 111, F15 => 113,
-        Home => 115, PageUp => 116, ForwardDelete => 117, F4 => 118, End => 119,
-        F2 => 120, PageDown => 121, F1 => 122,
-        LeftArrow => 123, RightArrow => 124, DownArrow => 125, UpArrow => 126,
+        A => 0,
+        S => 1,
+        D => 2,
+        F => 3,
+        H => 4,
+        G => 5,
+        Z => 6,
+        X => 7,
+        C => 8,
+        V => 9,
+        B => 11,
+        Q => 12,
+        W => 13,
+        E => 14,
+        R => 15,
+        Y => 16,
+        T => 17,
+        Num1 => 18,
+        Num2 => 19,
+        Num3 => 20,
+        Num4 => 21,
+        Num6 => 22,
+        Num5 => 23,
+        Equal => 24,
+        Num9 => 25,
+        Num7 => 26,
+        Minus => 27,
+        Num8 => 28,
+        Num0 => 29,
+        RightBracket => 30,
+        O => 31,
+        U => 32,
+        LeftBracket => 33,
+        I => 34,
+        P => 35,
+        Return => 36,
+        L => 37,
+        J => 38,
+        Quote => 39,
+        K => 40,
+        Semicolon => 41,
+        Backslash => 42,
+        Comma => 43,
+        Slash => 44,
+        N => 45,
+        M => 46,
+        Period => 47,
+        Tab => 48,
+        Space => 49,
+        Grave => 50,
+        Delete => 51,
+        Escape => 53,
+        F17 => 64,
+        F18 => 79,
+        F19 => 80,
+        F20 => 90,
+        F5 => 96,
+        F6 => 97,
+        F7 => 98,
+        F3 => 99,
+        F8 => 100,
+        F9 => 101,
+        F11 => 103,
+        F13 => 105,
+        F16 => 106,
+        F14 => 107,
+        F10 => 109,
+        F12 => 111,
+        F15 => 113,
+        Home => 115,
+        PageUp => 116,
+        ForwardDelete => 117,
+        F4 => 118,
+        End => 119,
+        F2 => 120,
+        PageDown => 121,
+        F1 => 122,
+        LeftArrow => 123,
+        RightArrow => 124,
+        DownArrow => 125,
+        UpArrow => 126,
         _ => return None,
     })
 }
@@ -221,7 +288,12 @@ pub fn event_source() -> Option<objc2_core_foundation::CFRetained<CGEventSource>
 
 /// Some apps poll global keyboard state instead of reading the event's own
 /// flags, so the modifier is physically down across the whole chord.
-pub fn send_chord(keycode: u16, flags: CGEventFlags, modifier_keycodes: &[u16]) -> Result<(), String> {
+pub fn send_chord(
+    keycode: u16,
+    flags: CGEventFlags,
+    modifier_keycodes: &[u16],
+    hold: Duration,
+) -> Result<(), String> {
     let source = event_source();
     let source = source.as_deref();
     let post = |code: u16, down: bool, flags: CGEventFlags| -> Result<(), String> {
@@ -235,19 +307,19 @@ pub fn send_chord(keycode: u16, flags: CGEventFlags, modifier_keycodes: &[u16]) 
     for code in modifier_keycodes {
         post(*code, true, flags)?;
     }
-    std::thread::sleep(Duration::from_millis(50));
+    std::thread::sleep(hold);
     post(keycode, true, flags)?;
     post(keycode, false, flags)?;
-    std::thread::sleep(Duration::from_millis(50));
+    std::thread::sleep(hold);
     for code in modifier_keycodes.iter().rev() {
         post(*code, false, CGEventFlags::empty())?;
     }
     Ok(())
 }
 
-pub fn send_paste_chord(keycode: u16) -> Result<(), String> {
+pub fn send_paste_chord(keycode: u16, hold: Duration) -> Result<(), String> {
     const LEFT_COMMAND: u16 = 55;
-    send_chord(keycode, CGEventFlags::MaskCommand, &[LEFT_COMMAND])
+    send_chord(keycode, CGEventFlags::MaskCommand, &[LEFT_COMMAND], hold)
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {
@@ -339,7 +411,8 @@ pub fn request_accessibility() -> bool {
 fn media_type_audio() -> *mut AnyObject {
     static AUDIO: OnceLock<usize> = OnceLock::new();
     let ptr = *AUDIO.get_or_init(|| unsafe {
-        let string: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: c"soun".as_ptr()];
+        let string: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: c"soun".as_ptr()];
         let retained: *mut AnyObject = msg_send![string, retain];
         retained as usize
     });
@@ -348,7 +421,9 @@ fn media_type_audio() -> *mut AnyObject {
 
 /// 0 not determined, 1 restricted, 2 denied, 3 authorized.
 pub fn microphone_status() -> isize {
-    unsafe { msg_send![class!(AVCaptureDevice), authorizationStatusForMediaType: media_type_audio()] }
+    unsafe {
+        msg_send![class!(AVCaptureDevice), authorizationStatusForMediaType: media_type_audio()]
+    }
 }
 
 /// A null completion handler is deliberate: macOS decides when to call back
@@ -402,7 +477,11 @@ const DEFAULT_INPUT_DEVICE: u32 = u32::from_be_bytes(*b"dIn ");
 const DEVICE_IS_RUNNING_SOMEWHERE: u32 = u32::from_be_bytes(*b"gone");
 
 fn audio_property<T: Default>(object: u32, selector: u32) -> Option<T> {
-    let address = AudioObjectPropertyAddress { selector, scope: PROPERTY_SCOPE_GLOBAL, element: 0 };
+    let address = AudioObjectPropertyAddress {
+        selector,
+        scope: PROPERTY_SCOPE_GLOBAL,
+        element: 0,
+    };
     let mut value = T::default();
     let mut size = std::mem::size_of::<T>() as u32;
     let status = unsafe {
@@ -453,6 +532,10 @@ pub fn frontmost_app_name() -> Option<String> {
         if utf8.is_null() {
             return None;
         }
-        Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+        Some(
+            std::ffi::CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }

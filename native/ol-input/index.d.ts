@@ -5,6 +5,17 @@ export interface HookEffect {
   bindingId?: string;
 }
 
+/** Flow's Advanced timing settings, in ms. A field left out keeps its default
+ *  (50, 200 and 8000); each is capped (1000, 5000 and 60000). */
+export interface InsertionTiming {
+  /** How long the modifier is held either side of the paste key. */
+  modifierHoldMs?: number;
+  /** How long after the app last read the clipboard before the user's copy goes back. */
+  clipboardQuietMs?: number;
+  /** The longest the pasted text may hold the clipboard. */
+  clipboardTimeoutMs?: number;
+}
+
 export interface SecureInputStatus {
   active: boolean;
   /** Best effort. macOS does not name the process that enabled it. */
@@ -52,8 +63,8 @@ export function notifyClosed(): void;
 
 /** Resolves once the text has landed, and rejects when it did not. Runs off
  *  the main thread: the paste receipt arrives on the main thread's run loop. */
-export function insertText(text: string, insertionMethod?: InsertionMethod): Promise<void>;
-export function beginInsertion(insertionMethod?: InsertionMethod): number;
+export function insertText(text: string, insertionMethod?: InsertionMethod, insertionTiming?: InsertionTiming): Promise<void>;
+export function beginInsertion(insertionMethod?: InsertionMethod, insertionTiming?: InsertionTiming): number;
 export function pushInsertion(session: number, chunk: string): void;
 /** Resolves once everything pushed into the session has been typed. */
 export function endInsertion(session: number): Promise<void>;

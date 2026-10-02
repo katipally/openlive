@@ -182,6 +182,12 @@ async function openSettings(what) {
   return true;
 }
 
+/** Only the three timings, each a whole number of ms, so a stray field never reaches the addon. */
+function insertionTiming(t) {
+  const ms = (v) => (Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 60_000) : undefined);
+  return t && { modifierHoldMs: ms(t.modifierHoldMs), clipboardQuietMs: ms(t.clipboardQuietMs), clipboardTimeoutMs: ms(t.clipboardTimeoutMs) };
+}
+
 function teardown() {
   if (secureTimer) { clearInterval(secureTimer); secureTimer = null; }
   if (!addon) return;
@@ -208,8 +214,8 @@ function install(getTarget, telemetryClient) {
   if (!app.isPackaged) ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
   ipcMain.handle("openlive:flow-closed", guard(() => load().notifyClosed()));
 
-  ipcMain.handle("openlive:flow-insert", guard((text, method) => load().insertText(text, method)));
-  ipcMain.handle("openlive:flow-insert-begin", guard((method) => load().beginInsertion(method)));
+  ipcMain.handle("openlive:flow-insert", guard((text, method, timing) => load().insertText(text, method, insertionTiming(timing))));
+  ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => load().beginInsertion(method, insertionTiming(timing))));
   ipcMain.handle("openlive:flow-insert-push", guard((session, chunk) => load().pushInsertion(session, chunk)));
   ipcMain.handle("openlive:flow-insert-end", guard((session) => load().endInsertion(session)));
 

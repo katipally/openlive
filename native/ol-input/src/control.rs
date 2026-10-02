@@ -15,7 +15,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::coords::ScreenPoint;
-use crate::inject::{self, Method};
+use crate::inject::{self, Method, Timing};
 use crate::motion;
 use crate::platform::desktop::current as platform;
 
@@ -130,7 +130,9 @@ pub fn mouse_up(point: ScreenPoint, button: Button) -> Result<(), String> {
 /// A path, not a start and an end: a drag that jumps straight to its
 /// destination is ignored by every canvas and rejected by most drag targets.
 pub fn drag(path: &[ScreenPoint], button: Button) -> Result<(), String> {
-    let (first, rest) = path.split_first().ok_or("a drag needs at least one point")?;
+    let (first, rest) = path
+        .split_first()
+        .ok_or("a drag needs at least one point")?;
     platform::guard_injection()?;
     travel(*first, None)?;
     sleep(SETTLE);
@@ -159,7 +161,7 @@ pub fn scroll(point: ScreenPoint, horizontal: i32, vertical: i32) -> Result<(), 
 
 pub fn type_text(text: &str) -> Result<(), String> {
     platform::guard_injection()?;
-    inject::insert(text, Method::Type)
+    inject::insert(text, Method::Type, Timing::default())
 }
 
 /// A chord like `["ctrl", "c"]`: the modifiers stay down across the key.

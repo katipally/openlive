@@ -6,12 +6,20 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 /// Every modifier xdotool can latch. `--clearmodifiers` releases them for the
 /// duration of the send and then restores them system-wide, which leaves them
 /// stuck when the user was not actually holding one.
 const MODIFIER_KEYSYMS: [&str; 8] = [
-    "shift", "ctrl", "alt", "super", "Shift_R", "Control_R", "Alt_R", "Super_R",
+    "shift",
+    "ctrl",
+    "alt",
+    "super",
+    "Shift_R",
+    "Control_R",
+    "Alt_R",
+    "Super_R",
 ];
 
 pub fn which(tool: &str) -> Option<PathBuf> {
@@ -30,7 +38,9 @@ fn desktop() -> String {
 
 pub fn is_wayland() -> bool {
     env::var("WAYLAND_DISPLAY").is_ok()
-        || env::var("XDG_SESSION_TYPE").map(|t| t == "wayland").unwrap_or(false)
+        || env::var("XDG_SESSION_TYPE")
+            .map(|t| t == "wayland")
+            .unwrap_or(false)
 }
 
 /// ydotool changed its `key` syntax incompatibly, and prints its help to
@@ -138,16 +148,28 @@ fn type_with_xdotool(text: &str) -> Result<(), String> {
     }
 }
 
-pub fn send_paste_chord() -> Result<(), String> {
+/// `hold` keeps Ctrl down either side of V, as on the other platforms. The
+/// old ydotool sends "ctrl+v" as one keystroke, so it cannot hold.
+pub fn send_paste_chord(hold: Duration) -> Result<(), String> {
     if which("ydotool").is_some() {
-        let combo = if ydotool_uses_keycode_syntax() { "29:1 47:1 47:0 29:0" } else { "ctrl+v" };
-        let args: Vec<&str> = std::iter::once("key").chain(combo.split(' ')).collect();
+        let delay = hold.as_millis().to_string();
+        let args: Vec<&str> = if ydotool_uses_keycode_syntax() {
+            vec!["key", "--key-delay", &delay, "29:1", "47:1", "47:0", "29:0"]
+        } else {
+            vec!["key", "ctrl+v"]
+        };
         if run("ydotool", &args).is_ok() {
             return Ok(());
         }
     }
     if which("xdotool").is_some() {
-        let result = run("xdotool", &["key", "--clearmodifiers", "ctrl+v"]);
+        let pause = format!("{:.3}", hold.as_secs_f64());
+        let result = run(
+            "xdotool",
+            &[
+                "keydown", "ctrl", "sleep", &pause, "key", "v", "sleep", &pause, "keyup", "ctrl",
+            ],
+        );
         let mut keyup = vec!["keyup"];
         keyup.extend(MODIFIER_KEYSYMS);
         let _ = run("xdotool", &keyup);

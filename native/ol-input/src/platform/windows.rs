@@ -8,7 +8,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_CONTROL,
 };
 
-pub(crate) fn key_input(vk: u16, scan: u16, flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS) -> INPUT {
+pub(crate) fn key_input(
+    vk: u16,
+    scan: u16,
+    flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS,
+) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
@@ -44,15 +48,15 @@ fn paste_virtual_key() -> u16 {
 
 /// Ctrl stays physically down across the chord, because some apps read global
 /// keyboard state rather than the event's own flags.
-pub fn send_paste_chord() -> Result<(), String> {
+pub fn send_paste_chord(hold: Duration) -> Result<(), String> {
     let v = paste_virtual_key();
     send(&[key_input(VK_CONTROL.0, 0, Default::default())])?;
-    std::thread::sleep(Duration::from_millis(50));
+    std::thread::sleep(hold);
     send(&[
         key_input(v, 0, Default::default()),
         key_input(v, 0, KEYEVENTF_KEYUP),
     ])?;
-    std::thread::sleep(Duration::from_millis(50));
+    std::thread::sleep(hold);
     send(&[key_input(VK_CONTROL.0, 0, KEYEVENTF_KEYUP)])
 }
 

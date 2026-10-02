@@ -62,11 +62,36 @@ pub fn refresh_layout() {
     layout::refresh();
 }
 
-fn send_paste_chord() -> Result<(), String> {
+/// How long a chord's modifier is held either side of its key, unless Flow's settings say otherwise.
+pub const MODIFIER_HOLD: Duration = Duration::from_millis(50);
+
+/// How a paste is timed, from Flow's Advanced timing settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timing {
+    /// Some apps poll global keyboard state instead of reading the event's flags.
+    pub modifier_hold: Duration,
+    /// How long after the last read to wait before restoring, so an app that
+    /// reads the clipboard several times in a row is not cut off mid-paste.
+    pub clipboard_quiet: Duration,
+    /// Nothing may hold the user's clipboard hostage longer than this.
+    pub clipboard_cap: Duration,
+}
+
+impl Default for Timing {
+    fn default() -> Timing {
+        Timing {
+            modifier_hold: MODIFIER_HOLD,
+            clipboard_quiet: Duration::from_millis(200),
+            clipboard_cap: Duration::from_secs(8),
+        }
+    }
+}
+
+fn send_paste_chord(hold: Duration) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    return platform::send_paste_chord(layout::paste_keycode());
+    return platform::send_paste_chord(layout::paste_keycode(), hold);
     #[cfg(not(target_os = "macos"))]
-    return platform::send_paste_chord();
+    return platform::send_paste_chord(hold);
 }
 
 /// A paste that is going to happen has happened within a frame or two of the
@@ -74,11 +99,10 @@ fn send_paste_chord() -> Result<(), String> {
 /// text the user never received.
 const RECEIPT_WAIT: Duration = Duration::from_millis(500);
 
-const NOT_TAKEN: &str =
-    "the paste keystroke went out but the app never took the text, so nothing \
+const NOT_TAKEN: &str = "the paste keystroke went out but the app never took the text, so nothing \
      was inserted: click into the place the text should go and try again";
 
-pub fn insert(text: &str, method: Method) -> Result<(), String> {
+pub fn insert(text: &str, method: Method, timing: Timing) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
     }
@@ -86,11 +110,11 @@ pub fn insert(text: &str, method: Method) -> Result<(), String> {
         Method::Type => platform::type_text(text),
         Method::Paste => {
             let tx = paste_tx::begin(text)?;
-            let result = send_paste_chord();
+            let result = send_paste_chord(timing.modifier_hold);
             let taken = result.is_ok() && tx.was_read(RECEIPT_WAIT);
             // Unconditional: a failed chord leaves the user's clipboard just
             // as hijacked as a successful one.
-            tx.finish(result.is_ok());
+            tx.finish(result.is_ok(), timing);
             result?;
             if taken || !paste_tx::PROMISES {
                 Ok(())
@@ -116,7 +140,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn begin(method: Method) -> Session {
+    pub fn begin(method: Method, timing: Timing) -> Session {
         let shared = Arc::new((Mutex::new(Pending::default()), Condvar::new()));
         let worker_shared = Arc::clone(&shared);
         let worker = std::thread::spawn(move || {
@@ -138,7 +162,7 @@ impl Session {
                     }
                     std::mem::take(&mut pending.buffer)
                 };
-                if let Err(e) = insert(&chunk, method) {
+                if let Err(e) = insert(&chunk, method, timing) {
                     if let Ok(mut pending) = lock.lock() {
                         pending.error.get_or_insert(e);
                     }
@@ -146,7 +170,10 @@ impl Session {
                 }
             }
         });
-        Session { shared, worker: Some(worker) }
+        Session {
+            shared,
+            worker: Some(worker),
+        }
     }
 
     pub fn push(&self, chunk: &str) -> Result<(), String> {
@@ -204,7 +231,7 @@ mod tests {
     /// the tray and every window frozen until the last character is typed.
     #[test]
     fn a_session_can_be_closed_off_the_thread_that_opened_it() {
-        let session = Session::begin(Method::Type);
+        let session = Session::begin(Method::Type, Timing::default());
         std::thread::spawn(move || session.end())
             .join()
             .expect("the closing thread panicked")
@@ -213,7 +240,7 @@ mod tests {
 
     #[test]
     fn empty_text_is_not_an_injection() {
-        assert!(insert("", Method::Type).is_ok());
+        assert!(insert("", Method::Type, Timing::default()).is_ok());
     }
 
     /// The restore has to run whether or not the keystroke landed, so this
@@ -227,7 +254,7 @@ mod tests {
         let Ok(tx) = paste_tx::begin("ol-input payload") else {
             return;
         };
-        tx.finish(false);
+        tx.finish(false, Timing::default());
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {

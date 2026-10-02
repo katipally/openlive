@@ -61,7 +61,7 @@ function base64(buf: ArrayBuffer): string {
 interface FlowSettings {
   idleWindowMs: number;
   brain: FlowConfig["brain"];
-  insertion: { method: string };
+  insertion: FlowConfig["insertion"];
   voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride">;
 }
 
@@ -550,7 +550,7 @@ export function useFlowOwner(): void {
           if (!id || !chunk) return reply("");
           if (insertion.current && insertion.current.id !== id) await endInsertion();
           if (!insertion.current) {
-            const session = valueOr(await api.insertBegin(settings.current?.insertion.method), -1);
+            const session = valueOr(await api.insertBegin(settings.current?.insertion.method, settings.current?.insertion), -1);
             if (session < 0) return reply("insertion unavailable");
             insertion.current = { id, session };
           }

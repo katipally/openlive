@@ -149,8 +149,8 @@ fn grab(rect: CGRect, option: CGWindowListOption, window_id: u32) -> Result<Bitm
     let height = CGImage::height(Some(&image));
     let stride = CGImage::bytes_per_row(Some(&image));
     let provider = CGImage::data_provider(Some(&image));
-    let data = CGDataProvider::data(provider.as_deref())
-        .ok_or("the captured image had no pixel data")?;
+    let data =
+        CGDataProvider::data(provider.as_deref()).ok_or("the captured image had no pixel data")?;
     let bytes = data.to_vec();
     if width == 0 || height == 0 || bytes.len() < stride * height {
         return Err("the captured image was truncated".into());
@@ -178,7 +178,11 @@ fn grab(rect: CGRect, option: CGWindowListOption, window_id: u32) -> Result<Bitm
 }
 
 pub fn capture_display(id: u32) -> Result<Bitmap, String> {
-    grab(CGDisplayBounds(id), CGWindowListOption::OptionOnScreenOnly, 0)
+    grab(
+        CGDisplayBounds(id),
+        CGWindowListOption::OptionOnScreenOnly,
+        0,
+    )
 }
 
 pub fn capture_window(id: u32) -> Result<Bitmap, String> {
@@ -248,10 +252,12 @@ fn bundle_id(pid: u32) -> Option<String> {
 }
 
 pub fn window_list() -> Result<Vec<WindowInfo>, String> {
-    let option = CGWindowListOption::OptionOnScreenOnly
-        | CGWindowListOption::ExcludeDesktopElements;
+    let option =
+        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements;
     let info = CGWindowListCopyWindowInfo(option, 0).ok_or("the window list was unavailable")?;
-    let array: *mut AnyObject = objc2_core_foundation::CFRetained::as_ptr(&info).as_ptr().cast();
+    let array: *mut AnyObject = objc2_core_foundation::CFRetained::as_ptr(&info)
+        .as_ptr()
+        .cast();
     let mut windows = Vec::new();
     unsafe {
         let count: usize = msg_send![array, count];
@@ -343,13 +349,22 @@ fn ax_point(element: *mut c_void, attribute: &str) -> Option<CGPoint> {
     }
     let mut point = CGPoint::new(0.0, 0.0);
     let ok = unsafe {
-        AXValueGetValue(value, AX_VALUE_CG_POINT, (&mut point as *mut CGPoint).cast())
+        AXValueGetValue(
+            value,
+            AX_VALUE_CG_POINT,
+            (&mut point as *mut CGPoint).cast(),
+        )
     };
     unsafe { CFRelease(value.cast()) };
     ok.then_some(point)
 }
 
-fn ax_set(element: *mut c_void, attribute: &str, value_type: u32, raw: *const c_void) -> Result<(), String> {
+fn ax_set(
+    element: *mut c_void,
+    attribute: &str,
+    value_type: u32,
+    raw: *const c_void,
+) -> Result<(), String> {
     let name = cfstring(attribute);
     let value = unsafe { AXValueCreate(value_type, raw) };
     if value.is_null() {
@@ -360,14 +375,21 @@ fn ax_set(element: *mut c_void, attribute: &str, value_type: u32, raw: *const c_
     if status == 0 {
         Ok(())
     } else {
-        Err(format!("the application refused to set {attribute} (AXError {status})"))
+        Err(format!(
+            "the application refused to set {attribute} (AXError {status})"
+        ))
     }
 }
 
 pub fn move_window(id: u32, origin: ScreenPoint) -> Result<(), String> {
     let window = ax_window(id)?;
     let point = CGPoint::new(origin.x, origin.y);
-    let result = ax_set(window, "AXPosition", AX_VALUE_CG_POINT, (&point as *const CGPoint).cast());
+    let result = ax_set(
+        window,
+        "AXPosition",
+        AX_VALUE_CG_POINT,
+        (&point as *const CGPoint).cast(),
+    );
     unsafe { CFRelease(window.cast()) };
     result
 }
@@ -375,7 +397,12 @@ pub fn move_window(id: u32, origin: ScreenPoint) -> Result<(), String> {
 pub fn resize_window(id: u32, width: f64, height: f64) -> Result<(), String> {
     let window = ax_window(id)?;
     let size = CGSize::new(width, height);
-    let result = ax_set(window, "AXSize", AX_VALUE_CG_SIZE, (&size as *const CGSize).cast());
+    let result = ax_set(
+        window,
+        "AXSize",
+        AX_VALUE_CG_SIZE,
+        (&size as *const CGSize).cast(),
+    );
     unsafe { CFRelease(window.cast()) };
     result
 }
@@ -384,13 +411,14 @@ pub fn minimize_window(id: u32) -> Result<(), String> {
     let window = ax_window(id)?;
     let attribute = cfstring("AXMinimized");
     let value: *mut AnyObject = unsafe { msg_send![class!(NSNumber), numberWithBool: true] };
-    let status =
-        unsafe { AXUIElementSetAttributeValue(window, as_cf(&attribute), value.cast()) };
+    let status = unsafe { AXUIElementSetAttributeValue(window, as_cf(&attribute), value.cast()) };
     unsafe { CFRelease(window.cast()) };
     if status == 0 {
         Ok(())
     } else {
-        Err(format!("that window refused to minimize (AXError {status})"))
+        Err(format!(
+            "that window refused to minimize (AXError {status})"
+        ))
     }
 }
 
@@ -442,7 +470,10 @@ pub fn activate_window(id: u32) -> Result<(), String> {
 }
 
 fn open(args: &[&str]) -> Result<(), String> {
-    let status = Command::new("open").args(args).status().map_err(|e| e.to_string())?;
+    let status = Command::new("open")
+        .args(args)
+        .status()
+        .map_err(|e| e.to_string())?;
     if status.success() {
         Ok(())
     } else {
@@ -465,7 +496,8 @@ pub fn selected_text() -> Option<String> {
     }
     let focused_key = cfstring("AXFocusedUIElement");
     let mut focused: *mut c_void = ptr::null_mut();
-    let status = unsafe { AXUIElementCopyAttributeValue(system, as_cf(&focused_key), &mut focused) };
+    let status =
+        unsafe { AXUIElementCopyAttributeValue(system, as_cf(&focused_key), &mut focused) };
     unsafe { CFRelease(system.cast()) };
     if status != 0 || focused.is_null() {
         return None;
@@ -580,9 +612,19 @@ pub fn mouse_move(point: ScreenPoint) -> Result<(), String> {
 
 /// `click_state` is what makes the second press of a double click a double
 /// click rather than two separate ones.
-pub fn mouse_button(point: ScreenPoint, button: Button, down: bool, click_state: u32) -> Result<(), String> {
+pub fn mouse_button(
+    point: ScreenPoint,
+    button: Button,
+    down: bool,
+    click_state: u32,
+) -> Result<(), String> {
     let (press, release, _) = down_up(button);
-    post(if down { press } else { release }, point, button, Some(i64::from(click_state.max(1))))
+    post(
+        if down { press } else { release },
+        point,
+        button,
+        Some(i64::from(click_state.max(1))),
+    )
 }
 
 pub fn mouse_drag_to(point: ScreenPoint, button: Button) -> Result<(), String> {
@@ -627,11 +669,18 @@ pub fn key_chord(chord: &str) -> Result<(), String> {
         }
     }
     let Some(key) = hotkey.key else {
-        return Err(format!("\"{chord}\" is only modifiers, so there is nothing to press"));
+        return Err(format!(
+            "\"{chord}\" is only modifiers, so there is nothing to press"
+        ));
     };
     let keycode = crate::platform::macos::virtual_keycode(key)
         .ok_or_else(|| format!("\"{chord}\" has no keycode on this layout"))?;
-    crate::platform::macos::send_chord(keycode, flags, &modifier_keycodes)
+    crate::platform::macos::send_chord(
+        keycode,
+        flags,
+        &modifier_keycodes,
+        crate::inject::MODIFIER_HOLD,
+    )
 }
 
 pub fn ocr(png: &[u8], width: f64, height: f64) -> Result<Vec<ShotBox>, String> {

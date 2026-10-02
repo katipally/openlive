@@ -60,7 +60,7 @@ export interface FlowConfig {
 
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   version: FLOW_CONFIG_VERSION,
-  insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 100, clipboardQuietMs: 200, clipboardTimeoutMs: 8000 },
+  insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 50, clipboardQuietMs: 200, clipboardTimeoutMs: 8000 },
   brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
   voice: {
     speakReplies: true,

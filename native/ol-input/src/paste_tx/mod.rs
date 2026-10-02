@@ -14,12 +14,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::clipboard::{self, Saved};
+use crate::inject::Timing;
 
-/// How long after the last read to wait before restoring, so an app that
-/// reads the pasteboard several times in a row is not cut off mid-paste.
-const QUIET: Duration = Duration::from_millis(200);
-/// Nothing may hold the user's clipboard hostage longer than this.
-const CAP: Duration = Duration::from_secs(8);
 /// When injection failed, nothing is going to read the promise, so the
 /// clipboard comes back fast instead of after the full cap.
 const FAILED_CAP: Duration = Duration::from_millis(600);
@@ -41,7 +37,8 @@ pub struct Receipt {
 
 impl Receipt {
     pub fn mark_read(&self, since_start: Duration) {
-        self.last_read_micros.store(since_start.as_micros().max(1) as u64, Ordering::SeqCst);
+        self.last_read_micros
+            .store(since_start.as_micros().max(1) as u64, Ordering::SeqCst);
     }
 
     fn last_read(&self) -> Option<Duration> {
@@ -111,16 +108,20 @@ impl PasteTx {
     /// Restores on a background thread. Called on both paths: a failed
     /// injection must put the user's clipboard back just as reliably as a
     /// successful one.
-    pub fn finish(self, injected: bool) {
+    pub fn finish(self, injected: bool, timing: Timing) {
         thread::spawn(move || {
-            let cap = if injected { CAP } else { FAILED_CAP };
+            let cap = if injected {
+                timing.clipboard_cap
+            } else {
+                FAILED_CAP
+            };
             loop {
                 let elapsed = self.started.elapsed();
                 if elapsed >= cap {
                     break;
                 }
                 if let Some(read_at) = self.receipt.last_read() {
-                    if elapsed.saturating_sub(read_at) >= QUIET {
+                    if elapsed.saturating_sub(read_at) >= timing.clipboard_quiet {
                         break;
                     }
                 }

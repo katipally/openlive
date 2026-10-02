@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -45,7 +46,9 @@ fn err(message: String) -> Error {
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
-    mutex.lock().map_err(|_| err("ol-input state is poisoned".into()))
+    mutex
+        .lock()
+        .map_err(|_| err("ol-input state is poisoned".into()))
 }
 
 #[napi(object)]
@@ -116,7 +119,9 @@ pub fn initialize_hook(on_effect: Function<HookEffect, ()>) -> Result<()> {
 
 fn with_hook<T>(f: impl FnOnce(&Hook) -> std::result::Result<T, String>) -> Result<T> {
     let hook = locked(&HOOK)?;
-    let hook = hook.as_ref().ok_or_else(|| err("the hook is not running".into()))?;
+    let hook = hook
+        .as_ref()
+        .ok_or_else(|| err("the hook is not running".into()))?;
     f(hook).map_err(err)
 }
 
@@ -186,14 +191,14 @@ fn guard_injection() -> Result<()> {
 /// The paste receipt is delivered to the main thread's run loop, so an
 /// insertion that waited for it there would be waiting for itself. It runs on
 /// libuv's pool for the same reason `end_insertion` does.
-pub struct InsertTask(String, Method);
+pub struct InsertTask(String, Method, inject::Timing);
 
 impl napi::Task for InsertTask {
     type Output = ();
     type JsValue = ();
 
     fn compute(&mut self) -> Result<Self::Output> {
-        inject::insert(&self.0, self.1).map_err(err)
+        inject::insert(&self.0, self.1, self.2).map_err(err)
     }
 
     fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
@@ -201,24 +206,57 @@ impl napi::Task for InsertTask {
     }
 }
 
+/// Flow's Advanced timing settings. A field left out keeps its default.
+#[napi(object)]
+pub struct InsertionTiming {
+    pub modifier_hold_ms: Option<u32>,
+    pub clipboard_quiet_ms: Option<u32>,
+    pub clipboard_timeout_ms: Option<u32>,
+}
+
+/// Bounded to what Settings offers, so a hand-edited config cannot hang a paste.
+fn timing(given: Option<InsertionTiming>) -> inject::Timing {
+    let d = inject::Timing::default();
+    let Some(t) = given else { return d };
+    let ms = |v: Option<u32>, max: u32, fallback: Duration| {
+        v.map_or(fallback, |v| Duration::from_millis(u64::from(v.min(max))))
+    };
+    inject::Timing {
+        modifier_hold: ms(t.modifier_hold_ms, 1_000, d.modifier_hold),
+        clipboard_quiet: ms(t.clipboard_quiet_ms, 5_000, d.clipboard_quiet),
+        clipboard_cap: ms(t.clipboard_timeout_ms, 60_000, d.clipboard_cap),
+    }
+}
+
 #[napi]
 pub fn insert_text(
     text: String,
     insertion_method: Option<String>,
+    insertion_timing: Option<InsertionTiming>,
 ) -> Result<AsyncTask<InsertTask>> {
     guard_injection()?;
     inject::refresh_layout();
-    Ok(AsyncTask::new(InsertTask(text, method(insertion_method)?)))
+    Ok(AsyncTask::new(InsertTask(
+        text,
+        method(insertion_method)?,
+        timing(insertion_timing),
+    )))
 }
 
 /// Opens a streamed insertion. Chunks pushed while a paste is still in
 /// flight coalesce into the next one.
 #[napi]
-pub fn begin_insertion(insertion_method: Option<String>) -> Result<u32> {
+pub fn begin_insertion(
+    insertion_method: Option<String>,
+    insertion_timing: Option<InsertionTiming>,
+) -> Result<u32> {
     guard_injection()?;
     inject::refresh_layout();
     let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
-    locked(sessions())?.insert(id, Session::begin(method(insertion_method)?));
+    locked(sessions())?.insert(
+        id,
+        Session::begin(method(insertion_method)?, timing(insertion_timing)),
+    );
     Ok(id)
 }
 
@@ -313,7 +351,6 @@ pub fn request_screen_recording() -> bool {
 pub fn microphone_in_use() -> Option<bool> {
     platform::current::microphone_in_use()
 }
-
 
 #[napi(object)]
 pub struct DisplayInfo {
@@ -467,7 +504,10 @@ impl napi::Task for CaptureTask {
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(CaptureResult { png: output.png.into(), shot: output.shot.into() })
+        Ok(CaptureResult {
+            png: output.png.into(),
+            shot: output.shot.into(),
+        })
     }
 }
 
@@ -537,12 +577,18 @@ pub fn capture_region(origin: Point, width: f64, height: f64) -> AsyncTask<Captu
 #[napi]
 pub fn shot_to_screen(shot: ShotGeometry, x: f64, y: f64) -> Point {
     let point = coords::Shot::from(&shot).to_screen(coords::ShotPoint::new(x, y));
-    Point { x: point.x, y: point.y }
+    Point {
+        x: point.x,
+        y: point.y,
+    }
 }
 
 #[napi]
 pub fn recognize_text(png: Buffer, shot: ShotGeometry) -> AsyncTask<OcrTask> {
-    AsyncTask::new(OcrTask { png: png.to_vec(), shot: coords::Shot::from(&shot) })
+    AsyncTask::new(OcrTask {
+        png: png.to_vec(),
+        shot: coords::Shot::from(&shot),
+    })
 }
 
 #[napi]
@@ -552,7 +598,11 @@ pub fn foreground_window() -> Result<Option<WindowSummary>> {
 
 #[napi]
 pub fn window_list() -> Result<Vec<WindowSummary>> {
-    Ok(window::list().map_err(err)?.into_iter().map(WindowSummary::from).collect())
+    Ok(window::list()
+        .map_err(err)?
+        .into_iter()
+        .map(WindowSummary::from)
+        .collect())
 }
 
 #[napi]
@@ -604,7 +654,8 @@ pub fn selected_text() -> Option<String> {
 pub fn allow_set_foreground_window(pid: u32) -> bool {
     #[cfg(windows)]
     // SAFETY: a plain call on a pid, which fails harmlessly for one that is gone.
-    return unsafe { windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid) }.is_ok();
+    return unsafe { windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid) }
+        .is_ok();
     #[cfg(not(windows))]
     {
         let _ = pid;
@@ -642,15 +693,24 @@ impl napi::Task for ControlTask {
     type JsValue = ();
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let action = self.0.take().ok_or_else(|| err("the action was already run".to_string()))?;
+        let action = self
+            .0
+            .take()
+            .ok_or_else(|| err("the action was already run".to_string()))?;
         match action {
             PointerAction::Move(point) => control::move_to(point),
             PointerAction::Click(point, button, count) => control::click(point, button, count),
             PointerAction::Press(point, button, down) => {
-                if down { control::mouse_down(point, button) } else { control::mouse_up(point, button) }
+                if down {
+                    control::mouse_down(point, button)
+                } else {
+                    control::mouse_up(point, button)
+                }
             }
             PointerAction::Drag(path, button) => control::drag(&path, button),
-            PointerAction::Scroll(point, horizontal, vertical) => control::scroll(point, horizontal, vertical),
+            PointerAction::Scroll(point, horizontal, vertical) => {
+                control::scroll(point, horizontal, vertical)
+            }
             PointerAction::Type(text) => control::type_text(&text),
             PointerAction::Keys(keys) => control::keypress(&keys),
         }
@@ -670,7 +730,10 @@ fn run(action: PointerAction) -> AsyncTask<ControlTask> {
 /// Null when the platform will not say, which is not the origin.
 #[napi]
 pub fn cursor_position() -> Option<Point> {
-    platform::desktop::current::cursor_position().map(|point| Point { x: point.x, y: point.y })
+    platform::desktop::current::cursor_position().map(|point| Point {
+        x: point.x,
+        y: point.y,
+    })
 }
 
 #[napi]
@@ -679,28 +742,52 @@ pub fn move_mouse(point: Point) -> AsyncTask<ControlTask> {
 }
 
 #[napi]
-pub fn click(point: Point, mouse_button: Option<String>, count: Option<u32>) -> Result<AsyncTask<ControlTask>> {
-    Ok(run(PointerAction::Click(screen(&point), button(mouse_button)?, count.unwrap_or(1))))
+pub fn click(
+    point: Point,
+    mouse_button: Option<String>,
+    count: Option<u32>,
+) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Click(
+        screen(&point),
+        button(mouse_button)?,
+        count.unwrap_or(1),
+    )))
 }
 
 #[napi]
 pub fn double_click(point: Point) -> AsyncTask<ControlTask> {
-    run(PointerAction::Click(screen(&point), control::Button::Left, 2))
+    run(PointerAction::Click(
+        screen(&point),
+        control::Button::Left,
+        2,
+    ))
 }
 
 #[napi]
 pub fn right_click(point: Point) -> AsyncTask<ControlTask> {
-    run(PointerAction::Click(screen(&point), control::Button::Right, 1))
+    run(PointerAction::Click(
+        screen(&point),
+        control::Button::Right,
+        1,
+    ))
 }
 
 #[napi]
 pub fn mouse_down(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
-    Ok(run(PointerAction::Press(screen(&point), button(mouse_button)?, true)))
+    Ok(run(PointerAction::Press(
+        screen(&point),
+        button(mouse_button)?,
+        true,
+    )))
 }
 
 #[napi]
 pub fn mouse_up(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
-    Ok(run(PointerAction::Press(screen(&point), button(mouse_button)?, false)))
+    Ok(run(PointerAction::Press(
+        screen(&point),
+        button(mouse_button)?,
+        false,
+    )))
 }
 
 /// The whole path, not just its ends: a drag that teleports is ignored by
@@ -751,5 +838,23 @@ pub fn capabilities() -> CapabilityReport {
         secure_input: found.secure_input,
         session: found.session.map(str::to_string),
         tools: found.tools,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insertion_timing_keeps_each_default_it_is_not_given_and_bounds_the_rest() {
+        assert_eq!(timing(None), inject::Timing::default());
+        let t = timing(Some(InsertionTiming {
+            modifier_hold_ms: Some(120),
+            clipboard_quiet_ms: None,
+            clipboard_timeout_ms: Some(u32::MAX),
+        }));
+        assert_eq!(t.modifier_hold, Duration::from_millis(120));
+        assert_eq!(t.clipboard_quiet, inject::Timing::default().clipboard_quiet);
+        assert_eq!(t.clipboard_cap, Duration::from_secs(60));
     }
 }

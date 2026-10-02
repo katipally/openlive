@@ -17,6 +17,8 @@ export interface FlowPermissions {
    *  reports one combined grant, and the UI degrades per grant on that. */
   postEvents?: boolean;
 }
+/** Settings > Flow > Typing's Advanced timing. A field left out keeps the addon's default. */
+export interface InsertionTiming { modifierHoldMs?: number; clipboardQuietMs?: number; clipboardTimeoutMs?: number }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
 /** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent
  *  when the addon could not be loaded. */
@@ -90,7 +92,7 @@ export interface FlowBridge {
   /** Flow closed, and the gesture was not what closed it. Without this the
    *  addon's toggle drifts out of step with what is on screen. */
   closed(): Promise<Guarded<void>>;
-  insertBegin(method?: string): Promise<Guarded<number>>;
+  insertBegin(method?: string, timing?: InsertionTiming): Promise<Guarded<number>>;
   insertPush(session: number, chunk: string): Promise<Guarded<void>>;
   insertEnd(session: number): Promise<Guarded<void>>;
   context(): Promise<Guarded<FlowContextWire>>;
