@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ShieldQuestion } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AGENT_LIST, agentLabel } from "@openlive/shared";
 import { api } from "@/lib/api";
@@ -11,6 +11,7 @@ import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "./AgentIcon";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { ModalVoiceInput } from "./ModalVoiceInput";
+import { AskLine } from "./AskLine";
 import { useUi } from "@/lib/uiStore";
 import { usePresence } from "@/lib/usePopIn";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -156,10 +157,7 @@ export function PermissionPrompt({ answerPermission }: { answerPermission: (opti
     // that's open mid-call (else the ask renders behind it and auto-denies).
     <div ref={rootRef} className="ol-over-settings fixed inset-0 z-modal grid place-items-center scrim px-4">
       <div role="dialog" aria-modal="true" aria-labelledby={titleId} className={cn(sidePanel(true), "animate-modal-in w-full max-w-md gap-3 p-4")}>
-        <div className="flex items-start gap-2.5">
-          <ShieldQuestion className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
-          <p id={titleId} className="text-body leading-relaxed text-foreground">{permission.question}</p>
-        </div>
+        <AskLine id={titleId} question={permission.question} />
         <ModalVoiceInput hint="Say “yes” to allow, or “no” to reject" />
         <div className="flex flex-wrap justify-end gap-2">
           {permission.options.map((o, i) => (

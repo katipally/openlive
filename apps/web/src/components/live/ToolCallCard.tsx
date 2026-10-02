@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { Disclosure, Button, Tooltip } from "@/components/ui";
 import { DiffView } from "./DiffView";
 import { TerminalView } from "./TerminalView";
+import { AskLine } from "./AskLine";
 
 /** Location chips: reveal in Finder/Explorer on desktop; copy the path on web. */
 export function openLocation(path: string) {
@@ -91,14 +92,13 @@ function PermissionCard({ question, options, command, Icon }: { question: string
   const firstAllow = options.findIndex((o) => !isReject(o));
   return (
     <div className="mt-1.5 flex flex-col gap-2.5 rounded-lg border border-arc/35 bg-card p-3 shadow-card">
-      <p className="flex items-start gap-2 text-body font-medium text-foreground">
-        <ShieldQuestion aria-hidden className="mt-0.5 size-4 shrink-0 text-arc" />
-        <span className="min-w-0 break-words">{question}</span>
-      </p>
-      <p className="flex min-w-0 items-center gap-2 rounded-md bg-track px-2.5 py-2 font-mono text-caption text-foreground shadow-track">
-        <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 break-all">{command}</span>
-      </p>
+      {/* The tool's row above already names the call, so the command waits behind the details. */}
+      <AskLine question={question} details={
+        <p className="flex min-w-0 items-center gap-2 rounded-md bg-track px-2.5 py-2 font-mono text-caption text-foreground shadow-track">
+          <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 break-all">{command}</span>
+        </p>
+      } />
       {answer && (
         <div className="flex flex-wrap items-center gap-1.5">
           {options.map((o, i) => (
