@@ -75,6 +75,9 @@ export function SettingsPage() {
   const root = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const firstPaint = useRef(true);
+  // Open in the first render only when ui.json reopened it at launch: that one
+  // appears already in place, with no enter to replay over the page it covers.
+  const restored = useRef(openStore);
   const lastTab = useRef<TabId>(tab);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -93,6 +96,7 @@ export function SettingsPage() {
   // Store open → show. (Close is driven through requestClose so the exit animates;
   // a close from outside, like a palette command, hides without one.)
   useEffect(() => setVisible(openStore), [openStore]);
+  useEffect(() => { if (!openStore) restored.current = false; }, [openStore]);
   useEffect(() => { if (visible) featureUsed(`n_settings_tab_${tab}`); }, [visible, tab]);
   // Remembered, so a relaunch reopens this tab (uiStore's `settings` field).
   useEffect(() => { if (openStore) useUi.setState({ settingsShown: tab }); }, [openStore, tab]);
@@ -174,6 +178,7 @@ export function SettingsPage() {
     const el = root.current;
     if (!visible || !el) return;
     firstPaint.current = true;
+    if (restored.current) return;
     const runs = t.reduce ? [animate(el, { opacity: [0, 1] }, t.fade)] : [
       animate(el, { opacity: [0, 1] }, FADE),
       animateAll(el, ".ol-set-navitem", { opacity: [0, 1], x: [-10, 0] }, { ...SMOOTH, delay: stagger(0.045, { startDelay: 0.1 }) }),
@@ -230,7 +235,8 @@ export function SettingsPage() {
     };
   }, [visible, closeStore]);
 
-  if (!visible) return null;
+  // Until the effect shows it, a restored Settings' bare surface covers the home.
+  if (!visible) return restored.current && openStore ? <div data-covering="settings" className="fixed inset-0 z-settings bg-background" /> : null;
   const Active: Sec = SECTIONS.find((s) => s.id === tab)!;
 
   return (
