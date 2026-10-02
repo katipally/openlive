@@ -37,6 +37,15 @@ describe("the dictionary", () => {
   });
 });
 
+describe("the dictionary in a script without spaces", () => {
+  it("finds a name written straight against Chinese or Japanese", () => {
+    expect(applyDictionary("我在用openlive工作", ["OpenLive"])).toBe("我在用OpenLive工作");
+    expect(applyDictionary("我在用 open live 工作", ["OpenLive"])).toBe("我在用 OpenLive 工作");
+    expect(applyDictionary("明日はopenliveで話す", ["OpenLive"])).toBe("明日はOpenLiveで話す");
+    expect(applyDictionary("我在用工作", ["OpenLive"])).toBe("我在用工作");
+  });
+});
+
 describe("snippets", () => {
   const SNIPPETS = [{ trigger: "my address", text: "221B Baker Street" }, { trigger: "Sign off", text: "Thanks,\nYash" }];
 

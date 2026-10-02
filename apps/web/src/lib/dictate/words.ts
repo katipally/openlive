@@ -40,6 +40,11 @@ const dictionary = memo((entries: readonly string[]) => {
 });
 
 const POSSESSIVE = /['’]s$/i;
+/** Chinese, Japanese and Korean script, written with no spaces around a name in another. */
+const CJK = "[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}]";
+/** Whitespace, or the empty gap where CJK meets another script's letters, so
+ *  "我在用openlive工作" splits around "openlive" as "我在用 openlive 工作" would. */
+const SPACES = new RegExp(`(\\s+|(?<=${CJK})(?=[\\p{L}\\p{N}])(?!${CJK})|(?<=[\\p{L}\\p{N}])(?<!${CJK})(?=${CJK}))`, "u");
 
 /**
  * Each run of up to MAX_SPAN words whose letters and digits, joined, match an
@@ -52,7 +57,7 @@ export function applyDictionary(text: string, entries: readonly string[]): strin
   const map = dictionary(entries);
   if (!map.size) return text;
   // Words at even indexes, the whitespace between them at odd ones.
-  const parts = text.split(/(\s+)/);
+  const parts = text.split(SPACES);
   const word = (i: number) => /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u.exec(parts[i]!)!;
   const out: string[] = [];
   for (let i = 0; i < parts.length; i += 2) {

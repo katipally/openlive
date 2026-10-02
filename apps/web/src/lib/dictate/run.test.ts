@@ -421,10 +421,11 @@ describe("spoken commands", () => {
     expect(held.typed).toEqual(["Stop dictating"]);
   });
 
-  it("leaves another language as said", async () => {
+  it("types the words in another language, where spoken commands are English only", async () => {
     const r = rig({ settings: { lang: "es" } });
     await hold(r, "press enter");
-    expect(r.typed).toEqual(["press enter"]);
+    expect(r.typed).toEqual(["Press enter"]);
+    expect(r.pressed).toEqual([]);
   });
 });
 

@@ -330,6 +330,11 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Dictate in languages other than English.** A capital and a full stop in the
+  script's own mark (`。` in Chinese and Japanese, `।` in Hindi) where the speech
+  engine left none; word counts that are right in Chinese and Japanese; the
+  dictionary finds a name written against them with no spaces; and Settings >
+  Dictate marks the cleanup rules and spoken commands that are English only.
 - **Clicking Flow's orb no longer brings OpenLive's main window to the front** on
   macOS. Any button on it (Stop, Hands-free, Close, the mic) used to make OpenLive
   the active app, pulling the main window over whatever you were working in.

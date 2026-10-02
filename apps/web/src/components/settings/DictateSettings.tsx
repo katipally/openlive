@@ -90,6 +90,8 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
   const keyNote = keyListenerNote(caps);
   const ins = config.insertion;
   const language = CURATED_LANGUAGES.find((l) => l.code === pipeline.language)?.name ?? pipeline.language;
+  // The rules are English; elsewhere only punctuation applies (lib/dictate/cleanup.ts).
+  const english = pipeline.language === "en";
 
   return (
     <div className="flex flex-col gap-7">
@@ -116,7 +118,7 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
         <div className="flex flex-col gap-3">
           <ListGroup>
             {RULES.map((r) => (
-              <ListRow key={r.id} label={r.label} detail={r.detail} info={r.info} asLabel>
+              <ListRow key={r.id} label={r.label} detail={english ? r.detail : r.id === "punctuation" ? "A capital and a full stop" : `English only, not ${language}`} info={r.info} asLabel>
                 <Switch on={own.cleanup[r.id]} onFlip={() => saveRules({ [r.id]: !own.cleanup[r.id] })} />
               </ListRow>
             ))}
@@ -188,7 +190,7 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
 
       <BrainSection config={config} save={save} />
 
-      <Section id="set-dictate-spoken" title="Spoken commands" desc="Said alone, or after a pause.">
+      <Section id="set-dictate-spoken" title="Spoken commands" desc={loadPipelineConfig().language === "en" ? "Said alone, or after a pause." : "Said in English only, alone or after a pause."}>
         <ListGroup>
           {SPOKEN.map((c) => (
             <ListRow key={c.id} label={c.label} detail={c.detail} info={c.info} asLabel>

@@ -5,8 +5,9 @@
 //
 // Every rule leans conservative: a sentence it is unsure of is left exactly as
 // heard, because a wrong "fix" typed into someone's document costs more than a
-// missed one. The rules are English; any other language passes through as the
-// speech engine wrote it.
+// missed one. The rules are English; any other language gets only what holds
+// in every language: a capital to start and a closing full stop in its script's
+// own mark.
 
 export interface CleanupRules {
   /** Sentence capitals, "I", day and month names, and a closing period the engine left off. */
@@ -220,6 +221,27 @@ const capital = (s: string) => s.replace(/\p{L}/u, (c) => c.toUpperCase());
 /** Short enough to be a name, a search or a field, where a period would be in the way. */
 const PERIOD_MIN_WORDS = 3;
 
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+/** Words as each script counts them: Chinese and Japanese put no spaces between theirs. O(n). */
+export function countWords(s: string): number {
+  let n = 0;
+  for (const w of wordSegmenter.segment(s)) if (w.isWordLike) n++;
+  return n;
+}
+
+/** The full stop of a script whose own is not ".". */
+const STOP: Record<string, string> = { zh: "。", ja: "。", hi: "।" };
+/** A sentence end in any curated language, so one is never doubled. */
+const ANY_END = /[.!?…。！？।॥]$/u;
+
+/** Outside English: the first letter a capital where the script has them, and a
+ *  closing full stop where the engine left none, on the same terms as English. */
+function punctuateAny(text: string, lang: string): string {
+  const out = capital(text);
+  const closes = !ANY_END.test(out) && /[\p{L}\p{M}\p{N}]$/u.test(out) && countWords(out) >= PERIOD_MIN_WORDS;
+  return closes ? out + (STOP[lang] ?? ".") : out;
+}
+
 function punctuate(ts: Tok[]): Tok[] {
   ts.forEach((t, i) => {
     const w = lc(t);
@@ -233,10 +255,10 @@ function punctuate(ts: Tok[]): Tok[] {
   return ts;
 }
 
-/** `lang` is the speech language setting: "en", "auto" or another code. */
+/** `lang` is the speech language setting, a code like "en" or "zh". */
 export function cleanup(text: string, rules: CleanupRules, lang = "en"): string {
   const trimmed = text.trim();
-  if (lang !== "auto" && !lang.startsWith("en")) return trimmed;
+  if (lang !== "en") return rules.punctuation && trimmed ? punctuateAny(trimmed, lang) : trimmed;
   let ts = tokenize(trimmed);
   if (rules.fillers) ts = dropFillers(ts);
   if (rules.backtrack) ts = backtrack(ts);

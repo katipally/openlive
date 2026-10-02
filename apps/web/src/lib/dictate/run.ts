@@ -1,4 +1,4 @@
-import { cleanup, type CleanupRules } from "./cleanup";
+import { cleanup, countWords, type CleanupRules } from "./cleanup";
 import { applyDictionary, snippetFor, spokenCommand, type Snippet, type SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
@@ -98,7 +98,6 @@ export const COMMAND_MS = 45_000;
 const UNDO_MAX = 2000;
 
 const SAID: Record<SpokenCommand, string> = { enter: "Pressed Enter", newLine: "New line", newParagraph: "New paragraph", undo: "Took it back", stop: "" };
-const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
 /** What Backspace takes one press each to remove: an emoji or an accented letter is one. */
 const graphemes = (s: string) => [...new Intl.Segmenter().segment(s)].length;
 
@@ -282,7 +281,7 @@ export function createDictate(ports: DictatePorts) {
   };
 
   const dictation = async (text: string, s: DictateSettings) => {
-    const english = s.lang === "auto" || s.lang.startsWith("en");
+    const english = s.lang === "en";
     const on = mode === "handsFree" ? s.commands : new Set([...s.commands].filter((c) => c !== "stop"));
     const spoken = english ? spokenCommand(text, on) : null;
     const said = spoken ? spoken.before : text;

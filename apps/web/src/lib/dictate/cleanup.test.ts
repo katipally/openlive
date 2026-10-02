@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanup, type CleanupRules } from "./cleanup";
+import { cleanup, countWords, type CleanupRules } from "./cleanup";
 
 const ALL: CleanupRules = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 const NONE: CleanupRules = { punctuation: false, fillers: false, backtrack: false, lists: false, numbers: false };
@@ -27,9 +27,28 @@ describe("cleanup, all rules on", () => {
     expect(cleanup("", ALL)).toBe("");
   });
 
-  it("passes another language through as heard", () => {
-    expect(cleanup(" um bonjour, en fait, salut ", ALL, "fr")).toBe("um bonjour, en fait, salut");
-    expect(cleanup("um hello there friend", ALL, "auto")).toBe("Hello there friend.");
+  it("gives another language only a capital and its own full stop", () => {
+    // The English rules stay out: "um" is German for "around".
+    expect(cleanup(" um bonjour, en fait, salut ", ALL, "fr")).toBe("Um bonjour, en fait, salut.");
+    expect(cleanup("wir treffen uns um acht", ALL, "de")).toBe("Wir treffen uns um acht.");
+    expect(cleanup("我今天要去商店买东西", ALL, "zh")).toBe("我今天要去商店买东西。");
+    expect(cleanup("मैं कल दफ्तर आऊंगा", ALL, "hi")).toBe("मैं कल दफ्तर आऊंगा।");
+    expect(cleanup("명일 회의는 오후 세 시입니다", ALL, "ko")).toBe("명일 회의는 오후 세 시입니다.");
+  });
+
+  it("never doubles a sentence end, and leaves a short one or a switched-off rule alone", () => {
+    expect(cleanup("¿qué tal estás?", ALL, "es")).toBe("¿Qué tal estás?");
+    expect(cleanup("明日は会議があります。", ALL, "ja")).toBe("明日は会議があります。");
+    expect(cleanup("hola", ALL, "es")).toBe("Hola");
+    expect(cleanup(" ciao a tutti voi ", NONE, "it")).toBe("ciao a tutti voi");
+    expect(cleanup("   ", ALL, "pt")).toBe("");
+  });
+
+  it("counts words as each script does", () => {
+    expect(countWords("send it to Maya, now")).toBe(5);
+    expect(countWords("我今天要去商店买东西")).toBeGreaterThan(3);
+    expect(countWords("明日は会議があります。")).toBeGreaterThan(2);
+    expect(countWords("")).toBe(0);
   });
 
   it("keeps every word of a long dictation and stays linear", () => {

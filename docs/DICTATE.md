@@ -95,8 +95,13 @@ dropped, not typed and not sent to Flow.
 ## Cleanup
 
 Each rule has its own switch, and each one leans conservative: a sentence it is
-unsure of is typed as heard. The rules are English; another language is typed as
-the speech engine wrote it.
+unsure of is typed as heard. The rules are English. In every other language
+(Settings > Voice > Language) Dictate hears and types the words as the speech
+engine wrote them, and Punctuation alone applies: a capital to start, where the
+script has them, and a closing full stop in the script's own mark (`.`, `。` in
+Chinese and Japanese, `।` in Hindi). Settings > Dictate marks the other rules
+English only. Word counts and the dictionary work in every language, Chinese and
+Japanese included, where a name sits against the text with no spaces.
 
 | Rule | Example |
 |---|---|
@@ -191,7 +196,8 @@ Each has its own switch in Settings > Dictate > Commands. A command counts when
 it is the whole of what was said, or comes after a sentence end or a pause
 (or a capital where the speech engine began a sentence without a period):
 "Sounds good. Press enter." types "Sounds good." then presses Enter, while "I
-will press enter later" is typed as said. English only, as cleanup is.
+will press enter later" is typed as said. English only: in another language the
+words are typed, and Settings > Dictate says so.
 
 | Say | Does |
 |---|---|
