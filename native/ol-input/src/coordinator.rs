@@ -5,6 +5,11 @@
 //! trigger key, alone. Anything else the key is doing — held down, pressed as
 //! part of a shortcut — must pass through untouched, because the trigger is
 //! Control and Control belongs to the app the person is working in.
+//!
+//! A binding registered for holding (Dictate's) also reports the hold itself:
+//! a press starts it at once, a release past `TAP_MAX` ends it, and a tap, or a
+//! key landing on top, cancels it. Its double-tap opens hands-free, and while
+//! that is open one more tap closes it.
 
 use std::time::{Duration, Instant};
 
@@ -23,6 +28,9 @@ pub const DOUBLE_TAP: Duration = Duration::from_millis(400);
 pub enum Effect {
     Start { binding_id: String },
     Stop { binding_id: String },
+    HoldStart { binding_id: String },
+    HoldEnd { binding_id: String },
+    HoldCancel { binding_id: String },
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +52,10 @@ struct Press {
 #[derive(Debug, Clone)]
 pub struct CoordinatorState {
     binding_id: String,
+    /// Reports holds as well as the double-tap.
+    hold: bool,
+    /// A `HoldStart` went out and nothing has ended it yet.
+    holding: bool,
     open: bool,
     press: Option<Press>,
     /// A completed tap waiting for its partner.
@@ -52,8 +64,8 @@ pub struct CoordinatorState {
 }
 
 impl CoordinatorState {
-    pub fn new(binding_id: String) -> Self {
-        Self { binding_id, open: false, press: None, last_tap: None, last_press: None }
+    pub fn new(binding_id: String, hold: bool) -> Self {
+        Self { binding_id, hold, holding: false, open: false, press: None, last_tap: None, last_press: None }
     }
 
     pub fn on_input(&mut self, input: Input, now: Instant) -> Option<Effect> {
@@ -68,7 +80,7 @@ impl CoordinatorState {
         if input.other_key {
             self.press = None;
             self.last_tap = None;
-            return None;
+            return self.end_hold(false);
         }
         // An external trigger has no press and no release to pair: it is the
         // whole gesture, delivered at once.
@@ -76,32 +88,40 @@ impl CoordinatorState {
             return input.pressed.then(|| self.toggle());
         }
         if input.pressed {
-            self.on_press(now);
-            None
+            let fresh = self.on_press(now);
+            // Starts on the press itself, so the first word is never lost to
+            // waiting out a tap.
+            (fresh && self.hold && !self.open).then(|| {
+                self.holding = true;
+                Effect::HoldStart { binding_id: self.binding_id.clone() }
+            })
         } else {
             self.on_release(now);
             None
         }
     }
 
-    fn on_press(&mut self, now: Instant) {
+    /// Whether this is a new press rather than a repeat of the one in progress.
+    fn on_press(&mut self, now: Instant) -> bool {
         // Cancelling a pending release runs before the debounce: an auto-repeat
         // press dropped by the debounce would let the release stand and turn a
         // held key into a tap.
         if let Some(press) = &mut self.press {
             if press.pending_release.take().is_some() {
-                return;
+                return false;
             }
         }
         if let Some(last) = self.last_press {
             if now.duration_since(last) < DEBOUNCE {
-                return;
+                return false;
             }
         }
         self.last_press = Some(now);
-        if self.press.is_none() {
-            self.press = Some(Press { at: now, pending_release: None });
+        if self.press.is_some() {
+            return false;
         }
+        self.press = Some(Press { at: now, pending_release: None });
+        true
     }
 
     fn on_release(&mut self, now: Instant) {
@@ -118,21 +138,36 @@ impl CoordinatorState {
         let pressed_at = press.at;
         self.press = None;
 
+        // Hands-free ends on any press of its key, so one tap is enough to stop.
+        if self.hold && self.open {
+            self.last_tap = None;
+            return Some(self.toggle());
+        }
         // Held rather than tapped, which also breaks the tap before it.
         if released_at.duration_since(pressed_at) > TAP_MAX {
             self.last_tap = None;
-            return None;
+            return self.end_hold(true);
         }
         match self.last_tap {
             Some(first) if released_at.duration_since(first) <= DOUBLE_TAP => {
                 self.last_tap = None;
+                // The second tap's capture carries on as hands-free.
+                self.holding = false;
                 Some(self.toggle())
             }
             _ => {
                 self.last_tap = Some(released_at);
-                None
+                self.end_hold(false)
             }
         }
+    }
+
+    fn end_hold(&mut self, finished: bool) -> Option<Effect> {
+        if !std::mem::take(&mut self.holding) {
+            return None;
+        }
+        let binding_id = self.binding_id.clone();
+        Some(if finished { Effect::HoldEnd { binding_id } } else { Effect::HoldCancel { binding_id } })
     }
 
     fn toggle(&mut self) -> Effect {
@@ -153,6 +188,12 @@ impl CoordinatorState {
         self.open = false;
     }
 
+    /// Opened or closed without the gesture: Dictate's hands-free from the orb's
+    /// mic button or by voice. Same reason as `on_closed`, both ways.
+    pub fn set_open(&mut self, open: bool) {
+        self.open = open;
+    }
+
     pub fn next_deadline(&self) -> Option<Instant> {
         self.press.as_ref()?.pending_release.map(|r| r + RELEASE_GRACE)
     }
@@ -167,7 +208,7 @@ mod tests {
     }
 
     fn new() -> CoordinatorState {
-        CoordinatorState::new("flow".into())
+        CoordinatorState::new("flow".into(), false)
     }
 
     fn input(pressed: bool, other_key: bool) -> Input {
@@ -331,5 +372,99 @@ mod tests {
         assert_eq!(c.next_deadline(), None);
         c.on_input(input(false, false), t0 + ms(40));
         assert_eq!(c.next_deadline(), Some(t0 + ms(40) + RELEASE_GRACE));
+    }
+    fn dictate() -> CoordinatorState {
+        CoordinatorState::new("dictate".into(), true)
+    }
+
+    fn effect(kind: fn(String) -> Effect) -> Option<Effect> {
+        Some(kind("dictate".into()))
+    }
+
+    fn hold_start() -> Option<Effect> {
+        effect(|binding_id| Effect::HoldStart { binding_id })
+    }
+
+    #[test]
+    fn a_hold_starts_on_the_press_and_ends_on_the_release() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        c.on_input(input(false, false), t0 + ms(1500));
+        assert_eq!(c.on_grace_expired(t0 + ms(1550)), effect(|binding_id| Effect::HoldEnd { binding_id }));
+    }
+
+    #[test]
+    fn a_lone_tap_cancels_its_hold() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        c.on_input(input(false, false), t0 + ms(40));
+        assert_eq!(c.on_grace_expired(t0 + ms(90)), effect(|binding_id| Effect::HoldCancel { binding_id }));
+    }
+
+    /// Right Alt is AltGr on many layouts: a character typed with it is not dictation.
+    #[test]
+    fn a_key_on_top_cancels_the_hold() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        c.on_input(input(true, false), t0);
+        assert_eq!(c.on_input(input(true, true), t0 + ms(300)), effect(|binding_id| Effect::HoldCancel { binding_id }));
+        assert_eq!(c.next_deadline(), None);
+    }
+
+    #[test]
+    fn a_double_tap_goes_hands_free_and_one_tap_ends_it() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        assert_eq!(tap(&mut c, t0, ms(40)), effect(|binding_id| Effect::HoldCancel { binding_id }));
+        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold_start());
+        c.on_input(input(false, false), t0 + ms(240));
+        assert_eq!(c.on_grace_expired(t0 + ms(290)), effect(|binding_id| Effect::Start { binding_id }));
+        // Hands-free: a press starts nothing, and its release closes it.
+        assert_eq!(c.on_input(input(true, false), t0 + ms(3000)), None);
+        c.on_input(input(false, false), t0 + ms(3040));
+        assert_eq!(c.on_grace_expired(t0 + ms(3090)), effect(|binding_id| Effect::Stop { binding_id }));
+    }
+
+    #[test]
+    fn a_tap_then_a_hold_is_a_hold() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold_start());
+        c.on_input(input(false, false), t0 + ms(1200));
+        assert_eq!(c.on_grace_expired(t0 + ms(1250)), effect(|binding_id| Effect::HoldEnd { binding_id }));
+    }
+
+    #[test]
+    fn auto_repeat_does_not_restart_a_hold() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        for i in 1..6u64 {
+            c.on_input(input(false, false), t0 + ms(i * 400));
+            assert_eq!(c.on_input(input(true, false), t0 + ms(i * 400 + 5)), None);
+        }
+    }
+
+    /// The mic button opened hands-free, so the key's next tap has to close it.
+    #[test]
+    fn hands_free_opened_elsewhere_closes_on_one_tap() {
+        let t0 = Instant::now();
+        let mut c = dictate();
+        c.set_open(true);
+        assert_eq!(c.on_input(input(true, false), t0), None);
+        c.on_input(input(false, false), t0 + ms(40));
+        assert_eq!(c.on_grace_expired(t0 + ms(90)), effect(|binding_id| Effect::Stop { binding_id }));
+    }
+
+    #[test]
+    fn a_toggle_binding_never_reports_holds() {
+        let t0 = Instant::now();
+        let mut c = new();
+        assert_eq!(c.on_input(input(true, false), t0), None);
+        c.on_input(input(false, false), t0 + ms(1500));
+        assert_eq!(c.on_grace_expired(t0 + ms(1550)), None);
     }
 }

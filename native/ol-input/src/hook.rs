@@ -32,19 +32,25 @@ enum Command {
     Register {
         id: String,
         binding: Binding,
+        hold: bool,
         reply: Sender<Result<(), String>>,
     },
     Unregister {
         id: String,
         reply: Sender<Result<(), String>>,
     },
-    Suspend(Sender<Result<(), String>>),
-    Resume(Sender<Result<(), String>>),
+    /// One binding by id, or the whole hook.
+    Suspend(Option<String>, Sender<Result<(), String>>),
+    Resume(Option<String>, Sender<Result<(), String>>),
     External {
         id: String,
         pressed: bool,
     },
     Closed,
+    SetOpen {
+        id: String,
+        open: bool,
+    },
     Shutdown,
 }
 
@@ -108,20 +114,20 @@ impl Hook {
             .map_err(|_| "the hook thread stopped before answering".to_string())?
     }
 
-    pub fn register(&self, id: String, binding: Binding) -> Result<(), String> {
-        self.call(|reply| Command::Register { id, binding, reply })
+    pub fn register(&self, id: String, binding: Binding, hold: bool) -> Result<(), String> {
+        self.call(|reply| Command::Register { id, binding, hold, reply })
     }
 
     pub fn unregister(&self, id: String) -> Result<(), String> {
         self.call(|reply| Command::Unregister { id, reply })
     }
 
-    pub fn suspend(&self) -> Result<(), String> {
-        self.call(Command::Suspend)
+    pub fn suspend(&self, id: Option<String>) -> Result<(), String> {
+        self.call(|reply| Command::Suspend(id, reply))
     }
 
-    pub fn resume(&self) -> Result<(), String> {
-        self.call(Command::Resume)
+    pub fn resume(&self, id: Option<String>) -> Result<(), String> {
+        self.call(|reply| Command::Resume(id, reply))
     }
 
     fn post(&self, command: Command) -> Result<(), String> {
@@ -137,6 +143,11 @@ impl Hook {
     /// Flow closed for a reason the hook never saw. See `on_closed`.
     pub fn closed(&self) -> Result<(), String> {
         self.post(Command::Closed)
+    }
+
+    /// Opened or closed without the gesture. See `set_open`.
+    pub fn set_open(&self, id: String, open: bool) -> Result<(), String> {
+        self.post(Command::SetOpen { id, open })
     }
 }
 
@@ -168,13 +179,16 @@ fn run(
 
     let mut entries: Vec<Entry> = Vec::new();
     let mut suspended = false;
+    // Kept apart from the entries so a binding switched off before it is
+    // registered (Flow's off switch is read at startup) stays off once it is.
+    let mut muted: HashSet<String> = HashSet::new();
 
     loop {
         loop {
             match commands.try_recv() {
                 Ok(Command::Shutdown) | Err(TryRecvError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(command, &mut entries, &mut suspended, &blocking, &sink);
+                    apply(command, &mut entries, &mut suspended, &mut muted, &blocking, &sink);
                 }
                 Err(TryRecvError::Empty) => break,
             }
@@ -205,7 +219,7 @@ fn run(
         match listener.recv_timeout(wait) {
             Ok(event) => {
                 if !suspended {
-                    on_key_event(&mut entries, &event, &sink);
+                    on_key_event(&mut entries, &muted, &event, &sink);
                 }
             }
             Err(handy_keys::Error::Timeout) => {}
@@ -218,14 +232,15 @@ fn apply(
     command: Command,
     entries: &mut Vec<Entry>,
     suspended: &mut bool,
+    muted: &mut HashSet<String>,
     blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>,
     sink: &EffectSink,
 ) {
     match command {
-        Command::Register { id, binding, reply } => {
+        Command::Register { id, binding, hold, reply } => {
             entries.retain(|entry| entry.id != id);
             entries.push(Entry {
-                coordinator: CoordinatorState::new(id.clone()),
+                coordinator: CoordinatorState::new(id.clone(), hold),
                 id,
                 binding,
                 pressed: false,
@@ -244,12 +259,20 @@ fn apply(
             sync(entries, *suspended, blocking);
             let _ = reply.send(result);
         }
-        Command::Suspend(reply) => {
+        Command::Suspend(Some(id), reply) => {
+            muted.insert(id);
+            let _ = reply.send(Ok(()));
+        }
+        Command::Resume(Some(id), reply) => {
+            muted.remove(&id);
+            let _ = reply.send(Ok(()));
+        }
+        Command::Suspend(None, reply) => {
             *suspended = true;
             sync(entries, true, blocking);
             let _ = reply.send(Ok(()));
         }
-        Command::Resume(reply) => {
+        Command::Resume(None, reply) => {
             *suspended = false;
             sync(entries, false, blocking);
             let _ = reply.send(Ok(()));
@@ -258,6 +281,11 @@ fn apply(
         Command::Closed => {
             for entry in entries.iter_mut() {
                 entry.coordinator.on_closed();
+            }
+        }
+        Command::SetOpen { id, open } => {
+            for entry in entries.iter_mut().filter(|entry| entry.id == id) {
+                entry.coordinator.set_open(open);
             }
         }
         Command::Shutdown => {}
@@ -331,20 +359,24 @@ fn os_held_modifiers() -> Option<Modifiers> {
     None
 }
 
-fn on_key_event(entries: &mut [Entry], event: &KeyEvent, sink: &EffectSink) {
+fn on_key_event(entries: &mut [Entry], muted: &HashSet<String>, event: &KeyEvent, sink: &EffectSink) {
     let now = Instant::now();
     let mut event = *event;
     if let Some(held) = os_held_modifiers() {
         event.modifiers = drop_released(event.modifiers, held, event.changed_modifier);
     }
     let event = &event;
-    for entry in entries.iter_mut() {
+    for entry in entries.iter_mut().filter(|entry| !muted.contains(&entry.id)) {
         let hotkey = entry.binding.hotkey();
         let matches = hotkey.modifiers.matches(event.modifiers) && hotkey.key == event.key;
 
         let input = if event.is_key_down {
             if matches && !entry.pressed {
                 entry.pressed = true;
+                #[cfg(target_os = "windows")]
+                if hotkey.key.is_none() && hotkey.modifiers.intersects(Modifiers::OPT | Modifiers::CMD) {
+                    crate::platform::windows::mask_menu();
+                }
                 Some((true, false))
             } else if entry.pressed && hotkey.key.is_none() && event.key.is_some() {
                 // A real key landed on top of a held modifier-only binding.

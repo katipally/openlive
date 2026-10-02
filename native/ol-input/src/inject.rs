@@ -75,6 +75,8 @@ pub struct Timing {
     pub clipboard_quiet: Duration,
     /// Nothing may hold the user's clipboard hostage longer than this.
     pub clipboard_cap: Duration,
+    /// Off, the inserted text stays on the clipboard instead of the user's copy.
+    pub restore_clipboard: bool,
 }
 
 impl Default for Timing {
@@ -83,6 +85,7 @@ impl Default for Timing {
             modifier_hold: MODIFIER_HOLD,
             clipboard_quiet: Duration::from_millis(200),
             clipboard_cap: Duration::from_secs(8),
+            restore_clipboard: true,
         }
     }
 }

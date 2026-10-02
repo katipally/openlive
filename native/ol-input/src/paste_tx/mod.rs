@@ -51,7 +51,6 @@ impl Receipt {
 
 pub struct PasteTx {
     saved: Saved,
-    #[cfg(not(target_os = "macos"))]
     published: String,
     /// macOS answers "is this still ours?" from the change count, because
     /// reading the pasteboard back would fulfil our own lazy promise from
@@ -78,7 +77,6 @@ pub fn begin(text: &str) -> Result<PasteTx, String> {
 
     Ok(PasteTx {
         saved,
-        #[cfg(not(target_os = "macos"))]
         published: text.to_string(),
         #[cfg(target_os = "macos")]
         change_count,
@@ -135,7 +133,13 @@ impl PasteTx {
             if !ours {
                 return;
             }
-            let _ = clipboard::restore(&self.saved);
+            if timing.restore_clipboard {
+                let _ = clipboard::restore(&self.saved);
+            } else if PROMISES {
+                // A lazy promise dies with the provider behind it, so text that
+                // is meant to stay is written out for good.
+                let _ = clipboard::set_text(&self.published);
+            }
         });
     }
 }

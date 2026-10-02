@@ -1,6 +1,8 @@
 /** A hold-to-talk effect emitted by the coordinator on the hook thread. */
 export interface HookEffect {
-  /** "start" | "stop" — Flow was opened, or closed, by the gesture. */
+  /** "start" | "stop": the double-tap opened or closed its binding's mode.
+   *  "hold_start" | "hold_end" | "hold_cancel": a binding registered for
+   *  holding was pressed, released after a hold, or let go as a tap or a chord. */
   kind: string;
   bindingId?: string;
 }
@@ -14,6 +16,8 @@ export interface InsertionTiming {
   clipboardQuietMs?: number;
   /** The longest the pasted text may hold the clipboard. */
   clipboardTimeoutMs?: number;
+  /** Off, the inserted text stays on the clipboard. Defaults to on. */
+  restoreClipboard?: boolean;
 }
 
 export interface SecureInputStatus {
@@ -48,18 +52,22 @@ export function shutdown(): void;
 /** The error the hook thread died with, or null while it is healthy. */
 export function hookError(): string | null;
 
-/** Watches for two quick taps of `binding`, alone. The key is never swallowed:
- *  it keeps working as itself in whatever app is in front. */
-export function registerBinding(id: string, binding: string): void;
+/** Watches for two quick taps of `binding`, alone, and with `hold` for it
+ *  being held too. The key is never swallowed: it keeps working as itself in
+ *  whatever app is in front. */
+export function registerBinding(id: string, binding: string, hold?: boolean): void;
 export function unregisterBinding(id: string): void;
-export function suspendHook(): void;
-export function resumeHook(): void;
+/** One binding by id, or the whole hook. */
+export function suspendHook(id?: string): void;
+export function resumeHook(id?: string): void;
 
 /** Programmatic trigger: one call is the whole gesture. */
 export function triggerExternal(id: string, pressed: boolean): void;
 /** Flow closed for a reason the hook never saw (its own button, an idle
  *  timeout, sleep). Keeps the toggle honest. */
 export function notifyClosed(): void;
+/** The toggle under `id` was thrown another way (the orb's mic button, a voice ask). */
+export function notifyOpen(id: string, open: boolean): void;
 
 /** Resolves once the text has landed, and rejects when it did not. Runs off
  *  the main thread: the paste receipt arrives on the main thread's run loop. */

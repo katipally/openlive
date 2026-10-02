@@ -59,16 +59,14 @@ pub struct HookEffect {
 
 impl From<Effect> for HookEffect {
     fn from(effect: Effect) -> Self {
-        match effect {
-            Effect::Start { binding_id } => HookEffect {
-                kind: "start".into(),
-                binding_id: Some(binding_id),
-            },
-            Effect::Stop { binding_id } => HookEffect {
-                kind: "stop".into(),
-                binding_id: Some(binding_id),
-            },
-        }
+        let (kind, binding_id) = match effect {
+            Effect::Start { binding_id } => ("start", binding_id),
+            Effect::Stop { binding_id } => ("stop", binding_id),
+            Effect::HoldStart { binding_id } => ("hold_start", binding_id),
+            Effect::HoldEnd { binding_id } => ("hold_end", binding_id),
+            Effect::HoldCancel { binding_id } => ("hold_cancel", binding_id),
+        };
+        HookEffect { kind: kind.into(), binding_id: Some(binding_id) }
     }
 }
 
@@ -139,10 +137,11 @@ pub fn hook_error() -> Result<Option<String>> {
     Ok(locked(&HOOK)?.as_ref().and_then(|hook| hook.last_error()))
 }
 
+/// `hold` also reports the binding being held, for push-to-talk.
 #[napi]
-pub fn register_binding(id: String, binding: String) -> Result<()> {
+pub fn register_binding(id: String, binding: String, hold: Option<bool>) -> Result<()> {
     let parsed = Binding::from_str(&binding).map_err(err)?;
-    with_hook(|hook| hook.register(id, parsed))
+    with_hook(|hook| hook.register(id, parsed, hold.unwrap_or(false)))
 }
 
 #[napi]
@@ -150,14 +149,15 @@ pub fn unregister_binding(id: String) -> Result<()> {
     with_hook(|hook| hook.unregister(id))
 }
 
+/// One binding by id, or every binding when no id is given.
 #[napi]
-pub fn suspend_hook() -> Result<()> {
-    with_hook(|hook| hook.suspend())
+pub fn suspend_hook(id: Option<String>) -> Result<()> {
+    with_hook(|hook| hook.suspend(id))
 }
 
 #[napi]
-pub fn resume_hook() -> Result<()> {
-    with_hook(|hook| hook.resume())
+pub fn resume_hook(id: Option<String>) -> Result<()> {
+    with_hook(|hook| hook.resume(id))
 }
 
 /// Programmatic trigger, from the CLI or a menu item. One call is the whole
@@ -171,6 +171,12 @@ pub fn trigger_external(id: String, pressed: bool) -> Result<()> {
 #[napi]
 pub fn notify_closed() -> Result<()> {
     with_hook(|hook| hook.closed())
+}
+
+/// The gesture's toggle under `id` was thrown another way, open or closed.
+#[napi]
+pub fn notify_open(id: String, open: bool) -> Result<()> {
+    with_hook(|hook| hook.set_open(id, open))
 }
 
 fn method(name: Option<String>) -> Result<Method> {
@@ -212,6 +218,7 @@ pub struct InsertionTiming {
     pub modifier_hold_ms: Option<u32>,
     pub clipboard_quiet_ms: Option<u32>,
     pub clipboard_timeout_ms: Option<u32>,
+    pub restore_clipboard: Option<bool>,
 }
 
 /// Bounded to what Settings offers, so a hand-edited config cannot hang a paste.
@@ -225,6 +232,7 @@ fn timing(given: Option<InsertionTiming>) -> inject::Timing {
         modifier_hold: ms(t.modifier_hold_ms, 1_000, d.modifier_hold),
         clipboard_quiet: ms(t.clipboard_quiet_ms, 5_000, d.clipboard_quiet),
         clipboard_cap: ms(t.clipboard_timeout_ms, 60_000, d.clipboard_cap),
+        restore_clipboard: t.restore_clipboard.unwrap_or(d.restore_clipboard),
     }
 }
 
@@ -852,9 +860,17 @@ mod tests {
             modifier_hold_ms: Some(120),
             clipboard_quiet_ms: None,
             clipboard_timeout_ms: Some(u32::MAX),
+            restore_clipboard: None,
         }));
         assert_eq!(t.modifier_hold, Duration::from_millis(120));
         assert_eq!(t.clipboard_quiet, inject::Timing::default().clipboard_quiet);
         assert_eq!(t.clipboard_cap, Duration::from_secs(60));
+        assert!(t.restore_clipboard);
+    }
+
+    #[test]
+    fn putting_the_clipboard_back_can_be_turned_off() {
+        let given = InsertionTiming { modifier_hold_ms: None, clipboard_quiet_ms: None, clipboard_timeout_ms: None, restore_clipboard: Some(false) };
+        assert!(!timing(Some(given)).restore_clipboard);
     }
 }

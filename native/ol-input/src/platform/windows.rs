@@ -36,6 +36,20 @@ pub(crate) fn send(inputs: &[INPUT]) -> Result<(), String> {
     }
 }
 
+/// A press and release of an unassigned key while Alt or Win is held, so its
+/// release no longer reads as a lone tap: alone, releasing Alt focuses the
+/// app's menu bar and releasing Win opens Start. The key and the marker are
+/// handy-keys' own menu mask (0xE8, "HKMM"), which its hook passes through
+/// untouched. A failure only costs the menu opening.
+pub fn mask_menu() {
+    let mask = |flags| {
+        let mut input = key_input(0xE8, 0, flags);
+        input.Anonymous.ki.dwExtraInfo = 0x484B_4D4D;
+        input
+    };
+    let _ = send(&[mask(Default::default()), mask(KEYEVENTF_KEYUP)]);
+}
+
 /// The low byte of VkKeyScanW is the virtual key for "v" on the active layout.
 fn paste_virtual_key() -> u16 {
     let scan = unsafe { VkKeyScanW(u16::from(b'v')) };
