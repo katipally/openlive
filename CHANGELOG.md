@@ -343,6 +343,15 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **The home tour after Welcome skips what Welcome just showed.** Right after
+  Welcome's Done, it no longer repeats the three modes and the agent picker.
+- **A click outside a spotlight tour does what it was meant to.** It closes the
+  tour and reaches the button or field it landed on, instead of only closing.
+- **Flow setup says when API mode has no key yet.** Next to **Start using
+  Flow**, with a link to Settings > Models; finishing setup still works.
+- **Dictate's home says to turn it on first** when it is off, before holding
+  its key, and the Access rows' Allow buttons line up whether or not a row has
+  a ⋯ menu.
 - **A missing key or agent is named before the voice models download.** Chat's
   pre-call setup used to say so only once the download was done; Flow's home
   now says **no key yet** on its brain chip too, instead of a model name.
