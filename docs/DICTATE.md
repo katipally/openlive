@@ -53,7 +53,7 @@ state uses.
 | Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
 Right above the orb, in the mic button's place, a badge says how it is
-listening: the key and **Hold** while you hold it, a chartreuse **Hands-free**
+listening: the key and **Hold** while you hold it, **Hands-free**
 with a stop square while hands-free is on. The mic, the badges and the line
 above them fade into one another rather than popping. Above the badge, one line:
 

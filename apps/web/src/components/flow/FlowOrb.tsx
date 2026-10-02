@@ -360,8 +360,8 @@ export function FlowOrb() {
         </span>
         <button type="button" data-hit={badge === "handsFree" || undefined} tabIndex={badge === "handsFree" ? 0 : -1} aria-hidden={badge !== "handsFree"}
           onClick={() => cmd({ t: "dictateToggle" })} aria-label="Stop dictating"
-          className={cn(BADGE, "gap-2 border-transparent bg-dictate pr-2.5 text-dictate-foreground hover:bg-dictate/85 [-webkit-app-region:no-drag]", badge === "handsFree" ? BADGE_ON : BADGE_OFF)}>
-          <span className="size-1.5 rounded-full bg-dictate-foreground" aria-hidden />
+          className={cn(BADGE, "gap-2 pr-2.5 hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]", badge === "handsFree" ? BADGE_ON : BADGE_OFF)}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden />
           Hands-free <Square className="size-2.5 fill-current" aria-hidden />
         </button>
       </div>

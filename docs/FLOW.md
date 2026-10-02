@@ -86,7 +86,7 @@ transcript, not on the orb.
 **Hover controls.** Point at the orb and three buttons appear around it: close
 Flow on the left, open OpenLive on the right, and above it the mic, which turns
 hands-free [Dictate](DICTATE.md) on. While it is on, the mic becomes a
-chartreuse **Hands-free** badge, always shown, that turns it off.
+**Hands-free** badge, always shown, that turns it off.
 
 ![Hover controls](../assets/flow-orb-hover.png)
 
