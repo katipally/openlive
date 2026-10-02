@@ -84,7 +84,7 @@ function YourData() {
   }, staleTime: Infinity }).data;
   const [confirming, setConfirming] = useState(false);
   return (
-    <Section id="set-about-data" title="Your data" desc="Settings, memory, connectors (mcp.json), skills, chats, Dictate history and logs. All on this machine.">
+    <Section id="set-about-data" title="Your data" desc="Chats, memory, settings, skills and logs, all on this machine.">
       <ListGroup>
         <ListRow label="OpenLive folder" detail={<span className="break-all font-mono">{home ?? "\u2026"}</span>}>
           {isDesktop && bridge && (
