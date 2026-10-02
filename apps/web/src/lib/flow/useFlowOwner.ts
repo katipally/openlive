@@ -18,7 +18,10 @@ import { brainIdOf } from "@/lib/telemetryIds";
 import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
-import { FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
+import { desktopPlatform } from "@/lib/platform";
+import { createDictate, type Inserted } from "@/lib/dictate/run";
+import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { DICTATE_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
@@ -49,6 +52,9 @@ const ARM_WATCH_MS = 1000;
 const ANSWER_SILENCE_MS = 90_000;
 const ARM_WATCH_MAX_ERRORS = 5;
 const MIC: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+// The microphone outlives a dictation by this much, so the second tap of a
+// double-tap, or the next hold, finds it already open.
+const DICTATE_MIC_GRACE_MS = 1500;
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
 function base64(buf: ArrayBuffer): string {
@@ -63,6 +69,7 @@ interface FlowSettings {
   brain: FlowConfig["brain"];
   insertion: FlowConfig["insertion"];
   voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride">;
+  dictate: FlowConfig["dictate"];
 }
 
 const asRules = (s: FlowSettings): QuietRules => ({ ...s.voice.autoQuiet, speakReplies: s.voice.speakReplies });
@@ -81,6 +88,8 @@ export function useFlowOwner(): void {
   const disarmed = useRef(false);
   /** Whether the addon currently holds a registration. */
   const armed = useRef(false);
+  /** The key the addon holds for Dictate, or null while it holds none. */
+  const dictateKey = useRef<string | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
@@ -159,6 +168,8 @@ export function useFlowOwner(): void {
     };
     const dismiss = (reason: FlowCloseReason = "other") => {
       if (!summoned.current) return;
+      // Dictate is drawn on this orb, so it goes with it.
+      dictate.yield();
       summoned.current = false;
       openTicket++;
       stopIdleRetire();
@@ -250,6 +261,21 @@ export function useFlowOwner(): void {
       await api.unregister(BINDING_ID);
       await api.register(BINDING_ID, FLOW_TRIGGER);
       armed.current = true;
+      // A hook that was just started holds no Dictate key, whatever was registered before.
+      dictateKey.current = null;
+      await syncDictateKey();
+    };
+
+    /** Dictate's key registered as its settings say: the one picked while it is on, none while it is off. */
+    const syncDictateKey = async () => {
+      const want = armed.current && settings.current?.dictate.enabled ? settings.current.dictate.hotkey : null;
+      if (want === dictateKey.current) return;
+      if (dictateKey.current) await api.unregister(DICTATE_BINDING);
+      dictateKey.current = null;
+      if (!want) return;
+      const r = await api.register(DICTATE_BINDING, want, true);
+      if (r.ok) dictateKey.current = want;
+      else log.error("flow", "dictate key:", r.error);
     };
 
     /** The settings the runtime actually runs on. */
@@ -262,6 +288,7 @@ export function useFlowOwner(): void {
         brainReady.current = body.brainReady;
         brain = { kind: body.brainKind, id: body.brainId };
         if (!armed.current) await arm();
+        else await syncDictateKey();
       } catch (e) { log.error("flow", "config:", e); }
     };
 
@@ -276,7 +303,7 @@ export function useFlowOwner(): void {
         stream.current = mic;
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
-          onPartial: () => {},
+          onPartial: (text) => dictate.partial(text),
           onUserText: (text, wordsAt, speaker, _judged, aside) => void onUserText(text, wordsAt, speaker, aside),
           onSideTalk: (text, speaker, judged) => { aside.current = { text, speaker, judged }; patch({ aside: text }); },
           // The first chunk that actually STARTS playing is when speaking begins;
@@ -350,6 +377,7 @@ export function useFlowOwner(): void {
     };
 
     const onEnginePhase = (p: EnginePhase) => {
+      if (dictate.active()) return dictate.hearing(p === "listening");
       if (p === "listening") return setPhase("listening");
       if (p === "speaking") return setPhase("speaking");
       // The question has been voiced and the reply waits on the answer.
@@ -377,6 +405,8 @@ export function useFlowOwner(): void {
       // A failure left from the last session is not news; health re-derives the live one.
       if (!summoned.current) { patch({ failure: null }); cards.clear(); }
       summon(by);
+      // Flow's gesture wins the microphone: Dictate stops for it.
+      dictate.yield();
       const ticket = ++openTicket;
       setPhase("listening");
       const health = refreshHealth();
@@ -478,6 +508,12 @@ export function useFlowOwner(): void {
     };
 
     const onUserText = async (text: string, wordsAt: number[], speaker?: string, aside?: boolean) => {
+      // Dictate's words are typed, never sent to the brain and never answered.
+      if (dictate.active()) {
+        engine.current?.endAgentTurn();
+        void dictate.heard(text);
+        return;
+      }
       if (snap.current.aside) patch({ aside: "" });
       // An approval is open, so this sentence is its answer.
       if (permission.current) return answerByVoice(text);
@@ -504,6 +540,62 @@ export function useFlowOwner(): void {
       catch (e) { log.debug("flow", "warm:", e); }
     };
 
+    // ── Dictate ───────────────────────────────────────────────────────────
+    // Same microphone, same engine, same orb as Flow; its words go to the
+    // cursor instead of the brain.
+    let micGrace: ReturnType<typeof setTimeout> | undefined;
+    // set_dictation asked mid-turn: hands-free starts once that turn is over.
+    let dictateAfterTurn = false;
+    const startDictateAfterTurn = () => {
+      if (!dictateAfterTurn) return;
+      dictateAfterTurn = false;
+      void dictate.setHandsFree(true, false);
+    };
+
+    /** Typed at the cursor; where nothing takes it, put on the clipboard instead. */
+    const insertDictation = async (text: string): Promise<Inserted> => {
+      const ins = settings.current?.insertion;
+      const session = valueOr(await api.insertBegin(ins?.method, ins), -1);
+      if (session >= 0) {
+        await api.insertPush(session, text);
+        if ((await api.insertEnd(session)).ok) return "typed";
+      }
+      const bridge = (window as unknown as { openlive?: { bridge?: (o: string, a?: string) => Promise<string> } }).openlive?.bridge;
+      try { return bridge ? (await bridge("clipboard_write", text), "copied") : "failed"; }
+      catch { return "failed"; }
+    };
+
+    const dictate = createDictate({
+      listen: async () => {
+        clearTimeout(micGrace);
+        if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
+        await ensureEngine();
+        engine.current?.setMuted(false);
+        return !!engine.current;
+      },
+      beginHold: () => engine.current?.beginPtt(),
+      endHold: async () => { await engine.current?.endPtt(true); },
+      insert: insertDictation,
+      quietFlow: () => { if (turnActive.current) onStop(); },
+      show: (d) => {
+        if (d && !summoned.current && !snap.current.dictate) api.summon("dictate");
+        patch({ dictate: d });
+        if (d) return;
+        if (summoned.current) return backToListening();
+        api.dismiss("other");
+        micGrace = setTimeout(() => { if (!summoned.current && !snap.current.dictate) teardownMic(); }, DICTATE_MIC_GRACE_MS);
+      },
+      gestureOpen: (open) => void api.gestureOpen(DICTATE_BINDING, open),
+      settings: () => {
+        const own = settings.current?.dictate;
+        return {
+          rules: own?.cleanup ?? { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
+          lang: loadPipelineConfig().language,
+          keys: hotkeyKeys(own?.hotkey ?? "option_right", desktopPlatform),
+        };
+      },
+    });
+
     // ── the Flow socket ───────────────────────────────────────────────────
     const onFlowEvent = (e: FlowEventWire) => {
       if (turnActive.current) armAnswerWatchdog();
@@ -526,11 +618,13 @@ export function useFlowOwner(): void {
           // again when words arrive or the turn ends, which is when it changed.
           return;
         case "error":
+          startDictateAfterTurn();
           if (e.aborted) { turnActive.current = false; backToListening(); return; }
           return failTurn(e.message, e.code);
         case "done":
           turnActive.current = false;
           stopAnswerWatchdog();
+          startDictateAfterTurn();
           // Quiet, the engine has nothing to voice but is still thinking until told.
           engine.current?.endAgentTurn();
           if (!snap.current.speaking) backToListening();
@@ -558,6 +652,13 @@ export function useFlowOwner(): void {
           return reply("ok");
         }
         if (op === "flow_insert_end") { await endInsertion(); return reply("ok"); }
+        if (op === "flow_dictate") {
+          const on = arg === "on";
+          dictateAfterTurn = on && turnActive.current;
+          // Started now, it would take the very turn that asked for it.
+          if (dictateAfterTurn) return reply("Dictation starts as soon as this reply ends: what the user says next is typed at their cursor.");
+          return reply(await dictate.setHandsFree(on, false));
+        }
         if (op === "flow_context") { const c = await api.context(); return reply(c.ok ? JSON.stringify(c.value) : ""); }
         if (op === "flow_device") {
           const { fn, args } = JSON.parse(arg ?? "{}") as { fn?: string; args?: unknown };
@@ -635,6 +736,7 @@ export function useFlowOwner(): void {
         case "permission": return answer(c.optionId);
         case "flowCancel": return onClose("orb_button");
         case "flowStop": return onStop();
+        case "dictateToggle": return void dictate.toggle();
         case "flowSendAside": {
           const a = aside.current;
           if (a && snap.current.aside) { featureUsed("n_send_aside"); engine.current?.sendAside(a.text, a.speaker, a.judged); }
@@ -679,6 +781,13 @@ export function useFlowOwner(): void {
     // ── wiring ────────────────────────────────────────────────────────────
     const tray = trayAsk();
     const offEffect = api.onEffect((e) => {
+      if (e.bindingId === DICTATE_BINDING) {
+        if (e.kind === "hold_start") dictate.holdStart();
+        else if (e.kind === "hold_end") void dictate.holdEnd();
+        else if (e.kind === "hold_cancel") void dictate.holdCancel();
+        else void dictate.setHandsFree(e.kind === "start", true);
+        return;
+      }
       const by = tray.opener();
       if (e.kind === "start") void onOpen(by);
       else if (e.kind === "stop") onClose("gesture");
@@ -755,7 +864,7 @@ export function useFlowOwner(): void {
     });
 
     const bands = setInterval(() => {
-      if (!summoned.current) return;
+      if (!summoned.current && !snap.current.dictate) return;
       const e = engine.current;
       panel.panelState?.({ k: "b", mic: e?.micBands() ?? IDLE_BANDS, agent: e?.agentBands() ?? IDLE_BANDS, agentLevel: e?.agentLevel() ?? 0 });
     }, BANDS_MS);
@@ -775,6 +884,8 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       teardownMic();
       void api.unregister(BINDING_ID);
+      if (dictateKey.current) void api.unregister(DICTATE_BINDING);
+      clearTimeout(micGrace);
       client.current?.close();
       client.current = null;
     };

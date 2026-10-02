@@ -859,11 +859,15 @@ export class VoiceEngine {
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
    *  it into `pending` (the ptt branch) instead of racing an auto end-of-turn. */
-  async endPtt() {
+  async endPtt(now = false) {
     if (!this.ptt) return;
+    // `now`: the release itself says the sentence is over, so the segment ends on
+    // the next quiet frame instead of after the usual trailing silence.
+    if (now) this.vad?.setOptions({ redemptionMs: 0 });
     // The user just stopped talking: the VAD ends the segment after redemptionMs of
     // silence, then onSpeechEnd (ptt branch) appends it to `pending`. Bounded wait.
     for (let i = 0; i < 40 && (this.phase === "listening" || this.finalizing); i++) await new Promise((r) => setTimeout(r, 50));
+    if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
     if (this.stopped) return;
     this.ptt = false;
     if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
