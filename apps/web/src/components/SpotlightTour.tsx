@@ -12,7 +12,7 @@ import { useFocusTrap } from "@/lib/useFocusTrap";
 // Reusable first-visit SPOTLIGHT tour: dims the page with a cutout + accent ring
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
 // tooltip at it. Each surface mounts its own <SpotlightTour id steps/> — the
-// tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/×), and
+// tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/× or a click elsewhere), and
 // follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
 // transitions) — no imperative animation against elements that may not exist,
 // which is what made the previous GSAP version spam "target not found".
@@ -89,6 +89,15 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
   const close = useCallback((exit: TourExit) => { setLeaving(true); setTimeout(() => onCloseRef.current(exit), 180); }, []);
   const skip = useCallback(() => close("skipped"), [close]);
 
+  // The dim layer lets clicks through, so a click outside the card both ends the
+  // tour and lands on what it hit. It ends at once, before the click arrives, so
+  // the focus the tour hands back cannot steal it from whatever that click opens.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { if (!cardRef.current?.contains(e.target as Node)) onCloseRef.current("skipped"); };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
   // Active once measured: the tour renders nothing until its target has a rect.
   useFocusTrap(rootRef, !!rect, skip);
 
@@ -144,14 +153,14 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
   const arrowSide = place === "below" ? "-top-1.5" : place === "above" ? "-bottom-1.5" : place === "right" ? "-left-1.5" : "-right-1.5";
 
   return (
-    <div ref={rootRef} className={cn("fixed inset-0 z-tour transition-opacity duration-fast", leaving ? "opacity-0" : "opacity-100 animate-fade-in")}
+    <div ref={rootRef} className={cn("pointer-events-none fixed inset-0 z-tour transition-opacity duration-fast", leaving ? "opacity-0" : "opacity-100 animate-fade-in")}
       role="dialog" aria-modal="true" aria-label="Feature tour">
       {/* the spotlight: one element whose giant shadow dims everything AROUND the target */}
       <div className="absolute rounded-xl transition-all duration-base ease-standard"
-        style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} onClick={skip} />
+        style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} />
       <div className="pointer-events-none absolute rounded-xl ring-2 ring-accent/80 transition-all duration-base ease-standard" style={hole} />
 
-      <div ref={cardRef} key={step} className="absolute rounded-xl border border-hairline p-4 text-left surface-float shadow-pop animate-fade-up"
+      <div ref={cardRef} key={step} className="pointer-events-auto absolute rounded-xl border border-hairline p-4 text-left surface-float shadow-pop animate-fade-up"
         style={{ left, top, width: CARD_W }}>
         {arrowOnCard && <div className={cn("absolute size-3 rotate-45 surface-float", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
         <div className="flex items-start justify-between gap-2">
