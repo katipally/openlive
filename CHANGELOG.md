@@ -343,6 +343,9 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **A missing key or agent is named before the voice models download.** Chat's
+  pre-call setup used to say so only once the download was done; Flow's home
+  now says **no key yet** on its brain chip too, instead of a model name.
 - **Dictate in languages other than English.** A capital and a full stop in the
   script's own mark (`。` in Chinese and Japanese, `।` in Hindi) where the speech
   engine left none; word counts that are right in Chinese and Japanese; the
