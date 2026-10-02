@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Wrench } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
 import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { Button, linkClass } from "@/components/ui";
+import { Button, linkClass, notice } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { flowOnboardingOpen } from "@/lib/settingChanges";
 import { telemetry } from "@/lib/telemetry";
+import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
+import { useUi } from "@/lib/uiStore";
 import { BrainPicker } from "./BrainPicker";
 import { AccessRows } from "./FlowSettings";
 import { FlowCanvas } from "./FlowCanvas";
@@ -33,6 +35,9 @@ export function FlowOnboarding({ from, onDone, config, save }: {
   }, [step]);
   useEffect(() => { flowOnboardingOpen(true); return () => flowOnboardingOpen(false); }, []);
   const finish = (how: "flow_onboarding_done" | "flow_onboarding_skipped") => { telemetry.track("onboarding_step", { step: how }); onDone(); };
+  const choice = useApiModeChoice();
+  // Finishing stays open: the note only says the brain cannot answer yet, and where to fix it.
+  const keyGap = step === 2 && config?.brain.kind === "api" && !choice.loading && !choice.usable;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -90,6 +95,11 @@ export function FlowOnboarding({ from, onDone, config, save }: {
             </Button>
           )}
           <span className="flex-1" />
+          {keyGap && (
+            <button type="button" onClick={() => useUi.getState().openSettingsTab("models")} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+              <Wrench aria-hidden /> No API key for {choice.providerName}. Add one in Settings
+            </button>
+          )}
           <Button variant="primary" size="lg" onClick={() => (step === 1 ? setStep(2) : finish("flow_onboarding_done"))}>
             {step === 1 ? "Continue" : "Start using Flow"}
             <ArrowRight aria-hidden />
