@@ -45,25 +45,48 @@ export function asTyped(reply: string): string {
   return /^```[\w-]*\n([\s\S]*?)\n```$/.exec(t)?.[1]?.trim() ?? t;
 }
 
+/** The words of a reply as they may be typed, as they arrive: what `asTyped`
+ *  makes of the whole, in pieces. Blank space at either end is held back, and a
+ *  reply that opens with a code fence is held whole, since only its end says
+ *  what the fence wraps. */
+export function typedStream(emit: (text: string) => void) {
+  let all = "";
+  let sent = 0;
+  let fenced: boolean | null = null;
+  return (delta: string) => {
+    all += delta;
+    const body = all.trimStart();
+    if (fenced === null) {
+      if ("```".startsWith(body)) return;
+      fenced = body.startsWith("```");
+    }
+    if (fenced) return;
+    const ready = body.trimEnd();
+    if (ready.length > sent) { emit(ready.slice(sent)); sent = ready.length; }
+  };
+}
+
 /** API mode: Chat's provider and model, with no tools to call. */
-export async function apiRewrite(ask: RewriteAsk, signal: AbortSignal, live: ResolvedLive = resolveLive(), stream = streamProvider): Promise<string> {
+export async function apiRewrite(ask: RewriteAsk, signal: AbortSignal, onText: (text: string) => void = () => {}, live: ResolvedLive = resolveLive(), stream = streamProvider): Promise<string> {
   const { provider, model, apiKey } = live;
   if (!apiKey && !provider.keyless) throw new Error(`No API key for ${provider.name}. Add one in Settings > Models.`);
   const { system, user } = rewritePrompt(ask);
+  const typed = typedStream(onText);
   let out = "";
   for await (const ev of stream(provider, apiKey ?? undefined, { model, messages: [{ role: "system", text: system }, { role: "user", text: user }], tools: [], ...liveReasoning(live) }, signal)) {
-    if (ev.type === "text") out += ev.delta;
+    if (ev.type === "text") { out += ev.delta; typed(ev.delta); }
   }
   return asTyped(out);
 }
 
 /** One turn of a coding agent, its words only. Its own tool activity is ignored, an error rejects. */
-export async function agentRewrite(ask: RewriteAsk, agent: Pick<Agent, "runTurn">, signal: AbortSignal): Promise<string> {
+export async function agentRewrite(ask: RewriteAsk, agent: Pick<Agent, "runTurn">, signal: AbortSignal, onText: (text: string) => void = () => {}): Promise<string> {
   const { system, user } = rewritePrompt(ask);
+  const typed = typedStream(onText);
   let out = "";
   let failed = "";
   await agent.runTurn({ text: `${system}\n\n${user}`, frames: [] }, (e: SseEvent) => {
-    if (e.type === "text_delta") out += e.text;
+    if (e.type === "text_delta") { out += e.text; if (!failed) typed(e.text); }
     else if (e.type === "error") failed = e.message;
   }, signal);
   if (failed) throw new Error(failed);
@@ -123,15 +146,16 @@ export function warm(brain: FlowBrain = dictateBrain(readFlowConfig())): void {
   if (brain.kind === "acp") heldFor(brain).agent.catch((e) => log.warn("dictate", "warm:", e));
 }
 
-/** The rewrite, by the brain Settings > Dictate names. Rejects on any failure. */
-export async function rewrite(ask: RewriteAsk, signal: AbortSignal, brain: FlowBrain = dictateBrain(readFlowConfig())): Promise<string> {
-  if (brain.kind !== "acp") return apiRewrite(ask, signal);
+/** The rewrite, by the brain Settings > Dictate names, its words handed to
+ *  `onText` as they come. Rejects on any failure. */
+export async function rewrite(ask: RewriteAsk, signal: AbortSignal, onText?: (text: string) => void, brain: FlowBrain = dictateBrain(readFlowConfig())): Promise<string> {
+  if (brain.kind !== "acp") return apiRewrite(ask, signal, onText);
   const h = heldFor(brain);
   // One turn at a time: an agent session answers in order.
   const run = h.queue.then(async () => {
     const agent = await h.agent;
     h.turns++;
-    try { return await agentRewrite(ask, agent, signal); }
+    try { return await agentRewrite(ask, agent, signal, onText); }
     // A cancelled turn leaves the agent fine; a failed one is started afresh next time.
     catch (e) { if (!signal.aborted) drop(h); throw e; }
   });

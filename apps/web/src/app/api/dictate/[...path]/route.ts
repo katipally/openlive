@@ -19,7 +19,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       cache: "no-store",
       signal: req.signal,
     });
-    return new Response(await res.text(), { status: res.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+    // Passed through as it comes: a rewrite streams its words.
+    return new Response(res.body, { status: res.status, headers: { "content-type": res.headers.get("content-type") ?? "application/json", "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "The agent service is not reachable." }, { status: 503 });
   }

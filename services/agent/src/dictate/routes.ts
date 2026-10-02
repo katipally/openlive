@@ -20,12 +20,23 @@ dictateRoutes.post("/rewrite", bodyLimit({ maxSize: DICTATE_BODY_MAX, onError: (
   try { body = await c.req.json(); } catch { body = null; }
   const parsed = ask.safeParse(body);
   if (!parsed.success) return c.json({ error: "send { kind, text, tone | selection }" }, 400);
-  try {
-    return c.json({ text: await rewrite(parsed.data as RewriteAsk, c.req.raw.signal) });
-  } catch (e) {
-    log.warn("dictate", "rewrite:", e);
-    return c.json({ error: e instanceof Error ? e.message : "the brain did not answer" }, 502);
-  }
+  // One JSON object a line: { delta } as the words come, then { text } or { error }.
+  const ac = new AbortController();
+  c.req.raw.signal.addEventListener("abort", () => ac.abort(), { once: true });
+  const enc = new TextEncoder();
+  const words = new ReadableStream<Uint8Array>({
+    async start(out) {
+      const line = (o: object) => { if (!ac.signal.aborted) out.enqueue(enc.encode(`${JSON.stringify(o)}\n`)); };
+      try { line({ text: await rewrite(parsed.data as RewriteAsk, ac.signal, (delta) => line({ delta })) }); }
+      catch (e) {
+        log.warn("dictate", "rewrite:", e);
+        line({ error: e instanceof Error ? e.message : "the brain did not answer" });
+      }
+      try { out.close(); } catch { /* the reader hung up */ }
+    },
+    cancel() { ac.abort(); },
+  });
+  return new Response(words, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
 });
 
 dictateRoutes.post("/warm", (c) => { warm(); return c.json({ ok: true }); });
