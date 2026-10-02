@@ -6,6 +6,7 @@ import { Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
 import type { DictateKeep, Dictation, FlowConfig } from "@openlive/flow-store";
 import { Button, Chip, ConfirmButton, Input, ListGroup, Select, Tooltip } from "@/components/ui";
 import { flowBridge, valueOr } from "@/lib/flow/bridge";
+import { countWords } from "@/lib/dictate/cleanup";
 import { toast } from "@/lib/toast";
 import { Section } from "./Section";
 import { EmptyState, NoMatch, QueryState } from "./common";
@@ -34,7 +35,6 @@ const dayOf = (at: number) => {
   return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 };
 const timeOf = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
 /** Dictate's History: every dictation kept on this machine, for as long as `keep` says. */
 export function DictateHistory({ own, insertion, save }: { own: FlowConfig["dictate"]; insertion: FlowConfig["insertion"]; save: (patch: Partial<FlowConfig["dictate"]>) => void }) {
@@ -102,6 +102,7 @@ export function DictateHistory({ own, insertion, save }: { own: FlowConfig["dict
 
 function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["insertion"]; onDelete: () => void }) {
   const copy = () => void navigator.clipboard.writeText(d.final).then(() => toast("Copied", "info")).catch(() => toast("That could not be copied."));
+  const words = countWords(d.final);
   // Back to the window it was said into, while that window is still open; else on the clipboard to paste.
   const again = async () => {
     const api = flowBridge();
@@ -122,7 +123,7 @@ function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted-foreground">
           <span>{timeOf(d.at)}</span>
           {d.app && <span className="break-words">{d.app}</span>}
-          {d.command ? <Chip>Command</Chip> : <span>{countWords(d.final)} {countWords(d.final) === 1 ? "word" : "words"}</span>}
+          {d.command ? <Chip>Command</Chip> : <span>{words} {words === 1 ? "word" : "words"}</span>}
           {d.copied && <span>Copied, nowhere to type</span>}
         </span>
       </span>
