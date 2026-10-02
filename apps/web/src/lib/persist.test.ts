@@ -92,4 +92,22 @@ describe("persisted", () => {
     const last = fetch.mock.calls.at(-1)![1] as RequestInit;
     expect(JSON.parse(last.body as string)).toEqual({ t: { n: 2, label: "b" } });
   });
+
+  it("takes another window's saves, except into a store that keeps its own view", async () => {
+    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("addEventListener", () => {});
+    vi.stubGlobal("document", { addEventListener: () => {} });
+    vi.resetModules();
+    persist = await import("./persist");
+    const shared = make();
+    const own = persist.persisted<{ n: number }>("own", () => ({ n: 0 }), { partialize: (s) => s, clean: (f) => (typeof f.n === "number" ? { n: f.n } : {}), live: false });
+    persist.seedPersisted({});
+    const other = new BroadcastChannel("openlive-ui-state");
+    other.postMessage({ group: "t", fields: { n: 42 } });
+    other.postMessage({ group: "own", fields: { n: 42 } });
+    await vi.waitFor(() => expect(shared.getState().n).toBe(42));
+    expect(own.getState().n).toBe(0);
+    expect(persist.savedGroup("own")).toEqual({ n: 42 });
+    other.close();
+  });
 });
