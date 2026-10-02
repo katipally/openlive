@@ -148,6 +148,7 @@ describe("hands-free", () => {
     expect(r.typed).toEqual(["First thing here.", " Second thing here."]);
     expect(await r.dictate.toggle()).toBe("Dictation is off.");
     expect(r.ports.gestureOpen).toHaveBeenLastCalledWith(false);
+    expect(r.last()).toMatchObject({ handsFree: false, undo: true });
     expect(await r.dictate.heard("not for dictate")).toBe(false);
   });
 

@@ -114,6 +114,8 @@ export function createDictate(ports: DictatePorts) {
     stopLinger();
     if (!d) return;
     if (!d.inserted && !d.note) return giveBack();
+    // What lingers for Undo is not still hands-free: no ring, no Stop.
+    if (d.handsFree) set({ handsFree: false });
     linger = setTimeout(giveBack, d.undo ? UNDO_MS : DONE_MS);
   };
   const giveBack = () => { stopLinger(); d = null; ports.show(null); };
