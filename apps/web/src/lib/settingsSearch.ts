@@ -104,11 +104,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   { label: "Share anonymous usage", keywords: "telemetry analytics usage data tracking diagnostics opt out collect send privacy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
   { label: "What is shared", keywords: "events list telemetry data collected transparency", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
-  { label: "Privacy policy", keywords: "legal gdpr terms data protection policy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Privacy policy", keywords: "legal gdpr terms data protection policy", tab: "privacy", anchor: "set-privacy-data", desktop: true },
   { label: "Ask for feedback", keywords: "survey rating nps thumbs prompt questions stop asking don't ask again", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
   { label: "Install ID", keywords: "uuid", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
   { label: "Your anonymous name", keywords: "username random profile identifier install id", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
-  { label: "Request deletion", keywords: "delete erase remove my data gdpr ccpa right to be forgotten privacy email", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
+  { label: "Request deletion", keywords: "delete erase remove my data gdpr ccpa right to be forgotten privacy email", tab: "privacy", anchor: "set-privacy-data", desktop: true },
   { label: "Report a problem", keywords: "bug issue github feedback broken help", tab: "privacy", anchor: "set-privacy-report", desktop: true },
 
   { label: "Links", keywords: "github releases changelog issue", tab: "about", anchor: "set-about-links" },
