@@ -16,7 +16,7 @@ const UI = "components/ui/";
 
 type Rule =
   | "native-title" | "native-control" | "color-literal" | "arbitrary-value" | "off-scale"
-  | "raw-duration" | "gsap" | "kit-deep-import" | "kit-shadow";
+  | "raw-duration" | "gsap" | "kit-deep-import" | "kit-shadow" | "icon-node-key";
 
 const ALLOW: { rule: Rule; file: string; reason: string }[] = [
   { rule: "color-literal", file: "lib/waveOrb.ts", reason: "The orb's canvas palettes: pixels, not CSS, and the orb's look is deferred." },
@@ -37,6 +37,7 @@ const RULES: Record<Rule, string> = {
   "gsap": "gsap outside the Flow orb",
   "kit-deep-import": "deep imports into components/ui: import from @/components/ui",
   "kit-shadow": "a local component named like a kit one",
+  "icon-node-key": "a createLucideIcon node without a key (React warns: lucide renders the nodes as a list)",
 };
 
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
@@ -55,6 +56,8 @@ const MOTION_LITERAL = /\b(?:duration|visualDuration|bounce):\s*\d[\d.]*|\bease:
 const COLOR = /#[0-9a-fA-F]{3,8}(?![\w-])|\b(?:rgba?|hsla?|oklch|oklab|lch|color-mix)\(/g;
 // A class list that says just "shadow" or "rounded": both are Tailwind's default, not ours.
 const BARE = /["'`\s](?:[\w-]+:)*(?:shadow|rounded)(?=["'`\s])/g;
+// One ["tag", { ...attrs }] entry of a hand-made lucide icon.
+const ICON_NODE = /\[\s*"[a-z]+",\s*\{[^}]*\}\s*\]/g;
 const CLASS_STRING = /(?:className=|cn\(|clsx\()[^;]*?["'`][^"'`]*["'`]/g;
 
 /** Comments become spaces, so offsets (and line numbers) survive. */
@@ -102,6 +105,8 @@ function lint(): Hit[] {
     all("raw-duration", DURATION);
     if (file !== "lib/motion.ts" && file !== "lib/gsap.ts") all("raw-duration", MOTION_LITERAL);
     for (const m of s.matchAll(CLASS_STRING)) all("off-scale", BARE, m[0], m.index);
+    for (const m of s.matchAll(/createLucideIcon\([\s\S]*?\]\s*\)/g))
+      for (const n of m[0].matchAll(ICON_NODE)) if (!/\bkey:/.test(n[0])) hits.push({ rule: "icon-node-key", file, line: lineOf(m.index! + n.index!), text: n[0].slice(0, 40) });
 
     for (const m of s.matchAll(/(?<![\w.$])<([a-z][a-z0-9]*)(?=[\s/>])/g)) {
       const tag = tagAt(s, m.index!);
@@ -140,6 +145,7 @@ describe("design lint", () => {
     expect([...probe.matchAll(ARBITRARY)].map((m) => m[0].trim())).toEqual(["z-[99]", "shadow-[0_0_1px_red]", "md:hover:rounded-[5px]"]);
     expect([...probe.matchAll(OFF_SCALE)].map((m) => m[0].trim())).toEqual(["bg-red-500"]);
     expect([...probe.matchAll(DURATION)].map((m) => m[0].trim())).toEqual(["duration-300"]);
+    expect([...`createLucideIcon("x", [["path", { d: "M1 1" }], ["circle", { r: "2", key: "k" }]])`.matchAll(ICON_NODE)].map((m) => /\bkey:/.test(m[0]))).toEqual([false, true]);
     expect(tagAt(`<input onChange={(e) => go(e)} type="range" />`, 0)).toMatch(/type="range"/);
   });
 });
