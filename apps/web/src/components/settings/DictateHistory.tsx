@@ -26,6 +26,8 @@ const KEEPS: { id: DictateKeep; label: string }[] = [
   { id: "month", label: "Keep 30 days" }, { id: "forever", label: "Keep forever" },
 ];
 const SEARCH_AT = 8;
+// Rows rendered at first and per "Show more": a thousand kept dictations stay quick to open and to search.
+const PAGE = 100;
 // The window it went to gets a moment to come forward before the text follows.
 const FOCUS_MS = 250;
 
@@ -43,17 +45,21 @@ export function DictateHistory({ own, insertion, save }: { own: FlowConfig["dict
   const [filter, setFilter] = useState("");
   const items = data?.items ?? [];
   const q = filter.trim().toLowerCase();
-  // One pass to filter and group, newest day first as the list already is.
-  const days = useMemo(() => {
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => setLimit(PAGE), [q]);
+  // One pass to filter and group, newest day first as the list already is, up to `limit` rows.
+  const { days, more } = useMemo(() => {
     const out: [string, Dictation[]][] = [];
+    let shown = 0;
     for (const d of items) {
       if (q && !`${d.final} ${d.app ?? ""}`.toLowerCase().includes(q)) continue;
+      if (shown++ === limit) return { days: out, more: true };
       const day = dayOf(d.at);
       if (out.at(-1)?.[0] === day) out.at(-1)![1].push(d);
       else out.push([day, [d]]);
     }
-    return out;
-  }, [items, q]);
+    return { days: out, more: false };
+  }, [items, q, limit]);
 
   const drop = async (id?: string) => {
     const r = await fetch(`/api/dictate/history${id ? `?id=${encodeURIComponent(id)}` : ""}`, { method: "DELETE" });
@@ -95,6 +101,7 @@ export function DictateHistory({ own, insertion, save }: { own: FlowConfig["dict
             <ListGroup>{list.map((d) => <Row key={d.id} d={d} insertion={insertion} onDelete={() => void drop(d.id)} />)}</ListGroup>
           </div>
         ))}
+        {more && <Button variant="ghost" size="sm" className="self-start" onClick={() => setLimit((n) => n + PAGE)}>Show more</Button>}
       </div>
     </Section>
   );
