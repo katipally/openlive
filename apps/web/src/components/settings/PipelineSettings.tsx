@@ -29,17 +29,31 @@ import { cn } from "@/lib/cn";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 import { LinkRow, useSettingsNav } from "./nav";
+import { StatusDot } from "./common";
 
-// Pipeline stages, in signal order. Each is a segment so it gets the full panel.
+// Pipeline stages, in signal order. Each is a segment so it gets the full panel;
+// its line under the label is the stage's status (stageStatus).
 const STAGES = [
-  { id: "mic", label: "VAD", sub: "Silero", icon: Mic },
-  { id: "stt", label: "Speech-to-text", sub: `${STT_FAMILIES.length} engines`, icon: Languages },
-  { id: "turn", label: "Turn-taking", sub: "Smart-Turn", icon: Gauge },
-  { id: "tts", label: "Text-to-speech", sub: `${TTS_FAMILIES.length} engines`, icon: AudioWaveform },
+  { id: "mic", label: "VAD", icon: Mic },
+  { id: "stt", label: "Speech-to-text", icon: Languages },
+  { id: "turn", label: "Turn-taking", icon: Gauge },
+  { id: "tts", label: "Text-to-speech", icon: AudioWaveform },
 ] as const;
 type StageId = (typeof STAGES)[number]["id"];
 
 type Update = (next: PipelineConfig) => void;
+
+/** A stage's line in the strip: a download or a gap when there is one, else the engine in use. */
+function stageStatus(id: StageId, cfg: PipelineConfig, engines: NativeFamilyStatus[] | undefined, jobs: Record<string, { pct?: number; error?: string } | undefined>): string {
+  if (id === "mic") return ENGINE_COPY[cfg.vad.model]?.title ?? cfg.vad.model;
+  if (id === "turn") return ENGINE_COPY[cfg.turn.engine]?.title ?? cfg.turn.engine;
+  const job = jobs[cfg[id].variant];
+  if (job?.pct !== undefined) return `Downloading ${Math.round(job.pct * 100)}%`;
+  if (variantStatus(engines, cfg[id].variant)?.downloading) return "Downloading";
+  if (job?.error) return "Download failed";
+  if (missingEngines(cfg, engines).some((g) => g.stage === id)) return "Not downloaded";
+  return familyInfo(id, cfg[id].family)?.name ?? cfg[id].family;
+}
 
 function StageHead({ title, desc }: { title: string; desc: string }) {
   return (
@@ -75,7 +89,7 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
   };
   return cached ? (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Downloaded on this device</span>
+      <StatusDot tone="success">Ready, downloaded on this device</StatusDot>
       {removeKind && (
         <Button size="sm" onClick={remove} disabled={removing} className="enabled:hover:text-danger">
           {removing ? <Loader2 className="animate-spin" /> : <Trash2 />} Remove
@@ -293,14 +307,14 @@ function NativeEngineRow({ id, fallback, accel = true }: { id: string; fallback:
 
   if (!e) return data || isError ? (
     <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="text-label text-muted-foreground">Couldn&apos;t reach the voice engine, so calls use {fallback} for now. Is OpenLive&apos;s agent running?</span>
+      <span className="min-w-0 flex-1 basis-48"><StatusDot tone="danger">Couldn&apos;t reach the voice engine, so calls use {fallback} for now. Is OpenLive&apos;s agent running?</StatusDot></span>
       <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
         {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry
       </Button>
     </div>
-  ) : <p className="text-label text-muted-foreground">Checking…</p>;
+  ) : <StatusDot tone="muted">Checking…</StatusDot>;
 
-  const error = job?.error && <p role="alert" className="basis-full text-caption text-danger">{job.error}</p>;
+  const error = job?.error && <div role="alert" className="basis-full"><StatusDot tone="danger">{job.error}</StatusDot></div>;
   if (job?.pct !== undefined || e.downloading) {
     const pct = job?.pct;
     return (
@@ -322,7 +336,7 @@ function NativeEngineRow({ id, fallback, accel = true }: { id: string; fallback:
   }
   return e.installed ? (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="flex items-center gap-1.5 text-label text-success"><Check className="size-3.5" /> Installed · {mb(e.bytes)} on disk</span>
+      <StatusDot tone="success">Ready · {mb(e.bytes)} on disk</StatusDot>
       <Button size="sm" onClick={remove} disabled={removing} className="enabled:hover:text-danger">
         {removing ? <Loader2 className="animate-spin" /> : <Trash2 />} Remove
       </Button>
@@ -334,7 +348,7 @@ function NativeEngineRow({ id, fallback, accel = true }: { id: string; fallback:
       <Button variant="primary" onClick={() => void downloadEngine(e, qc)}>
         <Download /> Download ({mb(e.sizeBytes)})
       </Button>
-      <span className="text-caption text-faint">Not downloaded yet. Until it is, calls use {fallback}. Removable anytime.</span>
+      <span className="min-w-0 flex-1 basis-48"><StatusDot tone="arc">Not downloaded. Until it is, calls use {fallback}.</StatusDot></span>
       {error}
     </div>
   );
@@ -704,7 +718,7 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
     <div className="space-y-4">
       <StageHead title="Turn-taking" desc="Decides when you have finished talking. Smart-Turn reads the sense of your last words; a silence timeout just waits out the pause." />
       <div className="rounded-lg bg-card px-card-x shadow-card">
-        <LinkRow label="Wait before answering" detail="Patient, Even and Quick move the timings below together."
+        <LinkRow label="Wait before answering" detail="Moves the timings below together"
           value={`${TURN_PRESETS.find((p) => p.id === preset)?.name ?? "Custom"} · set in Voice`} onGo={() => go("voice", "set-voice-wait")} />
       </div>
       <div className={ENGINE_GRID}>
@@ -873,6 +887,7 @@ export function PipelineSettings() {
   }, [stage]);
   const update: Update = (next) => setCfg(savePipelineConfig(next));
   const { data: engines } = useNativeEngines();
+  const jobs = useEngineJobs((s) => s);
   const onDisk = engines?.flatMap((f) => f.variants).filter((v) => v.installed) ?? [];
   const diskBytes = onDisk.reduce((n, v) => n + v.bytes, 0);
   useEffect(() => onPipelineConfig(setCfg), []);
@@ -890,7 +905,7 @@ export function PipelineSettings() {
       <div id="set-engine-device" className="flex flex-col gap-3">
         <DeviceSummary />
         <Segmented label="Pipeline stage" anchor="set-engine-stage" className="grid w-full"
-          options={STAGES} value={stage} onChange={pickStage} />
+          options={STAGES.map((st) => ({ ...st, sub: stageStatus(st.id, cfg, engines, jobs) }))} value={stage} onChange={pickStage} />
       </div>
 
       <div ref={stageBox}>
