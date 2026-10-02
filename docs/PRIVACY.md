@@ -114,6 +114,8 @@ OpenLive has no crash reporter and never uploads logs. The crash events only cou
 
 The words you say and the frames you share go to the model provider or coding agent you chose, under their terms, and nowhere else. Choose a local model and they stay on your machine. The project does not see them and this page does not govern them.
 
+Dictate's history (Settings > Dictate > History) keeps what you dictated in a file on your machine, for as long as you set there, and never sends it anywhere. Delete one dictation or all of them there, or set it to keep nothing. Plain dictation goes to no model at all; AI polish and command mode send the words, and the selected text, to the brain you chose for Dictate.
+
 ## Children
 
 OpenLive is not directed at children under 13, or under 16 where local law sets that age, and does not knowingly collect personal data from them. The analytics cannot tell a child from an adult and holds no name, age or account. If you believe a child's install has been counted, use the contact below and the events under its anonymous name will be deleted.

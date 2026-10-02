@@ -21,6 +21,20 @@ Releases before 0.1.9 predate this file — see the
   dictation" works by voice with every brain, coding agents included.
 - **Put my clipboard back** in Settings > General > Typing at cursor. On by
   default, as before; off, typed text stays on the clipboard.
+- **AI polish for Dictate**, off by default: after cleanup, Dictate's brain (an
+  API model or a coding agent, Flow's unless you pick another) rewrites what
+  you said in a Natural, Casual or Formal tone. If it fails or takes over 15
+  seconds, the cleaned-up words are typed instead.
+- **Command mode.** Select text, hold Shift with Dictate's key and say what to
+  do ("make this formal", "translate to Spanish"); the selection is replaced
+  with the result, or with nothing selected the text is written at the cursor.
+- **Dictionary and snippets** in Settings > Dictate > Words: names and jargon
+  spelled your way, and a phrase said alone that types its full text.
+- **Spoken commands**, each its own switch: "press enter", "new line", "new
+  paragraph", "undo that" and, hands-free, "stop dictating".
+- **Dictate history** in Settings > Dictate > History: each dictation kept on
+  this machine for a day, a week, a month or forever (or not at all), with
+  copy, insert again and delete.
 
 ### Removed
 - **Mini mode.** The floating always-on-top call bar, its tray item and its

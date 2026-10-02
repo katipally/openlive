@@ -9,6 +9,11 @@ macOS, Windows and Linux.
 - [Starting and stopping](#starting-and-stopping)
 - [The orb](#the-orb)
 - [Cleanup](#cleanup)
+- [AI polish](#ai-polish)
+- [Command mode](#command-mode)
+- [Words: dictionary and snippets](#words-dictionary-and-snippets)
+- [Spoken commands](#spoken-commands)
+- [History](#history)
 - [Settings](#settings)
 - [Dictate and Flow](#dictate-and-flow)
 - [Platform notes](#platform-notes)
@@ -34,7 +39,7 @@ never swallowed: it still reaches the app in front. A key pressed on top of it
 (Right Alt as AltGr typing a character) cancels the hold. On Windows, holding
 Alt or Win for Dictate sends an inert key with it, so letting go does not open
 the app's menu bar or the Start menu. Shift with the key is kept for command
-mode, which comes next.
+mode (below).
 
 ## The orb
 
@@ -45,7 +50,7 @@ state uses.
 |---|---|---|
 | Armed, hands-free and waiting | `#93A65A` | Flow idle |
 | Listening | `#C6F135` | Flow listening, riding your voice |
-| Cleaning up and typing | `#E2F04A` | Flow thinking |
+| Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
 Hands-free draws a dashed ring round the orb. Under it, one line shows how
 Dictate is held (the key, or **Hands-free** with **Stop**) and what it heard so
@@ -71,20 +76,122 @@ the speech engine wrote it.
 The whole cleanup is one pass per rule over the words, O(n) in the length of
 what was said, with no network.
 
+## AI polish
+
+Off by default. On, the cleaned-up words go to Dictate's brain, which rewrites
+them in the tone picked (Natural, Casual or Formal) and gives back text only.
+
+```
+ said ──▶ cleanup ──▶ dictionary ──▶ snippet? ──yes──▶ typed as the snippet
+                                        │no
+                                        ▼
+                               polish on? ──no──▶ typed
+                                        │yes
+                                        ▼
+                        brain answers in 15 s? ──no / error──▶ cleaned-up words typed
+                                        │yes
+                                        ▼
+                                  rewrite typed
+```
+
+- The brain is Flow's unless **Use a different one for Dictate** picks
+  another, an API model or a coding agent. An API model is offered no tools; a
+  coding agent is started with none of OpenLive's and every permission it asks
+  for is refused. A coding agent is kept warm between dictations (let go after
+  5 quiet minutes or 20 rewrites) and is started on the key press, so the
+  first rewrite does not wait on a cold start where it can help it.
+- Nothing said is lost: a failure, an empty answer or 15 seconds without one
+  types the cleaned-up words and the strip says so.
+- The rewrite is typed whole, not streamed: a stream cut off halfway could not
+  fall back cleanly.
+
+## Command mode
+
+Select text, hold **Shift + Right Alt** (Shift + Right Option on macOS), say
+what to do, let go.
+
+```
+ hold ⇧ + key ──▶ "make this formal" ──▶ read the selection ──▶ brain ──▶ typed over it
+```
+
+- The selection is read through the accessibility APIs (macOS AX, Windows UI
+  Automation, the X11 or Wayland primary selection). Where they cannot say, it
+  is copied with Cmd+C or Ctrl+C and your clipboard put back, as **Put my
+  clipboard back** says.
+- With nothing selected, what you ask for is written at the cursor.
+- A failure, or 45 seconds without an answer, changes nothing and says why.
+- The key is changeable in Settings > Dictate > Commands, and may not be
+  Dictate's own key. A double tap of it does nothing.
+
+## Words: dictionary and snippets
+
+- **Dictionary**: names and jargon spelled your way. After cleanup, a run of up
+  to five words whose letters and digits match an entry is written as the entry:
+  `open live` and `Openlive` become `OpenLive`, `a c p` becomes `ACP`. A run
+  never crosses a comma, a period or a line, and a lone common word (will, may,
+  mark) only changes case when the entry has a capital inside it or is all
+  capitals, so an entry `Will` leaves "I will" alone. One map lookup per word
+  and run length: O(n) in the words said, whatever the size of the list.
+- **Snippets**: a phrase said on its own, case and punctuation aside, types its
+  text instead. One map lookup. A snippet is never polished.
+- Speech engine hints are not used yet: the streaming engines here take no
+  hotwords without a model change, and the Whisper pipeline has no prompt
+  input, so the dictionary works on the text instead.
+
+## Spoken commands
+
+Each has its own switch in Settings > Dictate > Commands. A command counts when
+it is the whole of what was said, or comes after a sentence end or a pause:
+"Sounds good. Press enter." types "Sounds good." then presses Enter, while "I
+will press enter later" is typed as said. English only, as cleanup is.
+
+| Say | Does |
+|---|---|
+| "press enter" | Presses Enter |
+| "new line" | Shift+Enter: a line break that does not send in a chat box |
+| "new paragraph" | Shift+Enter twice |
+| "undo that" | Said alone: one Backspace per character Dictate typed last |
+| "stop dictating" | Hands-free only: types what came before it, then stops |
+
+"Undo that" only works while the cursor is still at the end of what Dictate
+typed, and an app that reformatted it (autocorrect, auto-indent) may be off by a
+character or two. It never presses Ctrl+Z, which suspends a program in a
+terminal. It reaches back up to 2000 characters.
+
+## History
+
+Each dictation is kept after it lands: what was said, the cleaned-up text, what
+was typed, the app and the time. Settings > Dictate > History lists it, newest
+first by day, with copy, **Insert again** (back into the window it came from
+while that window is open, else on the clipboard) and delete, a search, and
+**Clear all**.
+
+- Kept for 1 day, 7 days, 30 days (the default) or forever, or not at all.
+  Pruned on every read and after every dictation, at most 1000 kept.
+- A JSONL file under the OpenLive home (`flow/dictations.jsonl`, so
+  `OPENLIVE_HOME` moves it), readable by this user only, and never sent
+  anywhere.
+
 ## Settings
 
-Settings > Dictate:
+Settings > Dictate, in four subtabs:
 
-- **Dictate**: on or off.
-- **Hold to talk**: the key. **Change** takes the next key or combination you
-  press: a modifier on either side, Caps Lock, or F13 to F24, since any other
-  key would also type. On Windows and Linux a Right Alt key warns that some
-  layouts use it as AltGr and offers Right Ctrl, Caps Lock and F13.
-- **Cleanup**: the five rules, with a live example of what they do.
-- **Brain**: off, AI polish and commands think as Flow does. Plain dictation
-  never uses it.
-- **Shared settings**: links to Typing at cursor (General), Voice and Speech
-  engine.
+- **Basics**
+  - **Dictate**: on or off.
+  - **Hold to talk**: the key. **Change** takes the next key or combination you
+    press: a modifier on either side, Caps Lock, or F13 to F24, since any other
+    key would also type. On Windows and Linux a Right Alt key warns that some
+    layouts use it as AltGr and offers Right Ctrl, Caps Lock and F13.
+  - **Cleanup**: the five rules, with a live example of what they do.
+  - **AI polish**: on or off, and its tone.
+  - **Brain**: off, AI polish and commands think as Flow does. Plain dictation
+    never uses it.
+  - **Shared settings**: links to Typing at cursor (General), Voice and Speech
+    engine.
+- **Words**: the dictionary (a filter past 12 words, the first 40 shown until
+  **Show all**) and snippets.
+- **Commands**: command mode's key, the brain again, and the spoken commands.
+- **History**: how long to keep dictations, and the list.
 
 Typing at cursor is shared with Flow, in Settings > General: paste or type it
 out, the Advanced timing, and **Put my clipboard back**. On (the default), what
@@ -106,9 +213,15 @@ One microphone, one engine, one orb, so the two take turns:
 
 - **macOS**: the key needs Accessibility, as Flow's does.
 - **Windows**: Right Alt is AltGr on many layouts (German, French, Polish and
-  more). Pick another key there.
+  more). Pick another key there. In a console, a Ctrl+C sent to copy a
+  selection the system could not read interrupts the program instead, so
+  select text there before command mode.
 - **Linux**: the key listener reads `/dev/input` on X11 and Wayland alike, which
-  takes the `input` group. Right Alt is often AltGr (ISO Level 3).
+  takes the `input` group. Right Alt is often AltGr (ISO Level 3). The
+  selection is the primary selection, which some apps keep after the
+  highlight is gone. Key presses (spoken commands, the copy) go through
+  `xdotool` on X11 and `ydotool`, with its daemon, on Wayland; new line in a
+  terminal runs the line.
 
 ## Architecture (for developers)
 
@@ -119,7 +232,14 @@ One microphone, one engine, one orb, so the two take turns:
                                                                  │
  VoiceEngine (beginPtt / endPtt(now)) ──onUserText──▶ heard ──▶ cleanup (lib/dictate/cleanup.ts)
                                                                  │
+                       dictionary, snippet, spoken command (lib/dictate/words.ts)
+                                                                 │
+              AI polish / command mode ──▶ /api/dictate/rewrite ──▶ agent /dictate (services/agent/src/dictate)
+                                                                 │
                                          insertBegin/Push/End ──▶ ol-input (paste or type)
+                                         keys / copySelection ──▶ ol-input (spoken commands, command mode)
+                                                                 │
+                                           /api/dictate/history ──▶ flow-store dictations.jsonl
 ```
 
 - **Key**: `native/ol-input/src/coordinator.rs`. A binding registered with
@@ -137,5 +257,15 @@ One microphone, one engine, one orb, so the two take turns:
   offered wherever a session has `dictate`, which Flow's does through the
   `flow_dictate` bridge op. The registry serves the same tool to API brains and,
   over OpenLive's MCP server, to coding agents.
+- **Command key**: a second binding, `dictate_command`, registered with
+  `hold` like Dictate's. Both keys down at once is command mode.
+- **Rewrite**: `services/agent/src/dictate/rewrite.ts`. API mode streams the
+  provider with `tools: []`; a coding agent is an `AcpAgent` with Dictate's own
+  preamble, no MCP servers and a permission handler that always refuses. The
+  renderer holds the deadline and aborts the request, which ends the turn.
+- **Keys**: ol-input's `keypress(keys, times)` repeats the last key with the
+  modifiers held (one call for "undo that"), and `copySelection(timing)` sends
+  the copy chord with a marker on the clipboard, so an app that copies nothing
+  is told apart from one that copied what was there.
 - **Settings**: `dictate` and `insertion.restoreClipboard` in Flow's config
-  (`packages/flow-store`).
+  (`packages/flow-store`); the history in `packages/flow-store/src/dictations.ts`.
