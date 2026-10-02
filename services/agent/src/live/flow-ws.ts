@@ -17,7 +17,6 @@ import { AgentSupervisor } from "../agents/supervisor.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type PermissionAskOption } from "../agents/index.js";
 import { emitEvent, emitFact } from "../telemetry/emit.js";
 import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent } from "../telemetry/facts.js";
-import type { McpServerWire } from "../agents/mcp-config.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
 import { buildFlowAcpPreamble } from "../flow/prompt.js";
@@ -209,7 +208,8 @@ export class FlowLiveSession {
   /** The model already pushed to `agent`, so a change in settings is applied
    *  without tearing the agent down and losing its session. */
   private agentModel = "";
-  private mcp: { wire: McpServerWire; close(): Promise<void> } | null = null;
+  /** Kept as the promise, so a session closed while it starts still closes it. */
+  private mcp: ReturnType<typeof serveMcp> | null = null;
   /** The one permission Flow takes. Read from the config each turn, and set the
    *  moment it is given, so a yes mid-turn is not asked about again. */
   private consented = false;
@@ -621,7 +621,7 @@ export class FlowLiveSession {
     }
     void this.dropAgent();
     const flow = this;
-    this.mcp ??= await serveMcp({
+    const mcp = await (this.mcp ??= serveMcp({
       // Read per request: a new session brings a fresh tool set.
       get tools() { return flow.tools; },
       // A call arriving outside a turn is refused, as the built-in brain never makes
@@ -644,8 +644,8 @@ export class FlowLiveSession {
         const stopped = !this.ac || this.ac.signal.aborted;
         this.write(() => this.record(event, stopped));
       },
-    });
-    const wire = this.mcp.wire;
+    }));
+    const wire = mcp.wire;
     const agent = new AgentSupervisor(
       (ask) => new AcpAgent(agentId, ask, {
         cwd: flowAgentCwd(),
@@ -792,7 +792,7 @@ export class FlowLiveSession {
     this.cancelPendingPermissions();
     for (const [reqId, r] of [...this.bridgePending]) { this.bridgePending.delete(reqId); r(""); }
     void this.dropAgent();
-    void this.mcp?.close().catch(() => {});
+    void this.mcp?.then((m) => m.close()).catch(() => {});
     void this.store?.archive().catch(() => {});
   }
 }
