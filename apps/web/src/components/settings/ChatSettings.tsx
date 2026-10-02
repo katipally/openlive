@@ -33,8 +33,8 @@ function NarrateToggle() {
     .then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
     .catch(() => toast("Couldn’t save that setting. Try again."));
   return (
-    <ListRow asLabel label="Narrate agent progress"
-      detail={<>While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4: …&rdquo;). At most a few short lines a turn.</>}>
+    <ListRow asLabel label="Narrate agent progress" detail="Short spoken updates"
+      info={<>While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4: …&rdquo;). At most a few short lines a turn.</>}>
       <Switch on={on} onFlip={flip} />
     </ListRow>
   );
@@ -43,10 +43,10 @@ function NarrateToggle() {
 export function ChatSettings() {
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-chat-ptt" title="Push-to-talk"
-        desc="Off by default: a call just listens hands-free. Turned on from the call's dock, Space works like a walkie-talkie.">
+      <Section id="set-chat-ptt" title="Push-to-talk" desc="Off: a call listens hands-free.">
         <ListGroup>
-          <ListRow label="Space bar"><VoiceInputPicker /></ListRow>
+          <ListRow label="Space bar" detail="Turned on from the call dock"
+            info="Push-to-talk is off by default, so a call just listens hands-free. Turned on from the call's dock, Space works like a walkie-talkie."><VoiceInputPicker /></ListRow>
         </ListGroup>
       </Section>
       <Section id="set-chat-narrate" title="While an agent works" desc="What a call says while a coding agent is busy.">
