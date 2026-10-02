@@ -6,7 +6,7 @@
 // loaded up front, only lazily as the fallback. GPU work is
 // serialized. Models download from the hub on first load, then the browser Cache
 // API keeps them across sessions.
-import { pipeline, env } from "@huggingface/transformers";
+import { pipeline, env, LogLevel } from "@huggingface/transformers";
 import { KokoroTTS } from "kokoro-js";
 import * as ort from "onnxruntime-web";
 import type { Supertonic } from "@openlive/shared/speech/supertonic";
@@ -17,6 +17,10 @@ import { trimSilence, KEEP_S } from "@openlive/shared/speech/trim";
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
 ort.env.wasm.numThreads = 1;  // single-thread → no cross-origin-isolation needed
+// ORT's "some nodes were not assigned to the preferred execution providers" is
+// a placement notice on every WebGPU load, yet it lands in the console as an error.
+env.logLevel = LogLevel.ERROR;
+ort.env.logLevel = "error";
 
 // The Whisper checkpoint comes from the main thread (whisperCheckpoint in
 // pipelineConfig.ts): English-only `.en` builds for English, which reject a
