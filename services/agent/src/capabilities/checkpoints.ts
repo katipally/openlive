@@ -5,8 +5,8 @@ import path from "node:path";
 import { layout, resolveHome, writeAtomic } from "@openlive/shared/home";
 import type { EditWire } from "@openlive/shared";
 import { localZone, spokenTime } from "../reminders/time.js";
-import { confine, root } from "./files.js";
-import type { Tool, ToolResult } from "./types.js";
+import { confine, root, within } from "./files.js";
+import type { Tool, ToolCtx, ToolResult } from "./types.js";
 
 // Every write_file and edit_file keeps the file as it was, so it can be undone.
 // One folder per workspace under cache/checkpoints: blobs/<sha256> holds each
@@ -249,21 +249,21 @@ const undoEdit: Tool<{ id?: string; path?: string; force?: boolean }, { edit: Ed
   },
   async precheck(args, ctx) {
     const base = baseOf(root(ctx));
-    const e = pickFor(base, args);
+    const e = pickFor(base, args, ctx);
     await undoable(base, e, !!args.force);
     targets.set(args, e);
   },
   async execute(args, ctx) {
     const base = baseOf(root(ctx));
-    const e = targets.get(args) ?? pickFor(base, args);
+    const e = targets.get(args) ?? pickFor(base, args, ctx);
     const done = await undo(base, e, !!args.force);
     return text(`Undid the ${when(e.at)} change to ${e.path}${e.before === null ? ", so it is gone again" : ""}. To redo it, undo edit ${done.id}.`, { edit: done });
   },
 };
 
-function pickFor(base: string, a: { id?: string; path?: string }): Edit {
+function pickFor(base: string, a: { id?: string; path?: string }, ctx: ToolCtx): Edit {
   const given = a.path?.trim();
-  const abs = given ? confine(base, given) ?? fail("That path is outside the workspace folder, which is not allowed.") : "";
+  const abs = given ? within(ctx, given) : "";
   return pick(editsIn(base), { id: a.id, rel: given && path.relative(base, abs).split(path.sep).join("/") });
 }
 

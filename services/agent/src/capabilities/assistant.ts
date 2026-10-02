@@ -39,6 +39,8 @@ const updateTodos: Tool<{ items: { text: string; done: boolean }[] }, null> = {
   description: "Publish/update a short checklist (3+ steps) shown in the UI; mark items done as you go. Skip for simple answers.",
   parameters: params({ items: z.array(z.object({ text: z.string(), done: z.boolean() })).min(1).max(8) }),
   promptGuidelines: ["`update_todos`: a checklist for a multi-step task."],
+  // Only where a turn's UI can show it: without one the checklist would be claimed and never seen.
+  available: (s) => !!s.emit,
   async execute(args, ctx) {
     const items = Array.isArray(args?.items) ? args.items.map((i) => ({ text: String(i?.text ?? ""), done: !!i?.done })).filter((i) => i.text) : [];
     await ctx.emit?.({ type: "todos", items });

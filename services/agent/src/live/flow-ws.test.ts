@@ -606,15 +606,16 @@ describe("OpenLive's memory in Flow", () => {
 });
 
 describe("Flow's tools", () => {
-  it("are the same for both brains, research and the checklist included", async () => {
+  it("are the same for both brains, research and files included", async () => {
     const ws = new FakeSocket();
     new FlowLiveSession(ws as never);
     fake.script = reply("Hi.");
     ws.say("hi");
     await until(() => turnsDone(ws) === 1);
     const builtIn = fake.reqs[0]!.tools.map((t) => t.name);
-    expect(builtIn).toEqual(expect.arrayContaining(["insert_text", "screenshot", "shell", "open_url", "delegate", "update_todos", "remember"]));
-    for (const callOnly of ["look", "list_dir", "write_file"]) expect(builtIn).not.toContain(callOnly);
+    expect(builtIn).toEqual(expect.arrayContaining(["insert_text", "screenshot", "shell", "open_url", "delegate", "remember", "list_dir", "write_file", "undo_edit"]));
+    // A call's alone: the shared frame, and a checklist Flow has no UI for.
+    for (const callOnly of ["look", "update_todos"]) expect(builtIn).not.toContain(callOnly);
     ws.emit("close");
 
     fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };

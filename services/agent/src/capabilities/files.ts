@@ -4,10 +4,11 @@ import path from "node:path";
 import { checkpointed } from "./checkpoints.js";
 import type { Tool, ToolCtx, ToolResult } from "./types.js";
 
-// File tools, scoped to the conversation's workspace folder. Reads are free;
+// File tools, scoped to the conversation's workspace folder, or for Flow to the
+// user's home with relative paths starting in Flow's own folder. Reads are free;
 // writes and edits say what they are about to do, so a policy that asks first
 // can, and each keeps the file as it was (checkpoints.ts). Every path is
-// confined to the workspace root: a request that escapes it lexically (../, an
+// confined to that root: a request that escapes it lexically (../, an
 // absolute path elsewhere) OR through a symlink inside the workspace is refused
 // before any fs call.
 
@@ -42,8 +43,18 @@ export function confine(root: string, rel: string): string | null {
   return abs;
 }
 
-export const root = (ctx: Pick<ToolCtx, "workspace">) => ctx.workspace!().trim() || fail("No workspace folder is set for this call. Ask the user to pick a project folder from the folder menu in the top bar, then try again.");
-const within = (ctx: ToolCtx, rel: string) => confine(root(ctx), rel) ?? fail("That path is outside the workspace folder, which is not allowed.");
+/** The folder the file tools are confined to, which edits are also kept against. */
+export const root = (ctx: Pick<ToolCtx, "workspace" | "fence">) => (ctx.fence ?? ctx.workspace!)().trim() || fail("No workspace folder is set for this call. Ask the user to pick a project folder from the folder menu in the top bar, then try again.");
+
+/** `rel` resolved and confined. Under a wider fence, `~` is the fence and a relative path starts in the workspace. */
+export function within(ctx: Pick<ToolCtx, "workspace" | "fence">, rel: string): string {
+  const fence = root(ctx);
+  if (!ctx.fence) return confine(fence, rel) ?? fail("That path is outside the workspace folder, which is not allowed.");
+  const home = rel === "~" || rel.startsWith("~/") || rel.startsWith("~\\");
+  const target = home ? rel.slice(1).replace(/^[\\/]/, "") : path.isAbsolute(rel) ? rel : path.join(path.relative(fence, ctx.workspace!()), rel);
+  return confine(fence, target) ?? fail("That path is outside your home folder, which is not allowed.");
+}
+
 const relPath = (args: { path?: unknown }) => String(args?.path ?? "").trim() || fail("No file path given.");
 const hasWorkspace = (s: { workspace?: () => string }) => !!s.workspace;
 
@@ -61,13 +72,13 @@ async function matchOnce(abs: string, find: string): Promise<string> {
 const listDir: Tool<{ path?: string }, null> = {
   name: "list_dir",
   group: "files",
-  description: "List files and folders inside the user's workspace project folder. Pass a relative subpath to look deeper, or omit for the workspace root. Read-only, no approval needed.",
-  parameters: { type: "object", properties: { path: { type: "string", description: "Relative subpath inside the workspace (optional; default is the root)" } }, additionalProperties: false },
+  description: "List files and folders in the user's workspace project folder. Pass a subpath to look deeper (relative to the workspace), or omit for the workspace root. Read-only, no approval needed.",
+  parameters: { type: "object", properties: { path: { type: "string", description: "Subpath, relative to the workspace (optional; default is the root)" } }, additionalProperties: false },
   readOnly: true,
   available: hasWorkspace,
   promptGuidelines: [
-    "With a workspace folder set, `list_dir` and `read_file` explore and read inside it (no approval), and `write_file` and `edit_file` create or change files there. The user approves each write or edit, so just make the change; they'll confirm.",
-    "You can ONLY touch files inside that folder. With none set and file work wanted, ask them to pick a project folder: the folder menu in the call's top bar, or the folder field before the call.",
+    "With a workspace folder set, `list_dir` and `read_file` explore and read inside it (no approval), and `write_file` and `edit_file` create or change files there. Just make the change: where the user approves each write or edit, they'll confirm.",
+    "In a call you can ONLY touch files inside that folder. With none set and file work wanted, ask them to pick a project folder: the folder menu in the call's top bar, or the folder field before the call.",
     "Read before you edit, so your snippet matches exactly. Say what you did in a sentence (\"done, added that function\"); never read code, file paths, or file contents aloud unless they ask.",
   ],
   async execute(args, ctx) {

@@ -1,4 +1,5 @@
 import { replyLanguageLine, type LanguageCode } from "@openlive/shared";
+import { layout, resolveHome } from "@openlive/shared/home";
 import { customInstructions, ONLY_DONE_WHEN_DONE, rememberedNotes, SHARED_MEMORY } from "../prompt.js";
 import { toolGuidelines } from "../capabilities/dispatch.js";
 import { MCP_SERVER_NAME } from "../capabilities/mcp.js";
@@ -42,11 +43,15 @@ export function formatContext(c: FlowContext | null): string {
   return lines.length ? `Right now (read from the machine, not said by the user):\n${lines.join("\n")}` : "";
 }
 
+/** Where Flow's file tools start and how far they reach, when it has them. */
+const files = (tools: readonly Tool[]) => tools.some((t) => t.name === "list_dir")
+  && `Files: you have your own folder, ${layout(resolveHome()).workspace}. A relative path starts there, so a new file the user did not place goes there. You may also read and change files anywhere in their home folder: give the full path, or start it with ~/. Every write and edit is kept, so it can be undone.`;
+
 /** Compose the system prompt for one turn. Tools contribute their own guidelines. */
 export function buildFlowPrompt(p: { tools: readonly Tool[]; lang?: LanguageCode }): string {
   const custom = customInstructions();
   const persona = custom && `How the user wants you to behave and speak, in their own words. Follow it within reason:\n${custom}`;
-  return [BASE, toolGuidelines(p.tools), rememberedNotes().trim(), persona, replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
+  return [BASE, toolGuidelines(p.tools), files(p.tools), rememberedNotes().trim(), persona, replyLanguageLine(p.lang)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -60,7 +65,7 @@ export function buildFlowPrompt(p: { tools: readonly Tool[]; lang?: LanguageCode
  */
 export function buildFlowAcpPreamble(p: { tools: readonly Tool[] }): string {
   const names = p.tools.map((t) => t.name).join(", ");
-  return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They tap Control twice anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small orb above the dock, so nothing you do is visible to them unless you say it or type it.
+  return `[You are being used through OpenLive Flow, a hands-free voice interface on the user's own machine. They tap Control twice anywhere on the machine and talk; their speech is transcribed and sent as their message, and your reply is read back to them out loud. There is no window and no chat: the only thing on screen is a small orb at the bottom of the screen, so nothing you do is visible to them unless you say it or type it.
 
 You are not limited to text here. OpenLive has attached its own tools to this session over MCP, from a server called "${MCP_SERVER_NAME}": they let you look at the screen, read what the user has selected and what is on their clipboard, type into whatever app their cursor is already in, and click and drive apps for them. Use them.
 

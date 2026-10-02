@@ -605,7 +605,8 @@ precheck, approve, run, tally).
   would fail: the file tools check the workspace and the edit snippet), and
   `available(session)`, which reads what the session can reach: the app in front
   and insertion (Flow), the clipboard, the device addon, a live share (`look`, a
-  call), a workspace (the file tools, a call).
+  call), a workspace (the file tools, a call and Flow), a UI to emit to
+  (`update_todos`, a call).
 - **The registry** (`registry.ts`). `registry.tools(profile, session)` returns a
   `ToolSet`, ordered for the mode and looked up by name in O(1). Sources of tools
   are `ToolProvider`s; the built-ins are one, and a provider registered later
@@ -1027,7 +1028,8 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
   cloned repository's skills therefore reach the model once that folder is
   bound. A workspace skill overrides the user's skill of the same name, and
   `.agents/skills` overrides `.claude/skills`; the winner carries a warning
-  naming the one it shadows. Flow has no workspace, so it sees the user's.
+  naming the one it shadows. Flow's workspace is its own folder, so it sees the
+  user's skills and any kept there.
 - **Parse and scan** (`parse.ts`, `catalog.ts`). `yaml` for the frontmatter,
   retried with colon-bearing values quoted (`description: Use when: ...` is
   invalid YAML other clients accept). A missing or empty description, a name
@@ -1206,7 +1208,8 @@ the `openlive` MCP server.
   exist) in `cache/checkpoints/<workspace hash>/`: `blobs/<sha256>` once per
   content, and `journal.json` (written atomically) with each edit's path, time,
   before and after hashes and lines added and removed. One edit at a time per
-  workspace. Kept: the newest 200 edits, 200 MB of pre-images and 14 days,
+  workspace (Flow's edits are kept against the home folder its tools reach).
+  Kept: the newest 200 edits, 200 MB of pre-images and 14 days,
   pruned on each edit and each Settings listing, with unreferenced blobs
   deleted. Paths compare without case on Windows and macOS, and with either
   slash on Windows. Only OpenLive's own file tools are covered, not a coding
@@ -1301,6 +1304,7 @@ userData.
                      migration.json (the move's record)
   logs/              agent.log, rotated at 5 MB, two old files kept
   cache/             debug/ (TTS capture), scratch/, checkpoints/ (file edits' pre-images, for undo)
+  workspace/         Flow's own folder: a coding agent's cwd in Flow, and where Flow's new files go
 ```
 
 - **Which folder.** `OPENLIVE_HOME` names it; `OPENLIVE_DATA_DIR`, the old name,

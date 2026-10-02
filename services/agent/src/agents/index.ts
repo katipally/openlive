@@ -1,7 +1,7 @@
-import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, realpathSync } from "node:fs";
 import { getSetting, setSetting, setChatAgentSession } from "@openlive/db";
 import { isAgentId } from "@openlive/shared";
+import { layout, resolveHome } from "@openlive/shared/home";
 import { AcpAgent, callPreamble, type AcpOpts } from "./acp-agent.js";
 import type { McpServerWire } from "./mcp-config.js";
 import { AgentSupervisor } from "./supervisor.js";
@@ -83,14 +83,12 @@ export function createBoundAgent(chatId: string, askPermission: AskPermission, h
   }), askPermission, { startMs: 60_000 }, "call");
 }
 
-/** The folder a Flow-driven coding agent starts in.
- *
- *  Flow is workspace-free: there is no chat, so there is no per-chat folder and
- *  nothing to bind to. An ACP adapter still has to start somewhere, so this is
- *  the user's own default project when they have set one, and their home
- *  directory otherwise. Without the fallback a coding brain is unusable until
- *  the person has been through Chat and picked a folder, which Flow should
- *  never require. */
+/** Flow's own folder under the OpenLive home, made on first use: where a
+ *  Flow-driven coding agent starts and where Flow's new files land. Flow has no
+ *  chat to bind a project to, and should never need the person to pick one.
+ *  Canonicalized as `agentCwd` is. */
 export function flowAgentCwd(): string {
-  return agentCwd("flow") || homedir();
+  const dir = layout(resolveHome()).workspace;
+  mkdirSync(dir, { recursive: true });
+  try { return realpathSync.native(dir); } catch { return dir; }
 }

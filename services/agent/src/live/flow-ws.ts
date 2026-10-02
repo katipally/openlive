@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { WebSocket } from "ws";
 import { toolSummary, type FlowContentWire, type LanguageCode, type LiveServerMsg, type ToolCallState } from "@openlive/shared";
@@ -267,6 +268,8 @@ export class FlowLiveSession {
     },
     device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS)),
     ...(computer.available() && { computer }),
+    workspace: flowAgentCwd,
+    fence: homedir,
   };
 
   // Declared after `toolSession`: a class field is initialized in source order.

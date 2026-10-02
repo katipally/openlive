@@ -9,7 +9,7 @@ const device = {} as DevicePort;
 const clipboard = { read: async () => "", write: async () => {} };
 const insert = { commit: async () => {}, end: async () => {}, abandon: async () => {}, committed: () => "" };
 const call: Session = { clipboard, openUrl: async () => "", share: { showing: () => null, frame: async () => null }, workspace: () => "", emit: () => {} };
-const flow: Session = { foreground: { capture: async () => null }, insert, clipboard, device };
+const flow: Session = { foreground: { capture: async () => null }, insert, clipboard, device, workspace: () => "/home/u/.openlive/workspace", fence: () => "/home/u" };
 const names = (profile: typeof CHAT | typeof FLOW, s: Session) => registry.tools(profile, s).list.map((t) => t.name);
 
 const DEVICE = [
@@ -21,6 +21,7 @@ const DEVICE = [
 /** OpenLive's own tools every session gets: timers and reminders, finding files, saving a skill and setting connectors up. */
 const REMINDERS = ["set_timer", "remind", "list_reminders", "cancel_reminder"];
 const FIND = "find_files";
+const FILES = ["list_dir", "read_file", "write_file", "edit_file"];
 /** Undoing edits needs a workspace, as the file tools do. */
 const EDITS = ["list_edits", "undo_edit"];
 const SETUP = ["save_skill", "list_connectors", "add_connector", "connector_sign_in", "reconnect_connector"];
@@ -29,7 +30,7 @@ describe("the registry", () => {
   it("gives Flow its text tools first, then the machine, then OpenLive's own", () => {
     expect(names(FLOW, flow)).toEqual([
       "insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context",
-      ...DEVICE, "delegate", "update_todos", "remember", ...REMINDERS, FIND, ...SETUP,
+      ...DEVICE, "delegate", "remember", ...REMINDERS, ...FILES, FIND, ...EDITS, ...SETUP,
     ]);
   });
 
@@ -56,7 +57,7 @@ describe("the registry", () => {
   });
 
   it("offers nothing a session cannot reach", () => {
-    expect(names(CHAT, {})).toEqual(["delegate", "update_todos", "remember", ...REMINDERS, FIND, ...SETUP]);
+    expect(names(CHAT, {})).toEqual(["delegate", "remember", ...REMINDERS, FIND, ...SETUP]);
   });
 });
 
@@ -93,7 +94,7 @@ describe("a provider", () => {
 
   it("adds tools to every session it applies to, and can be taken away", () => {
     const r = new ToolRegistry();
-    const provider: ToolProvider = (s) => (s.workspace ? [tool("connector_search")] : []);
+    const provider: ToolProvider = (s) => (s.share ? [tool("connector_search")] : []);
     const off = r.register(provider);
     expect(r.tools(CHAT, call).list.map((t) => t.name)).toEqual(["connector_search"]);
     expect(r.tools(FLOW, flow).list).toEqual([]);

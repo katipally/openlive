@@ -144,3 +144,29 @@ describe("through dispatch", () => {
     expect(r.value[0]).toMatchObject({ isError: true });
   });
 });
+
+describe("Flow's fence", () => {
+  // Flow: relative paths start in its own folder, the tools reach all of home, and edits are kept against home.
+  const home = realpathSync(mkdtempSync(path.join(dir, "home-")));
+  const own = path.join(home, ".openlive", "workspace");
+  const flow = { signal: new AbortController().signal, context: null, callId: "c", workspace: () => own, fence: () => home };
+  const go = async (n: string, args: Record<string, unknown>) => { const t = tool(n); await t.precheck?.(args, flow); return t.execute(args, flow); };
+
+  it("writes relative paths in its folder and full or ~ paths anywhere in home, and undoes either", async () => {
+    await go("write_file", { path: "new.txt", content: "a" });
+    expect(readFileSync(path.join(own, "new.txt"), "utf8")).toBe("a");
+    await go("write_file", { path: path.join(home, "Documents", "b.txt"), content: "b" });
+    await go("edit_file", { path: "~/Documents/b.txt", find: "b", replace: "B" });
+    expect(readFileSync(path.join(home, "Documents", "b.txt"), "utf8")).toBe("B");
+    expect(said(await go("list_edits", {}))).toMatch(/Documents\/b\.txt.*\n.*Documents\/b\.txt.*\n.*\.openlive\/workspace\/new\.txt/);
+    await go("undo_edit", { path: "~/Documents/b.txt" });
+    expect(readFileSync(path.join(home, "Documents", "b.txt"), "utf8")).toBe("b");
+    await go("undo_edit", { path: "new.txt" });
+    expect(existsSync(path.join(own, "new.txt"))).toBe(false);
+  });
+
+  it("refuses anything outside home", async () => {
+    await expect(go("read_file", { path: path.join(dir, "elsewhere.txt") })).rejects.toThrow(/outside your home folder/);
+    await expect(go("read_file", { path: "../../../x" })).rejects.toThrow(/outside your home folder/);
+  });
+});

@@ -21,6 +21,8 @@ export interface HomeLayout {
   scratch: string;
   debug: string;
   checkpoints: string;
+  /** Flow's own folder: a coding agent's cwd in Flow, and where new files go. */
+  workspace: string;
 }
 
 type Env = Record<string, string | undefined>;

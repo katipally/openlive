@@ -130,8 +130,8 @@ describe("one server for every mode", () => {
     expect(call).toEqual(expect.arrayContaining(["look", "list_dir", "open_url", "delegate", "remember"]));
     for (const absent of ["insert_text", "get_context", "screenshot", "shell"]) expect(call).not.toContain(absent);
     const flow = await listed(flowSession, FLOW);
-    expect(flow).toEqual(expect.arrayContaining(["insert_text", "screenshot", "shell", "delegate", "update_todos", "remember"]));
-    for (const absent of ["look", "list_dir", "write_file"]) expect(flow).not.toContain(absent);
+    expect(flow).toEqual(expect.arrayContaining(["insert_text", "screenshot", "shell", "delegate", "remember"]));
+    for (const absent of ["look", "list_dir", "write_file", "update_todos"]) expect(flow).not.toContain(absent);
   });
 
   it("gives a call with the device the same device tools as Flow", async () => {

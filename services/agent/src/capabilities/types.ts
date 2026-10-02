@@ -91,6 +91,9 @@ export interface Session {
   share?: LiveShare;
   /** The project folder. Read per call, because the user can change it mid-session. */
   workspace?: () => string;
+  /** Where the file tools may reach, when wider than the workspace: Flow's is the user's home.
+   *  A relative path still starts in the workspace. Omitted: the workspace itself. */
+  fence?: () => string;
   emit?: Emit;
   /** Ask the person something a tool's server needs mid-call: a page to visit or a form. */
   elicit?: (req: ElicitationAsk) => Promise<ElicitationAnswer>;

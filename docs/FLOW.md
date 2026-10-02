@@ -108,7 +108,8 @@ answer you out loud, or do something on the machine.
 | Pointer and keys | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `mouse_down`, `mouse_up`, `type`, `keypress` |
 | Windows and apps | `window_activate`, `window_move`, `window_resize`, `window_minimize`, `window_close`, `open_app`, `open_url` |
 | Commands | `shell` (runs in your home folder through your login shell, 30 second limit) |
-| OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `update_todos` (a checklist for a long job), `remember` (memory shared with calls and every brain) |
+| OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `remember` (memory shared with calls and every brain) |
+| Files | `list_dir`, `read_file`, `write_file`, `edit_file` anywhere in your home folder, a relative path starting in Flow's own folder (`workspace/` in the OpenLive home); `find_files`, `list_edits`, `undo_edit`: every write and edit is kept, so it can be undone |
 | Reminders | `set_timer`, `remind` (at a local time or in a while, optionally daily, weekdays or weekly), `list_reminders`, `cancel_reminder`: they go off with a notification and a spoken line even after Flow closes, and work offline |
 
 Every action hands back a fresh screenshot, so the model checks that the step
@@ -130,7 +131,8 @@ permission up front; a call asks before each action that changes something.
   supports, including MiniMax, OpenAI, Anthropic, Google, Groq and Ollama.
 - **A coding agent** (Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi, whichever are
   installed), driven over ACP. You can pin its model and effort, or leave the
-  agent's defaults.
+  agent's defaults. It starts in Flow's own folder, `workspace/` in the
+  OpenLive home, made on first use.
 
 **Vision.** Screenshots reach models that can see on every provider. A model that
 cannot see gets a description from the vision model set in Settings > Models when
