@@ -55,7 +55,10 @@ state uses.
 Hands-free draws a dashed ring round the orb. Under it, one line shows how
 Dictate is held (the key, or **Hands-free** with **Stop**) and what it heard so
 far; a long sentence drops its oldest words so the newest stay in view. When the
-words land it says **Inserted N words**, then the orb goes. Where nothing takes
+words land it says **Inserted N words** with an **Undo** button, then the orb
+goes. Undo does what "undo that" does, once, and is offered for five seconds or
+until the next words start: OpenLive cannot tell when you type somewhere else,
+so it times out instead. Where nothing takes
 the text (no text box in focus), it is put on the clipboard instead and the line
 says so.
 
@@ -160,7 +163,8 @@ will press enter later" is typed as said. English only, as cleanup is.
 "Undo that" only works while the cursor is still at the end of what Dictate
 typed, and an app that reformatted it (autocorrect, auto-indent) may be off by a
 character or two. It never presses Ctrl+Z, which suspends a program in a
-terminal. It reaches back up to 2000 characters.
+terminal. It reaches back up to 2000 characters. The orb's **Undo** button
+does the same.
 
 ## History
 

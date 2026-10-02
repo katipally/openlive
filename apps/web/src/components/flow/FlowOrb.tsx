@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Lock, Maximize2, Mic, MicOff, PhoneOff, Square, X } from "lucide-react";
+import { AlertTriangle, Lock, Maximize2, Mic, MicOff, PhoneOff, Square, Undo2, X } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type CallOrbState, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
@@ -294,7 +294,7 @@ export function FlowOrb() {
 
       {/* Dictate's words as they are heard, one line that drops its oldest
           words off the start. With nothing heard yet it is the pill alone. */}
-      {shown && s.dictate && <DictateStrip d={s.dictate} onStop={() => cmd({ t: "dictateToggle" })} />}
+      {shown && s.dictate && <DictateStrip d={s.dictate} onStop={() => cmd({ t: "dictateToggle" })} onUndo={() => cmd({ t: "dictateUndo" })} />}
 
       {/* Drawn the whole time Flow is acting, not on hover: someone has to be
           able to see what it is doing without going to look for it. The window
@@ -410,10 +410,10 @@ function Control({ label, shown, onClick, side, nth = 0, pressed, children }: {
 }
 
 /** Dictate under the orb: how it is held, then what it heard, is doing or did. */
-function DictateStrip({ d, onStop }: { d: DictateSnapshot; onStop: () => void }) {
+function DictateStrip({ d, onStop, onUndo }: { d: DictateSnapshot; onStop: () => void; onUndo: () => void }) {
   const said = d.note || (d.phase === "processing" ? (d.command ? "Working on it" : "Cleaning up") : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial);
   return (
-    <div data-hit={d.handsFree || undefined}
+    <div data-hit={d.handsFree || d.undo || undefined}
       className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-1.5", PANEL)}>
       <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1 text-caption font-medium text-muted-strong">
         {d.handsFree
@@ -429,6 +429,12 @@ function DictateStrip({ d, onStop }: { d: DictateSnapshot; onStop: () => void })
           </span>
         )
         : <span role="status" className="min-w-0 flex-1 py-1 pr-2 text-label font-medium [overflow-wrap:anywhere]">{said}</span>)}
+      {d.undo && (
+        <button type="button" onClick={onUndo}
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+          <Undo2 className="size-3" aria-hidden /> Undo
+        </button>
+      )}
       {d.handsFree && (
         <button type="button" onClick={onStop} aria-label="Stop dictating"
           className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">

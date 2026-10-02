@@ -74,6 +74,8 @@ export interface DictateSnapshot {
   inserted: number;
   /** Why it typed nothing, or where the words went instead. */
   note: string;
+  /** The orb offers Undo: the last insertion can still be taken back. */
+  undo: boolean;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {

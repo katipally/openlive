@@ -59,6 +59,8 @@ export interface DictatePorts {
 
 /** How long what was typed stays on the orb before it goes. */
 export const DONE_MS = 1600;
+/** How long the orb offers Undo after an insertion, and stays up for it. */
+export const UNDO_MS = 5000;
 
 const NO_MIC = "I could not open the microphone.";
 const COPIED = "No text box in focus. Copied instead.";
@@ -94,13 +96,15 @@ export function createDictate(ports: DictatePorts) {
   // Hands-free types each utterance after the one before, so all but the first are spaced.
   let typed = 0;
   let linger: ReturnType<typeof setTimeout> | null = null;
+  let offer: ReturnType<typeof setTimeout> | undefined;
   let d: DictateSnapshot | null = null;
   // Utterances are cleaned up and typed one after another, so a slow polish
   // never lets the next one land first.
   let work: Promise<unknown> = Promise.resolve();
 
   const set = (patch: Partial<DictateSnapshot>) => {
-    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", ...d, ...patch };
+    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", undo: false, ...d, ...patch };
+    if (patch.undo) { clearTimeout(offer); offer = setTimeout(() => { if (d?.undo) set({ undo: false }); }, UNDO_MS); }
     ports.show(d);
   };
   const stopLinger = () => { if (linger) clearTimeout(linger); linger = null; };
@@ -110,7 +114,7 @@ export function createDictate(ports: DictatePorts) {
     stopLinger();
     if (!d) return;
     if (!d.inserted && !d.note) return giveBack();
-    linger = setTimeout(giveBack, DONE_MS);
+    linger = setTimeout(giveBack, d.undo ? UNDO_MS : DONE_MS);
   };
   const giveBack = () => { stopLinger(); d = null; ports.show(null); };
 
@@ -200,7 +204,7 @@ export function createDictate(ports: DictatePorts) {
     const out = final ? await put(final) : null;
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
     const obeyed = spoken ? await obey(spoken.command) : "";
-    set({ phase: "idle", inserted: out === "typed" ? countWords(final) : 0, note: (out && insertedNote(out)) || note || obeyed });
+    set({ phase: "idle", inserted: out === "typed" ? countWords(final) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
     if (spoken?.command === "stop") await setHandsFree(false, false);
   };
 
@@ -216,7 +220,7 @@ export function createDictate(ports: DictatePorts) {
     // Typed over the selection, it replaces it.
     const out = await put(result);
     if (out !== "failed") ports.record({ raw: text, cleaned: instruction, final: result, command: true, copied: out === "copied" });
-    set({ phase: "idle", inserted: out === "typed" ? countWords(result) : 0, note: insertedNote(out) });
+    set({ phase: "idle", inserted: out === "typed" ? countWords(result) : 0, note: insertedNote(out), undo: last !== null });
   };
 
   return {
@@ -253,6 +257,18 @@ export function createDictate(ports: DictatePorts) {
       giveBack();
     },
     setHandsFree,
+    /** The orb's Undo: "undo that", once, for as long as it is offered. */
+    async undo() {
+      if (!d?.undo) return;
+      set({ undo: false });
+      const run = work.then(async () => {
+        const note = await obey("undo");
+        if (d) set({ inserted: 0, note });
+        if (!mode) finish();
+      });
+      work = run.catch(() => {});
+      await run;
+    },
     /** The orb's mic button. */
     toggle: () => setHandsFree(mode !== "handsFree", false),
     /** Flow was opened over it: Flow wins the microphone and Dictate stops. */
@@ -264,7 +280,7 @@ export function createDictate(ports: DictatePorts) {
     },
     /** What the engine is hearing so far. */
     partial(text: string) {
-      if (mode && d?.phase !== "processing") set({ partial: text, inserted: 0, note: "", phase: "listening" });
+      if (mode && d?.phase !== "processing") set({ partial: text, inserted: 0, note: "", undo: false, phase: "listening" });
     },
     /** Hands-free, whether the engine hears speech right now or waits for it. */
     hearing(on: boolean) {

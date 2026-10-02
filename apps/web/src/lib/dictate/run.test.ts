@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 
@@ -61,8 +61,8 @@ describe("holding the key", () => {
     expect(r.typed).toEqual(["Send 25 copies to Maya by Friday."]);
     // Taken: the owner returns before Flow's brain ever sees the sentence.
     expect(r.consumed).toEqual([true]);
-    expect(r.last()).toMatchObject({ phase: "idle", inserted: 7 });
-    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 7, undo: true });
+    await vi.advanceTimersByTimeAsync(UNDO_MS);
     expect(r.last()).toBeNull();
   });
 
@@ -76,7 +76,7 @@ describe("holding the key", () => {
     await released;
     expect(r.typed).toEqual(["Send it Friday."]);
     expect(r.last()).toMatchObject({ phase: "idle", inserted: 3 });
-    await vi.advanceTimersByTimeAsync(DONE_MS);
+    await vi.advanceTimersByTimeAsync(UNDO_MS);
     expect(r.last()).toBeNull();
   });
 
@@ -286,6 +286,35 @@ describe("spoken commands", () => {
     await r.dictate.heard("undo that");
     expect(r.pressed).toHaveLength(1);
     expect(r.last()?.note).toMatch(/Nothing/);
+  });
+
+  it("offers Undo on the orb after an insertion, which takes it back once", async () => {
+    const r = rig();
+    await hold(r, "send it");
+    expect(r.last()).toMatchObject({ inserted: 2, undo: true });
+    await Promise.all([r.dictate.undo(), r.dictate.undo()]);
+    expect(r.pressed).toEqual([[["backspace"], r.typed[0]!.length]]);
+    expect(r.last()).toMatchObject({ undo: false, inserted: 0, note: "Took it back" });
+    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toBeNull();
+  });
+
+  it("stops offering Undo after a few seconds, or once the next words start", async () => {
+    const r = rig();
+    await r.dictate.setHandsFree(true, false);
+    await r.dictate.heard("send it");
+    expect(r.last()?.undo).toBe(true);
+    await vi.advanceTimersByTimeAsync(UNDO_MS);
+    expect(r.last()).toMatchObject({ undo: false, inserted: 2 });
+    await r.dictate.undo();
+    expect(r.pressed).toEqual([]);
+    await r.dictate.heard("and more");
+    r.dictate.partial("then");
+    expect(r.last()?.undo).toBe(false);
+    // Nothing typed, nothing offered.
+    const copied = rig({ inserted: "copied" });
+    await hold(copied, "send it");
+    expect(copied.last()?.undo).toBe(false);
   });
 
   it("stops hands-free on \"stop dictating\", and only hands-free", async () => {

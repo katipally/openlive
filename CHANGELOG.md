@@ -33,6 +33,8 @@ Releases before 0.1.9 predate this file — see the
   spelled your way, and a phrase said alone that types its full text.
 - **Spoken commands**, each its own switch: "press enter", "new line", "new
   paragraph", "undo that" and, hands-free, "stop dictating".
+- **Undo on the orb.** After Dictate types, the orb offers Undo for a few
+  seconds; it takes the words back the way "undo that" does.
 - **Dictate history** in Settings > Dictate > History: each dictation kept on
   this machine for a day, a week, a month or forever (or not at all), with
   copy, insert again and delete.

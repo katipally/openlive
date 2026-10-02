@@ -766,6 +766,7 @@ export function useFlowOwner(): void {
         case "flowCancel": return onClose("orb_button");
         case "flowStop": return onStop();
         case "dictateToggle": return void dictate.toggle();
+        case "dictateUndo": return void dictate.undo();
         case "flowSendAside": {
           const a = aside.current;
           if (a && snap.current.aside) { featureUsed("n_send_aside"); engine.current?.sendAside(a.text, a.speaker, a.judged); }
