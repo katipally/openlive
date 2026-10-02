@@ -76,6 +76,8 @@ export interface DictateSnapshot {
   note: string;
   /** The orb offers Undo: the last insertion can still be taken back. */
   undo: boolean;
+  /** False while the microphone and speech engine start. What is said meanwhile is kept. */
+  ready: boolean;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {

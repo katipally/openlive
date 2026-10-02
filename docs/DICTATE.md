@@ -52,6 +52,13 @@ state uses.
 | Listening | `#C6F135` | Flow listening, riding your voice |
 | Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
+The first press after a while, or after launch, opens the microphone and
+starts the speech engine, which takes a moment: the line says **Getting
+ready**, and you can talk straight away. Everything said from the key going
+down is kept and written down once the engine is up. Words it heard but could
+not write down are said so on the orb (**Your words could not be written
+down.**), never dropped quietly.
+
 Hands-free draws a dashed ring round the orb. Under it, one line shows how
 Dictate is held (the key, or **Hands-free** with **Stop**) and what it heard so
 far; a long sentence drops its oldest words so the newest stay in view. When the
@@ -282,8 +289,13 @@ One microphone, one engine, one orb, so the two take turns:
 - **Routing**: `useFlowOwner` hands every finished utterance to Dictate first.
   While Dictate is active it takes it, so the sentence never reaches
   `flowText`, the brain or the voice.
-- **Release**: `VoiceEngine.endPtt(true)` ends the segment on the next quiet
-  frame instead of after the trailing silence.
+- **Release**: `VoiceEngine.endPtt(true, lateMs)` ends the segment on the next
+  quiet frame instead of after the trailing silence, and says whether what was
+  heard could be written down.
+- **Cold start**: a hold that opens the microphone starts the engine with
+  `start(stream, true)`, which records the stream at 16 kHz from that moment
+  while the VAD loads. On release the tape, cut where the key went up, is
+  transcribed whole instead of the VAD's segments, which miss its start.
 - **Tool**: `set_dictation` (`services/agent/src/capabilities/text.ts`) is
   offered wherever a session has `dictate`, which Flow's does through the
   `flow_dictate` bridge op. The registry serves the same tool to API brains and,

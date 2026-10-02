@@ -37,12 +37,16 @@ export interface Typing {
 }
 
 export interface DictatePorts {
-  /** Opens the microphone if it is not open. False when it could not be. */
-  listen(): Promise<boolean>;
+  /** Opens the microphone if it is not open. False when it could not be.
+   *  `hold`: a hold begins with it, so what is said while it opens is kept. */
+  listen(hold: boolean): Promise<boolean>;
+  /** The microphone and speech engine are up, so words are heard as they are said. */
+  ready(): boolean;
   /** The key is down: every word until it is up is one utterance. */
   beginHold(): void;
-  /** The key is up: the utterance is heard now, through `heard`, before this resolves. */
-  endHold(): Promise<void>;
+  /** The key went up `lateMs` ago: the utterance is heard now, through `heard`, before
+   *  this resolves. False when words were heard that could not be written down. */
+  endHold(lateMs: number): Promise<boolean>;
   /** Typing at the cursor, opened. Null where nothing in focus takes typing. */
   typing(): Promise<Typing | null>;
   /** On the clipboard. False when it could not be. */
@@ -75,6 +79,7 @@ export const DONE_MS = 1600;
 export const UNDO_MS = 5000;
 
 const NO_MIC = "I could not open the microphone.";
+const NOT_WRITTEN = "Your words could not be written down.";
 const COPIED = "No text box in focus. Copied instead.";
 const FAILED = "That could not be typed or copied.";
 const POLISH_LATE = "AI polish did not answer. Typed it as cleaned up.";
@@ -137,7 +142,7 @@ export function createDictate(ports: DictatePorts) {
   let work: Promise<unknown> = Promise.resolve();
 
   const set = (patch: Partial<DictateSnapshot>) => {
-    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", undo: false, ...d, ...patch };
+    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", undo: false, ready: true, ...d, ...patch };
     if (patch.undo) { clearTimeout(offer); offer = setTimeout(() => { if (d?.undo) set({ undo: false }); }, UNDO_MS); }
     ports.show(d);
   };
@@ -163,9 +168,11 @@ export function createDictate(ports: DictatePorts) {
     if (next === "handsFree") commanding = false;
     ports.quietFlow();
     const s = ports.settings();
-    set({ handsFree: next === "handsFree", phase: next === "hold" ? "listening" : "idle", command: commanding, keys: commanding ? s.commandKeys : s.keys });
-    opening = ports.listen().then((ok) => {
-      if (!ok && mode === next) { set({ note: NO_MIC }); finish(); }
+    set({ handsFree: next === "handsFree", phase: next === "hold" ? "listening" : "idle", command: commanding, keys: commanding ? s.commandKeys : s.keys, ready: ports.ready() });
+    opening = ports.listen(next === "hold").then((ok) => {
+      if (mode !== next) return ok;
+      if (!ok) { set({ note: NO_MIC }); finish(); }
+      else if (!d?.ready) set({ ready: true });
       return ok;
     });
     return opening;
@@ -180,7 +187,7 @@ export function createDictate(ports: DictatePorts) {
     }
     if (mode === "handsFree") return "Dictation is already on.";
     // The second tap of the double-tap was already capturing: that carries on.
-    if (mode === "hold") { mode = "handsFree"; commanding = false; set({ handsFree: true, command: false, keys: ports.settings().keys }); await ports.endHold(); return "Dictation is on."; }
+    if (mode === "hold") { mode = "handsFree"; commanding = false; set({ handsFree: true, command: false, keys: ports.settings().keys }); await ports.endHold(0); return "Dictation is on."; }
     return (await start("handsFree")) ? "Dictation is on. What the user says next is typed at their cursor." : NO_MIC;
   };
 
@@ -321,10 +328,12 @@ export function createDictate(ports: DictatePorts) {
     },
     async holdEnd() {
       if (mode !== "hold") return;
+      const up = performance.now();
       if (!(await opening)) return;
       set({ phase: "processing" });
-      await ports.endHold();
+      const written = await ports.endHold(performance.now() - up);
       if (mode !== "hold") return;
+      if (!written) set({ phase: "idle", note: NOT_WRITTEN });
       // The engine hands the words over without waiting for them to be typed, so
       // the orb waits here; the key is free meanwhile for the next press.
       mode = null;
@@ -336,7 +345,7 @@ export function createDictate(ports: DictatePorts) {
       mode = null;
       if (await opening) {
         discarding = true;
-        try { await ports.endHold(); } finally { discarding = false; }
+        try { await ports.endHold(0); } finally { discarding = false; }
       }
       if (!mode) ports.release();
       giveBack();

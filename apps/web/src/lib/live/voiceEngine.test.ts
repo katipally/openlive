@@ -781,6 +781,26 @@ it("a hold let go while its last segment is still being transcribed waits for th
   tts.gate = Promise.resolve();
 });
 
+it("a hold begun before the VAD was up is written down from its tape, words before the VAD included", async () => {
+  const sent: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
+  const cuts: number[] = [];
+  Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async (lateMs: number) => { cuts.push(lateMs); return new Float32Array(16000).fill(0.1); } } });
+  Object.assign(tts, { heard: "send the report to the team", at: [] });
+  expect(await eng.endPtt(true, 120)).toBe(true);
+  expect(cuts).toEqual([120]);
+  expect(sent).toEqual(["send the report to the team"]);
+});
+
+it("a hold whose words could not be written down says so", async () => {
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText() {} } as never, { ...playNow, playing: () => false } as never) as any;
+  Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });
+  tts.gate = Promise.reject(new Error("no speech model"));
+  tts.gate.catch(() => {});
+  expect(await eng.endPtt(true)).toBe(false);
+  tts.gate = Promise.resolve();
+});
+
 it("with labels, a held thought is sent on its own when another voice speaks next", async () => {
   vp.verdicts = [you, other([0, 1, 0]), other([0, 0.9, 0.1])];
   const { eng, seen, speakers } = gated("label", "idle");

@@ -423,7 +423,7 @@ function Control({ label, shown, onClick, side, nth = 0, pressed, children }: {
 
 /** Dictate under the orb: how it is held, then what it heard, is doing or did. */
 function DictateStrip({ d, onStop, onUndo }: { d: DictateSnapshot; onStop: () => void; onUndo: () => void }) {
-  const said = d.note || (d.phase === "processing" ? (d.command ? "Working on it" : d.inserted ? `Cleaning up, ${d.inserted} ${d.inserted === 1 ? "word" : "words"} in` : "Cleaning up") : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial);
+  const said = d.note || (d.phase === "processing" ? (d.command ? "Working on it" : d.inserted ? `Cleaning up, ${d.inserted} ${d.inserted === 1 ? "word" : "words"} in` : "Cleaning up") : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (d.ready ? "" : "Getting ready"));
   return (
     <div data-hit={d.handsFree || d.undo || undefined}
       className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-1.5", PANEL)}>

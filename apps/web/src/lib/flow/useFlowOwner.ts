@@ -301,7 +301,8 @@ export function useFlowOwner(): void {
     // ── the cascade ───────────────────────────────────────────────────────
     // The microphone is held only while Flow is open: Flow has no wake word and
     // never listens while it is closed.
-    const ensureEngine = async () => {
+    /** `hold`: a Dictate hold begins with it, so it is kept from the moment the microphone opens. */
+    const ensureEngine = async (hold = false) => {
       if (engine.current) return;
       if (starting.current) return starting.current;
       starting.current = (async () => {
@@ -332,7 +333,7 @@ export function useFlowOwner(): void {
         // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
         }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
-        try { await eng.start(mic); }
+        try { await eng.start(mic, hold); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
           // opens a new mic rather than reusing this one.
@@ -578,15 +579,16 @@ export function useFlowOwner(): void {
     };
 
     const dictate = createDictate({
-      listen: async () => {
+      listen: async (hold) => {
         clearTimeout(micGrace);
         if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
-        await ensureEngine();
+        await ensureEngine(hold);
         engine.current?.setMuted(false);
         return !!engine.current;
       },
       beginHold: () => engine.current?.beginPtt(),
-      endHold: async () => { await engine.current?.endPtt(true); },
+      endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? true,
+      ready: () => !!engine.current,
       typing: openTyping,
       copy: copyDictation,
       // What was still being said or transcribed is dropped. With Flow closed the

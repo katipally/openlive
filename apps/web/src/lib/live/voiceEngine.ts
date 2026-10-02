@@ -126,6 +126,36 @@ const joinHeard = (a: Heard, aSamples: number, b: Heard): Heard =>
 
 function rmsOf(a: Float32Array): number { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]! * a[i]!; return Math.sqrt(s / a.length); }
 
+/** Everything a hold hears, 16 kHz mono, from the moment the microphone opens. */
+type Tape = { stop(lateMs: number): Promise<Float32Array> };
+/** For a hold that began before the VAD could: loading it takes a moment, and
+ *  words said meanwhile would be gone. A ScriptProcessor, not a worklet, since a
+ *  worklet's module load is the very wait this covers. */
+function tapeOf(stream: MediaStream): Tape {
+  const ctx = new AudioContext({ sampleRate: 16000 });
+  const node = ctx.createScriptProcessor(1024, 1, 1);
+  const parts: Float32Array[] = [];
+  let total = 0;
+  node.onaudioprocess = (e) => { const p = e.inputBuffer.getChannelData(0).slice(); parts.push(p); total += p.length; };
+  ctx.createMediaStreamSource(stream).connect(node);
+  // A ScriptProcessor runs only on a path to the output. It writes nothing, so nothing plays.
+  node.connect(ctx.destination);
+  void ctx.resume();
+  return {
+    // Cut at the release, `lateMs` ago, on the context's clock: what came after it is not the hold's.
+    async stop(lateMs) {
+      const end = Math.max(0, Math.round((ctx.currentTime - lateMs / 1000) * 16000));
+      for (let i = 0; i < 6 && total < end; i++) await new Promise((r) => setTimeout(r, 50)); // the last buffer, in flight
+      node.onaudioprocess = null;
+      void ctx.close();
+      const all = new Float32Array(total);
+      let off = 0;
+      for (const p of parts) { all.set(p, off); off += p.length; }
+      return all.subarray(0, end);
+    },
+  };
+}
+
 export class VoiceEngine {
   private vad: MicVAD | null = null;
   private player: AudioPlayer;
@@ -144,6 +174,7 @@ export class VoiceEngine {
   private partialAbort: AbortController | null = null; // the interim transcription in flight
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
+  private tape: Tape | null = null;               // a hold that began before the VAD ran: the whole of it, the words before it too
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
   // Set by stop(). A transcription still running then must not start a turn in a
   // call that has already ended.
@@ -295,7 +326,9 @@ export class VoiceEngine {
     };
   }
 
-  async start(stream: MediaStream) {
+  /** `hold`: a push-to-talk hold begins with the microphone, so it is kept from now, not from when the VAD is up. */
+  async start(stream: MediaStream, hold = false) {
+    if (hold) { this.ptt = true; this.tape = tapeOf(stream); }
     this.micTrack?.removeEventListener("ended", this.onMicEnded);
     this.micTrack = stream.getAudioTracks()[0] ?? null;
     this.micTrack?.addEventListener("ended", this.onMicEnded);
@@ -862,8 +895,11 @@ export class VoiceEngine {
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
    *  it into `pending` (the ptt branch) instead of racing an auto end-of-turn. */
-  async endPtt(now = false) {
-    if (!this.ptt) return;
+  /** `lateMs`: how long ago the key went up. False when words were heard that could not be written down. */
+  async endPtt(now = false, lateMs = 0): Promise<boolean> {
+    if (!this.ptt) return true;
+    const tape = this.tape?.stop(lateMs);
+    this.tape = null;
     // `now`: the release itself says the sentence is over, so the segment ends on
     // the next quiet frame instead of after the usual trailing silence.
     if (now) this.vad?.setOptions({ redemptionMs: 0 });
@@ -874,19 +910,22 @@ export class VoiceEngine {
     // its words are the turn: let go before them, they arrive with no hold to join.
     for (let i = 0; i < 300 && this.finalizing; i++) await new Promise((r) => setTimeout(r, 50));
     if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
-    if (this.stopped) return;
+    if (this.stopped) return true;
     this.ptt = false;
     if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
-    const p = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
+    const held = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
     this.pending = null;
-    if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return; }
+    // The tape has the words said before the VAD was up, which `pending` lacks.
+    const taped = await tape;
+    const p = taped && (held || rmsOf(taped) >= this.gate()) ? taped : held;
+    if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return true; }
     const perf0 = performance.now();
     try {
       // `pendingText` is always the transcript of exactly `pending`.
-      const heard = cached.text ? cached : await stt(p);
+      const heard = p === held && cached.text ? cached : await stt(p);
       const text = heard.text.trim();
-      if (this.stopped) return;
-      if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return; }
+      if (this.stopped) return true;
+      if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return true; }
       this.setPhase("thinking");
       this.spokenText = "";
       this.voicing = null;
@@ -897,7 +936,13 @@ export class VoiceEngine {
       this.turnSentAt = performance.now();
       perf.turnCommitted(this.turnSentAt - perf0);
       this.h.onUserText(text, heard.at, speaker);
-    } catch { if (!this.stopped) { this.h.onPartial(""); this.setPhase("idle"); } }
+    } catch {
+      if (this.stopped) return true;
+      this.h.onPartial("");
+      this.setPhase("idle");
+      return false;
+    }
+    return true;
   }
   pttActive() { return this.ptt; }
 
@@ -1214,6 +1259,8 @@ export class VoiceEngine {
   /** What was heard up to now goes nowhere, a sentence still being said or
    *  transcribed included; what is said after it is heard as ever. */
   discard() {
+    void this.tape?.stop(0);
+    this.tape = null;
     this.dropped = this.segment;
     this.clearHold();
     this.pending = null;
@@ -1247,6 +1294,8 @@ export class VoiceEngine {
     clearTimeout(this.announceTimer);
     this.clearHold();
     this.ptt = false;
+    void this.tape?.stop(0);
+    this.tape = null;
     this.epoch++;
     this.ttsAbort?.abort();
     this.partialAbort?.abort();

@@ -336,6 +336,12 @@ Releases before 0.1.9 predate this file — see the
   after the stop no longer opens a Flow turn: with Flow closed the microphone
   goes quiet, with Flow open Flow listens again, and a sentence caught mid-way
   at the stop is dropped.
+- **Dictate's first hold keeps its first words.** The speech engine takes a
+  moment to start, and words said before it was up were lost, most often on
+  the first hold after launch. Everything said from the moment the key goes
+  down is now kept and written down once the engine is up, with **Getting
+  ready** on the orb meanwhile. Words heard that still cannot be written down
+  are said so on the orb, never dropped quietly.
 - **Flow's reply shows on the orb when it is not said out loud.** With Say
   replies out loud off, or a turn gone quiet, the reply is written in the
   caption strip, wrapping and scrolling, until the next turn.

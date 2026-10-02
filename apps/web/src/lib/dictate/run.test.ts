@@ -6,7 +6,7 @@ import type { DictateSnapshot } from "@/lib/flow/types";
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ voided = false, mic = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
+function rig({ voided = false, mic = true as boolean | Promise<boolean>, written = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -16,10 +16,11 @@ function rig({ voided = false, mic = true, inserted = "typed" as Inserted, setti
   let dictate: ReturnType<typeof createDictate>;
   const consumed: boolean[] = [];
   const ports: DictatePorts = {
-    listen: vi.fn(async () => mic),
+    listen: vi.fn(async (_hold: boolean) => mic),
+    ready: vi.fn(() => mic === true),
     beginHold: vi.fn(),
     // `voided`: as the owner does, the words are handed over and not waited on.
-    endHold: vi.fn(async () => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; }),
+    endHold: vi.fn(async (_lateMs: number) => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; return written; }),
     // Pushed pieces land as one insertion once ended; "copied" and "failed" have no text box.
     typing: vi.fn(async () => {
       if (inserted !== "typed") return null;
@@ -133,6 +134,29 @@ describe("holding the key", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(r.ports.beginHold).not.toHaveBeenCalled();
     expect(r.last()?.note).toMatch(/microphone/);
+  });
+
+  it("says Getting ready while the engine starts, and keeps a release before it is up for it", async () => {
+    let up!: (ok: boolean) => void;
+    const r = rig({ mic: new Promise<boolean>((ok) => { up = ok; }) });
+    r.dictate.holdStart();
+    expect(r.ports.listen).toHaveBeenCalledWith(true);
+    expect(r.last()).toMatchObject({ phase: "listening", ready: false });
+    r.say("send it friday");
+    const released = r.dictate.holdEnd();
+    up(true);
+    await released;
+    expect(r.ports.endHold).toHaveBeenCalledWith(expect.any(Number));
+    expect(r.typed).toEqual(["Send it Friday."]);
+    expect(r.shown.filter((d) => d?.ready === false)).toHaveLength(1);
+  });
+
+  it("says so when the words it heard could not be written down", async () => {
+    const r = rig({ written: false });
+    await hold(r, "");
+    expect(r.last()).toMatchObject({ phase: "idle", note: "Your words could not be written down." });
+    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toBeNull();
   });
 
   it("copies what it could not type, and says so", async () => {
