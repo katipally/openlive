@@ -1324,7 +1324,8 @@ send is listed for users in [TELEMETRY.md](TELEMETRY.md).
 One folder holds everything OpenLive owns, as `~/.claude` and `~/.codex` do:
 `~/.openlive` on macOS and Linux (not the XDG folders, to match those tools) and
 `%USERPROFILE%\.openlive` on Windows. Chromium's own files stay in Electron's
-userData.
+userData; the pages keep nothing of their own there but the downloaded voice
+models' cache and its flag (see ui.json below).
 
 ```
 ~/.openlive/
@@ -1341,7 +1342,8 @@ userData.
   data/              openlive.db (+ -wal, -shm), voice-profiles.json, voice-accel.json,
                      models/, voices/, addressee-log.jsonl, addressee-head.json
   flow/              Flow's config.json, sessions/, assets/, lease.json
-  state/             skills.json (switched-off skills), reminders.json, window-state.json, appearance.json,
+  state/             ui.json (what the app remembers between launches), skills.json (switched-off skills),
+                     reminders.json, window-state.json (bounds, maximized, fullscreen), appearance.json,
                      preferences.json, once.json, server-pids.json, telemetry.json,
                      telemetry-queue.jsonl, telemetry-off, portal-token (Linux),
                      migration.json (the move's record)
@@ -1367,6 +1369,51 @@ userData.
   `getSetting`/`setSetting` as before but live encrypted in `secrets/settings.json`.
   A store whose file was broken by hand is never written over: the write fails and
   says which file to fix.
+- **ui.json** (`packages/db/src/ui-state.ts`, served by `/api/ui-state`). What
+  the renderer remembers: one group of fields per zustand store, each store made
+  with `persisted()` (`apps/web/src/lib/persist.ts`, zustand's `persist` over a
+  storage that talks to the route) and checking its own fields on the way in, so
+  a bad field falls back to its default alone.
+
+  | group | owner | fields |
+  |---|---|---|
+  | `ui` | `lib/uiStore.ts` | `mode`, `capabilitiesTab`, `openChat` (the chat open in the main window), `settings` (the Settings tab open), `sessionsFilter`, `transcriptOpen`, `transcriptWidth` |
+  | `disclosure` | `lib/disclosure.ts` | one boolean per remembered fold |
+  | `voice` | `lib/prefs.ts` (read by `pipelineConfig.ts`, `usePtt.ts`) | `pipeline`, `inputMode`, `pttEnabled` |
+  | `sessions` | `lib/prefs.ts` (read by `useLiveSession.ts`) | `chat:<id>` `{ bind, cwd, resume }`, `agent:<id>` `{ meta, model, mode, opts }`, `recentFolders` |
+  | `onboarding` | `lib/prefs.ts` | `welcomed`, `flowOnboarded`, `tours` |
+
+  The root layout reads the file on every request (`connection()`), drops an
+  `openChat` that is no longer in the database, and hands it to `Providers`,
+  which seeds every store before anything renders, on the server and in the page
+  alike. So the first HTML already shows the saved mode, chat and Settings tab,
+  and hydration matches: each store answers React's server snapshot with the
+  state as seeded. A reopened chat's lobby, which reads the machine's cameras
+  and WebGPU, mounts just after hydration under a bare cover. A change is sent as
+  a patch of the fields that changed, coalesced over 250 ms, retried while the
+  server is away and flushed when the page hides; the server lays it over the
+  file under the same cross-process lock as the other stores, so two windows
+  saving different fields never undo each other, and other windows hear it on a
+  BroadcastChannel (the `ui` group excepted: what a window shows is its own). A
+  file that will not parse is set aside as `ui.json.corrupt`; a newer version's
+  number and unknown fields are kept. Only the main window saves `ui`: Flow's
+  hidden windows hold the store too.
+
+  Before ui.json these lived in Chromium's localStorage, outside this folder.
+  `lib/migrateLocal.ts` moves each old key in once, only where the file has
+  nothing for it, and removes the key once the file has it. Left there on
+  purpose: `openlive-models-ready-v1` (and the pre-rebrand
+  `takt-live-models-ready-v1`), which describes the browser's own model cache and
+  so must live and die with it, and `openlive-debug`, a switch set by hand in
+  DevTools.
+- **Starting over.** Settings > About > Reset local data (desktop only) asks in a
+  native dialog, stops both servers, clears the app origin's browser storage and
+  HTTP cache, empties the home with `wipeHome` and relaunches. `wipeRefusal`
+  refuses an empty or relative path, a drive root, the user's home folder and any
+  folder above it, judging a linked home by where it leads; links inside are
+  removed, never followed. A usage-data opt-out is written back as
+  `state/telemetry-off`. Coding agents' own folders are outside the home and
+  untouched. A dev checkout refuses: its servers belong to pnpm.
 - **mcp.json**, as written:
 
   ```json
@@ -1412,10 +1459,11 @@ userData.
 ```
 packages/shared    agent registry + node helpers, /live wire protocol, shared types, speech text normalization
 packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing, effort
-packages/db        JSON-file store: AES-256-GCM-encrypted keys, settings, conversations, connectors
+packages/db        chats and messages in SQLite, small JSON stores for the rest: AES-256-GCM-encrypted keys, settings, connectors, ui.json
 ```
 
-`packages/db` is deliberately JSON files, not SQLite — no native modules, so
+`packages/db` keeps chats and messages in SQLite through `node:sqlite`, built into
+Node, and everything else in small JSON files, so there is no native module and
 electron-builder packages the desktop app with no rebuild step.
 
 ## Quality gates

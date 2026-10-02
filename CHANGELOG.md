@@ -41,6 +41,13 @@ Releases before 0.1.9 predate this file — see the
 - **Dictate history** in Settings > Dictate > History: each dictation kept on
   this machine for a day, a week, a month or forever (or not at all), with
   copy, insert again and delete.
+- **OpenLive opens where you left it.** The mode, the chat you had open
+  (when it still exists) and the Settings tab come back on the next launch,
+  already there in the first frame, and the window comes back maximized or
+  fullscreen if it was, on a screen that is still connected.
+- **Reset local data** in Settings > About erases the OpenLive folder and the
+  app's browser storage, after a native confirm, and restarts fresh. Coding
+  agents keep their own sessions and logins; a usage-data opt-out stays.
 
 ### Removed
 - **Mini mode.** The floating always-on-top call bar, its tray item and its
@@ -51,6 +58,12 @@ Releases before 0.1.9 predate this file — see the
   Saved settings that still carry it load as before.
 
 ### Changed
+- **The app's remembered state lives in the OpenLive folder.** The voice
+  pipeline, push-to-talk, per-chat agent and folder, per-agent model picks,
+  recent folders, first-run and tour flags, and open sections moved from the
+  browser's storage into `state/ui.json`, so a backup of the folder has them
+  and clearing Chromium's profile no longer loses them. Each moves over once,
+  on the first launch of this version.
 - **Settings, regrouped.** General leads, then **Modes** (Flow, Dictate,
   Chat), **Intelligence** (Models, Agents, Capabilities, Memory), **Voice**
   (Voice, Speech engine) and **App** (Privacy, About), each with a line short

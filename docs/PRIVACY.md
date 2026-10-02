@@ -116,6 +116,8 @@ The words you say and the frames you share go to the model provider or coding ag
 
 Dictate's history (Settings > Dictate > History) keeps what you dictated in a file on your machine, for as long as you set there, and never sends it anywhere. Delete one dictation or all of them there, or set it to keep nothing. Plain dictation goes to no model at all; AI polish and command mode send the words, and the selected text, to the brain you chose for Dictate.
 
+Everything else OpenLive keeps on your machine (chats, memory, settings, saved keys, and what the app remembers between launches, like the mode and chat you left open) is in one folder, `~/.openlive` (`%USERPROFILE%\.openlive` on Windows), shown in Settings > About. Reset local data there erases all of it, along with the app's browser storage, and starts again fresh. If you turned usage data off, it stays off after a reset.
+
 ## Children
 
 OpenLive is not directed at children under 13, or under 16 where local law sets that age, and does not knowingly collect personal data from them. The analytics cannot tell a child from an adult and holds no name, age or account. If you believe a child's install has been counted, use the contact below and the events under its anonymous name will be deleted.
