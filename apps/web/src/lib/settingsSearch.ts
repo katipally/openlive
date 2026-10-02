@@ -52,7 +52,7 @@ const LANGUAGE_WORDS = CURATED_LANGUAGES.flatMap((l) => [l.name, l.native, l.nat
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Appearance", keywords: "theme dark light system mode look glass flat transparency blur", tab: "general", anchor: "set-general-appearance" },
-  { label: "Your assistant's style", keywords: "custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
+  { label: "Assistant style", keywords: "your assistant's custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
   { label: "Keyboard shortcuts", keywords: "keys hotkeys", tab: "general", anchor: "set-general-shortcuts" },
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },
   { label: "End Flow and calls when the screen locks", keywords: "lock locked sleep suspend keep going close hang up", tab: "general", anchor: "set-general-lock", desktop: true, os: ["darwin", "win32"] },

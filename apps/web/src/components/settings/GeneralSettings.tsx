@@ -14,7 +14,7 @@ import { GLASS_REASON, setLook, useAppearance, type Look } from "@/lib/look";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
-import { QueryState } from "./common";
+import { OneLine, QueryState } from "./common";
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -41,7 +41,7 @@ function LookRow() {
     { id: "flat", label: "Flat" },
   ];
   return (
-    <ListRow label="Look" detail={a.look === "glass" ? "See-through to your desktop" : "Solid surfaces"}>
+    <ListRow label="Look" detail={a.look === "glass" ? "See-through to your desktop" : "Solid surfaces"} info="Glass needs a window that can blur what is behind it. Without one, it falls back to Flat.">
       <Segmented label="Look" options={options} value={a.look} onChange={setLook} />
     </ListRow>
   );
@@ -60,11 +60,9 @@ function LoginItemToggle() {
   // Settle on what the OS reports back: it can refuse (macOS approval, a policy).
   const flip = () => { const next = !on; setOn(next); void desk().loginItem?.(next).then(setOn).catch(() => setOn(!next)); };
   return (
-    <ListGroup>
-      <ListRow asLabel label="Open at login" detail="Starts in the background when you log in, so Flow is ready without opening a window.">
-        <Switch on={on} onFlip={flip} />
-      </ListRow>
-    </ListGroup>
+    <ListRow asLabel label="Open at login" detail="Starts in the background" info="Starts in the background when you log in, so Flow is ready without opening a window.">
+      <Switch on={on} onFlip={flip} />
+    </ListRow>
   );
 }
 
@@ -74,11 +72,12 @@ function EndOnLockToggle() {
   if (on === null) return null;
   const flip = () => { const next = !on; setOn(next); void desk().endOnLock?.(next).then(setOn).catch(() => setOn(!next)); };
   return (
-    <ListGroup>
-      <ListRow asLabel label="End Flow and calls when the screen locks" detail="Flow closes and a call ends on lock. Sleep always ends them. Turn this off to keep going while the screen is locked. Flow keeps listening then and can still act on this computer.">
+    <div id="set-general-lock">
+      <ListRow asLabel label="End Flow and calls when the screen locks" detail="Sleep always ends them"
+        info="Flow closes and a call ends on lock. Turn this off to keep going while the screen is locked. Flow keeps listening then and can still act on this computer.">
         <Switch on={on} onFlip={flip} />
       </ListRow>
-    </ListGroup>
+    </div>
   );
 }
 
@@ -103,12 +102,12 @@ function CustomInstructions() {
   };
 
   return (
-    <div className="flex w-full max-w-xl flex-col gap-1.5">
+    <div className="flex w-full flex-col gap-1.5">
       <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4}
         placeholder={'e.g. "Keep answers to one sentence unless I ask for detail. Call me Yash. Casual tone."'} />
-      <div className="flex items-center justify-between text-caption text-faint">
-        <span>Applies from the next call, to API mode and every coding agent.</span>
-        <span>{saved ? "Saved" : `${value.length}/2000`}</span>
+      <div className="flex items-center gap-3 text-caption text-faint">
+        <OneLine text="Applies from the next call, to API models and coding agents alike." className="flex-1" />
+        <span className="ml-auto shrink-0 tabular-nums">{saved ? "Saved" : `${value.length} / 2000`}</span>
       </div>
     </div>
   );
@@ -148,37 +147,36 @@ export function GeneralSettings() {
   const openShortcuts = useUi((s) => s.setShortcutsOpen);
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-general-appearance" title="Appearance" desc="One look for the whole app, in light or dark. Applies everywhere, instantly.">
+      <Section id="set-general-appearance" title="Appearance" desc="Applies everywhere, instantly.">
         <ListGroup>
-          <LookRow />
           <ListRow label="Theme"><ThemePicker /></ListRow>
+          <LookRow />
         </ListGroup>
       </Section>
 
-      <Section id="set-general-style" title="Your assistant's style" desc="How should it behave and speak? Your own words, passed to whoever you're talking to, API mode and coding agents alike.">
-        <CustomInstructions />
-      </Section>
-
-      <Section id="set-general-shortcuts" title="Keyboard shortcuts" desc="Every shortcut in one sheet. Press ? anywhere.">
-        <Button size="sm" onClick={() => openShortcuts(true)}>
-          <Keyboard /> View all
-        </Button>
-      </Section>
-
       {isDesktop && (
-        <Section id="set-general-startup" title="Startup" desc="Have OpenLive ready the moment you sit down.">
-          <LoginItemToggle />
-        </Section>
-      )}
-
-      {isDesktop && (desktopPlatform === "darwin" || desktopPlatform === "win32") && (
-        <Section id="set-general-lock" title="Screen lock" desc="Whether Flow and calls keep going while your screen is locked.">
-          <EndOnLockToggle />
+        <Section id="set-general-startup" title="Startup" desc="Ready when you sit down.">
+          <ListGroup className="empty:hidden">
+            <LoginItemToggle />
+            {(desktopPlatform === "darwin" || desktopPlatform === "win32") && <EndOnLockToggle />}
+          </ListGroup>
         </Section>
       )}
 
       <Section id="set-general-typing" title="Typing at cursor" desc="How Flow and Dictate put text in other apps.">
         <TypingAtCursor />
+      </Section>
+
+      <Section id="set-general-style" title="Assistant style" desc="Your words, passed to every brain.">
+        <CustomInstructions />
+      </Section>
+
+      <Section id="set-general-shortcuts" title="Keyboard shortcuts" desc="Every shortcut in one sheet.">
+        <ListGroup>
+          <ListRow label="All shortcuts" detail="Press ? anywhere">
+            <Button size="sm" onClick={() => openShortcuts(true)}><Keyboard /> Open sheet</Button>
+          </ListRow>
+        </ListGroup>
       </Section>
     </div>
   );
