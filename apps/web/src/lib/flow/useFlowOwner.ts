@@ -19,7 +19,7 @@ import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
-import { createDictate, type Inserted } from "@/lib/dictate/run";
+import { createDictate, readRewrite, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { DICTATE_BINDING, DICTATE_COMMAND_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
@@ -558,17 +558,23 @@ export function useFlowOwner(): void {
       void dictate.setHandsFree(true, false);
     };
 
-    /** Typed at the cursor; where nothing takes it, put on the clipboard instead. */
-    const insertDictation = async (text: string): Promise<Inserted> => {
+    /** Typing at the cursor. None where the focused element is plainly not a
+     *  text box; where the platform cannot tell, it types as it always did. */
+    const openTyping = async (): Promise<Typing | null> => {
+      if (valueOr(await api.focusEditable(), null) === false) return null;
       const ins = settings.current?.insertion;
       const session = valueOr(await api.insertBegin(ins?.method, ins), -1);
-      if (session >= 0) {
-        await api.insertPush(session, text);
-        if ((await api.insertEnd(session)).ok) return "typed";
-      }
+      if (session < 0) return null;
+      let ok = true;
+      return {
+        push: async (text) => { ok = (await api.insertPush(session, text)).ok && ok; },
+        end: async () => (await api.insertEnd(session)).ok && ok,
+      };
+    };
+    const copyDictation = async (text: string) => {
       const bridge = (window as unknown as { openlive?: { bridge?: (o: string, a?: string) => Promise<string> } }).openlive?.bridge;
-      try { return bridge ? (await bridge("clipboard_write", text), "copied") : "failed"; }
-      catch { return "failed"; }
+      try { return bridge ? (await bridge("clipboard_write", text), true) : false; }
+      catch { return false; }
     };
 
     const dictate = createDictate({
@@ -581,7 +587,14 @@ export function useFlowOwner(): void {
       },
       beginHold: () => engine.current?.beginPtt(),
       endHold: async () => { await engine.current?.endPtt(true); },
-      insert: insertDictation,
+      typing: openTyping,
+      copy: copyDictation,
+      // What was still being said or transcribed is dropped. With Flow closed the
+      // microphone goes quiet too, so talk after the stop cannot open a Flow turn.
+      release: () => {
+        engine.current?.discard();
+        if (!summoned.current) engine.current?.setMuted(true);
+      },
       quietFlow: () => { if (turnActive.current) onStop(); },
       show: (d) => {
         if (d && !summoned.current && !snap.current.dictate) api.summon("dictate");
@@ -592,11 +605,11 @@ export function useFlowOwner(): void {
         micGrace = setTimeout(() => { if (!summoned.current && !snap.current.dictate) teardownMic(); }, DICTATE_MIC_GRACE_MS);
       },
       gestureOpen: (open) => void api.gestureOpen(DICTATE_BINDING, open),
-      rewrite: async (ask, signal) => {
+      rewrite: async (ask, signal, onText) => {
         const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(ask), signal });
-        const body = (await r.json().catch(() => ({}))) as { text?: unknown; error?: string };
-        if (!r.ok || typeof body.text !== "string") throw new Error(body.error || `HTTP ${r.status}`);
-        return body.text;
+        if (r.ok && r.body) return readRewrite(r.body, (t) => { if (!signal.aborted) onText(t); });
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `HTTP ${r.status}`);
       },
       warm: () => void fetch("/api/dictate/warm", { ...JSON_POST, body: "{}" }).catch(() => {}),
       // The accessibility APIs first; where they cannot see the selection, a copy reads it.

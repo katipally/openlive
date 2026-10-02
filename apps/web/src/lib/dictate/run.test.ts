@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 
@@ -20,11 +20,18 @@ function rig({ voided = false, mic = true, inserted = "typed" as Inserted, setti
     beginHold: vi.fn(),
     // `voided`: as the owner does, the words are handed over and not waited on.
     endHold: vi.fn(async () => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; }),
-    insert: vi.fn(async (text: string) => { typed.push(text); return inserted; }),
+    // Pushed pieces land as one insertion once ended; "copied" and "failed" have no text box.
+    typing: vi.fn(async () => {
+      if (inserted !== "typed") return null;
+      let text = "";
+      return { push: vi.fn(async (t: string) => { text += t; }), end: vi.fn(async () => { typed.push(text); return true; }) };
+    }),
+    copy: vi.fn(async () => inserted !== "failed"),
+    release: vi.fn(),
     quietFlow: vi.fn(),
     show: (d) => void shown.push(d),
     gestureOpen: vi.fn(),
-    rewrite: vi.fn(async (ask: RewriteAsk) => { asked.push(ask); return rewrite(ask); }),
+    rewrite: vi.fn(async (ask: RewriteAsk, _signal: AbortSignal, _onText: (t: string) => void) => { asked.push(ask); return rewrite(ask); }),
     warm: vi.fn(),
     selection: vi.fn(async () => selection),
     keys: vi.fn(async (keys: string[], times?: number) => { pressed.push([keys, times]); return true; }),
@@ -146,7 +153,9 @@ describe("hands-free", () => {
     expect(await r.dictate.heard("first thing here")).toBe(true);
     expect(await r.dictate.heard("second thing here")).toBe(true);
     expect(r.typed).toEqual(["First thing here.", " Second thing here."]);
+    expect(r.ports.release).not.toHaveBeenCalled();
     expect(await r.dictate.toggle()).toBe("Dictation is off.");
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
     expect(r.ports.gestureOpen).toHaveBeenLastCalledWith(false);
     expect(r.last()).toMatchObject({ handsFree: false, undo: true });
     expect(await r.dictate.heard("not for dictate")).toBe(false);
@@ -250,6 +259,59 @@ describe("AI polish", () => {
     await hold(r, "send it by friday");
     expect(r.typed).toEqual(["Send it by Friday."]);
   });
+
+  /** A brain that streams `pieces`, then answers with them whole or fails with `error`. */
+  const streaming = (r: ReturnType<typeof rig>, pieces: string[], error?: string) => {
+    r.ports.rewrite = vi.fn(async (_ask: RewriteAsk, _s: AbortSignal, onText: (t: string) => void) => {
+      for (const p of pieces) { onText(p); await vi.advanceTimersByTimeAsync(0); }
+      if (error) throw new Error(error);
+      return pieces.join("");
+    });
+  };
+
+  it("types the rewrite as it streams in, in one insertion, counting the words on the orb", async () => {
+    const r = rig({ settings: on });
+    streaming(r, ["Please send", " it by Friday."]);
+    const counts: number[] = [];
+    r.ports.show = (d) => { if (d?.phase === "processing" && d.inserted) counts.push(d.inserted); };
+    await hold(r, "send it by friday");
+    expect(r.typed).toEqual(["Please send it by Friday."]);
+    expect(r.ports.typing).toHaveBeenCalledTimes(1);
+    expect(counts).toEqual([2, 5]);
+    expect(r.kept).toMatchObject([{ final: "Please send it by Friday." }]);
+  });
+
+  it("keeps what it typed when the brain fails partway, and puts all of it on the clipboard", async () => {
+    const r = rig({ settings: on });
+    streaming(r, ["Please send"], "the connection dropped");
+    await hold(r, "send it by friday");
+    expect(r.typed).toEqual(["Please send"]);
+    expect(r.ports.copy).toHaveBeenCalledWith("Send it by Friday.");
+    expect(r.last()).toMatchObject({ inserted: 2, undo: true, note: "AI polish stopped partway. All of it is on the clipboard." });
+  });
+
+  it("copies the whole rewrite where there is no text box to stream it into", async () => {
+    const r = rig({ settings: on, inserted: "copied" });
+    streaming(r, ["Please send", " it by Friday."]);
+    await hold(r, "send it by friday");
+    expect(r.ports.copy).toHaveBeenCalledWith("Please send it by Friday.");
+    expect(r.last()?.note).toBe("No text box in focus. Copied instead.");
+  });
+});
+
+describe("a rewrite's stream", () => {
+  const body = (...chunks: string[]) => new ReadableStream<Uint8Array>({ start(c) { chunks.forEach((t) => c.enqueue(new TextEncoder().encode(t))); c.close(); } });
+
+  it("hands on each piece and resolves to the whole, however the lines are split", async () => {
+    const got: string[] = [];
+    expect(await readRewrite(body('{"delta":"Send"}\n{"del', 'ta":" it."}\n{"text":"Send it."}\n'), (t) => got.push(t))).toBe("Send it.");
+    expect(got).toEqual(["Send", " it."]);
+  });
+
+  it("rejects on the brain's error, or a stream that ends without an answer", async () => {
+    await expect(readRewrite(body('{"delta":"Se"}\n{"error":"rate limited"}\n'), () => {})).rejects.toThrow("rate limited");
+    await expect(readRewrite(body('{"delta":"Se"}\n'), () => {})).rejects.toThrow(/without an answer/);
+  });
 });
 
 describe("spoken commands", () => {
@@ -324,6 +386,8 @@ describe("spoken commands", () => {
     await r.dictate.heard("that is all. stop dictating");
     expect(r.typed).toEqual(["That is all."]);
     expect(r.dictate.active()).toBe(false);
+    // The microphone is let go at once: talk after the stop must not reach Flow.
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
     const held = rig();
     await hold(held, "stop dictating");
     expect(held.typed).toEqual(["Stop dictating"]);

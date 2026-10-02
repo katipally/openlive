@@ -29,6 +29,13 @@ export interface DictateSettings {
   polish: { enabled: boolean; tone: Tone };
 }
 
+/** Typing at the cursor, open: words pushed as they come, then ended. */
+export interface Typing {
+  push(text: string): Promise<void>;
+  /** False when the words did not all land. */
+  end(): Promise<boolean>;
+}
+
 export interface DictatePorts {
   /** Opens the microphone if it is not open. False when it could not be. */
   listen(): Promise<boolean>;
@@ -36,16 +43,21 @@ export interface DictatePorts {
   beginHold(): void;
   /** The key is up: the utterance is heard now, through `heard`, before this resolves. */
   endHold(): Promise<void>;
-  /** The words at the cursor, or on the clipboard where there is no cursor to type at. */
-  insert(text: string): Promise<Inserted>;
+  /** Typing at the cursor, opened. Null where nothing in focus takes typing. */
+  typing(): Promise<Typing | null>;
+  /** On the clipboard. False when it could not be. */
+  copy(text: string): Promise<boolean>;
   /** Flow's turn in flight, if any, is let go: Dictate has the microphone now. */
   quietFlow(): void;
   /** What the orb shows, or null once Dictate gives it back. */
   show(d: DictateSnapshot | null): void;
+  /** Dictate is done with the microphone: nothing it caught from here on goes anywhere. */
+  release(): void;
   /** Hands-free opened or closed other than by the key, so the key's next tap does the right thing. */
   gestureOpen(open: boolean): void;
-  /** One rewrite by Dictate's brain. Rejects when it fails, or once `signal` aborts. */
-  rewrite(ask: RewriteAsk, signal: AbortSignal): Promise<string>;
+  /** One rewrite by Dictate's brain, its words handed to `onText` as they come.
+   *  Resolves to the whole; rejects when it fails, or once `signal` aborts. */
+  rewrite(ask: RewriteAsk, signal: AbortSignal, onText: (text: string) => void): Promise<string>;
   /** Starts the brain ahead of a rewrite, where starting one takes seconds. */
   warm(): void;
   /** The text selected in the app in front, "" when there is none. */
@@ -66,13 +78,15 @@ const NO_MIC = "I could not open the microphone.";
 const COPIED = "No text box in focus. Copied instead.";
 const FAILED = "That could not be typed or copied.";
 const POLISH_LATE = "AI polish did not answer. Typed it as cleaned up.";
+const POLISH_CUT = "AI polish stopped partway.";
+const ON_CLIPBOARD = " All of it is on the clipboard.";
 const COMMAND_FAILED = "The brain did not answer, so nothing changed.";
 const NOTHING_TO_UNDO = "Nothing of mine to take back.";
 const KEYS_FAILED = "That key could not be pressed.";
 const TOO_LONG = "Selection too long for a command.";
 
 /** Past this the cleaned-up words go in as they are, so dictation is never lost to a slow brain. */
-export const POLISH_MS = 15_000;
+export const POLISH_MS = 25_000;
 /** A command has nothing to fall back to, so it waits longer, as long as a coding agent may take to start. */
 export const COMMAND_MS = 45_000;
 /** As far back as "undo that" reaches, the most ol-input presses in one go. */
@@ -82,6 +96,26 @@ const SAID: Record<SpokenCommand, string> = { enter: "Pressed Enter", newLine: "
 const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
 /** What Backspace takes one press each to remove: an emoji or an accented letter is one. */
 const graphemes = (s: string) => [...new Intl.Segmenter().segment(s)].length;
+
+/** A rewrite as /api/dictate/rewrite streams it, one JSON object a line:
+ *  `{ delta }` as the words come, then `{ text }` or `{ error }`. */
+export async function readRewrite(body: ReadableStream<Uint8Array>, onText: (text: string) => void): Promise<string> {
+  const reader = body.getReader();
+  const utf8 = new TextDecoder();
+  let rest = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error("The rewrite ended without an answer.");
+    const lines = (rest + utf8.decode(value, { stream: true })).split("\n");
+    rest = lines.pop() ?? "";
+    for (const l of lines.filter(Boolean)) {
+      const line = JSON.parse(l) as { delta?: string; text?: string; error?: string };
+      if (line.error) throw new Error(line.error);
+      if (typeof line.text === "string") { void reader.cancel(); return line.text; }
+      if (line.delta) onText(line.delta);
+    }
+  }
+}
 
 export function createDictate(ports: DictatePorts) {
   let mode: "hold" | "handsFree" | null = null;
@@ -111,6 +145,7 @@ export function createDictate(ports: DictatePorts) {
   /** Done: what it did stays up a moment, then the orb goes back. */
   const finish = () => {
     mode = null;
+    ports.release();
     stopLinger();
     if (!d) return;
     if (!d.inserted && !d.note) return giveBack();
@@ -150,24 +185,73 @@ export function createDictate(ports: DictatePorts) {
   };
 
   /** The brain's answer, or a rejection once `ms` pass, which also hangs up on it. */
-  const think = async (ask: RewriteAsk, ms: number): Promise<string> => {
+  const think = async (ask: RewriteAsk, ms: number, onText: (text: string) => void = () => {}): Promise<string> => {
     const ac = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<never>((_, reject) => { timer = setTimeout(() => { ac.abort(); reject(new Error("")); }, ms); });
     try {
-      const out = (await Promise.race([ports.rewrite(ask, ac.signal), late])).trim();
+      const out = (await Promise.race([ports.rewrite(ask, ac.signal, onText), late])).trim();
       if (!out) throw new Error("");
       return out;
     } finally { clearTimeout(timer); }
   };
 
-  /** Typed, with a space after hands-free's earlier words; remembered for "undo that". */
-  const put = async (text: string): Promise<Inserted> => {
-    const lead = mode === "handsFree" && typed ? " " : "";
-    const out = await ports.insert(lead + text);
+  /** At the cursor, or on the clipboard where there is no cursor to type at. */
+  const insert = async (text: string): Promise<Inserted> => {
+    const typing = await ports.typing();
+    if (typing) {
+      await typing.push(text);
+      if (await typing.end()) return "typed";
+    }
+    return (await ports.copy(text)) ? "copied" : "failed";
+  };
+  /** Hands-free's later words follow its earlier ones after a space. */
+  const lead = () => (mode === "handsFree" && typed ? " " : "");
+  /** What landed, remembered for "undo that". */
+  const landed = (out: Inserted, text: string): Inserted => {
     if (out !== "failed") typed++;
-    last = out === "typed" ? lead + text : null;
+    last = out === "typed" ? text : null;
     return out;
+  };
+  const put = async (text: string): Promise<Inserted> => {
+    const spaced = lead() + text;
+    return landed(await insert(spaced), spaced);
+  };
+
+  /**
+   * AI polish, typed as its words arrive. Before the first one lands a failure
+   * types the cleaned-up words instead. After, what was typed stays, since
+   * taking it back could hit whatever the app made of it, and all of the text
+   * goes on the clipboard, so nothing said is lost.
+   */
+  const polish = async (clean: string, tone: Tone): Promise<{ final: string; out: Inserted; note: string }> => {
+    const space = lead();
+    let opened = null as Promise<Typing | null> | null;
+    let sent = "";
+    let pushing = Promise.resolve();
+    const onText = (text: string) => {
+      opened ??= ports.typing();
+      pushing = pushing.then(async () => {
+        const typing = await opened;
+        if (!typing) return;
+        await typing.push((sent ? "" : space) + text);
+        sent += text;
+        set({ inserted: countWords(sent) });
+      });
+    };
+    let answer: string | null = null;
+    try { answer = await think({ kind: "polish", text: clean, tone }, POLISH_MS, onText); } catch { /* below */ }
+    const pushed = await pushing.then(() => true, () => false);
+    const typing = await opened;
+    const ended = typing ? await typing.end() : false;
+    if (!sent) {
+      const final = answer ?? clean;
+      return { final, out: await put(final), note: answer === null ? POLISH_LATE : "" };
+    }
+    if (answer === sent && pushed && ended) return { final: answer, out: landed("typed", space + sent), note: "" };
+    const final = answer ?? clean;
+    landed("typed", space + sent);
+    return { final, out: "typed", note: POLISH_CUT + ((await ports.copy(final)) ? ON_CLIPBOARD : "") };
   };
   const insertedNote = (out: Inserted) => (out === "copied" ? COPIED : out === "failed" ? FAILED : "");
 
@@ -199,14 +283,12 @@ export function createDictate(ports: DictatePorts) {
     const snippet = snippetFor(clean, s.snippets);
     let final = snippet ?? clean;
     let note = "";
-    if (final && !snippet && s.polish.enabled) {
-      try { final = await think({ kind: "polish", text: clean, tone: s.polish.tone }, POLISH_MS); }
-      catch { note = POLISH_LATE; }
-    }
-    const out = final ? await put(final) : null;
+    let out: Inserted | null = null;
+    if (final && !snippet && s.polish.enabled) ({ final, out, note } = await polish(clean, s.polish.tone));
+    else if (final) out = await put(final);
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
     const obeyed = spoken ? await obey(spoken.command) : "";
-    set({ phase: "idle", inserted: out === "typed" ? countWords(final) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
+    set({ phase: "idle", inserted: out === "typed" && last ? countWords(last) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
     if (spoken?.command === "stop") await setHandsFree(false, false);
   };
 
@@ -256,6 +338,7 @@ export function createDictate(ports: DictatePorts) {
         discarding = true;
         try { await ports.endHold(); } finally { discarding = false; }
       }
+      if (!mode) ports.release();
       giveBack();
     },
     setHandsFree,

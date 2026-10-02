@@ -58,9 +58,21 @@ far; a long sentence drops its oldest words so the newest stay in view. When the
 words land it says **Inserted N words** with an **Undo** button, then the orb
 goes. Undo does what "undo that" does, once, and is offered for five seconds or
 until the next words start: OpenLive cannot tell when you type somewhere else,
-so it times out instead. Where nothing takes
-the text (no text box in focus), it is put on the clipboard instead and the line
-says so.
+so it times out instead.
+
+Where nothing takes the text, it is put on the clipboard instead and the line
+says **No text box in focus. Copied instead.** Before typing, Dictate asks the
+system what has the keyboard (macOS Accessibility, Windows UI Automation, Linux
+AT-SPI). Only a plain no copies: a list, a button, Finder's files. Where the
+system cannot tell, as in an Electron app that shows no accessibility tree, a
+web page's body, or a Linux desktop with no accessibility bus, it types as it
+always did.
+
+Stopping hands-free puts things back as they were before it started. With Flow
+closed, the microphone goes quiet at once and the orb goes after the Undo
+offer, so talk after the stop never opens Flow. With Flow open, Flow listens
+again. Either way, a sentence still being said or transcribed at the stop is
+dropped, not typed and not sent to Flow.
 
 ## Cleanup
 
@@ -91,10 +103,13 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
                                polish on? ──no──▶ typed
                                         │yes
                                         ▼
-                        brain answers in 15 s? ──no / error──▶ cleaned-up words typed
+                     first words in, within 25 s? ──no / error──▶ cleaned-up words typed
                                         │yes
                                         ▼
-                                  rewrite typed
+                     typed as they stream ──error / 25 s──▶ kept as typed, all of it copied
+                                        │done
+                                        ▼
+                                 rewrite in full
 ```
 
 - The brain is Flow's unless **Use a different one for Dictate** picks
@@ -105,10 +120,17 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
   refused. A coding agent is kept warm between dictations (let go after
   5 quiet minutes or 20 rewrites) and is started on the key press, so the
   first rewrite does not wait on a cold start where it can help it.
-- Nothing said is lost: a failure, an empty answer or 15 seconds without one
-  types the cleaned-up words and the strip says so.
-- The rewrite is typed whole, not streamed: a stream cut off halfway could not
-  fall back cleanly.
+- The rewrite is typed as it streams in. The orb stays on **Cleaning up** and
+  counts the words in.
+- Nothing said is lost. A failure, an empty answer or 25 seconds with no words
+  types the cleaned-up words instead, and the strip says so. A rewrite that
+  stops partway (an error, or the 25 seconds run out) keeps what it typed,
+  since taking it back could hit whatever the app made of it, puts all of the
+  text on the clipboard (the full rewrite where it came, else the cleaned-up
+  words) and says **AI polish stopped partway.**
+- What is typed is the reply as text: space at either end waits until more
+  follows, and a reply that opens with a code fence is held until it ends, so
+  the fence is never typed.
 
 ## Command mode
 
@@ -271,8 +293,19 @@ One microphone, one engine, one orb, so the two take turns:
 - **Rewrite**: `services/agent/src/dictate/rewrite.ts`. API mode streams the
   provider with `tools: []`; a coding agent is an `AcpAgent` with Dictate's own
   preamble, no MCP servers, the registry's `acp.toolless` launch and a
-  permission handler that always refuses. The
-  renderer holds the deadline and aborts the request, which ends the turn.
+  permission handler that always refuses. `/dictate/rewrite` answers in
+  NDJSON: `{ delta }` lines as the words come (`typedStream` holds back edge
+  space and a code fence), then `{ text }` or `{ error }`. The renderer
+  (`readRewrite`) pushes each delta into one insertion session, holds the
+  deadline and aborts the request, which ends the turn.
+- **Focus**: ol-input's `focusEditable()` reads the focused element (AX role
+  and settable AXValue or AXSelectedTextRange; UIA control type, ValuePattern
+  and TextPattern; AT-SPI role and EDITABLE through python3's GObject bindings,
+  given up on after 800 ms). The verdicts are pure functions in
+  `native/ol-input/src/focus.rs`; `null` means it could not tell, and types.
+- **Stop**: Dictate's `release` port drops what the engine is still hearing
+  or transcribing (`VoiceEngine.discard()`) and, with Flow closed, mutes it
+  until the next press.
 - **Keys**: ol-input's `keypress(keys, times)` repeats the last key with the
   modifiers held (one call for "undo that"), and `copySelection(timing)` sends
   the copy chord with a marker on the clipboard, so an app that copies nothing

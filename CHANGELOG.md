@@ -23,8 +23,10 @@ Releases before 0.1.9 predate this file — see the
   default, as before; off, typed text stays on the clipboard.
 - **AI polish for Dictate**, off by default: after cleanup, Dictate's brain (an
   API model or a coding agent, Flow's unless you pick another) rewrites what
-  you said in a Natural, Casual or Formal tone. If it fails or takes over 15
-  seconds, the cleaned-up words are typed instead.
+  you said in a Natural, Casual or Formal tone, typed as it streams in. If it
+  fails or sends nothing for 25 seconds, the cleaned-up words are typed
+  instead; if it stops partway, what was typed stays and all of it goes on the
+  clipboard.
 - **Command mode.** Select text, hold Shift with Dictate's key and say what to
   do ("make this formal", "translate to Spanish"); the selection is replaced
   with the result, or with nothing selected the text is written at the cursor.
@@ -327,6 +329,16 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Dictate no longer types into nothing.** With no text box in focus (Finder
+  in front, a list, a button), the words go on the clipboard and the orb says
+  so. Where the system cannot tell what has focus, Dictate types as before.
+- **Stopping hands-free Dictate goes back to how things were.** Talk right
+  after the stop no longer opens a Flow turn: with Flow closed the microphone
+  goes quiet, with Flow open Flow listens again, and a sentence caught mid-way
+  at the stop is dropped.
+- **Flow's reply shows on the orb when it is not said out loud.** With Say
+  replies out loud off, or a turn gone quiet, the reply is written in the
+  caption strip, wrapping and scrolling, until the next turn.
 - **Other websites can no longer use OpenLive's local servers.** A page open in
   your browser could send a plain-text request to OpenLive on this computer and
   have it rewrite text with your key or coding agent, or add to your history.
