@@ -1,24 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { InfoTip } from "./InfoTip";
 
 // The app's one slider: a label, the value as words, and a native range drawn
 // by .ol-range (globals.css), so arrows, Page keys and screen readers work as
-// the platform does.
+// the platform does. `hint` is the help an info mark beside the label holds.
 //
 // commitOnRelease: moves locally and saves once, when the thumb is let go or a
 // key has moved it, for values whose write is slow. A write per tick lagged
 // behind the thumb, and each reply snapped it back. The draft is held until the
 // write settles (`saving` false), so the thumb never jumps back to the old value
 // while the new one is on its way; a refused write lands on what was stored.
-export function Slider({ label, value, min, max, step, format, onChange, commitOnRelease = false, saving = false, className }: {
-  label: string; value: number; min: number; max: number; step: number;
+export function Slider({ label, hint, value, min, max, step, format, onChange, commitOnRelease = false, saving = false, className }: {
+  label: string; hint?: ReactNode; value: number; min: number; max: number; step: number;
   format: (v: number) => string; onChange: (v: number) => void;
   commitOnRelease?: boolean; saving?: boolean; className?: string;
 }) {
   const [draft, setDraft] = useState<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const id = useId();
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
   useEffect(() => { if (!saving) setDraft(null); }, [value, saving]);
@@ -36,16 +38,17 @@ export function Slider({ label, value, min, max, step, format, onChange, commitO
   }, [commitOnRelease]);
   const shown = draft ?? value;
   const p = max > min ? Math.min(1, Math.max(0, (shown - min) / (max - min))) : 0;
+  // A <label> around the whole would name the info mark, the first control in it, instead of the range.
   return (
-    <label className={cn("flex flex-col gap-1.5", className)}>
+    <div className={cn("flex flex-col gap-1.5", className)}>
       <span className="flex items-baseline justify-between gap-3 text-label text-foreground">
-        <span className="min-w-0 break-words">{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5 break-words"><label htmlFor={id}>{label}</label>{hint && <InfoTip label={hint} />}</span>
         <span className="shrink-0 tabular-nums text-muted-foreground">{format(shown)}</span>
       </span>
-      <input ref={input} type="range" min={min} max={max} step={step} value={shown}
+      <input id={id} ref={input} type="range" min={min} max={max} step={step} value={shown}
         onChange={(e) => (commitOnRelease ? setDraft(Number(e.target.value)) : onChange(Number(e.target.value)))}
         style={{ "--p": p } as CSSProperties} className="ol-range w-full" />
-    </label>
+    </div>
   );
 }
 

@@ -11,6 +11,7 @@ import { modelVision } from "@openlive/shared";
 import { api, type ModelInfo } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { ProviderKeyField } from "./ProviderKeyField";
+import { OneLine } from "./common";
 import { usePersistedOpen } from "@/lib/disclosure";
 import { Segmented, Select, Badge, Button, Notice, SearchSelect, type SearchOption } from "@/components/ui";
 import { Section } from "./Section";
@@ -127,7 +128,6 @@ export function ModelsSettings() {
 
   return (
     <div className="flex flex-col gap-7">
-      <p className="text-body text-foreground">Your own key, your own model. Chat and Flow both use this.</p>
       <Section id="set-models-provider" title="Provider & API key" desc="Pick a provider and paste its key. It stays encrypted on this machine.">
         <div className="mb-3">
           <SearchSelect value={providerId} onChange={(id) => saveSetting.mutate({ liveProviderId: id, liveModel: "" })}
@@ -160,9 +160,7 @@ export function ModelsSettings() {
               <EyeOff className="size-3.5 text-muted-foreground" /> Vision model
               <Badge>Optional</Badge>
             </h2>
-            <p className="mt-1 max-w-xl text-label leading-relaxed text-muted-foreground">
-              Routes camera and screen through a separate model. Leave off and the live model sees for itself.
-            </p>
+            <OneLine className="mt-1 text-label text-muted-foreground" text="Routes camera and screen through a separate model. Leave off and the live model sees for itself." />
           </div>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-open:rotate-180" />
         </summary>

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "./Tooltip";
 
 // Grouped list rows, as in the system settings apps: one card, hairlines
-// between rows, a label (and an optional line under it) on the left and the
-// row's control on the right. The control wraps under the label when the
-// window is too narrow for both.
+// between rows, a label (and an optional one-line detail under it, whole in a
+// tooltip when cut) on the left and the row's control on the right. The
+// control wraps under the label when the window is too narrow for both.
 
 /** The heading over a run of rows (TODAY, YESTERDAY) or a menu's items: the one
  *  small-caps label every list and panel uses. Add only spacing. */
@@ -23,7 +24,11 @@ export function ListRow({ label, detail, children, asLabel, className }: {
     <Row className={cn("flex min-h-row flex-wrap items-center gap-x-4 gap-y-2 py-2", asLabel && "cursor-pointer select-none", className)}>
       <span className="flex min-w-[8rem] flex-1 flex-col gap-0.5">
         <span className="break-words text-body text-foreground">{label}</span>
-        {detail && <span className="break-words text-label text-muted-foreground">{detail}</span>}
+        {detail && (
+          <Tooltip label={detail} truncated className="flex min-w-0 max-w-full">
+            <span className="min-w-0 truncate text-label text-muted-foreground">{detail}</span>
+          </Tooltip>
+        )}
       </span>
       {children}
     </Row>

@@ -75,6 +75,7 @@ Everything below comes from `@/components/ui`.
 | `ListGroup`, `ListRow`, `groupLabel` | Settings-style grouped rows; the small-caps heading | `label`, `detail`, `asLabel` |
 | `SidePanelHeader`, `sidePanel()` | A panel's header (title, detail line, icon buttons); the panel surface | `sidePanel(true)` floats: dialogs, sheets, the palette |
 | `Tooltip` | Every tooltip | `label`, `keys` for a shortcut, `truncated` to show only when cut off |
+| `InfoTip` | Help beside a label, in place of a paragraph | `label` |
 | `Disclosure`, `Advanced` | An animated collapsible body; the "Advanced" fold in settings | caller owns `open`; `Advanced` remembers per `id` |
 | `Swap` | One icon turning into another | `id` changes to swap |
 | `Keycap` | A key in a shortcut | |

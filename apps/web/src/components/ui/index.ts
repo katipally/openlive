@@ -6,6 +6,7 @@ export * from "./Checkbox";
 export * from "./Chip";
 export * from "./ConfirmButton";
 export * from "./Disclosure";
+export * from "./InfoTip";
 export * from "./Input";
 export * from "./Keycap";
 export * from "./ListRow";

@@ -573,7 +573,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
 
   return (
     <div className={panel}>
-      <p className="text-label text-foreground">MCP servers found in the apps on this computer. Only the setup comes over, never a sign-in.</p>
+      <OneLine className="text-label text-foreground" text="MCP servers found in the apps on this computer. Only the setup comes over, never a sign-in." />
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="look for servers" />
       {withServers.map((s) => <ImportSource key={s.source} s={s} picks={picks} flip={flip} />)}
       {sources && !withServers.length && <p className="text-label text-muted-foreground">No MCP servers found.</p>}

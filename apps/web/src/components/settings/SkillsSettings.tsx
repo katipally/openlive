@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems, skillRole, splitSkills } from "@/lib/skills";
 import { Badge, Button, Checkbox, ConfirmButton, Input, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
-import { BuiltInBadge, EmptyState, NoMatch, QueryState, card, field, grid3, inset, msg, panel } from "./common";
+import { BuiltInBadge, EmptyState, NoMatch, OneLine, QueryState, card, field, grid3, inset, msg, panel } from "./common";
 
 export const skillsQuery = (workspace: string) => ({ queryKey: ["skills", workspace], queryFn: () => api.skills(workspace) });
 
@@ -282,7 +282,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
 
   return (
     <div className={panel}>
-      <p className="text-label text-foreground">Skills found in the other tools on this computer. Each one is copied into OpenLive&apos;s folder; the original stays where it is.</p>
+      <OneLine className="text-label text-foreground" text="Skills found in the other tools on this computer. Each one is copied into OpenLive's folder; the original stays where it is." />
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="look for skills" />
       {withSkills.map((s) => <ImportSource key={s.source} s={s} picks={picks} flip={flip} />)}
       {sources && !withSkills.length && <p className="text-label text-muted-foreground">No skills found.</p>}

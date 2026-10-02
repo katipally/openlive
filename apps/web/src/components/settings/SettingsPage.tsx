@@ -30,7 +30,7 @@ import { capabilityTab, resolveSettingsTab, searchSettings, type SettingsEntry, 
 // keeps for itself. `desc` is the page's own line when it says more than `sub`.
 export const SECTIONS = [
   { id: "general", label: "General", sub: "Appearance & startup", icon: Settings2, Comp: GeneralSettings },
-  { id: "models", label: "Models", sub: "API mode · BYOK", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Shared by Chat and Flow", shared: true },
+  { id: "models", label: "Models", sub: "API mode · BYOK", desc: "Your own key, your own model.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Shared by Chat and Flow", shared: true },
   { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, shared: true },
   { id: "engine", label: "Speech engine", sub: "VAD · STT · turns · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, shared: true, fresh: true },
   { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
@@ -317,9 +317,15 @@ export function SettingsPage() {
               <div className="min-w-0 flex-1 basis-56">
                 <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-title-lg font-semibold tracking-tight text-foreground">
                   {Active.label}
-                  {Active.shared && <Chip className="bg-accent-soft font-normal text-link-foreground"><Link2 aria-hidden /> Used by Chat and Flow</Chip>}
+                  {Active.shared && (
+                    <Tooltip label="Used by Chat and Flow">
+                      <Chip className="bg-accent-soft font-normal text-link-foreground"><Link2 aria-hidden /> Shared</Chip>
+                    </Tooltip>
+                  )}
                 </h1>
-                <p className="mt-1.5 text-body text-muted-foreground">{Active.desc ?? Active.sub}</p>
+                <Tooltip label={Active.desc ?? Active.sub} truncated className="mt-1.5 flex min-w-0 max-w-full">
+                  <span className="min-w-0 truncate text-body text-muted-foreground">{Active.desc ?? Active.sub}</span>
+                </Tooltip>
               </div>
               {Active.Action && <Active.Action />}
             </div>

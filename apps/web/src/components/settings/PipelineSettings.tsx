@@ -21,7 +21,7 @@ import {
 import { toSpeech } from "@/lib/live/voiceText";
 import { enrollVoice, forgetVoiceprint, voiceprintStatus } from "@/lib/live/voiceprint";
 import { addresseeStatus, deleteJudgmentLog } from "@/lib/live/addressee";
-import { Switch, Select, Slider, Button, Tooltip, Badge, Segmented, type SegOption, Advanced, notice, Notice } from "@/components/ui";
+import { Switch, Select, Slider, Button, Tooltip, Badge, Segmented, type SegOption, Advanced, InfoTip, notice, Notice } from "@/components/ui";
 import { MicVAD } from "@ricky0123/vad-web";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { compileLexicon } from "@openlive/shared/speech/lexicon";
@@ -45,7 +45,9 @@ function StageHead({ title, desc }: { title: string; desc: string }) {
   return (
     <div>
       <h3 className="text-callout font-semibold text-foreground">{title}</h3>
-      <p className="mt-0.5 text-label leading-relaxed text-muted-foreground">{desc}</p>
+      <Tooltip label={desc} truncated className="mt-0.5 flex min-w-0 max-w-full">
+        <span className="min-w-0 truncate text-label text-muted-foreground">{desc}</span>
+      </Tooltip>
     </div>
   );
 }
@@ -187,7 +189,10 @@ function DeviceSummary() {
     `${d.tier} tier`, accelerators.length > 0 && `${accelerators.map((p) => PROVIDER_LABEL[p]).join(", ")} available`].filter(Boolean);
   return (
     <p className="flex items-start gap-2 text-caption leading-relaxed text-faint">
-      <Cpu aria-hidden className="mt-0.5 size-3.5 shrink-0" /> <span className="min-w-0 break-words">This device: {facts.join(" · ")}.</span>
+      <Cpu aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+      <Tooltip label={facts.join(" · ")} truncated className="flex min-w-0">
+        <span className="min-w-0 truncate">This device: {facts.join(" · ")}</span>
+      </Tooltip>
     </p>
   );
 }
@@ -254,7 +259,9 @@ function EngineChoice({ id, active, streaming, note, where, status, unsupported,
         {streaming && <Badge>Streaming</Badge>}
         {locked && <Badge tone="arc"><Lock aria-hidden /> Restricted license</Badge>}
       </div>
-      <p className="mt-1 text-caption leading-relaxed text-muted-foreground">{copy.desc}</p>
+      <Tooltip label={copy.desc} truncated className="mt-1 flex">
+        <span className="line-clamp-2 text-caption text-muted-foreground">{copy.desc}</span>
+      </Tooltip>
       {unsupported && <p className="mt-1.5 text-caption font-medium text-foreground">{unsupported}</p>}
       {/* At the foot, so cards in one row (stretched to one height) line it up. */}
       {meta && <p className="mt-auto pt-1.5 text-micro leading-relaxed text-faint">{meta}</p>}
@@ -521,8 +528,8 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Voiceprint</span>
         <Experimental />
+        <InfoTip label={<>Tells your voice from others once you enroll. Phrases under about a second can&apos;t be checked, and in &ldquo;Only me&rdquo; a cut waits about 2 s to confirm it&apos;s you.</>} />
       </div>
-      <p className="text-caption text-faint">Tells your voice from others once you enroll. Phrases under about a second can&apos;t be checked, and in &ldquo;Only me&rdquo; a cut waits about 2 s to confirm it&apos;s you.</p>
       <fieldset disabled={isError} className="disabled:opacity-50">
         <Segmented label="Voiceprint (experimental)" className="grid w-full" options={VOICEPRINT_MODES_UI} value={cfg.voiceprint}
           onChange={(v) => update({ ...cfg, voiceprint: v })} />
@@ -553,7 +560,10 @@ function VoiceprintPicker({ cfg, update }: { cfg: PipelineConfig; update: Update
             </div>
           )}
           {enrollment.state?.error && <p role="alert" className="text-caption text-danger">{enrollment.state.error}</p>}
-          <p className="text-caption text-faint">About {ENROLL_S} seconds of your voice, turned into numbers that stay on this computer. Later turns that are clearly you keep it up to date, and a new mic gets its own.</p>
+          <p className="flex items-center gap-1.5 text-caption text-faint">
+            Stays on this computer.
+            <InfoTip label={`About ${ENROLL_S} seconds of your voice, turned into numbers that stay on this computer. Later turns that are clearly you keep it up to date, and a new mic gets its own.`} />
+          </p>
         </div>
       )}
     </div>
@@ -571,12 +581,10 @@ function MicStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
         ))}
       </div>
       <Advanced id="engine:mic">
-        <Slider label="Speech sensitivity" value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
+        <Slider label="Speech sensitivity" hint="Lower picks up softer speech and barges in faster." value={cfg.vad.speechThreshold} min={0.1} max={0.9} step={0.05}
           format={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, speechThreshold: v } })} />
-        <p className="-mt-2 text-caption text-faint">Lower picks up softer speech and barges in faster.</p>
-        <Slider label="Trailing silence" value={cfg.vad.redemptionMs} min={200} max={1500} step={50}
+        <Slider label="Trailing silence" hint="How long a pause runs before your turn ends. Wait before answering in Voice sets it too." value={cfg.vad.redemptionMs} min={200} max={1500} step={50}
           format={(v) => `${v} ms`} onChange={(v) => update({ ...cfg, vad: { ...cfg.vad, redemptionMs: v } })} />
-        <p className="-mt-2 text-caption text-faint">How long a pause runs before your turn ends. Wait before answering in Voice sets it too.</p>
         <VoiceprintPicker cfg={cfg} update={update} />
       </Advanced>
     </div>
@@ -616,13 +624,15 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       {active && <LicenseNote family={active} variant={cfg.stt.variant} />}
       {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
       <Advanced id="engine:stt">
-        {whisper && <label className="flex flex-col gap-1.5">
-          <span className="text-label text-foreground">Whisper model size</span>
-          <Select value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className="w-full">
+        {whisper && <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-label text-foreground">
+            <label htmlFor="set-engine-whisper-size">Whisper model size</label>
+            <InfoTip label="Bigger hears better and takes longer to answer. English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically." />
+          </span>
+          <Select id="set-engine-whisper-size" value={cfg.stt.whisperSize} onChange={(e) => update({ ...cfg, stt: { ...cfg.stt, whisperSize: e.target.value as PipelineConfig["stt"]["whisperSize"] } })} className="w-full">
             {WHISPER_SIZES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
-        </label>}
-        {whisper && <p className="-mt-2 text-caption text-faint">Bigger hears better and takes longer to answer. English runs the English-only build of each size; any other language loads the multilingual build of the same size, automatically.</p>}
+        </div>}
         {!whisper && <VariantPicker cfg={cfg} stage="stt" update={update} onAsk={ask} />}
         {!whisper && <AccelRow id={cfg.stt.variant} />}
         {whisper && !hasWebGPU() && <p className="-mt-2 text-caption text-faint">WebGPU isn&apos;t available here, so calls run the Tiny model regardless. The size choice applies when WebGPU is.</p>}
@@ -655,8 +665,8 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-label text-foreground">Side talk</span>
         <Experimental />
+        <InfoTip label={<>Tries to tell when you&apos;re talking to someone else in the room. It catches only part of side talk today, about one in five English sentences in our tests. &ldquo;Judge only&rdquo; collects data and changes nothing.</>} />
       </div>
-      <p className="text-caption text-faint">Tries to tell when you&apos;re talking to someone else in the room. It catches only part of side talk today, about one in five English sentences in our tests. &ldquo;Judge only&rdquo; collects data and changes nothing.</p>
       <fieldset disabled={isError} className="disabled:opacity-50">
         <Segmented label="Side talk (experimental)" className="grid w-full" options={SIDE_TALK_UI} value={cfg.sideTalk}
           onChange={(v) => update({ ...cfg, sideTalk: v })} />
@@ -670,9 +680,9 @@ function SideTalkPicker({ cfg, update }: { cfg: PipelineConfig; update: Update }
         <div className="space-y-2 rounded-lg bg-card px-card-x py-3 shadow-card">
           <label className="flex cursor-pointer select-none items-start gap-2.5">
             <Switch on={cfg.sideTalkLog} onFlip={() => update({ ...cfg, sideTalkLog: !cfg.sideTalkLog })} className="mt-0.5" />
-            <span className="text-label leading-snug text-foreground">
+            <span className="flex items-center gap-1.5 text-label leading-snug text-foreground">
               Keep a judgment log to train on
-              <span className="block text-caption text-faint">Each judged sentence&apos;s words, the reply before it, and how it sounded (loudness, pitch, pace, timing; never the audio), kept on this computer for <code>pnpm addressee:train</code>. &quot;Send it&quot; and &quot;Not for you&quot; in the transcript mark what it got wrong. The newest {status?.log.cap ?? 5000} are kept.</span>
+              <InfoTip label={<>Each judged sentence&apos;s words, the reply before it, and how it sounded (loudness, pitch, pace, timing; never the audio), kept on this computer for <code>pnpm addressee:train</code>. &quot;Send it&quot; and &quot;Not for you&quot; in the transcript mark what it got wrong. The newest {status?.log.cap ?? 5000} are kept.</>} />
             </span>
           </label>
           {!!status?.log.count && (
@@ -705,15 +715,11 @@ function TurnStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </div>
       <Advanced id="engine:turn">
         {cfg.turn.engine === "smart-turn" && (
-          <>
-            <Slider label="End-of-turn threshold" value={cfg.turn.threshold} min={0} max={1} step={0.05}
+            <Slider label="End-of-turn threshold" hint="Higher waits longer (fewer interruptions); lower replies sooner." value={cfg.turn.threshold} min={0} max={1} step={0.05}
               format={(v) => v.toFixed(2)} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, threshold: v } })} />
-            <p className="-mt-2 text-caption text-faint">Higher waits longer (fewer interruptions); lower replies sooner.</p>
-          </>
         )}
-        <Slider label="Mid-thought hold" value={cfg.turn.holdMs} min={1000} max={8000} step={500}
+        <Slider label="Mid-thought hold" hint={<>How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</>} value={cfg.turn.holdMs} min={1000} max={8000} step={500}
           format={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(v) => update({ ...cfg, turn: { ...cfg.turn, holdMs: v } })} />
-        <p className="-mt-2 text-caption text-faint">How long a &ldquo;not finished yet&rdquo; pause is held before it auto-sends. You can always tap &ldquo;send now&rdquo; (or press Enter) instead of waiting.</p>
         <SideTalkPicker cfg={cfg} update={update} />
       </Advanced>
     </div>
