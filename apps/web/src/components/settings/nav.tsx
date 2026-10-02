@@ -14,7 +14,7 @@ export const SettingsNav = createContext<SettingsGo>(() => {});
 export const useSettingsNav = () => useContext(SettingsNav);
 
 /** A row that shows a value set somewhere else and goes there, instead of a
- *  second copy of the control. `shared` marks the value as Chat and Flow's. */
+ *  second copy of the control. `shared` marks the value as one every mode uses. */
 export function LinkRow({ label, detail, value, onGo, shared = true, icon: Icon, className }: {
   label: ReactNode; detail?: ReactNode; value: ReactNode; onGo: () => void; shared?: boolean; icon?: LucideIcon; className?: string;
 }) {
@@ -31,7 +31,7 @@ export function LinkRow({ label, detail, value, onGo, shared = true, icon: Icon,
         )}
       </span>
       <span className="flex min-w-0 max-w-full items-center gap-1.5 text-body text-muted-foreground transition group-hover:text-foreground">
-        {shared && <Link2 aria-label="Shared with Chat" className="size-3.5 shrink-0 text-link-foreground" />}
+        {shared && <Link2 aria-label="Shared by every mode" className="size-3.5 shrink-0 text-link-foreground" />}
         <span className="min-w-0 break-words">{value}</span>
         <ChevronRight aria-hidden className="size-4 shrink-0" />
       </span>

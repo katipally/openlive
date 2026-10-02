@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Play, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronRight, Loader2, Pencil, Play, Plus, Search, Trash2 } from "lucide-react";
 import type { LanguageCode } from "@openlive/shared";
 import type { LexiconEntry } from "@openlive/shared/speech/lexicon";
 import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, CURATED_LANGUAGES, PRONUNCIATION_LIMITS } from "@/lib/live/pipelineConfig";
@@ -9,8 +9,10 @@ import { languageLabel } from "@/lib/live/engineMenu";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { playPreview } from "./PipelineSettings";
+import { cn } from "@/lib/cn";
 import { Select, Checkbox, Button, Tooltip, Input, Chip, ListGroup } from "@/components/ui";
 import { Section } from "./Section";
+import { EmptyState, NoMatch } from "./common";
 
 const BLANK: LexiconEntry = { from: "", to: "", lang: "", matchCase: false, wholeWord: true };
 const field = "min-w-0 flex-1 basis-40";
@@ -25,6 +27,9 @@ export function PronunciationSettings() {
   const [editing, setEditing] = useState<number | null>(null); // an entry's index, or -1 for a new one
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  // The list sits behind one row until opened; adding or editing a word opens it.
+  const [open, setOpen] = useState(false);
+  const shownList = open || editing !== null;
   const entries = cfg.pronunciations;
   const save = (list: LexiconEntry[]) => setCfg(savePipelineConfig({ ...cfg, pronunciations: list }));
 
@@ -47,7 +52,7 @@ export function PronunciationSettings() {
   const shown = entries.map((e, i) => [e, i] as const).filter(([e]) => !q || `${e.from} ${e.to}`.toLowerCase().includes(q));
 
   const add = editing !== -1 && (
-    <Button size="sm" onClick={() => setEditing(-1)} disabled={entries.length >= PRONUNCIATION_LIMITS.entries}>
+    <Button size="sm" onClick={() => { setOpen(true); setEditing(-1); }} disabled={entries.length >= PRONUNCIATION_LIMITS.entries}>
       <Plus /> Add a word
     </Button>
   );
@@ -55,6 +60,17 @@ export function PronunciationSettings() {
     <Section id="set-voice-pronunciation" title="Pronunciation" action={add}
       desc="Numbers, dates, money and symbols are already read the way a person says them. For a name or brand the voice gets wrong, write how to say it.">
       <div className="flex flex-col gap-2">
+        <ListGroup>
+          <button type="button" aria-expanded={shownList} onClick={() => { setOpen(!shownList); if (shownList) setEditing(null); }}
+            className="group flex min-h-row w-full items-center gap-x-4 py-2 text-left">
+            <span className="min-w-0 flex-1 break-words text-body text-foreground">Words it says your way</span>
+            <span className="shrink-0 text-body tabular-nums text-muted-foreground transition group-hover:text-foreground">
+              {entries.length ? `${entries.length} ${entries.length === 1 ? "word" : "words"}` : "None yet"}
+            </span>
+            <ChevronRight aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none", shownList && "rotate-90")} />
+          </button>
+        </ListGroup>
+        {shownList && <>
         {editing === -1 && (
           <EntryForm initial={BLANK} busy={busy === "draft"} onSave={commit} onCancel={() => setEditing(null)}
             onTry={(e) => void say("draft", e.from, [...entries, e])} />
@@ -63,11 +79,9 @@ export function PronunciationSettings() {
           <Input type="search" size="md" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Find among ${entries.length} words`} aria-label="Find a word" />
         )}
         {entries.length === 0 && editing !== -1 && (
-          <p className="rounded-lg border border-dashed border-border px-card-x py-5 text-center text-label text-muted-foreground">
-            No words yet. Add a name or brand the voice gets wrong, and how to say it.
-          </p>
+          <EmptyState>No words yet. Add a name or brand the voice gets wrong, and how to say it.</EmptyState>
         )}
-        {q && shown.length === 0 && <p className="text-label text-muted-foreground">No word matches &ldquo;{filter.trim()}&rdquo;.</p>}
+        {q && shown.length === 0 && <NoMatch what="word" query={filter} />}
         {shown.length > 0 && <ListGroup>
           {shown.map(([e, i]) => editing === i ? (
             <div key={i} className="py-2">
@@ -96,6 +110,7 @@ export function PronunciationSettings() {
             </div>
           ))}
         </ListGroup>}
+        </>}
       </div>
     </Section>
   );

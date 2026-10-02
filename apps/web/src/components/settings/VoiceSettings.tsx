@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronRight, Layers, Loader2, Play } from "lucide-react";
+import { ChevronRight, Layers, Loader2, Play } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, familyInfo, isNativeVariant, activeTurnPreset, withWait,
   TTS_FAMILIES, TURN_PRESETS, type PipelineConfig,
@@ -13,14 +13,15 @@ import { useMotionTokens } from "@/lib/motion";
 import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { cn } from "@/lib/cn";
-import { Segmented, Slider, Switch, Button, linkClass, Tooltip, ListGroup, ListRow } from "@/components/ui";
+import { Badge, Segmented, Slider, Switch, Button, linkClass, Tooltip, ListGroup, ListRow } from "@/components/ui";
 import { LanguagePicker, Experimental, SAMPLE, playPreview, useNativeEngines, variantStatus } from "./PipelineSettings";
 import { VoicesSettings } from "./VoicesSettings";
 import { PronunciationSettings } from "./PronunciationSettings";
 import { Section } from "./Section";
 import { useSettingsNav } from "./nav";
+import { OneLine } from "./common";
 
-// How OpenLive hears and speaks, set once for Chat and Flow: the language first
+// How OpenLive hears and speaks, set once for Chat, Flow and Dictate: the language first
 // (every stage follows it), then who speaks and how fast, then how long it
 // waits, then how words are said, then cloned voices. The engines behind all of
 // this live in Speech engine.
@@ -82,7 +83,7 @@ function VoicePicker() {
   const openYours = () => document.getElementById("set-voice-yours")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
 
   return (
-    <Section id="set-voice-voice" title="Voice" desc={`The voice that answers. From the ${engine.name} engine.`}>
+    <Section id="set-voice-voice" title="Voice" desc={`From the ${engine.name} engine.`}>
       <div className="overflow-hidden rounded-lg bg-card shadow-card">
         {clone && !isLoading && rows.length === 0 ? (
           <div className="flex min-h-row flex-wrap items-center gap-x-3 gap-y-1 px-card-x py-2 text-body text-muted-foreground">
@@ -104,10 +105,10 @@ function VoicePicker() {
                   <button type="button" role="radio" aria-checked={on} onClick={() => save({ ...cfg, tts: { ...cfg.tts, voice: r.id } })}
                     className="flex min-w-0 flex-1 items-center gap-3 self-stretch text-left">
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className={cn("break-words text-body text-foreground", on && "font-medium")}>{r.name}</span>
-                      {r.detail && <span className="break-words text-label text-muted-foreground">{r.detail}</span>}
+                      <OneLine text={r.name} className={cn("text-body text-foreground", on && "font-medium")} />
+                      {r.detail && <OneLine text={r.detail} className="text-label text-muted-foreground" />}
                     </span>
-                    {on && <Check aria-hidden className="size-4 shrink-0 text-link-foreground" />}
+                    {on && <Badge className="shrink-0">Speaking</Badge>}
                   </button>
                 </div>
               );
@@ -134,15 +135,16 @@ function SpeakingSpeed() {
   );
 }
 
-/** Turn-taking in plain words. One wait for Chat and Flow; Flow may keep its own. */
+/** Turn-taking in plain words. One wait for every mode; Flow may keep its own. */
 function Conversation() {
   const [cfg, save] = usePipeline();
   const go = useSettingsNav();
   const preset = activeTurnPreset(cfg);
   return (
-    <Section id="set-voice-conversation" title="Conversation" desc="Turn-taking in plain words. The engine details live in Speech engine.">
+    <Section id="set-voice-conversation" title="Conversation" desc="Turn-taking in plain words.">
       <ListGroup>
-        <ListRow label="Wait before answering" detail="How long it waits before deciding you have finished. Flow can keep its own." className="py-3">
+        <ListRow label="Wait before answering" detail="Flow can keep its own" className="py-3"
+          info="How long it waits before deciding you have finished. The turn-taking timings live in Speech engine.">
           <div id="set-voice-wait" className="flex basis-full flex-col gap-2">
             <Segmented label="Wait before answering" className="grid w-full" value={preset === "custom" ? null : preset}
               options={TURN_PRESETS.map((p) => ({ id: p.id, label: p.name, sub: p.desc, title: p.desc }))}
@@ -156,7 +158,8 @@ function Conversation() {
           </div>
         </ListRow>
         <ListRow asLabel label={<span id="set-voice-listening-sounds" className="flex flex-wrap items-center gap-x-2 gap-y-1">Listening sounds <Experimental /></span>}
-          detail="A quiet “mm-hmm” in the reply's voice at a pause while you talk at length. Never after a question or over your voice, and never in the transcript. Calls only, not Flow.">
+          detail="Calls only, not Flow"
+          info="A quiet “mm-hmm” in the reply's voice at a pause while you talk at length. Never after a question or over your voice, and never in the transcript.">
           <Switch on={cfg.turn.backchannels} onFlip={() => save({ ...cfg, turn: { ...cfg.turn, backchannels: !cfg.turn.backchannels } })} />
         </ListRow>
       </ListGroup>
@@ -167,11 +170,11 @@ function Conversation() {
 export function VoiceSettings() {
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-voice-language" title="Language" desc="What you speak and what OpenLive answers in. Transcription, the voice and the reply all follow it.">
+      <Section id="set-voice-language" title="Language" desc="Transcription, the voice and the reply follow it.">
         <LanguagePicker />
       </Section>
       <VoicePicker />
-      <Section id="set-voice-speaking" title="Speaking" desc="How fast replies are read out, whichever voice is speaking.">
+      <Section id="set-voice-speaking" title="Speaking" desc="Applies to every voice.">
         <SpeakingSpeed />
       </Section>
       <Conversation />
