@@ -804,8 +804,9 @@ export function useFlowOwner(): void {
         teardownMic();
       } else {
         disarmed.current = false;
-        // Waking must not undo Flow's off switch: the hook stays suspended for that.
-        void api.capabilities().then((c) => (valueOr(c, null)?.armed === false ? undefined : api.resume())).then(() => arm());
+        // Flow's off switch mutes its own binding alone, which a resume leaves
+        // muted, so Dictate's keys come back either way.
+        void api.resume().then(() => arm());
       }
     });
 
