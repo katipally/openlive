@@ -54,8 +54,26 @@ export interface FlowSnapshot {
   /** The last sentence the side talk check dropped, until the next turn: shown
    *  with "Send it". Empty when there is none. */
   aside: string;
+  /** Dictate, while it has the orb. Null the rest of the time. */
+  dictate: DictateSnapshot | null;
+}
+
+/** Dictate on the orb: Flow's orb in Dictate's colours, with what it heard. */
+export interface DictateSnapshot {
+  /** idle: hands-free and waiting for words. processing: cleaning up and typing. */
+  phase: "idle" | "listening" | "processing";
+  /** Open until stopped, rather than held by the key. */
+  handsFree: boolean;
+  /** The key as the person reads it, for the hold pill. */
+  keys: string[];
+  /** What it has heard so far this utterance. */
+  partial: string;
+  /** Words the last utterance typed, shown once it lands. */
+  inserted: number;
+  /** Why it typed nothing, or where the words went instead. */
+  note: string;
 }
 
 export const IDLE_FLOW: FlowSnapshot = {
-  phase: "idle", reply: "", detail: "", speaking: true, failure: null, aside: "",
+  phase: "idle", reply: "", detail: "", speaking: true, failure: null, aside: "", dictate: null,
 };

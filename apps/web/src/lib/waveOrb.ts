@@ -225,6 +225,9 @@ const BASE: Record<Key, number> = { speed: 0.82, contourDeform: 0, zoom: 0.36, w
 const CALM = { speed: 0.246, zoom: 0.3384, warp: 1.664, ridgeAmt: 0.24, exposure: 1.36 };
 const SPEAKING = { speed: 1, exposure: 2.1, edgeGlow: 0.4, amp: 1.15, audio: 1.25,
   colors: ["#9FD4FF", "#6F8CE6", "#B08CFF", "#5B6CFF", "#FFFFFF", "#6F8CE6"] };
+const IDLE = { ...CALM, speed: 0.12, amp: 0.8, breathe: 1 };
+const LISTENING = { speed: 0.14, warp: 1.4, ridgeAmt: 0.45, exposure: 1.8, edgeGlow: 0.3, amp: 0.5, breathe: 0.6, audio: 2.4, lift: 1 };
+const THINKING = { speed: 1.35, edgeGlow: 0.25, braid: 1, pulse: 1 };
 
 export const WAVE_ORB_STATES = {
   // The OpenLive logo: the speaking orb mid-sentence, a steady voice (hum) in
@@ -232,7 +235,7 @@ export const WAVE_ORB_STATES = {
   mark: { ...SPEAKING, speed: 0.5, hum: 0.7, breathe: 0.5 },
   off: { ...CALM, speed: 0.12, amp: 0.05, core: 0.45, exposure: 0.9,
     colors: ["#5A6272", "#4A5364", "#545B6E", "#414858", "#8A93A6", "#3A4050"] },
-  idle: { ...CALM, speed: 0.12, amp: 0.8, breathe: 1,
+  idle: { ...IDLE,
     colors: ["#9FB2D6", "#6E8FB8", "#8C8FC4", "#5D6E9E", "#C9D6EA", "#6F84B8"] },
   connecting: { speed: 0.6, warp: 2, ridgeAmt: 0.35, exposure: 1.6, edgeGlow: 0.15, amp: 0.95, envW: 1.35, ripple: 1,
     colors: ["#CFE0FF", "#7FB0FF", "#9DB8F0", "#5B7FD8", "#FFFFFF", "#5B9DFF"] },
@@ -240,15 +243,23 @@ export const WAVE_ORB_STATES = {
     colors: ["#CFE0FF", "#7FB0FF", "#9DB8F0", "#5B7FD8", "#FFFFFF", "#5B9DFF"] },
   reconnecting: { speed: 0.5, warp: 1.8, ridgeAmt: 0.3, exposure: 1.05, amp: 0.6, envW: 1.2, ripple: 0.4, stutter: 1,
     colors: ["#8C9AB8", "#6A7FA6", "#7C86A8", "#56628A", "#C0C8D8", "#56628A"] },
-  listening: { speed: 0.14, warp: 1.4, ridgeAmt: 0.45, exposure: 1.8, edgeGlow: 0.3, amp: 0.5, breathe: 0.6, audio: 2.4, lift: 1,
+  listening: { ...LISTENING,
     colors: ["#E6FF9E", "#5EF2C2", "#43C286", "#33B7D6", "#F0FFF6", "#43C286"] },
-  thinking: { speed: 1.35, edgeGlow: 0.25, braid: 1, pulse: 1,
+  thinking: { ...THINKING,
     colors: ["#FFD86B", "#F0A24A", "#C77DFF", "#8E6CFF", "#FFF3DE", "#F0A24A"] },
   speaking: SPEAKING,
   acting: { speed: 0.9, edgeGlow: 0.3, amp: 0.95, envW: 0.75, sweep: 1,
     colors: ["#FFB199", "#FF7A6B", "#FF5CB8", "#D94BFF", "#FFF0EC", "#FF6B8A"] },
   error: { ...CALM, speed: 0.2, exposure: 1.2, amp: 0.22, envW: 1.3, core: 0.6,
     colors: ["#C98A8A", "#A86464", "#B07878", "#7E4E56", "#E8CFCF", "#A84848"] },
+  // Dictate: Flow's own idle, listening and thinking motion in chartreuse, a hue
+  // no Flow phase uses, so the two modes never read as each other.
+  dictateIdle: { ...IDLE,
+    colors: ["#B9C98A", "#93A65A", "#A7B872", "#6F7F45", "#E3EBC8", "#93A65A"] },
+  dictateListening: { ...LISTENING,
+    colors: ["#F0FF8C", "#C6F135", "#A8E02A", "#7FBF12", "#FBFFE2", "#C6F135"] },
+  dictateProcessing: { ...THINKING,
+    colors: ["#FFF59A", "#E2F04A", "#C6F135", "#9FD11A", "#FFFFF0", "#E2F04A"] },
 } satisfies Record<string, Partial<Record<Key, number>> & { colors: string[] }>;
 export type WaveOrbState = keyof typeof WAVE_ORB_STATES;
 
@@ -260,7 +271,7 @@ export const WAVE_ORB_RADIUS = 1 / (1 + Number(MAX_DEFORM)
 export type WaveOrbBands = { low: number; mid: number; high: number; all: number };
 
 // Entering a working state snaps in (ease-out-cubic); settling anywhere else eases (smoothstep).
-const ACTIVE = new Set<WaveOrbState>(["listening", "thinking", "speaking", "acting"]);
+const ACTIVE = new Set<WaveOrbState>(["listening", "thinking", "speaking", "acting", "dictateListening", "dictateProcessing"]);
 
 export const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 export const srgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);

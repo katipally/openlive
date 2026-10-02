@@ -33,8 +33,9 @@ export type PanelCmd =
   // Flow. `flowCancel` closes Flow; `flowStop` only drops what it is doing and
   // goes back to listening, which is what someone watching it act wants.
   // `flowFix` is the one action a failure state offers; `flowSendAside` sends
-  // the sentence the side talk check dropped.
-  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowFix"; code: FlowFailureCode } | { t: "flowSendAside" };
+  // the sentence the side talk check dropped. `dictateToggle` is the orb's mic
+  // button: hands-free Dictate on, or off.
+  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowFix"; code: FlowFailureCode } | { t: "flowSendAside" } | { t: "dictateToggle" };
 
 /** A live call as the orb shows it while the main window is out of sight. */
 export interface CallOrbState { muted: boolean; startedAt: number }

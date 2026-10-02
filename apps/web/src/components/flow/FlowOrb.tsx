@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Maximize2, Mic, MicOff, PhoneOff, Square, X } from "lucide-react";
+import { AlertTriangle, Lock, Maximize2, Mic, MicOff, PhoneOff, Square, X } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type CallOrbState, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
-import { IDLE_FLOW, type FlowFailure, type FlowSnapshot } from "@/lib/flow/types";
+import { IDLE_FLOW, type DictateSnapshot, type FlowFailure, type FlowSnapshot } from "@/lib/flow/types";
 import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
-import { pauseWaveOrbs, WAVE_ORB_RADIUS } from "@/lib/waveOrb";
+import { pauseWaveOrbs, WAVE_ORB_RADIUS, type WaveOrbState } from "@/lib/waveOrb";
 import { cn } from "@/lib/cn";
-import { Tooltip } from "@/components/ui";
+import { Keycaps, Tooltip } from "@/components/ui";
 import { isMac } from "@/lib/platform";
 
 // Flow's orb, in its own always-on-top window over the dock. It is voice, so it
@@ -43,6 +43,8 @@ const ORB_SIZE = 64;
 const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
 /** The hover controls sit this far off the ball, inside its faint outer glow. */
 const CONTROL_GAP = 10;
+/** A hover control's width (size-8), for placing a second one beside it. */
+const CONTROL_SIZE = 32;
 
 /** One solid surface for every panel in the window. */
 const PANEL = "border border-border bg-surface shadow-card";
@@ -50,8 +52,14 @@ const PANEL = "border border-border bg-surface shadow-card";
  *  A long answer wraps inside its pill rather than pushing the card wider. */
 const PILL_BTN = "max-w-full break-words rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
 
-/** Flow's phases onto the orb's states: confirming waits on the person's answer. */
-const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "listening" : p);
+/** Flow's phases onto the orb's states: confirming waits on the person's answer.
+ *  Dictate, while it has the orb, draws its own three. */
+const orbPhase = (s: FlowSnapshot): WaveOrbState => {
+  if (s.dictate) return s.dictate.phase === "idle" ? "dictateIdle" : s.dictate.phase === "listening" ? "dictateListening" : "dictateProcessing";
+  return s.phase === "confirming" ? "listening" : s.phase;
+};
+/** Dictate's listening colour, for the hands-free ring. */
+const DICTATE_RING = "rgb(198 241 53 / 0.45)";
 
 export function FlowOrb() {
   const [s, setS] = useState<FlowSnapshot>(IDLE_FLOW);
@@ -92,7 +100,8 @@ export function FlowOrb() {
 
   // Not over a turn in flight, where the caption is the thing to see; a failure
   // found as Flow opens is shown while it listens.
-  const failure = shown && s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
+  // Dictate needs no brain, so Flow's failures wait while it has the orb.
+  const failure = shown && !s.dictate && s.failure && (s.phase === "idle" || s.phase === "error" || s.phase === "listening") ? s.failure : null;
   // The two things worth interrupting someone for. Everything else is the orb.
   const asking = !!permission || !!failure;
   if (asking) lastAsk.current = { permission, failure };
@@ -191,7 +200,7 @@ export function FlowOrb() {
   }, []);
   // A card or a strip can rise under a pointer that is not moving, and no move
   // arrives to make its buttons clickable.
-  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside]);
+  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, s.dictate?.handsFree]);
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (
@@ -285,12 +294,16 @@ export function FlowOrb() {
         </div>
       )}
 
+      {/* Dictate's words as they are heard, one line that drops its oldest
+          words off the start. With nothing heard yet it is the pill alone. */}
+      {shown && s.dictate && <DictateStrip d={s.dictate} onStop={() => cmd({ t: "dictateToggle" })} />}
+
       {/* Drawn the whole time Flow is acting, not on hover: someone has to be
           able to see what it is doing without going to look for it. The window
           is click-through until the pointer arrives, which is what makes Stop
           pressable without the orb ever swallowing a click meant for the app
           underneath it. */}
-      {stripUp && (
+      {stripUp && !s.dictate && (
         <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
           <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
           {/* One line: a caption longer than the strip drops its oldest words
@@ -307,10 +320,17 @@ export function FlowOrb() {
           drawn, so the air beside the orb stays click-through. */}
       <div className="relative shrink-0">
         <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })} side="left"><X className="size-4" /></Control>
-        <div data-hit>
-          <Orb phase={orbPhase(s.phase)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
+        <div data-hit className="relative">
+          <Orb phase={orbPhase(s)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
+          {s.dictate?.handsFree && (
+            <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed" style={{ borderColor: DICTATE_RING }} />
+          )}
         </div>
-        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right"><Maximize2 className="size-[15px]" /></Control>
+        <Control label={s.dictate?.handsFree ? "Stop dictating" : "Dictate hands-free"} shown={hovered} pressed={!!s.dictate?.handsFree}
+          onClick={() => cmd({ t: "dictateToggle" })} side="right">
+          <Mic className={cn("size-4", s.dictate?.handsFree && "fill-current")} />
+        </Control>
+        <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right" nth={1}><Maximize2 className="size-[15px]" /></Control>
       </div>
     </div>
   );
@@ -371,18 +391,46 @@ function CallOrb({ call }: { call: CallOrbState }) {
   );
 }
 
-/** A button beside the orb, on its `side`, growing out of the orb's edge. */
-function Control({ label, shown, onClick, side, children }: {
-  label: string; shown: boolean; onClick: () => void; side: "left" | "right"; children: React.ReactNode;
+/** A button beside the orb, on its `side`, growing out of the orb's edge;
+ *  `nth` places it further out, past the ones before it. */
+function Control({ label, shown, onClick, side, nth = 0, pressed, children }: {
+  label: string; shown: boolean; onClick: () => void; side: "left" | "right"; nth?: number; pressed?: boolean; children: React.ReactNode;
 }) {
+  const gap = CONTROL_GAP + nth * (CONTROL_SIZE + CONTROL_GAP / 2);
   return (
     <Tooltip label={label} className={cn("absolute top-1/2 -translate-y-1/2", side === "left" ? "right-full" : "left-full", !shown && "pointer-events-none")}>
-      <button type="button" onClick={onClick} aria-label={label} data-hit={shown || undefined}
-        style={side === "left" ? { marginRight: CONTROL_GAP } : { marginLeft: CONTROL_GAP }}
+      <button type="button" onClick={onClick} aria-label={label} aria-pressed={pressed} data-hit={shown || undefined}
+        style={side === "left" ? { marginRight: gap } : { marginLeft: gap }}
         className={cn("grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-card transition duration-200 ease-out hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]",
           side === "left" ? "origin-right" : "origin-left", shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0")}>
         {children}
       </button>
     </Tooltip>
+  );
+}
+
+/** Dictate under the orb: how it is held, then what it heard, is doing or did. */
+function DictateStrip({ d, onStop }: { d: DictateSnapshot; onStop: () => void }) {
+  const said = d.note || (d.phase === "processing" ? "Cleaning up" : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial);
+  return (
+    <div data-hit={d.handsFree || undefined}
+      className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-1.5", PANEL)}>
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1 text-caption font-medium text-muted-strong">
+        {d.handsFree
+          ? <><Lock className="size-3" aria-hidden /> Hands-free</>
+          : <><Keycaps keys={d.keys} label={d.keys.join(" ")} /> Hold</>}
+      </span>
+      {said && (
+        <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1 pr-2">
+          <span role="status" className="shrink-0 grow text-label font-medium">{said}</span>
+        </span>
+      )}
+      {d.handsFree && (
+        <button type="button" onClick={onStop} aria-label="Stop dictating"
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+          <Square className="size-3 fill-current" aria-hidden /> Stop
+        </button>
+      )}
+    </div>
   );
 }

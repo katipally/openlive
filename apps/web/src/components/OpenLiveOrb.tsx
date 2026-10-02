@@ -23,7 +23,8 @@ export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, p
   const audio = useRef({ getLevels, getBands });
   audio.current = { getLevels, getBands };
   const animated = !!getLevels || pulse;
-  const voice = phase === "listening" || phase === "speaking";
+  const listening = phase === "listening" || phase === "dictateListening";
+  const voice = listening || phase === "speaking";
 
   useEffect(() => {
     const o = createWaveOrb(canvas.current!, { state: phase, still: !animated });
@@ -38,7 +39,6 @@ export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, p
 
   useEffect(() => {
     if (!voice || !animated) return;
-    const listening = phase === "listening";
     const gate = micGate();
     let raf = 0, last = 0;
     const read = (now: number) => {
@@ -56,7 +56,7 @@ export function OpenLiveOrb({ phase = "mark", getLevels, getBands, size = 240, p
     };
     raf = requestAnimationFrame(read);
     return () => { cancelAnimationFrame(raf); orb.current?.setBands({}); };
-  }, [voice, animated, phase]);
+  }, [voice, animated, listening]);
 
   // The canvas is wider than the ball to leave room for its glow; the negative
   // margin keeps the layout footprint at exactly `size`.
