@@ -23,6 +23,8 @@ export interface FlowConfig {
     modifierHoldMs: number;
     clipboardQuietMs: number;
     clipboardTimeoutMs: number;
+    /** Off, a paste leaves its text on the clipboard instead of putting the user's copy back. */
+    restoreClipboard: boolean;
   };
   /** Flow's own brain, used only while `override` is on; off, Flow thinks as
    *  Chat does (flowBrain in shared.ts). API mode has no fields here: it uses
@@ -56,11 +58,21 @@ export interface FlowConfig {
    *  on this machine. Nothing is asked per tool, per tier or per call. */
   consent: { granted: boolean; at: string };
   idleWindowMs: number;
+  /** Talk instead of type: hold `hotkey` and the cleaned-up words go in at the
+   *  cursor, with no brain. `hotkey` is in ol-input's binding grammar. Each
+   *  cleanup rule runs on this machine. `brain` is the one AI polish and
+   *  command mode think with; off, they use Flow's. */
+  dictate: {
+    enabled: boolean;
+    hotkey: string;
+    cleanup: { punctuation: boolean; fillers: boolean; backtrack: boolean; lists: boolean; numbers: boolean };
+    brain: FlowConfig["brain"];
+  };
 }
 
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   version: FLOW_CONFIG_VERSION,
-  insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 50, clipboardQuietMs: 200, clipboardTimeoutMs: 8000 },
+  insertion: { method: process.platform === "linux" ? "type" : "paste", modifierHoldMs: 50, clipboardQuietMs: 200, clipboardTimeoutMs: 8000, restoreClipboard: true },
   brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
   voice: {
     speakReplies: true,
@@ -70,6 +82,12 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   },
   consent: { granted: false, at: "" },
   idleWindowMs: 5 * 60_000,
+  dictate: {
+    enabled: false,
+    hotkey: "option_right",
+    cleanup: { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
+    brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
+  },
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -136,6 +154,10 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
   const autoQuiet = obj(voice.autoQuiet);
   const turn = obj(voice.turn);
   const consent = obj(o.consent);
+  const dictate = obj(o.dictate);
+  const cleanup = obj(dictate.cleanup);
+  const dictateBrain = obj(dictate.brain);
+  const dd = d.dictate;
   return {
     ...o,
     version: FLOW_CONFIG_VERSION,
@@ -145,6 +167,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       modifierHoldMs: num(insertion.modifierHoldMs, d.insertion.modifierHoldMs),
       clipboardQuietMs: num(insertion.clipboardQuietMs, d.insertion.clipboardQuietMs),
       clipboardTimeoutMs: num(insertion.clipboardTimeoutMs, d.insertion.clipboardTimeoutMs),
+      restoreClipboard: bool(insertion.restoreClipboard, d.insertion.restoreClipboard),
     },
     brain: {
       ...brain,
@@ -182,6 +205,27 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       at: str(consent.at, d.consent.at),
     },
     idleWindowMs: num(o.idleWindowMs, d.idleWindowMs, 1),
+    dictate: {
+      ...dictate,
+      enabled: bool(dictate.enabled, dd.enabled),
+      hotkey: str(dictate.hotkey, dd.hotkey).trim() || dd.hotkey,
+      cleanup: {
+        ...cleanup,
+        punctuation: bool(cleanup.punctuation, dd.cleanup.punctuation),
+        fillers: bool(cleanup.fillers, dd.cleanup.fillers),
+        backtrack: bool(cleanup.backtrack, dd.cleanup.backtrack),
+        lists: bool(cleanup.lists, dd.cleanup.lists),
+        numbers: bool(cleanup.numbers, dd.cleanup.numbers),
+      },
+      brain: {
+        ...dictateBrain,
+        override: bool(dictateBrain.override, dd.brain.override),
+        kind: one(dictateBrain.kind, BRAIN_KINDS, dd.brain.kind),
+        agentId: str(dictateBrain.agentId, dd.brain.agentId),
+        agentModel: str(dictateBrain.agentModel, dd.brain.agentModel),
+        agentEffort: str(dictateBrain.agentEffort, dd.brain.agentEffort),
+      },
+    },
   };
 }
 

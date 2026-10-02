@@ -162,3 +162,23 @@ test("clamps turn-taking to what the voice pipeline will accept", () => {
   const cfg = parseFlowConfig({ voice: { turn: { threshold: 4, holdMs: 99_000, redemptionMs: 0 } } });
   expect(cfg.voice.turn).toEqual({ threshold: 1, holdMs: 8000, redemptionMs: 200 });
 });
+
+test("an older file gets Dictate off, on Right Alt, with every cleanup rule on, and its clipboard put back", () => {
+  const cfg = parseFlowConfig(CONFIG_V6_FIXTURE);
+  expect(cfg.insertion.restoreClipboard).toBe(true);
+  expect(cfg.dictate).toEqual(DEFAULT_FLOW_CONFIG.dictate);
+  expect(cfg.dictate.enabled).toBe(false);
+  expect(cfg.dictate.hotkey).toBe("option_right");
+});
+
+test("Dictate's settings fall back per field, and a blank hotkey is not a hotkey", () => {
+  const cfg = parseFlowConfig({
+    insertion: { restoreClipboard: false },
+    dictate: { enabled: true, hotkey: "  ", cleanup: { fillers: false, lists: "no" }, brain: { override: true, kind: "acp", agentId: "codex" } },
+  });
+  expect(cfg.insertion.restoreClipboard).toBe(false);
+  expect(cfg.dictate.enabled).toBe(true);
+  expect(cfg.dictate.hotkey).toBe("option_right");
+  expect(cfg.dictate.cleanup).toEqual({ punctuation: true, fillers: false, backtrack: true, lists: true, numbers: true });
+  expect(cfg.dictate.brain).toEqual({ override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" });
+});
