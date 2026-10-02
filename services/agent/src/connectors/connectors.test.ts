@@ -58,10 +58,14 @@ describe("a stdio connector", () => {
     expect(names()).toEqual([]);
   });
 
-  it("lists its tools once allowed, namespaced, read-only only where the server says so", async () => {
+  it("lists its tools once allowed, namespaced, read-only only where the server says so and the person trusts it", async () => {
     await db.consentToSpawn(id);
     await manager.client(id);
     expect(manager.status(db.getConnectorRow(id)!).status).toBe("connected");
+    const untrusted = Object.fromEntries(registry.tools(CHAT, {}).list.map((t) => [t.name, t]));
+    expect(untrusted.fixture__echo!.readOnly).toBe(false);
+    expect(untrusted.fixture__echo!.confirm?.({})).toBe("use Fixture: echo");
+    await db.updateConnector(id, { trustReadOnly: true });
     const tools = registry.tools(CHAT, {}).list;
     expect(tools.map((t) => t.name)).toEqual(["fixture__echo", "fixture__make_note", "fixture__confirm"]);
     const by = Object.fromEntries(tools.map((t) => [t.name, t]));

@@ -74,24 +74,30 @@ export function toResult(r: CallToolResult): ToolResult<{ structured?: unknown }
   return { content: capped.length ? capped : [text("(no output)")], details: { structured: r.structuredContent } };
 }
 
-/** One connector tool. A tool its server does not mark read-only counts as one that changes things. */
+/**
+ * One connector tool. It counts as one that changes things unless its server
+ * labels it read-only AND the person trusts that connector's labels: a label
+ * alone is the server's own claim, and would skip the question and read_tool's gate.
+ */
 export function connectorTool(row: ConnectorRow, t: CachedTool, name: string, manager: ConnectorManager): Tool {
+  const readOnly = !!row.trustReadOnly && t.readOnly;
   return {
     name,
     description: `${t.description || t.name} (${row.name})`.trim(),
     parameters: { type: "object", ...t.inputSchema },
     connector: row.name,
-    readOnly: t.readOnly,
-    ...(!t.readOnly && { confirm: () => `use ${row.name}: ${t.name}` }),
+    readOnly,
+    ...(!readOnly && { confirm: () => `use ${row.name}: ${t.name}` }),
     async execute(args, ctx) {
       let r: CallToolResult;
       try {
         r = await manager.call(row.id, t.name, args as Record<string, unknown>, ctx);
       } catch (e) {
-        // The server needs the person in a browser first (-32042): open it and say so.
-        if (e instanceof ProtocolError && e.code === ProtocolErrorCode.UrlElicitationRequired) {
+        // The server needs the person in a browser first (-32042): ask them to open it, as any page a server wants open.
+        if (e instanceof ProtocolError && e.code === ProtocolErrorCode.UrlElicitationRequired && ctx.elicit) {
           const first = (e.data as { elicitations?: { url?: string; message?: string }[] } | undefined)?.elicitations?.[0];
-          if (first?.url && await openPage(ctx, first.url)) return { content: [text(`${row.name} opened a page in the browser to finish setting up${first.message ? ` (${first.message})` : ""}. Ask the user to finish there, then try again.`)], details: {} };
+          const asked = first?.url && await ctx.elicit({ mode: "url", url: first.url, message: first.message ?? `${row.name} needs you to finish setting up in the browser.` });
+          if (asked && asked.action === "accept") return { content: [text(`The user opened the ${row.name} page to finish setting up. Ask them to finish there, then try again.`)], details: {} };
         }
         throw e;
       }

@@ -26,6 +26,7 @@ export interface ConnectorToolWire {
   /** What the model sees: `<slug>__<name>`, within provider limits. */
   exposedName: string;
   description: string;
+  /** The server labels it read-only. It runs without asking only where the connector's trustReadOnly is on. */
   readOnly: boolean;
   enabled: boolean;
 }
@@ -44,6 +45,8 @@ export interface ConnectorWire {
   /** CIMD client id document, when one is configured. */
   clientMetadataUrl?: string;
   signedIn: boolean;
+  /** The person trusts its tools' read-only labels, so those run without asking. */
+  trustReadOnly: boolean;
   status: ConnectorStatus;
   error?: string;
   tools: ConnectorToolWire[];
@@ -58,6 +61,7 @@ export type ConnectorTransportInput =
 export interface ConnectorPatch {
   name?: string;
   enabled?: boolean;
+  trustReadOnly?: boolean;
   clientMetadataUrl?: string | null;
   command?: string;
   args?: string[];

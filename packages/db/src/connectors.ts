@@ -108,6 +108,8 @@ export function updateConnector(id: string, p: ConnectorPatch): Promise<Connecto
   return mutate(id, (row, names) => {
     if (p.name?.trim() && p.name.trim() !== row.name) { names.delete(row.name); row.name = uniqueName(p.name.trim(), names); }
     if (p.enabled !== undefined) row.enabled = p.enabled;
+    if (p.trustReadOnly) row.trustReadOnly = true;
+    else if (p.trustReadOnly === false) delete row.trustReadOnly;
     if (p.clientMetadataUrl !== undefined) {
       if (p.clientMetadataUrl) row.clientMetadataUrl = p.clientMetadataUrl;
       else delete row.clientMetadataUrl;
@@ -118,15 +120,16 @@ export function updateConnector(id: string, p: ConnectorPatch): Promise<Connecto
       const runs = JSON.stringify([t.command, t.args]);
       if (p.command !== undefined) t.command = p.command.trim();
       if (p.args !== undefined) t.args = p.args;
-      if (JSON.stringify([t.command, t.args]) !== runs) row.spawnConsent = false;
+      if (JSON.stringify([t.command, t.args]) !== runs) { row.spawnConsent = false; delete row.trustReadOnly; }
       if (p.cwd !== undefined) { if (p.cwd) t.cwd = p.cwd; else delete t.cwd; }
       if (p.env !== undefined) t.env = { ...p.env };
       if (p.secretEnv) mergeSecrets(t.secretEnv, p.secretEnv);
     } else {
       if (p.url !== undefined && p.url.trim() !== t.url) {
         t.url = p.url.trim();
-        // Tokens belong to the server they were issued for.
+        // Tokens, and trust in its labels, belong to the server they were given to.
         delete row.oauth;
+        delete row.trustReadOnly;
       }
       if (p.headers) mergeSecrets(t.headers, p.headers);
     }

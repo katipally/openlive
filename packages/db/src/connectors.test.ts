@@ -104,6 +104,16 @@ describe("the connector store", () => {
     await c.setConnectorToolsEnabled(h.id, ["a", "c"], true);
     expect(c.getConnectorRow(h.id)!.disabledTools).toEqual(["b"]);
   });
+
+  it("trusts read-only labels only when told to, and forgets it when the server changes", async () => {
+    const c = await load();
+    const h = await c.createConnector({ name: "t", transport: { type: "http", url: "https://t.example/mcp" } });
+    expect(c.getConnectorRow(h.id)!.trustReadOnly).toBeUndefined();
+    await c.updateConnector(h.id, { trustReadOnly: true });
+    expect(c.getConnectorRow(h.id)!.trustReadOnly).toBe(true);
+    await c.updateConnector(h.id, { url: "https://other.example/mcp" });
+    expect(c.getConnectorRow(h.id)!.trustReadOnly).toBeUndefined();
+  });
 });
 
 describe("mcp.json edited by hand", () => {

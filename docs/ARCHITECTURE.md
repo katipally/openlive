@@ -922,8 +922,12 @@ An MCP server the user adds once, offered to every brain in both modes.
 - **Tools** (`tools.ts`), registered in `server.ts`. Each enabled tool becomes
   `<slug>__<tool>`, cut to provider limits (64 chars, `[a-zA-Z0-9_-]`), with a
   hash of the original pair ending a name that is too long or taken. The JSON
-  Schema passes through; `readOnlyHint` maps to `readOnly`, and every other tool
-  has `confirm`, so a call asks each time and Flow's consent covers it. Results
+  Schema passes through. A server's `readOnlyHint` is only its claim: it maps
+  to `readOnly` (no question, and `read_tool` runs it) only where the person
+  ticked "Trust its read-only labels" on that connector (`trustReadOnly` in its
+  `openlive` block, forgotten when its command or URL changes). Every other
+  tool has `confirm`, so a call asks each time and Flow's consent covers it. A
+  server that needs the person in a browser (-32042) asks before it opens. Results
   keep text and images (at most 4, each under 5 MB) and spell out resource
   links; text is capped at 20,000 characters. A coding agent reaches connectors
   only through the `openlive` MCP server: tokens never leave OpenLive.

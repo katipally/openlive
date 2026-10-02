@@ -310,6 +310,15 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
           {c.status === "error" && c.error && <p role="alert" className="break-words text-caption text-destructive-text">{c.error}</p>}
           {editing && <EditPanel c={c} onSaved={(next) => { put(next); setEditing(false); }} onCancel={() => setEditing(false)} />}
           {c.tools.length > 0 && <Tools c={c} flip={flip} />}
+          {c.tools.some((t) => t.readOnly) && (
+            <Tooltip label="Its server labels some tools as only reading. On, those run without asking first; off, every tool asks.">
+              <label className="inline-flex w-fit cursor-pointer items-center gap-2 text-label text-foreground">
+                <Checkbox checked={c.trustReadOnly}
+                  onChange={() => flip({ ...c, trustReadOnly: !c.trustReadOnly }, () => api.updateConnector(c.id, { trustReadOnly: !c.trustReadOnly }), `Couldn’t change whether ${c.name} asks first.`)} />
+                Trust its read-only labels
+              </label>
+            </Tooltip>
+          )}
           <span className="flex flex-wrap items-center gap-1.5">
             {c.tools.length > 0 && <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">{asksDot} asks first</span>}
             <span className="ml-auto flex flex-wrap gap-1.5">
@@ -365,7 +374,8 @@ function Tools({ c, flip }: {
       {shown.length > 0 && (
         <span className="flex flex-wrap gap-1.5">
           {shown.map((t) => {
-            const tip = [t.description, t.readOnly ? "" : "Asks first."].filter(Boolean).join(" ");
+            const asks = !(c.trustReadOnly && t.readOnly);
+            const tip = [t.description, asks ? "Asks first." : ""].filter(Boolean).join(" ");
             return (
               <Tooltip key={t.name} label={tip}>
                 <button type="button" aria-pressed={t.enabled} className="rounded-full"
@@ -376,7 +386,7 @@ function Tools({ c, flip }: {
                   )}>
                   <Chip dot={t.enabled ? "success" : "muted"} className={cn("font-mono transition hover:bg-foreground/10", !t.enabled && "line-through opacity-60")}>
                     {t.exposedName}
-                    {!t.readOnly && <>{asksDot}<span className="sr-only">, asks first</span></>}
+                    {asks && <>{asksDot}<span className="sr-only">, asks first</span></>}
                   </Chip>
                 </button>
               </Tooltip>

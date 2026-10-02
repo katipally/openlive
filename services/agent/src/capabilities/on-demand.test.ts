@@ -28,7 +28,7 @@ const manager = { call: async (_id: string, tool: string, args: unknown) => { ca
 /** A connector's tool, built the way the real provider builds it. Even ones only read. */
 function fixture(i: number): Tool {
   const service = SERVICES[i % SERVICES.length]!;
-  const row = { id: `c${i % SERVICES.length}`, name: service, slug: service.toLowerCase() } as ConnectorRow;
+  const row = { id: `c${i % SERVICES.length}`, name: service, slug: service.toLowerCase(), trustReadOnly: true } as ConnectorRow;
   const cached: CachedTool = {
     name: `action_${i}`,
     description: `Does action ${i} in ${service}. Takes an id and a note.`,
@@ -38,10 +38,10 @@ function fixture(i: number): Tool {
   return connectorTool(row, cached, `${row.slug}__action_${i}`, manager);
 }
 
-const create = connectorTool({ id: "n", name: "Notion", slug: "notion" } as ConnectorRow, {
+const create = connectorTool({ id: "n", name: "Notion", slug: "notion", trustReadOnly: true } as ConnectorRow, {
   name: "create_page", description: "Create a page in a Notion workspace.", inputSchema: { properties: { title: { type: "string" } }, required: ["title"] }, readOnly: false,
 } as CachedTool, "notion__create_page", manager);
-const search = connectorTool({ id: "n", name: "Notion", slug: "notion" } as ConnectorRow, {
+const search = connectorTool({ id: "n", name: "Notion", slug: "notion", trustReadOnly: true } as ConnectorRow, {
   name: "search", description: "Search pages and databases.", inputSchema: { properties: { query: { type: "string" } }, required: ["query"] }, readOnly: true,
 } as CachedTool, "notion__search", manager);
 

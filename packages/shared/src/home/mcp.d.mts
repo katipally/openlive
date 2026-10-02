@@ -25,6 +25,8 @@ export interface ConnectorRow {
   createdAt: string;
   enabled: boolean;
   disabledTools: string[];
+  /** The person trusts this server's read-only labels: those tools run without asking. A label alone is only the server's claim. */
+  trustReadOnly?: true;
   spawnConsent: boolean;
   transport: StoredTransport;
   clientMetadataUrl?: string;

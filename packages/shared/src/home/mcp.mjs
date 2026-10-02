@@ -104,6 +104,7 @@ export function readMcp(text, secrets, seal) {
       createdAt: typeof o.createdAt === "string" ? o.createdAt : "",
       enabled: o.enabled !== false,
       disabledTools: isStrList(o.disabledTools) ? o.disabledTools : [],
+      ...(o.trustReadOnly === true && { trustReadOnly: true }),
       // An http server only ever receives requests; running a command is the risk.
       spawnConsent: transport.type === "http" || o.spawnConsent === runsFingerprint(transport.command, transport.args),
       transport,
@@ -148,6 +149,7 @@ export function writeMcp(rows, doc = {}, invalidServers = {}, oldSecrets = {}) {
         slug: row.slug,
         enabled: row.enabled,
         disabledTools: row.disabledTools,
+        ...(row.trustReadOnly && { trustReadOnly: true }),
         source: row.source,
         createdAt: row.createdAt,
         ...(t.type === "stdio" && row.spawnConsent && { spawnConsent: runsFingerprint(t.command, t.args) }),

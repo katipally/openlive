@@ -34,6 +34,7 @@ export function wires(rows: ConnectorRow[]): ConnectorWire[] {
       enabled: row.enabled, source: row.source, createdAt: row.createdAt, spawnConsent: row.spawnConsent,
       ...(row.clientMetadataUrl && { clientMetadataUrl: row.clientMetadataUrl }),
       signedIn: hasConnectorTokens(row),
+      trustReadOnly: !!row.trustReadOnly,
       status: s.status, ...(s.error && { error: s.error }),
       tools: (row.tools ?? []).map((t) => ({ name: t.name, exposedName: names.get(row.slug)?.get(t.name) ?? t.name, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })),
     };
@@ -94,6 +95,7 @@ connectorRoutes.post("/", async (c) => {
 const patchSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional(),
+  trustReadOnly: z.boolean().optional(),
   clientMetadataUrl: z.string().url().nullable().optional(),
   command: z.string().min(1).optional(),
   args: z.array(z.string()).optional(),
