@@ -870,6 +870,9 @@ export class VoiceEngine {
     // The user just stopped talking: the VAD ends the segment after redemptionMs of
     // silence, then onSpeechEnd (ptt branch) appends it to `pending`. Bounded wait.
     for (let i = 0; i < 40 && (this.phase === "listening" || this.finalizing); i++) await new Promise((r) => setTimeout(r, 50));
+    // A long hold's last segment can take Whisper seconds more to transcribe, and
+    // its words are the turn: let go before them, they arrive with no hold to join.
+    for (let i = 0; i < 300 && this.finalizing; i++) await new Promise((r) => setTimeout(r, 50));
     if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
     if (this.stopped) return;
     this.ptt = false;

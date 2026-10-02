@@ -764,6 +764,23 @@ it("push-to-talk is never turned away, and is labelled by its longest stretch of
   expect(speakers).toEqual(["other 1"]);
 });
 
+it("a hold let go while its last segment is still being transcribed waits for those words", async () => {
+  const sent: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
+  Object.assign(eng, { micRms: 1, vad: { start() {}, pause() {}, setOptions() {} } });
+  let open!: () => void;
+  Object.assign(tts, { heard: "a long thought said while holding", at: [], gate: new Promise<void>((r) => { open = r; }) });
+  eng.beginPtt();
+  eng.onSpeechStart();
+  const transcribing = eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+  setTimeout(open, 3000);
+  await eng.endPtt(true);
+  // Heard by the time the release is over, while the hold's owner still takes it.
+  expect(sent).toEqual(["a long thought said while holding"]);
+  await transcribing;
+  tts.gate = Promise.resolve();
+});
+
 it("with labels, a held thought is sent on its own when another voice speaks next", async () => {
   vp.verdicts = [you, other([0, 1, 0]), other([0, 0.9, 0.1])];
   const { eng, seen, speakers } = gated("label", "idle");
