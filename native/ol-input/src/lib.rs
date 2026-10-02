@@ -719,6 +719,22 @@ pub fn allow_set_foreground_window(pid: u32) -> bool {
     }
 }
 
+/// A click on the window whose native handle this is (Electron's
+/// getNativeWindowHandle) never makes OpenLive the active app. Electron's macOS
+/// "panel" adds the non-activating style after the window exists, which AppKit
+/// does not act on, so a click on the orb brought OpenLive's main window to the
+/// front. Windows and Linux already get this from `focusable: false`.
+#[napi]
+pub fn prevent_activation(handle: Buffer) -> bool {
+    #[cfg(target_os = "macos")]
+    return platform::desktop::current::prevent_activation(&handle);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = handle;
+        false
+    }
+}
+
 fn button(name: Option<String>) -> Result<control::Button> {
     match name {
         None => Ok(control::Button::Left),

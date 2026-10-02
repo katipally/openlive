@@ -686,6 +686,12 @@ function makePanelWindow(route, bounds) {
   });
   win.setAlwaysOnTop(true, "floating", 1);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // Electron's panel still activates OpenLive on a click, bringing the main
+  // window to the front over the app the person was in; the addon stops that.
+  if (process.platform === "darwin") {
+    try { flowInput.load().preventActivation(win.getNativeWindowHandle()); }
+    catch (e) { console.error("[main] panel activation:", e); }
+  }
   win.loadURL(`${WEB_URL}${route}`);
   return win;
 }

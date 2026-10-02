@@ -442,6 +442,32 @@ pub fn resize_window(id: u32, width: f64, height: f64) -> Result<(), String> {
     result
 }
 
+/// `handle` is the NSView pointer Electron hands out. False when the window or
+/// the setter is missing, which leaves the window as Electron made it.
+pub fn prevent_activation(handle: &[u8]) -> bool {
+    let Ok(bytes) = <[u8; std::mem::size_of::<usize>()]>::try_from(handle) else {
+        return false;
+    };
+    let view = usize::from_ne_bytes(bytes) as *mut AnyObject;
+    if view.is_null() {
+        return false;
+    }
+    // SAFETY: Electron's live NSView for a window it still owns; called on the main thread.
+    unsafe {
+        let window: *mut AnyObject = msg_send![view, window];
+        if window.is_null() {
+            return false;
+        }
+        // Private, but the one switch AppKit reads for a style mask changed after init.
+        let setter = objc2::sel!(_setPreventsActivation:);
+        let responds: bool = msg_send![window, respondsToSelector: setter];
+        if responds {
+            let _: () = msg_send![window, _setPreventsActivation: true];
+        }
+        responds
+    }
+}
+
 pub fn minimize_window(id: u32) -> Result<(), String> {
     let window = ax_window(id)?;
     let attribute = cfstring("AXMinimized");

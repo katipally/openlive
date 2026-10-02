@@ -209,6 +209,8 @@ export function selectedText(): string | null;
 export function focusEditable(): Promise<boolean | null>;
 /** Lets the process `pid` raise a window, which Windows only allows the process in front. False elsewhere, and when refused. */
 export function allowSetForegroundWindow(pid: number): boolean;
+/** macOS: a click on the window with this native handle never activates OpenLive. False elsewhere, and when it cannot be done. */
+export function preventActivation(handle: Buffer): boolean;
 
 /**
  * Where the pointer is now, or null when the platform will not say, which is

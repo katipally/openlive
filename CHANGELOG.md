@@ -329,6 +329,9 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Clicking Flow's orb no longer brings OpenLive's main window to the front** on
+  macOS. Any button on it (Stop, Hands-free, Close, the mic) used to make OpenLive
+  the active app, pulling the main window over whatever you were working in.
 - **Dictate no longer types into nothing.** With no text box in focus (Finder
   in front, a list, a button), the words go on the clipboard and the orb says
   so. Where the system cannot tell what has focus, Dictate types as before.
