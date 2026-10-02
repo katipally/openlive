@@ -26,6 +26,20 @@ down (plus permission asks, agent metadata, and control messages — see
 `packages/shared/src/live-events.ts`). The browser speaks the reply sentence by
 sentence as it arrives.
 
+**Who may call the local servers.** Both listen on loopback, which any page open
+in a browser can reach, so the port is never trusted alone. Every `/api` request
+passes `apps/web/src/proxy.ts`: its Host must name this machine (a page that
+rebinds its DNS here names its own site), a write must come from the app's own
+origin (`Sec-Fetch-Site: same-origin`, else Origin or Referer matching the Host),
+and a body must carry a type no page can send without a CORS preflight (JSON, or
+the voice routes' binary audio). A write with no Origin, Referer or
+`Sec-Fetch-Site` is no browser's (Electron main, scripts, tests) and passes. The
+agent takes the per-launch `OPENLIVE_AGENT_SECRET` from the web proxy and the
+desktop renderer; with no secret (dev), `foreignRequest` in
+`services/agent/src/live/ws.ts` applies the same Host and Origin rule over HTTP,
+and `/live` refuses a page from another site. The MCP server coding agents use
+is its own listener with a random path token and Host validation.
+
 ## The agent registry (`packages/shared/src/agent-registry.ts`)
 
 The **single source of agent identity**. Every agent's id, label, brand mark, ACP

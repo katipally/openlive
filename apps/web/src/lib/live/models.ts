@@ -439,7 +439,7 @@ export async function getVoicePerf(): Promise<VoicePerf> {
 
 /** Pins an engine to a provider, or "auto" for the benchmark's choice; the next load uses it. */
 export async function setEngineAccel(id: string, override: AccelProvider | "auto"): Promise<void> {
-  const res = await fetch(`/api/voice/perf/engines/${id}`, { method: "PUT", body: JSON.stringify({ override }) });
+  const res = await fetch(`/api/voice/perf/engines/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ override }) });
   if (!res.ok) throw await httpError(res);
 }
 

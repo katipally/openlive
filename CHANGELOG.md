@@ -322,6 +322,10 @@ Releases before 0.1.9 predate this file — see the
   a picture was not sent, so it never claims to see it.
 
 ### Fixed
+- **Other websites can no longer use OpenLive's local servers.** A page open in
+  your browser could send a plain-text request to OpenLive on this computer and
+  have it rewrite text with your key or coding agent, or add to your history.
+  Every request now has to come from OpenLive itself, or from no browser at all.
 - **The voice no longer changes pitch and pace from line to line.** Every voice
   engine sounds a little different on a short piece of text than on a long one,
   and a reply was spoken in many short pieces, so a short line ("Anything

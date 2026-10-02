@@ -49,7 +49,7 @@ export const useAgentActions = create<State>((set, get) => ({
       });
     };
     try {
-      const res = await fetch("/api/agents/action", { method: "POST", body: JSON.stringify({ id, action }) });
+      const res = await fetch("/api/agents/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) });
       const reader = res.body?.getReader();
       const dec = new TextDecoder();
       if (reader) for (;;) { const { value, done } = await reader.read(); if (done) break; append(dec.decode(value, { stream: true })); }

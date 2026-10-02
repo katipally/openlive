@@ -20,6 +20,13 @@ export function loopbackOrigin(origin: string | undefined): boolean {
   catch { return false; }
 }
 
+/** The HTTP side of that gate: a page from another site can write here with no
+ *  preflight (a text/plain POST), and one that rebinds its DNS to this machine
+ *  names its own site in Host. Reads are left to CORS. */
+export function foreignRequest(method: string, host: string | undefined, origin: string | undefined): boolean {
+  return !loopbackOrigin(host && `http://${host}`) || (!["GET", "HEAD", "OPTIONS"].includes(method) && !loopbackOrigin(origin));
+}
+
 // Attach the /live WebSocket to the agent's existing http.Server (the one
 // @hono/node-server's serve() returns), leaving every HTTP route untouched.
 export function attachLiveWs(server: Server): WebSocketServer {

@@ -88,4 +88,16 @@ describe("the dev gate with no secret", () => {
     expect(loopbackOrigin("http://localhost.example.com")).toBe(false);
     expect(loopbackOrigin("null")).toBe(false);
   });
+
+  it("refuses another site's writes over HTTP and a DNS-rebound page's every request", async () => {
+    const { foreignRequest } = await import("./ws.js");
+    expect(foreignRequest("POST", "localhost:8787", "https://evil.example")).toBe(true);
+    expect(foreignRequest("POST", "localhost:8787", "null")).toBe(true);
+    expect(foreignRequest("GET", "evil.example:8787", undefined)).toBe(true);
+    expect(foreignRequest("POST", "evil.example:8787", "http://evil.example:8787")).toBe(true);
+    expect(foreignRequest("POST", "localhost:8787", "http://localhost:3000")).toBe(false); // the dev web app
+    expect(foreignRequest("POST", "localhost:8787", undefined)).toBe(false); // the web proxy, a script
+    expect(foreignRequest("GET", "127.0.0.1:8787", undefined)).toBe(false); // the OAuth callback
+    expect(foreignRequest("GET", "localhost:8787", "https://evil.example")).toBe(false); // CORS keeps the answer
+  });
 });

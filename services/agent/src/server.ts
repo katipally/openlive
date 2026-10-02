@@ -5,7 +5,7 @@ import { watch } from "node:fs";
 import { dirname } from "node:path";
 import { listConnectorRows, loadEnv, PATHS } from "@openlive/db";
 import { ensureSeedProviders } from "./providers.js";
-import { attachLiveWs } from "./live/ws.js";
+import { attachLiveWs, foreignRequest } from "./live/ws.js";
 import type { Server } from "node:http";
 import { log, teeStderr } from "./log.js";
 import { reportException } from "./telemetry/facts.js";
@@ -22,6 +22,8 @@ const WEB_ORIGIN = process.env.WEB_PUBLIC_URL?.trim() || "http://localhost:3000"
 
 const app = new Hono();
 app.use("*", cors({ origin: WEB_ORIGIN }));
+// With no secret (local dev) the port is the only gate, as on /live.
+app.use("*", async (c, next) => (!AGENT_SECRET && foreignRequest(c.req.method, c.req.header("host"), c.req.header("origin")) ? c.json({ error: "forbidden" }, 403) : next()));
 app.use("*", async (c, next) => {
   // A browser lands on the OAuth callback with no way to send the secret; its single-use state guards it.
   if (!AGENT_SECRET || c.req.path === "/health" || c.req.path === OAUTH_CALLBACK_PATH) return next();
