@@ -46,8 +46,9 @@ const CONTROL_GAP = 10;
 
 /** One solid surface for every panel in the window. */
 const PANEL = "border border-border bg-surface shadow-card";
-/** The one button shape here; the focus ring follows it (html.chromeless in globals.css). */
-const PILL_BTN = "rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
+/** The one button shape here; the focus ring follows it (html.chromeless in globals.css).
+ *  A long answer wraps inside its pill rather than pushing the card wider. */
+const PILL_BTN = "max-w-full break-words rounded-full px-4 py-2 text-label font-medium transition [-webkit-app-region:no-drag]";
 
 /** Flow's phases onto the orb's states: confirming waits on the person's answer. */
 const orbPhase = (p: FlowSnapshot["phase"]) => (p === "confirming" ? "listening" : p);
@@ -230,17 +231,17 @@ export function FlowOrb() {
                     questions are ordinary ones — "may I act on this machine" in
                     danger red reads as a warning about itself — so the colour
                     follows the agent's own kind, and only an always-allow earns
-                    it. */}
+                    it, as an outline: the filled, primary pill is the safe yes. */}
                 {ask.permission.options.map((o) => (
                   <button key={o.id} onClick={() => cmd({ t: "permission", optionId: o.id })}
                     className={cn(PILL_BTN,
-                      o.kind === "allow_always" ? "bg-destructive-fill text-white hover:opacity-90"
+                      o.kind === "allow_always" ? "border border-destructive-text bg-card text-destructive-text hover:bg-destructive-text/10"
                         : o.kind === "allow_once" ? "bg-accent text-accent-foreground hover:opacity-90"
                           : "border border-border bg-card text-foreground hover:bg-foreground/10")}>
                     {o.label}
                   </button>
                 ))}
-                <span className="ml-auto whitespace-nowrap text-caption text-muted-strong">or say “yes” / “cancel”</span>
+                <span className="ml-auto text-caption text-muted-strong">or say “yes” or “cancel”</span>
                 {stop}
               </div>
             </>
@@ -292,7 +293,11 @@ export function FlowOrb() {
       {stripUp && (
         <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
           <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
-          <span ref={captionRef} role="status" className="min-w-0 flex-1 break-words py-1 text-label font-medium">{caption}</span>
+          {/* One line: a caption longer than the strip drops its oldest words
+              off the start, so the newest stay in view. */}
+          <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1">
+            <span ref={captionRef} role="status" className="shrink-0 grow text-label font-medium">{caption}</span>
+          </span>
           {s.phase !== "listening" && stop}
         </div>
       )}

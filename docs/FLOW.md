@@ -90,7 +90,8 @@ Flow on the left, open OpenLive on the right.
 
 **Caption strip.** While Flow acts on the machine, a strip above the orb names the
 action ("Opening an app", "Looking at the screen", "Clicking", "Running a command")
-with a **Stop** button. It is drawn the whole time Flow is acting, so you never have
+with a **Stop** button. It is one line: a long caption drops its oldest words, so
+the newest stay in view. It is drawn the whole time Flow is acting, so you never have
 to go looking for what it is doing. While it acts, a halo also follows the real
 pointer; the halo is hidden from screen capture so Flow never photographs it.
 
