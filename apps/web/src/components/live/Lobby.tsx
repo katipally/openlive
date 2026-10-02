@@ -142,6 +142,19 @@ export function Lobby(props: LobbyProps) {
     onStart();
   };
 
+  // Shown before the download too, so nobody fetches the models to only then learn
+  // the brain cannot answer yet.
+  const agentNotice = agentGap && (
+    <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("agents"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+      <Wrench aria-hidden />
+      {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed. Set it up` : `${agentLabel(boundAgent)} needs a sign-in. Open Settings`}
+    </button>
+  );
+  const keyNotice = keyGap && provDef && (
+    <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("models"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
+      <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
+    </button>
+  );
   const cta = downloading ? (
     <div className="flex flex-col items-center gap-2">
       <p className="text-label font-medium text-muted-foreground">Downloading on-device AI…</p>
@@ -152,6 +165,8 @@ export function Lobby(props: LobbyProps) {
       <Button variant="primary" size="lg" onClick={downloadAll}>
         {plural ? "Download AI models" : "Download AI model"}
       </Button>
+      {agentNotice}
+      {keyNotice}
       <p className="max-w-[17rem] text-caption text-faint">A one-time download of {downloads.length} small AI {plural ? "models" : "model"} ({downloads.join(", ")}) that {plural ? "run" : "runs"} fully on your device. Nothing is sent to a server.</p>
     </div>
   ) : (
@@ -161,23 +176,14 @@ export function Lobby(props: LobbyProps) {
       </Button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start — not as a confusing failure after. */}
-      {agentGap && (
-        <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("agents"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
-          <Wrench aria-hidden />
-          {agentGap === "install" ? `${agentLabel(boundAgent)} isn't installed. Set it up` : `${agentLabel(boundAgent)} needs a sign-in. Open Settings`}
-        </button>
-      )}
+      {agentNotice}
       {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
       {folderGap && (
         <p className={cn(notice("danger"), "max-w-[20rem] py-1.5")}>
           That folder doesn&apos;t exist anymore. Pick a different one.
         </p>
       )}
-      {keyGap && provDef && (
-        <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("models"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
-          <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
-        </button>
-      )}
+      {keyNotice}
       {micGap && <p className="text-caption text-arc-text">No microphone detected. Connect one so the call can hear you.</p>}
     </div>
   );
