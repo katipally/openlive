@@ -7,3 +7,4 @@ export * from "./lease";
 export * from "./config";
 export * from "./history";
 export * from "./shared";
+export * from "./dictations";

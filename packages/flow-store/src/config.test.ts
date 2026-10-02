@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
-import { flowBrain, flowTurn } from "./shared";
+import { dictateBrain, flowBrain, flowTurn } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -181,4 +181,29 @@ test("Dictate's settings fall back per field, and a blank hotkey is not a hotkey
   expect(cfg.dictate.hotkey).toBe("option_right");
   expect(cfg.dictate.cleanup).toEqual({ punctuation: true, fillers: false, backtrack: true, lists: true, numbers: true });
   expect(cfg.dictate.brain).toEqual({ override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" });
+});
+
+test("Dictate's extras keep only well-formed words and snippets, and a bad tone or keep falls back", () => {
+  const cfg = parseFlowConfig({
+    dictate: {
+      polish: { enabled: true, tone: "shouty" },
+      words: ["  OpenLive ", "", 7, "x".repeat(200)],
+      snippets: [{ trigger: " my address ", text: "221B Baker Street" }, { trigger: "", text: "lost" }, { trigger: "empty", text: "" }, "junk"],
+      commands: { enter: false },
+      history: "decade",
+    },
+  });
+  expect(cfg.dictate.polish).toEqual({ enabled: true, tone: "natural" });
+  expect(cfg.dictate.words).toEqual(["OpenLive", "x".repeat(80)]);
+  expect(cfg.dictate.snippets).toEqual([{ trigger: "my address", text: "221B Baker Street" }]);
+  expect(cfg.dictate.commands).toEqual({ enter: false, newLine: true, newParagraph: true, undo: true, stop: true });
+  expect(cfg.dictate.history).toBe("month");
+  expect(cfg.dictate.commandHotkey).toBe("shift+option_right");
+});
+
+test("Dictate thinks with Flow's brain until it is given its own", () => {
+  const flowOwn = parseFlowConfig({ brain: { override: true, kind: "acp", agentId: "codex" } });
+  expect(dictateBrain(flowOwn)).toEqual(flowBrain(flowOwn));
+  const own = parseFlowConfig({ dictate: { brain: { override: true, kind: "acp", agentId: "claude-code" } } });
+  expect(dictateBrain(own)).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "", agentEffort: "" });
 });

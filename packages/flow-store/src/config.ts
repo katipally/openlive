@@ -11,9 +11,16 @@ export const FLOW_CONFIG_VERSION = 7;
 
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
+export type DictateTone = "natural" | "casual" | "formal";
+export type DictateKeep = "off" | "day" | "week" | "month" | "forever";
 
 const INSERTION_METHODS = ["paste", "type"] as const;
 const BRAIN_KINDS = ["api", "acp"] as const;
+const TONES = ["natural", "casual", "formal"] as const;
+const KEEPS = ["off", "day", "week", "month", "forever"] as const;
+/** Bounds on what Dictate's word lists may hold, so a hand-edited file cannot
+ *  make every dictation slow or the settings file huge. */
+export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;
 
 export interface FlowConfig {
   version: number;
@@ -61,12 +68,21 @@ export interface FlowConfig {
   /** Talk instead of type: hold `hotkey` and the cleaned-up words go in at the
    *  cursor, with no brain. `hotkey` is in ol-input's binding grammar. Each
    *  cleanup rule runs on this machine. `brain` is the one AI polish and
-   *  command mode think with; off, they use Flow's. */
+   *  command mode think with; off, they use Flow's. `polish` rewrites what
+   *  was said with that brain; `commandHotkey` held says what to do with the
+   *  selection instead. `words` are spelled as written, a snippet's trigger
+   *  said alone types its text, and `history` is how long dictations are kept. */
   dictate: {
     enabled: boolean;
     hotkey: string;
     cleanup: { punctuation: boolean; fillers: boolean; backtrack: boolean; lists: boolean; numbers: boolean };
     brain: FlowConfig["brain"];
+    polish: { enabled: boolean; tone: DictateTone };
+    commandHotkey: string;
+    commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
+    words: string[];
+    snippets: { trigger: string; text: string }[];
+    history: DictateKeep;
   };
 }
 
@@ -87,6 +103,12 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     hotkey: "option_right",
     cleanup: { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
     brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
+    polish: { enabled: false, tone: "natural" },
+    commandHotkey: "shift+option_right",
+    commands: { enter: true, newLine: true, newParagraph: true, undo: true, stop: true },
+    words: [],
+    snippets: [],
+    history: "month",
   },
 };
 
@@ -157,6 +179,8 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
   const dictate = obj(o.dictate);
   const cleanup = obj(dictate.cleanup);
   const dictateBrain = obj(dictate.brain);
+  const polish = obj(dictate.polish);
+  const commands = obj(dictate.commands);
   const dd = d.dictate;
   return {
     ...o,
@@ -225,6 +249,21 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         agentModel: str(dictateBrain.agentModel, dd.brain.agentModel),
         agentEffort: str(dictateBrain.agentEffort, dd.brain.agentEffort),
       },
+      polish: { ...polish, enabled: bool(polish.enabled, dd.polish.enabled), tone: one(polish.tone, TONES, dd.polish.tone) },
+      commandHotkey: str(dictate.commandHotkey, dd.commandHotkey).trim() || dd.commandHotkey,
+      commands: {
+        ...commands,
+        enter: bool(commands.enter, dd.commands.enter),
+        newLine: bool(commands.newLine, dd.commands.newLine),
+        newParagraph: bool(commands.newParagraph, dd.commands.newParagraph),
+        undo: bool(commands.undo, dd.commands.undo),
+        stop: bool(commands.stop, dd.commands.stop),
+      },
+      words: strings(dictate.words, dd.words).map((w) => w.trim().slice(0, DICTATE_LIMITS.word)).filter(Boolean).slice(0, DICTATE_LIMITS.words),
+      snippets: (Array.isArray(dictate.snippets) ? dictate.snippets : []).map(obj)
+        .map((x) => ({ trigger: str(x.trigger, "").trim().slice(0, DICTATE_LIMITS.trigger), text: str(x.text, "").slice(0, DICTATE_LIMITS.text) }))
+        .filter((x) => x.trigger && x.text).slice(0, DICTATE_LIMITS.snippets),
+      history: one(dictate.history, KEEPS, dd.history),
     },
   };
 }

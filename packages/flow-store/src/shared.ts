@@ -15,6 +15,14 @@ export const flowBrain = (cfg: Pick<FlowConfig, "brain">): FlowBrain => {
   return own;
 };
 
+/** The brain Dictate's AI polish and command mode think with: its own when
+ *  its override is on, else Flow's. */
+export const dictateBrain = (cfg: Pick<FlowConfig, "brain" | "dictate">): FlowBrain => {
+  if (!cfg.dictate.brain.override) return flowBrain(cfg);
+  const { override: _o, ...own } = cfg.dictate.brain;
+  return own;
+};
+
 /** Flow's own wait before answering, or null when it follows the shared one.
  *  An undecided override (null, a config from before the two were shared)
  *  counts as on, so an existing Flow keeps the wait it had. */
