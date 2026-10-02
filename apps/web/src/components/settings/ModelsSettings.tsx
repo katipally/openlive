@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Brain, Zap, AlertTriangle, ChevronDown } from "lucide-react";
+import { Eye, Brain, Zap, AlertTriangle, ChevronDown, KeyRound } from "lucide-react";
 // Pure subpaths only — the barrel pulls in catalog/models (node:fs), which can't
 // bundle into this client component.
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
@@ -11,10 +11,11 @@ import { modelVision } from "@openlive/shared";
 import { api, type ModelInfo } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { ProviderKeyField } from "./ProviderKeyField";
-import { OneLine } from "./common";
+import { EmptyState, LoadingRows, StatusDot } from "./common";
+import { useSettingsNav } from "./nav";
+import { cn } from "@/lib/cn";
 import { usePersistedOpen } from "@/lib/disclosure";
-import { Segmented, Select, Badge, Button, Notice, SearchSelect, type SearchOption } from "@/components/ui";
-import { Section } from "./Section";
+import { Segmented, Select, Button, Notice, SearchSelect, ListGroup, ListRow, type SearchOption } from "@/components/ui";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 
 const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`) : "unknown");
@@ -83,7 +84,8 @@ function VisionModelPicker() {
 }
 
 export function ModelsSettings() {
-  const { model: fallbackModel, providerId } = useApiModeChoice();
+  const { model: fallbackModel, providerId, usable, loading } = useApiModeChoice();
+  const go = useSettingsNav();
   const qc = useQueryClient();
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.providers });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -126,52 +128,67 @@ export function ModelsSettings() {
     saveSetting.mutate(patch);
   };
 
+  if (loading) return <LoadingRows rows={5} />;
+
   return (
-    <div className="flex flex-col gap-7">
-      <Section id="set-models-provider" title="Provider & API key" desc="Pick a provider and paste its key. It stays encrypted on this machine.">
-        <div className="mb-3">
-          <SearchSelect value={providerId} onChange={(id) => saveSetting.mutate({ liveProviderId: id, liveModel: "" })}
-            options={providerOptions} placeholder="Select a provider…" searchPlaceholder="Search providers…" emptyText="No providers match" />
+    <div className="flex flex-col gap-4">
+      {!usable && (
+        <EmptyState icon={KeyRound} actions={<Button size="sm" onClick={() => go("agents")}>Open Agents</Button>}>
+          No key yet. Paste one below, or use a coding agent instead.
+        </EmptyState>
+      )}
+      <ListGroup>
+        <div id="set-models-provider">
+          <ListRow label="Provider" detail="One provider at a time">
+            <div className="min-w-0 flex-1 basis-56">
+              <SearchSelect value={providerId} onChange={(id) => saveSetting.mutate({ liveProviderId: id, liveModel: "" })}
+                options={providerOptions} placeholder="Select a provider…" searchPlaceholder="Search providers…" emptyText="No providers match" />
+            </div>
+          </ListRow>
         </div>
-        <ProviderKeyField key={providerId} kind={providerId} />
-      </Section>
+        <ListRow label={provider?.keyless ? "Server" : "API key"} detail={provider?.keyless ? "No key needed" : "Encrypted on this machine"}>
+          <div className="min-w-0 basis-full"><ProviderKeyField key={providerId} kind={providerId} /></div>
+        </ListRow>
 
-      <Section id="set-models-model" title="Model"
-        desc={<>Fetched live from {provider?.name}. A fast one with vision suits voice best.</>}>
-        <SearchSelect value={settings?.liveModel ?? ""} onChange={changeModel} options={options}
-          placeholder={models.length ? `Recommended: ${fallbackModel}` : modelsError?.message ?? "Add a key to load models…"}
-          disabled={!models.length} emptyText="No models match" />
-        <ModelBadges providerId={providerId} m={model} />
-        {liveBlind && (
-          <Notice className="mt-3">
-            <AlertTriangle aria-hidden />
-            <span>
-              <b>{model?.display_name}</b> can’t see images, so camera and screen won’t work with it.
-              {hasVisionModel ? " A vision model is set below, so frames route through that." : " Pick a vision-capable model, or set a dedicated vision model below."}
-            </span>
-          </Notice>
-        )}
-      </Section>
+        <div id="set-models-model">
+          <ListRow label="Model" info={`Fetched live from ${provider?.name ?? "the provider"}. A fast one with vision suits voice best.`}>
+            <div className="min-w-0 flex-1 basis-56">
+              <SearchSelect value={settings?.liveModel ?? ""} onChange={changeModel} options={options}
+                placeholder={models.length ? `Recommended: ${fallbackModel}` : "Add a key to load models…"}
+                disabled={!models.length} emptyText="No models match" />
+            </div>
+            {modelsError && <div role="alert" className="basis-full"><StatusDot tone="danger">{modelsError.message}</StatusDot></div>}
+            {model && <div className="basis-full"><ModelBadges providerId={providerId} m={model} /></div>}
+            {liveBlind && (
+              <Notice className="basis-full">
+                <AlertTriangle aria-hidden />
+                <span>
+                  <b>{model?.display_name}</b> can’t see images, so camera and screen won’t work with it.
+                  {hasVisionModel ? " A vision model is set below, so frames route through that." : " Pick a vision-capable model, or set a vision model below."}
+                </span>
+              </Notice>
+            )}
+          </ListRow>
+        </div>
 
-      <details id="set-models-vision" open={visionOpen} onToggle={(e) => setVisionOpen(e.currentTarget.open)} className="group border-b border-border pb-7 last:border-0 last:pb-0">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-          <div>
-            <h2 className="flex items-center gap-1.5 text-callout font-semibold text-foreground">
-              <EyeOff className="size-3.5 text-muted-foreground" /> Vision model
-              <Badge>Optional</Badge>
-            </h2>
-            <OneLine className="mt-1 text-label text-muted-foreground" text="Routes camera and screen through a separate model. Leave off and the live model sees for itself." />
-          </div>
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-open:rotate-180" />
-        </summary>
-        <div className="mt-3.5"><VisionModelPicker /></div>
-      </details>
+        <div id="set-models-effort">
+          <ListRow label="Reasoning effort" info="Lowest keeps voice snappy. Higher thinks deeper but pauses longer before speaking.">
+            <Segmented label="Reasoning effort" value={effort} onChange={(liveEffort) => saveSetting.mutate({ liveEffort })} wrap
+              options={efforts.map((e) => ({ id: e, label: e === "auto" ? `${effortName(e)} ✦` : effortName(e) }))} />
+          </ListRow>
+        </div>
 
-      <Section id="set-models-effort" title="Reasoning effort"
-        desc={<><b className="text-foreground">Lowest</b> keeps voice snappy. Higher thinks deeper but pauses longer before speaking.</>}>
-        <Segmented label="Reasoning effort" value={effort} onChange={(liveEffort) => saveSetting.mutate({ liveEffort })}
-          options={efforts.map((e) => ({ id: e, label: e === "auto" ? `${effortName(e)} ✦` : effortName(e) }))} />
-      </Section>
+        <div id="set-models-vision">
+          <ListRow label="Vision" detail="For screenshots and images"
+            info="Routes camera and screen through a separate model. Leave it off and the live model sees for itself.">
+            <Button variant="ghost" size="sm" onClick={() => setVisionOpen(!visionOpen)} aria-expanded={visionOpen} className="min-w-0 max-w-full">
+              <span className="min-w-0 truncate">{settings?.visionModel || "Same as above"}</span>
+              <ChevronDown className={cn("shrink-0 transition", visionOpen && "rotate-180")} />
+            </Button>
+            {visionOpen && <div className="min-w-0 basis-full"><VisionModelPicker /></div>}
+          </ListRow>
+        </div>
+      </ListGroup>
     </div>
   );
 }
