@@ -454,22 +454,100 @@ pub fn cursor_position() -> Option<ScreenPoint> {
     Some(ScreenPoint::new(field("x:")?, field("y:")?))
 }
 
-pub fn key_chord(chord: &str) -> Result<(), String> {
+pub fn key_chord(chord: &str, times: u32) -> Result<(), String> {
     let keys: Vec<&str> = chord.split('+').collect();
-    let combination = keys
-        .iter()
-        .map(|key| match *key {
-            "cmd" | "super" | "meta" => "super",
-            "opt" | "alt" => "alt",
-            "ctrl" | "control" => "ctrl",
-            other => other,
-        })
-        .collect::<Vec<_>>()
-        .join("+");
-    match pointer_tool()? {
-        "xdotool" => run("xdotool", &["key", "--clearmodifiers", &combination]),
-        _ => run("ydotool", &["key", &combination]),
+    if pointer_tool()? == "xdotool" {
+        let combination = keys.iter().map(|key| keysym(key)).collect::<Vec<_>>().join("+");
+        let times = times.to_string();
+        return run("xdotool", &["key", "--clearmodifiers", "--delay", "0", "--repeat", &times, &combination]);
     }
+    if !crate::platform::linux::ydotool_uses_keycode_syntax() {
+        // The old ydotool takes names and has no repeat of its own.
+        let combination = keys.join("+");
+        let presses = vec!["key"].into_iter().chain(std::iter::repeat_n(combination.as_str(), times as usize)).collect::<Vec<_>>();
+        return run("ydotool", &presses);
+    }
+    let codes = keys
+        .iter()
+        .map(|key| evdev_code(key).ok_or_else(|| format!("\"{key}\" is not a key ydotool can press")))
+        .collect::<Result<Vec<_>, _>>()?;
+    run("ydotool", &ydotool_presses(&codes, times).iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// The X keysym for a key named as the binding grammar names it. xdotool reads
+/// keysyms, which are case sensitive: "enter" is not one, "Return" is.
+fn keysym(key: &str) -> &str {
+    match key {
+        "cmd" | "command" | "super" | "meta" | "win" => "super",
+        "opt" | "option" | "alt" => "alt",
+        "ctrl" | "control" => "ctrl",
+        "enter" | "return" => "Return",
+        "backspace" => "BackSpace",
+        "delete" | "del" => "Delete",
+        "esc" | "escape" => "Escape",
+        "tab" => "Tab",
+        "space" => "space",
+        "up" => "Up",
+        "down" => "Down",
+        "left" => "Left",
+        "right" => "Right",
+        "home" => "Home",
+        "end" => "End",
+        "pageup" => "Prior",
+        "pagedown" => "Next",
+        "insert" => "Insert",
+        other => other,
+    }
+}
+
+/// The Linux input event code for a key, which the current ydotool takes in
+/// place of a name.
+fn evdev_code(key: &str) -> Option<u16> {
+    const LETTERS: [u16; 26] = [30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44];
+    let mut chars = key.chars();
+    if let (Some(c), None) = (chars.next(), chars.next()) {
+        return match c {
+            'a'..='z' => Some(LETTERS[(c as u8 - b'a') as usize]),
+            '1'..='9' => Some(2 + (c as u8 - b'1') as u16),
+            '0' => Some(11),
+            _ => None,
+        };
+    }
+    Some(match key {
+        "ctrl" | "control" => 29,
+        "shift" => 42,
+        "alt" | "opt" | "option" => 56,
+        "super" | "cmd" | "command" | "meta" | "win" => 125,
+        "enter" | "return" => 28,
+        "backspace" => 14,
+        "delete" | "del" => 111,
+        "esc" | "escape" => 1,
+        "tab" => 15,
+        "space" => 57,
+        "up" => 103,
+        "down" => 108,
+        "left" => 105,
+        "right" => 106,
+        "home" => 102,
+        "end" => 107,
+        "pageup" => 104,
+        "pagedown" => 109,
+        "insert" => 110,
+        _ => return None,
+    })
+}
+
+/// Modifiers down, the last key pressed `times` times, modifiers up.
+fn ydotool_presses(codes: &[u16], times: u32) -> Vec<String> {
+    let Some((key, modifiers)) = codes.split_last() else { return Vec::new() };
+    let mut args = vec!["key".to_string()];
+    args.extend(modifiers.iter().map(|m| format!("{m}:1")));
+    for _ in 0..times {
+        args.push(format!("{key}:1"));
+        args.push(format!("{key}:0"));
+    }
+    args.extend(modifiers.iter().rev().map(|m| format!("{m}:0")));
+    args
 }
 
 /// tesseract's TSV output is one row per recognised element; level 5 is a
@@ -571,4 +649,22 @@ pub fn external_tools() -> Vec<String> {
 
 pub fn session_kind() -> Option<&'static str> {
     Some(if is_wayland() { "wayland" } else { "x11" })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_keys_become_keysyms_xdotool_knows() {
+        assert_eq!(["ctrl", "enter", "backspace", "z"].map(keysym), ["ctrl", "Return", "BackSpace", "z"]);
+    }
+
+    #[test]
+    fn ydotool_holds_the_modifiers_across_every_repeat() {
+        let codes = ["ctrl", "z"].map(|k| evdev_code(k).unwrap());
+        assert_eq!(ydotool_presses(&codes, 2), ["key", "29:1", "44:1", "44:0", "44:1", "44:0", "29:0"]);
+        assert_eq!(evdev_code("backspace"), Some(14));
+        assert_eq!(evdev_code("f13"), None);
+    }
 }

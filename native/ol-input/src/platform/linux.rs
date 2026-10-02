@@ -45,7 +45,7 @@ pub fn is_wayland() -> bool {
 
 /// ydotool changed its `key` syntax incompatibly, and prints its help to
 /// stderr, so the probe reads both streams. Cached: this shells out.
-fn ydotool_uses_keycode_syntax() -> bool {
+pub fn ydotool_uses_keycode_syntax() -> bool {
     static SYNTAX: OnceLock<bool> = OnceLock::new();
     *SYNTAX.get_or_init(|| {
         let Ok(out) = Command::new("ydotool").arg("key").arg("--help").output() else {

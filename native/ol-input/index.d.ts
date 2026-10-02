@@ -233,8 +233,12 @@ export function drag(path: Point[], mouseButton?: MouseButton): Promise<void>;
 /** Notches, not pixels. Positive scrolls down, and to the right, everywhere. */
 export function scroll(point: Point, horizontal: number, vertical: number): Promise<void>;
 export function typeText(text: string): Promise<void>;
-/** A chord, as ["ctrl", "c"]. */
-export function keypress(keys: string[]): Promise<void>;
+/** A chord, as ["ctrl", "c"]. The last key is pressed `times` times (once when left out, at most 2000) while the modifiers stay down. */
+export function keypress(keys: string[], times?: number): Promise<void>;
+/** The selection in the app in front, by sending the copy chord (Cmd+C on
+ *  macOS, Ctrl+C elsewhere). Null when nothing was copied. The clipboard goes
+ *  back as `insertionTiming.restoreClipboard` says. */
+export function copySelection(insertionTiming?: InsertionTiming): Promise<string | null>;
 
 /** What this machine can do right now. Safe to call on demand. */
 export function capabilities(): CapabilityReport;

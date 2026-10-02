@@ -651,7 +651,7 @@ pub fn scroll(point: ScreenPoint, horizontal: i32, vertical: i32) -> Result<(), 
     Ok(())
 }
 
-pub fn key_chord(chord: &str) -> Result<(), String> {
+pub fn key_chord(chord: &str, times: u32) -> Result<(), String> {
     use std::str::FromStr;
     let binding = crate::binding::Binding::from_str(chord)?;
     let hotkey = binding.hotkey();
@@ -680,6 +680,7 @@ pub fn key_chord(chord: &str) -> Result<(), String> {
         flags,
         &modifier_keycodes,
         crate::inject::MODIFIER_HOLD,
+        times,
     )
 }
 

@@ -223,6 +223,9 @@ function install(getTarget, telemetryClient) {
   ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => load().beginInsertion(method, insertionTiming(timing))));
   ipcMain.handle("openlive:flow-insert-push", guard((session, chunk) => load().pushInsertion(session, chunk)));
   ipcMain.handle("openlive:flow-insert-end", guard((session) => load().endInsertion(session)));
+  // Dictate's spoken commands and command mode: a key chord, and the selection read by copying it.
+  ipcMain.handle("openlive:flow-keys", guard((keys, times) => load().keypress((Array.isArray(keys) ? keys : []).map(String), Number.isInteger(times) ? times : undefined)));
+  ipcMain.handle("openlive:flow-copy-selection", guard((timing) => load().copySelection(insertionTiming(timing))));
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
   ipcMain.handle("openlive:flow-hook-error", guard(() => hookFailure()));

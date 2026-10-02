@@ -635,7 +635,7 @@ fn virtual_key(key: handy_keys::Key) -> Option<u16> {
     })
 }
 
-pub fn key_chord(chord: &str) -> Result<(), String> {
+pub fn key_chord(chord: &str, times: u32) -> Result<(), String> {
     use std::str::FromStr;
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU, VK_SHIFT};
 
@@ -661,8 +661,10 @@ pub fn key_chord(chord: &str) -> Result<(), String> {
         .iter()
         .map(|vk| key_input(*vk, 0, Default::default()))
         .collect();
-    inputs.push(key_input(key, 0, Default::default()));
-    inputs.push(key_input(key, 0, KEYEVENTF_KEYUP));
+    for _ in 0..times {
+        inputs.push(key_input(key, 0, Default::default()));
+        inputs.push(key_input(key, 0, KEYEVENTF_KEYUP));
+    }
     inputs.extend(modifiers.iter().rev().map(|vk| key_input(*vk, 0, KEYEVENTF_KEYUP)));
     send(&inputs)
 }

@@ -293,6 +293,7 @@ pub fn send_chord(
     flags: CGEventFlags,
     modifier_keycodes: &[u16],
     hold: Duration,
+    times: u32,
 ) -> Result<(), String> {
     let source = event_source();
     let source = source.as_deref();
@@ -308,8 +309,10 @@ pub fn send_chord(
         post(*code, true, flags)?;
     }
     std::thread::sleep(hold);
-    post(keycode, true, flags)?;
-    post(keycode, false, flags)?;
+    for _ in 0..times {
+        post(keycode, true, flags)?;
+        post(keycode, false, flags)?;
+    }
     std::thread::sleep(hold);
     for code in modifier_keycodes.iter().rev() {
         post(*code, false, CGEventFlags::empty())?;
@@ -319,7 +322,7 @@ pub fn send_chord(
 
 pub fn send_paste_chord(keycode: u16, hold: Duration) -> Result<(), String> {
     const LEFT_COMMAND: u16 = 55;
-    send_chord(keycode, CGEventFlags::MaskCommand, &[LEFT_COMMAND], hold)
+    send_chord(keycode, CGEventFlags::MaskCommand, &[LEFT_COMMAND], hold, 1)
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {

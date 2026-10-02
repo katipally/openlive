@@ -99,6 +99,10 @@ export interface FlowBridge {
   insertBegin(method?: string, timing?: InsertionTiming): Promise<Guarded<number>>;
   insertPush(session: number, chunk: string): Promise<Guarded<void>>;
   insertEnd(session: number): Promise<Guarded<void>>;
+  /** A chord, as ["ctrl", "z"], its last key pressed `times` times. */
+  keys(keys: string[], times?: number): Promise<Guarded<void>>;
+  /** The selection in the app in front, by sending the copy chord; null when nothing was copied. */
+  copySelection(timing?: InsertionTiming): Promise<Guarded<string | null>>;
   context(): Promise<Guarded<FlowContextWire>>;
   signals(): Promise<Guarded<QuietSignals>>;
   capabilities(): Promise<Guarded<FlowCapabilities>>;

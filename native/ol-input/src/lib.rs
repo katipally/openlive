@@ -251,6 +251,30 @@ pub fn insert_text(
     )))
 }
 
+/// Copying waits on the app to fill the clipboard, so it runs off the main thread.
+pub struct CopyTask(inject::Timing);
+
+impl napi::Task for CopyTask {
+    type Output = Option<String>;
+    type JsValue = Option<String>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        control::copy_selection(self.0).map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// The selection in the app in front, by sending the copy chord. Null when
+/// nothing was copied. The clipboard is put back as `insertion_timing` says.
+#[napi]
+pub fn copy_selection(insertion_timing: Option<InsertionTiming>) -> AsyncTask<CopyTask> {
+    inject::refresh_layout();
+    AsyncTask::new(CopyTask(timing(insertion_timing)))
+}
+
 /// Opens a streamed insertion. Chunks pushed while a paste is still in
 /// flight coalesce into the next one.
 #[napi]
@@ -691,7 +715,7 @@ pub enum PointerAction {
     Drag(Vec<coords::ScreenPoint>, control::Button),
     Scroll(coords::ScreenPoint, i32, i32),
     Type(String),
-    Keys(Vec<String>),
+    Keys(Vec<String>, u32),
 }
 
 pub struct ControlTask(Option<PointerAction>);
@@ -720,7 +744,7 @@ impl napi::Task for ControlTask {
                 control::scroll(point, horizontal, vertical)
             }
             PointerAction::Type(text) => control::type_text(&text),
-            PointerAction::Keys(keys) => control::keypress(&keys),
+            PointerAction::Keys(keys, times) => control::keypress(&keys, times),
         }
         .map_err(err)
     }
@@ -819,11 +843,12 @@ pub fn type_text(text: String) -> AsyncTask<ControlTask> {
     run(PointerAction::Type(text))
 }
 
-/// A chord, as `["ctrl", "c"]`. The modifiers stay down across the key.
+/// A chord, as `["ctrl", "c"]`. The modifiers stay down across the key, which
+/// is pressed `times` times (once when left out).
 #[napi]
-pub fn keypress(keys: Vec<String>) -> AsyncTask<ControlTask> {
+pub fn keypress(keys: Vec<String>, times: Option<u32>) -> AsyncTask<ControlTask> {
     inject::refresh_layout();
-    run(PointerAction::Keys(keys))
+    run(PointerAction::Keys(keys, times.unwrap_or(1)))
 }
 
 /// What this machine can do right now. Cheap: only the parts that cannot

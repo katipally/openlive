@@ -129,6 +129,8 @@ contextBridge.exposeInMainWorld("openlive", {
     insertBegin: (method, timing) => ipcRenderer.invoke("openlive:flow-insert-begin", method, timing),
     insertPush: (session, chunk) => ipcRenderer.invoke("openlive:flow-insert-push", session, chunk),
     insertEnd: (session) => ipcRenderer.invoke("openlive:flow-insert-end", session),
+    keys: (keys, times) => ipcRenderer.invoke("openlive:flow-keys", keys, times),
+    copySelection: (timing) => ipcRenderer.invoke("openlive:flow-copy-selection", timing),
     secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),
     hookError: () => ipcRenderer.invoke("openlive:flow-hook-error"),
     // What the user is looking at, whether this is a moment to speak out loud, and
