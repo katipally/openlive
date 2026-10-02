@@ -198,14 +198,15 @@ Settings > Flow ("Trigger, brain, access"):
 
 | Section | Setting | Options |
 |---|---|---|
-| (top) | Listen for the Flow hotkey | On / off. Off ignores the double tap until it is back on or OpenLive restarts |
+| Trigger | Hotkey | The double tap, shown as keycaps, with a note when the key listener stopped |
+| | Listen for the Flow hotkey | On / off. Off ignores the double tap until it is back on or OpenLive restarts |
 | Brain | Who does the thinking | API mode, or an installed coding agent (model and effort) |
 | Voice | Say replies out loud | On / off |
 | | Wait before answering | Patient, Even, Quick |
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
+| Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status as a dot and a word, the button to grant or withdraw, and the system settings page under ⋯ |
 | Typing at cursor | Paste or type, clipboard | Goes to Settings > General > Typing at cursor, shared with Dictate |
-| Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status and the button to grant or withdraw |
 
 API mode's provider, model, vision model and Ollama address live in Settings >
 Models and are shared with Chat.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { RefreshCw } from "lucide-react";
@@ -13,9 +13,12 @@ import { Select, Radio, linkClass } from "@/components/ui";
 import { useMotionTokens } from "@/lib/motion";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import type { FlowConfig } from "@openlive/flow-store";
+import type { AgentId } from "@/lib/live/liveClient";
+import { AgentIcon } from "@/components/live/AgentIcon";
+import { StatusDot } from "@/components/settings/common";
 
 // Who does the thinking, and what that thinker is set to. API mode is set once
-// in Settings > Models and shared with Chat, so it is only summarised here. A
+// in Settings > Models and shared with every mode, so it is only summarised here. A
 // coding agent is asked what it can be set to, effort included.
 //
 // The lowest effort is the recommended one and the default, because every extra
@@ -52,7 +55,7 @@ export function BrainPicker({ config, save }: {
   return (
     <div className="flex flex-col divide-y divide-border rounded-lg bg-card px-4 shadow-card">
       <Choice checked={kind === "api"} onChoose={() => save({ brain: { kind: "api" } })} title="API mode · BYOK"
-        detail={choice.loading ? "\u2026" : !choice.usable ? `${choice.providerName} has no key yet`
+        detail={choice.loading ? "\u2026" : !choice.usable ? <StatusDot tone="arc">{choice.providerName}: no key yet</StatusDot>
           : [choice.providerName, choice.model, `${effortName(choice.effort)} effort`].join(" \u00b7 ")}>
         <button type="button" onClick={() => openSettingsTab("models")}
           className={cn("text-label", linkClass)}>
@@ -64,7 +67,7 @@ export function BrainPicker({ config, save }: {
         const on = kind === "acp" && config?.brain.agentId === a.id;
         return (
           <Fragment key={a.id}>
-            <Choice checked={on} disabled={!a.installed} title={a.label}
+            <Choice checked={on} disabled={!a.installed} title={a.label} icon={<AgentIcon id={a.id as AgentId} className="size-4 shrink-0 text-foreground" />}
               onChoose={() => save({ brain: { kind: "acp", agentId: a.id, agentModel: "" } })}>
               {!a.installed ? "Not installed" : a.credState === "ready" ? (a.version ?? "Signed in") : (
                 <button type="button" onClick={() => openSettingsTab("agents")} className="transition hover:text-foreground">
@@ -146,16 +149,17 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function Choice({ checked, disabled, onChoose, title, detail, children }: {
-  checked: boolean; disabled?: boolean; onChoose: () => void; title: string; detail?: string; children: React.ReactNode;
+function Choice({ checked, disabled, onChoose, title, icon, detail, children }: {
+  checked: boolean; disabled?: boolean; onChoose: () => void; title: string; icon?: ReactNode; detail?: ReactNode; children: ReactNode;
 }) {
   return (
     <div className="flex min-h-12 items-center gap-3 py-2.5">
       <label className={cn("flex min-w-0 flex-1 items-center gap-3", disabled ? "cursor-default" : "cursor-pointer")}>
         <Radio name="flow-brain" checked={checked} disabled={disabled} onChange={onChoose} />
+        {icon}
         <span className="flex min-w-0 flex-col">
           <span className={cn("truncate text-body", disabled ? "text-muted-foreground" : "font-medium text-foreground")}>{title}</span>
-          {detail && <span className="break-words text-caption text-muted-foreground">{detail}</span>}
+          {detail && <span className="min-w-0 break-words text-caption text-muted-foreground">{detail}</span>}
         </span>
       </label>
       <span className="shrink-0 text-caption text-muted-foreground">{children}</span>

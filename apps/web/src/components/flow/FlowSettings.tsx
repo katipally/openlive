@@ -5,8 +5,7 @@ import type { FlowConfig } from "@openlive/flow-store";
 import { TextCursorInput } from "lucide-react";
 import { flowTurn } from "@openlive/flow-store/shared";
 import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
-import { cn } from "@/lib/cn";
-import { Keycap, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented } from "@/components/ui";
+import { Keycaps, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented, type DotTone } from "@/components/ui";
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
@@ -19,6 +18,7 @@ import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
 import { LinkRow, useSettingsNav } from "@/components/settings/nav";
+import { MoreMenu, QueryState, StatusDot } from "@/components/settings/common";
 import { BrainPicker } from "./BrainPicker";
 import { AddonCard } from "./AddonCard";
 
@@ -44,7 +44,7 @@ function voiceLine(c: PipelineConfig): string {
 }
 
 export function FlowSettings() {
-  const { config, save, error } = useFlowConfig();
+  const { config, save, error, loading, refetch } = useFlowConfig();
   const choice = useApiModeChoice();
   const go = useSettingsNav();
   const [pipeline, setPipeline] = useState(() => loadPipelineConfig());
@@ -55,7 +55,7 @@ export function FlowSettings() {
   const [armed, setArmed] = useState<boolean | null>(null);
   const listening = armed ?? caps?.armed ?? true;
 
-  if (!config) return <p className="text-body text-muted-foreground">{error || "Reading Flow's settings…"}</p>;
+  if (!config) return <QueryState loading={loading} error={error || null} retrying={false} onRetry={refetch} what="read Flow's settings" />;
 
   const quiet = config.voice.autoQuiet;
   const ownBrain = config.brain.override;
@@ -66,32 +66,38 @@ export function FlowSettings() {
 
   return (
     <div className="flex flex-col gap-7">
-      <p className="flex flex-wrap items-center gap-1.5 text-body text-foreground">
-        Tap <Keycap className="text-label">{CONTROL}</Keycap> <Keycap className="text-label">{CONTROL}</Keycap> anywhere to talk. Again to close.
-      </p>
-      {caps?.addonError
-        ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
-        : keyNote && <p className="text-label text-muted-foreground">{keyNote}</p>}
-      {caps && !caps.addonError && (
-        <div id="set-flow-listen">
-          <ListGroup>
-            <Toggle label="Listen for the Flow hotkey" on={listening}
-              detail={listening ? `Tap ${CONTROL} twice in any app to start Flow.` : `Off: tapping ${CONTROL} twice does nothing until you turn this back on or restart OpenLive.`}
-              onFlip={(on) => { setArmed(on); flowBridge()?.setArmed(on); }} />
-          </ListGroup>
-        </div>
-      )}
+      <Section id="set-flow-trigger" title="Trigger" desc="How you start Flow, from any app.">
+        {caps?.addonError
+          ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
+          : (
+            <ListGroup>
+              <ListRow label="Hotkey" detail="Tap twice anywhere" info={`Tap ${CONTROL} twice in any app to talk. Again to close.`}>
+                <Keycaps keys={[CONTROL, CONTROL]} label={`${CONTROL} twice`} />
+                {keyNote && <div className="basis-full"><StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot></div>}
+              </ListRow>
+              {caps && (
+                <div id="set-flow-listen">
+                  <Toggle label="Listen for the Flow hotkey" on={listening}
+                    detail={listening ? "On in every app" : "Off until you turn it on"}
+                    info={listening ? undefined : `Tapping ${CONTROL} twice does nothing until you turn this back on or restart OpenLive.`}
+                    onFlip={(on) => { setArmed(on); flowBridge()?.setArmed(on); }} />
+                </div>
+              )}
+            </ListGroup>
+          )}
+      </Section>
       {error && <p className="text-label text-destructive-text">{error}</p>}
 
-      <Section id="set-flow-brain" title="Brain" desc="Who does the thinking. Swapping it keeps every other setting.">
+      <Section id="set-flow-brain" title="Brain" desc="Who does the thinking.">
         <div className="flex flex-col gap-3">
           <ListGroup>
             {!ownBrain && (
               <LinkRow label="Who does the thinking" onGo={() => go("models")}
-                value={choice.loading ? "\u2026" : !choice.usable ? `${choice.providerName} has no key yet` : `API mode · ${choice.model}`} />
+                value={choice.loading ? "\u2026" : !choice.usable ? <StatusDot tone="arc">{choice.providerName}: no key yet</StatusDot> : `API mode · ${choice.model}`} />
             )}
             <Toggle label="Use a different one for Flow" on={ownBrain} onFlip={(override) => save({ brain: { override } })}
-              detail={ownBrain ? "Flow thinks with the one picked below. Chat is unchanged." : "Off: Flow thinks as a new chat does, with API mode from Models."} />
+              detail={ownBrain ? "Chat is unchanged" : "Else it follows Models"}
+              info={ownBrain ? "Flow thinks with the one picked below. Swapping it keeps every other setting." : "Off: Flow thinks as a new chat does, with API mode from Models."} />
           </ListGroup>
           {ownBrain && <BrainPicker config={config} save={save} />}
         </div>
@@ -100,13 +106,13 @@ export function FlowSettings() {
       <Section id="set-flow-voice" title="Voice" desc="How Flow talks back.">
         <ListGroup>
           <Toggle label="Say replies out loud" on={config.voice.speakReplies} onFlip={(speakReplies) => save({ voice: { speakReplies } })} />
-          <LinkRow label="Voice" detail="Language, voice, speed and pronunciation are shared." value={voiceLine(pipeline)} onGo={() => go("voice", "set-voice-voice")} />
+          <LinkRow label="Voice" detail="Set once for every mode" value={voiceLine(pipeline)} onGo={() => go("voice", "set-voice-voice")} />
           {!ownWait && (
             <LinkRow label="Wait before answering" value={presetName(shared)} onGo={() => go("voice", "set-voice-wait")} />
           )}
           <div id="set-flow-wait">
             <Toggle label="Use a different pace for Flow" on={ownWait} onFlip={(turnOverride) => save({ voice: { turnOverride } })}
-              detail="Dictating is slower than chatting. Flow can wait longer." />
+              detail="Flow can wait longer" info="Dictating is slower than chatting, so Flow can wait longer before it answers." />
           </div>
           {ownWait && (
             <div className="flex flex-col gap-2 py-3">
@@ -135,9 +141,13 @@ export function FlowSettings() {
             onFlip={(meetingApps) => save({ voice: { autoQuiet: { ...quiet, meetingApps } } })} />
           <Toggle label="Another app is using the mic" on={quiet.micContention}
             onFlip={(micContention) => save({ voice: { autoQuiet: { ...quiet, micContention } } })} />
-          <Toggle label="Do Not Disturb is on" on={quiet.systemDnd} detail={dndNote(desktopPlatform) || undefined}
+          <Toggle label="Do Not Disturb is on" on={quiet.systemDnd} info={dndNote(desktopPlatform) || undefined}
             onFlip={(systemDnd) => save({ voice: { autoQuiet: { ...quiet, systemDnd } } })} />
         </ListGroup>
+      </Section>
+
+      <Section id="set-flow-access" title="Access" desc="What this machine lets Flow do.">
+        <AccessRows config={config} save={save} />
       </Section>
 
       <Section id="set-flow-typing" title="Typing at cursor" desc="Shared with Dictate, set in General.">
@@ -146,14 +156,10 @@ export function FlowSettings() {
         </ListGroup>
       </Section>
 
-      <Section id="set-flow-access" title="Access" desc="What this machine lets Flow do.">
-        <AccessRows config={config} save={save} />
-      </Section>
-
       <p className="text-label leading-relaxed text-muted-foreground">
         Flow also uses the shared <SharedLink onGo={() => go("voice", "set-voice-language")}>Language</SharedLink>,{" "}
         <SharedLink onGo={() => go("voice", "set-voice-pronunciation")}>Pronunciation</SharedLink> and{" "}
-        <SharedLink onGo={() => go("engine")}>Speech engine</SharedLink>. Change them once, both modes follow.
+        <SharedLink onGo={() => go("engine")}>Speech engine</SharedLink>. Change them once, every mode follows.
       </p>
     </div>
   );
@@ -182,12 +188,13 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
   return (
     <ListGroup>
       {error && (
-        <ListRow label={error}>
+        <ListRow label={<StatusDot tone="danger">{error}</StatusDot>}>
           <Button size="sm" onClick={refresh}>Check now</Button>
         </ListRow>
       )}
       <Status label="Microphone" ok={perms?.microphone === "granted"}
         state={perms?.microphone === "granted" ? "Allowed" : perms?.microphone === "denied" ? "Refused" : "Not asked"}
+        tone={perms?.microphone === "denied" ? "danger" : undefined}
         action={{ label: "Allow", run: ask("microphone") }} settings={settings("microphone")} />
       <Status label={isMac ? "Accessibility" : "Input access"} ok={!!perms?.accessibility && perms.postEvents !== false}
         state={perms?.accessibility && perms.postEvents !== false ? "Allowed" : "Not allowed"}
@@ -225,9 +232,9 @@ function useComputerGrants(enabled: boolean) {
   return { status, request };
 }
 
-function Toggle({ label, detail, on, onFlip }: { label: string; detail?: string; on: boolean; onFlip: (v: boolean) => void }) {
+function Toggle({ label, detail, info, on, onFlip }: { label: string; detail?: string; info?: string; on: boolean; onFlip: (v: boolean) => void }) {
   return (
-    <ListRow label={label} detail={detail} asLabel>
+    <ListRow label={label} detail={detail} info={info} asLabel>
       <Switch on={on} onFlip={() => onFlip(!on)} />
     </ListRow>
   );
@@ -235,20 +242,15 @@ function Toggle({ label, detail, on, onFlip }: { label: string; detail?: string;
 
 /** A grant: a dot, a word, and the one thing to do about it. The action hides
  *  once granted, except where granting is also the way back out (`keep`).
- *  `settings` is the way in by hand, for when the prompt is not wanted. */
-function Status({ label, ok, state, action, keep, settings, detail }: {
-  label: string; ok: boolean; state: string; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void; detail?: string;
+ *  `settings` is the way in by hand, for when the prompt is not wanted, under ⋯. */
+function Status({ label, ok, state, tone, action, keep, settings, detail }: {
+  label: string; ok: boolean; state: string; tone?: DotTone; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void; detail?: string;
 }) {
   return (
     <ListRow label={label} detail={detail}>
-      <span className="flex shrink-0 items-center gap-2 text-caption text-muted-foreground">
-        <span className={cn("size-1.5 rounded-full", ok ? "bg-success" : "bg-arc")} />
-        {state}
-      </span>
-      {settings && !ok && (
-        <button type="button" onClick={settings} className={cn("shrink-0 text-caption", linkClass)}>Settings</button>
-      )}
+      <span className="shrink-0"><StatusDot tone={tone ?? (ok ? "success" : "arc")}>{state}</StatusDot></span>
       {action && (keep || !ok) && <Button size="sm" onClick={action.run}>{action.label}</Button>}
+      {settings && !ok && <MoreMenu label={`More for ${label}`} actions={[{ label: "Open system settings", run: settings }]} />}
     </ListRow>
   );
 }

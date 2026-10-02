@@ -11,10 +11,11 @@ import { serverSettingsChanged } from "@/lib/settingChanges";
 import { cn } from "@/lib/cn";
 import { Button, Tooltip, Input, fieldTrigger } from "@/components/ui";
 import { cancelDelete, deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
+import { StatusDot } from "./common";
 
-// API-key entry bound to one provider, by registry id. The same row serves the
-// Models tab and Flow's brain picker, so a key pasted in either place is the one
-// key both of them use: it is the DB `providers` row every surface reads.
+// API-key entry bound to one provider, by registry id. A key pasted here is the
+// one key Chat, Flow and Dictate use: it is the DB `providers` row every surface
+// reads. Where it stands shows once, as a dot and a word.
 
 export function ProviderKeyField({ kind }: { kind: string }) {
   const qc = useQueryClient();
@@ -44,9 +45,10 @@ export function ProviderKeyField({ kind }: { kind: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <div className={cn(fieldTrigger, "flex h-control-md min-w-[9rem] flex-1 items-center gap-2 text-label text-muted-foreground")}>
-          {hasKey ? <><Check className="size-3.5 text-success" /> Key set · ••••{row!.keyLast4}</> : "No key set"}
-        </div>
+        <span className="flex min-w-[9rem] flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          {hasKey && <span className="font-mono text-label text-foreground">••••{row!.keyLast4}</span>}
+          <StatusDot tone={hasKey ? "success" : "arc"}>{hasKey ? "Saved" : "No key yet"}</StatusDot>
+        </span>
         <Input size="md" value={key} onChange={(e) => setKey(e.target.value)} type="password" name={`${kind}-api-key`}
           placeholder={`Paste ${info?.name ?? kind} key`} aria-label={`${info?.name ?? kind} API key`}
           onKeyDown={(e) => { if (e.key === "Enter" && key.trim()) save.mutate(); }}
@@ -62,7 +64,7 @@ export function ProviderKeyField({ kind }: { kind: string }) {
           </Tooltip>
         )}
       </div>
-      {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
+      {save.isError && <div role="alert"><StatusDot tone="danger">{(save.error as Error).message}</StatusDot></div>}
     </div>
   );
 }
