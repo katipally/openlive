@@ -318,7 +318,9 @@ export function FlowOrb() {
           drawn, so the air beside the orb stays click-through. */}
       <div className="relative shrink-0">
         <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })} side="left"><X className="size-4" /></Control>
-        <div data-hit className="relative">
+        {/* flow-root keeps the canvas's negative margins (its glow) inside this box,
+            which would otherwise be the glow's height: the ring an oval, the hit too tall. */}
+        <div data-hit className="relative flow-root">
           <Orb phase={orbPhase(s)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
           {s.dictate?.handsFree && (
             <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed border-foreground/30" />
@@ -418,11 +420,15 @@ function DictateStrip({ d, onStop }: { d: DictateSnapshot; onStop: () => void })
           ? <><Lock className="size-3" aria-hidden /> Hands-free</>
           : <><Keycaps keys={d.keys} label={d.keys.join(" ")} /> {d.command ? "Command" : "Hold"}</>}
       </span>
-      {said && (
-        <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1 pr-2">
-          <span role="status" className="shrink-0 grow text-label font-medium">{said}</span>
-        </span>
-      )}
+      {/* Words still coming drop their oldest off the start; a status or a note
+          is read whole, so it wraps instead. */}
+      {said && (said === d.partial
+        ? (
+          <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1 pr-2">
+            <span role="status" className="shrink-0 grow text-label font-medium">{said}</span>
+          </span>
+        )
+        : <span role="status" className="min-w-0 flex-1 py-1 pr-2 text-label font-medium [overflow-wrap:anywhere]">{said}</span>)}
       {d.handsFree && (
         <button type="button" onClick={onStop} aria-label="Stop dictating"
           className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
