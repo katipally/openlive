@@ -14,6 +14,7 @@ import { telemetry } from "@/lib/telemetry";
 import { BrainPicker } from "./BrainPicker";
 import { AccessRows } from "./FlowSettings";
 import { FlowCanvas } from "./FlowCanvas";
+import { SwitchHole } from "./ModeSwitch";
 
 // The first run, and only Flow's: what it needs from the machine, then who does
 // the thinking. Everything finer lives in Settings. "Skip" finishes from either
@@ -35,7 +36,13 @@ export function FlowOnboarding({ onDone, config, save }: {
     <div className="flex h-full min-h-0 flex-col">
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
-        <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Set up Flow · ${step} of 2`}</span>
+        {isDesktop && <SwitchHole />}
+        {/* Stops short of the mode switch, which floats over the middle of this bar. */}
+        <span className="min-w-0 flex-1 text-body font-semibold">
+          <span className={cn("block truncate", isMacDesktop
+            ? "max-w-[calc(50vw_-_var(--mode-switch-w,0px)/2_-_var(--spacing-traffic-lights)_-_var(--spacing)*3)]"
+            : "max-w-[calc(50vw_-_var(--mode-switch-w,0px)/2_-_var(--spacing)*7)]")}>{`Set up Flow · ${step} of 2`}</span>
+        </span>
         <Button variant="ghost" size="sm" onClick={() => finish("flow_onboarding_skipped")} className="[-webkit-app-region:no-drag]">Skip</Button>
       </header>
 

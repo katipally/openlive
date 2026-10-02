@@ -8,6 +8,7 @@ import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { FlowHome } from "./FlowHome";
 import { FlowOnboarding } from "./FlowOnboarding";
+import { SwitchHole } from "./ModeSwitch";
 
 // Flow's half of the window. One home behind one header, with a session open
 // over it, and a first run in front until the person has been asked for what
@@ -17,21 +18,6 @@ const ONBOARDED_KEY = "openlive-flow-onboarded";
 
 const seen = (): boolean => { try { return localStorage.getItem(ONBOARDED_KEY) === "1"; } catch { return true; } };
 const markSeen = (): void => { try { localStorage.setItem(ONBOARDED_KEY, "1"); } catch { /* private mode */ } };
-
-/**
- * The hole the mode switch sits in.
- *
- * Electron only subtracts a no-drag element from a drag region when it is a
- * DESCENDANT of it. The switch is neither — it floats over this bar from the
- * page — so its own no-drag counts for nothing here and every click on it was
- * being swallowed as a window drag. The bar reserves the space instead.
- *
- * Window-centred rather than centred in this flex row, because that is where
- * the switch is, and this bar is padded unevenly for the traffic lights.
- */
-export const SwitchHole = () => (
-  <div aria-hidden className="fixed left-1/2 top-0 h-14 w-[17.5rem] -translate-x-1/2 [-webkit-app-region:no-drag]" />
-);
 
 export function FlowShell() {
   const [sessionId, setSessionId] = useState<string | null>(null);

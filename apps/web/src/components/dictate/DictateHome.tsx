@@ -6,7 +6,7 @@ import { Copy, Languages, Settings2, Sparkles, WholeWord } from "lucide-react";
 import type { DictateTone, Dictation, FlowConfig } from "@openlive/flow-store";
 import { Button, Chip, Keycaps, Segmented, Switch, Tooltip, groupLabel, linkClass, pill } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
-import { SwitchHole } from "@/components/flow/FlowShell";
+import { SwitchHole } from "@/components/flow/ModeSwitch";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { historyQuery } from "@/components/settings/DictateHistory";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
