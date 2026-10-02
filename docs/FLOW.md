@@ -96,6 +96,11 @@ the newest stay in view. It is drawn the whole time Flow is acting, so you never
 to go looking for what it is doing. While it acts, a halo also follows the real
 pointer; the halo is hidden from screen capture so Flow never photographs it.
 
+**Replies in text.** With **Say replies out loud** off, or a turn gone quiet
+(a meeting app in front, the mic busy, Do Not Disturb), the reply is written in
+the caption strip as it comes instead of said. It wraps, scrolls once it
+outgrows a few lines, and stays until you say the next thing.
+
 ![Acting with Stop](../assets/flow-orb-acting.png)
 
 ## What Flow can do

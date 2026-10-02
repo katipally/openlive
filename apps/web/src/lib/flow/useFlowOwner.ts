@@ -202,7 +202,7 @@ export function useFlowOwner(): void {
     const failTurn = (message: string, code?: ErrorClass) => {
       turnActive.current = false;
       stopAnswerWatchdog();
-      // The orb draws a failure, never `reply`, so a reason has to become one.
+      // An error shows on the orb as a failure, never as `reply`, so a reason has to become one.
       const failure = message ? turnFailure(message, !!settings.current && flowBrain(settings.current).kind === "acp", code) : null;
       patch(failure ? { reply: message, failure } : { reply: message });
       if (failure) raise(failure, "turn");

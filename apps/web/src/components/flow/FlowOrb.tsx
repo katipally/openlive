@@ -92,6 +92,7 @@ export function FlowOrb() {
    *  shut around a caption that was still on screen. */
   const [stripUp, setStripUp] = useState(false);
   const lastCaption = useRef("");
+  const lastReplied = useRef(false);
   /** The card outlives its question the same way, keeping its words on the way out. */
   const [cardUp, setCardUp] = useState(false);
   const lastAsk = useRef<{ permission: PendingPermission | null; failure: FlowFailure | null }>({ permission: null, failure: null });
@@ -108,12 +109,15 @@ export function FlowOrb() {
   // only thing that tells someone their machine is being driven, and by what.
   // Any other phase that says why it is waiting says so here too.
   const acting = s.phase === "acting" || s.phase === "confirming";
-  const captioned = shown && !asking && (acting || !!s.detail);
+  // A reply not said out loud is read here instead, until the next turn.
+  const quietReply = !s.speaking && s.phase !== "error" ? s.reply : "";
+  const captioned = shown && !asking && (acting || !!s.detail || !!quietReply);
   // Held through the strip's exit: blanking the words the moment the phase
   // changes empties the strip a beat before it has finished leaving.
-  const said = captioned ? s.detail || "Working" : "";
-  if (said) lastCaption.current = said;
+  const said = !captioned ? "" : acting ? s.detail || "Working" : s.detail || quietReply;
+  if (said) { lastCaption.current = said; lastReplied.current = said === quietReply; }
   const caption = said || lastCaption.current;
+  const replied = lastReplied.current;
 
   useEffect(() => { if (captioned) setStripUp(true); }, [captioned]);
   useEffect(() => { if (asking) setCardUp(true); }, [asking]);
@@ -124,10 +128,13 @@ export function FlowOrb() {
 
   // One caption replacing another is the same piece of work carrying on, so it
   // fades rather than cutting.
+  // A reply grows a few words at a time: it fades in once, then keeps its
+  // newest line in view.
   useGSAP(() => {
     if (!captionRef.current || !caption || prefersReduced()) return;
     gsap.fromTo(captionRef.current, { autoAlpha: 0.2, y: 3 }, { autoAlpha: 1, y: 0, duration: DUR.fast, ease: EASE.out });
-  }, { dependencies: [caption] });
+  }, { dependencies: [replied ? "reply" : caption] });
+  useEffect(() => { if (replied && captionRef.current) captionRef.current.scrollTop = captionRef.current.scrollHeight; }, [replied, caption]);
 
   // The window is click-through, so hover cannot come from the DOM: the pointer
   // never enters anything. It comes from the moves the main process forwards
@@ -305,10 +312,15 @@ export function FlowOrb() {
         <div ref={stripRef} data-hit className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-4 pr-1.5", PANEL)}>
           <span className="size-2 shrink-0 motion-safe:animate-pulse rounded-full bg-arc" aria-hidden />
           {/* One line: a caption longer than the strip drops its oldest words
-              off the start, so the newest stay in view. */}
-          <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1">
-            <span ref={captionRef} role="status" className="shrink-0 grow text-label font-medium">{caption}</span>
-          </span>
+              off the start, so the newest stay in view. A reply is read, so it
+              wraps, and scrolls once it outgrows a few lines. */}
+          {replied
+            ? <span ref={captionRef} role="status" className="openlive-scroll max-h-[min(10rem,30vh)] min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap py-1 text-label font-medium [overflow-wrap:anywhere]">{caption}</span>
+            : (
+              <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1">
+                <span ref={captionRef} role="status" className="shrink-0 grow text-label font-medium">{caption}</span>
+              </span>
+            )}
           {s.phase !== "listening" && stop}
         </div>
       )}
