@@ -33,11 +33,12 @@ describe("the commands each OS runs", () => {
     expect(es).toEqual({ name: "everything", cmd: "es.exe", sep: "\n", args: ["-n", "500", "-path", "C:\\Users\\u", "-search", "dm:>=2026-09-24 budget"] });
   });
 
-  it("Linux tries plocate, locate, then fd under both its names", () => {
+  it("Linux tries fd under both its names, a live search, before plocate and locate", () => {
     const ps = plans("linux", q("notes", { since: NOW - 3600_000 }));
-    expect(ps.map((p) => p.cmd)).toEqual(["plocate", "locate", "fd", "fdfind"]);
-    expect(ps[0]!.args).toEqual(["-i", "-e", "-b", "-0", "--", "notes"]);
-    expect(ps[2]!.args).toEqual(["-i", "-F", "-a", "-0", "--max-results", "500", "--changed-within", "3600s", "--", "notes", "/home/u"]);
+    expect(ps.map((p) => p.cmd)).toEqual(["fd", "fdfind", "plocate", "locate"]);
+    expect(ps.map((p) => !!p.live)).toEqual([true, true, false, false]);
+    expect(ps[2]!.args).toEqual(["-i", "-e", "-b", "-0", "--", "notes"]);
+    expect(ps[0]!.args).toEqual(["-i", "-F", "-a", "-0", "--max-results", "500", "--changed-within", "3600s", "--", "notes", "/home/u"]);
   });
 
   it("the user's words stay one argument, and never become query syntax or an option", () => {
@@ -50,7 +51,8 @@ describe("the commands each OS runs", () => {
     expect(win[0]!.args.join(" ")).not.toContain("DROP");
     expect(win[0]!.env!.OL_FIND_Q).toBe("a'); DROP --");
     const linux = plans("linux", q("-r --regex .*"));
-    expect(linux[0]!.args.slice(-2)).toEqual(["--", "-r --regex .*"]);
+    expect(linux[2]!.args.slice(-2)).toEqual(["--", "-r --regex .*"]);
+    expect(linux[0]!.args.slice(-3, -1)).toEqual(["--", "-r --regex .*"]);
     expect(win[1]!.args.at(-2)).toBe("-search");
   });
 
@@ -137,9 +139,17 @@ describe("finding", () => {
     expect(r.items.map((h) => h.path)).toEqual([pdf]);
   });
 
-  it("a silent non-zero exit is an empty answer, not a failure", async () => {
-    const r = await findFiles({ query: "budget" }, { home, now: NOW, plans: [node("locate", "process.exit(1)")] });
-    expect(r).toEqual({ items: [], partial: false, backend: "locate" });
+  it("an index that answers with nothing, as Spotlight switched off does, falls back to the walk", async () => {
+    for (const empty of [node("spotlight", "process.exit(0)"), node("locate", "process.exit(1)")]) {
+      const r = await findFiles({ query: "budget" }, { home, now: NOW, plans: [empty, node("stale", "process.exit(0)")] });
+      expect(r.backend).toBe("walk");
+      expect(r.items.map((h) => h.path)).toEqual([pdf, recent, old]);
+    }
+  });
+
+  it("a live search's empty answer is final", async () => {
+    const r = await findFiles({ query: "budget" }, { home, now: NOW, plans: [{ ...node("fd", "process.exit(0)"), live: true }, node("never", `console.log(${JSON.stringify(old)})`)] });
+    expect(r).toEqual({ items: [], partial: false, backend: "fd" });
   });
 
   it("stops at the time limit with what it has, and says so", async () => {

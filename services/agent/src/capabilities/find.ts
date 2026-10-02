@@ -6,8 +6,8 @@ import { parseDuration } from "../reminders/time.js";
 import type { Tool, ToolResult } from "./types.js";
 
 // find_files: the user's home folder through the OS's own search index, with a
-// bounded walk where there is none. It only finds: reading stays with read_file,
-// fenced to the workspace. Every path passes the deny list before anyone sees
+// bounded walk where there is none or it finds nothing. It only finds: reading
+// stays with read_file. Every path passes the deny list before anyone sees
 // it, whichever backend found it. Commands spawn without a shell, and the user's
 // words reach each one as a single argument or an environment variable, escaped
 // for that backend's own query language.
@@ -74,7 +74,11 @@ export function denied(p: string, home: string, platform: NodeJS.Platform = proc
 
 // ── backends ────────────────────────────────────────────────────────────────
 
-export interface Plan { name: string; cmd: string; args: string[]; env?: Record<string, string>; sep: "\0" | "\n" }
+export interface Plan {
+  name: string; cmd: string; args: string[]; env?: Record<string, string>; sep: "\0" | "\n";
+  /** It walks the disk now rather than reading an index, so its empty answer is final. */
+  live?: true;
+}
 export interface FindQuery { text: string; home: string; /** Epoch ms, or none. */ since?: number; now: number }
 
 /** Spotlight's query language: a backslash keeps a quote or wildcard literal. */
@@ -122,10 +126,11 @@ export function plans(platform: NodeJS.Platform, q: FindQuery): Plan[] {
   }
   const locate = (cmd: string): Plan => ({ name: cmd, cmd, args: ["-i", "-e", "-b", "-0", "--", q.text], sep: "\0" });
   const fd = (cmd: string): Plan => ({
-    name: cmd, cmd, sep: "\0",
+    name: cmd, cmd, sep: "\0", live: true,
     args: ["-i", "-F", "-a", "-0", "--max-results", String(CANDIDATES), ...(q.since ? ["--changed-within", `${secondsSince(q)}s`] : []), "--", q.text, q.home],
   });
-  return [locate("plocate"), locate("locate"), fd("fd"), fd("fdfind")];
+  // fd first: locate's database is rebuilt about daily, so it misses what changed since.
+  return [fd("fd"), fd("fdfind"), locate("plocate"), locate("locate")];
 }
 
 type Outcome = "done" | "failed" | "timeout";
@@ -191,7 +196,7 @@ export interface Found { items: Hit[]; partial: boolean; backend: string }
 
 export interface FindArgs { query: string; kind?: Kind | "any"; modified_within?: string; limit?: number }
 
-/** Index first, then the walk; the newest `limit` of what passed the deny list and the filters. */
+/** Index first, then the walk when none answered with anything; the newest `limit` of what passed the deny list and the filters. */
 export async function findFiles(args: FindArgs, o: { platform?: NodeJS.Platform; home?: string; plans?: Plan[]; timeMs?: number; now?: number } = {}): Promise<Found> {
   const platform = o.platform ?? process.platform, home = o.home ?? homedir(), now = o.now ?? Date.now();
   const text = String(args.query ?? "").replace(/\s+/g, " ").trim().slice(0, QUERY_MAX);
@@ -208,12 +213,14 @@ export async function findFiles(args: FindArgs, o: { platform?: NodeJS.Platform;
     if (!kept.has(p) && !denied(p, home, platform) && (!want || want === "folder" || want === "file" || extKind(p) === want)) kept.add(p);
     return kept.size >= CANDIDATES;
   };
-  let backend = "walk", outcome: Outcome = "failed";
+  let backend = "walk", outcome: Outcome | null = null;
   for (const plan of o.plans ?? plans(platform, q)) {
-    outcome = await runPlan(plan, deadline, take);
-    if (outcome !== "failed") { backend = plan.name; break; }
+    const got = await runPlan(plan, deadline, take);
+    // An index can answer with nothing because it is off or stale (Spotlight
+    // disabled, an old locate database), so only a live search's empty answer is final.
+    if (got === "timeout" || (got === "done" && (kept.size || plan.live))) { outcome = got; backend = plan.name; break; }
   }
-  if (outcome === "failed") outcome = await walk(q, deadline, take, platform);
+  outcome ??= await walk(q, deadline, take, platform);
 
   const stats = await Promise.all([...kept].map(async (p) => {
     try { return [{ p, s: await stat(p) }]; } catch { return []; }
@@ -245,7 +252,7 @@ export const findFilesTool: Tool<FindArgs, Found> = {
     additionalProperties: false,
   },
   promptGuidelines: [
-    "`find_files` only finds. `read_file` reads inside the workspace folder alone, so to read something found elsewhere, ask the user to pick its folder as the workspace or to open the file.",
+    "`find_files` only finds. In a call, `read_file` reads inside the workspace folder alone, so to read something found elsewhere, ask the user to pick its folder as the workspace or to open the file.",
   ],
   async execute(args): Promise<ToolResult<Found>> {
     const found = await findFiles(args);

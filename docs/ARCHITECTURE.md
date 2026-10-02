@@ -1182,10 +1182,12 @@ the `openlive` MCP server.
   files and folders under the user's home by name or content, newest first, with
   kind, size and modified time: 20 by default, 100 at most, within 3 seconds
   (past that it returns what it has and says so). It never reads a file;
-  `read_file` stays fenced to the workspace, and the model asks the user to pick
-  a found file's folder or open it. Backends, each spawned without a shell, the
-  user's words one argument or an environment variable, tried in order until one
-  answers (a missing command, or a non-zero exit with stderr, moves on):
+  in a call `read_file` stays fenced to the workspace, and the model asks the
+  user to pick a found file's folder or open it. Backends, each spawned without
+  a shell, the user's words one argument or an environment variable, tried in
+  order until one answers (a missing command, or a non-zero exit with stderr,
+  moves on, and so does an index that finds nothing, since Spotlight may be off
+  and locate's database stale; only a live search's empty answer is final):
   - macOS: `mdfind -0 -onlyin ~ '(kMDItemFSName == "*q*"cd || kMDItemTextContent == "q"cdw)'`, plus
     `&& kMDItemFSContentChangeDate >= $time.now(-N)`, with `\ " * ?` escaped.
   - Windows: Windows Search's SystemIndex through `ADODB.Connection` and
@@ -1193,9 +1195,10 @@ the `openlive` MCP server.
     -NonInteractive -EncodedCommand`; the words come in `OL_FIND_Q` and are
     escaped for the SQL literal, LIKE and CONTAINS. Then Everything's
     `es.exe -n 500 -path ~ -search "[dm:>=date ]q"`.
-  - Linux: `plocate -i -e -b -0 -- q`, `locate` the same, then `fd` or `fdfind
-    -i -F -a -0 --max-results 500 [--changed-within Ns] -- q ~`.
-  - Everywhere last: a breadth-first walk of the home, names only, depth 8,
+  - Linux: `fd` or `fdfind -i -F -a -0 --max-results 500 [--changed-within Ns]
+    -- q ~` (live, so first), then `plocate -i -e -b -0 -- q` and `locate` the
+    same. Names only: Linux has no content search here.
+  - Everywhere last, when nothing above found anything: a breadth-first walk of the home, names only, depth 8,
     200,000 entries, skipping hidden folders, `node_modules`, `Library`,
     `AppData` and caches.
   Every path passes a deny list first: anything outside the home, a `.ssh`,
