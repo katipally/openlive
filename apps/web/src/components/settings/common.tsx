@@ -21,9 +21,8 @@ export const panel = "flex flex-col gap-3 rounded-xl bg-card p-3 shadow-card";
 export const inset = "flex flex-col gap-3 rounded-lg border border-border p-3";
 /** One card of a grid. */
 export const card = "flex min-w-0 flex-col rounded-lg bg-card shadow-card";
-/** Grids that fit as many columns as their width holds, down to one. */
+/** A grid that fits as many columns as its width holds, down to one. */
 export const grid2 = "grid grid-cols-[repeat(auto-fit,minmax(min(17rem,100%),1fr))] gap-3";
-export const grid3 = "grid grid-cols-[repeat(auto-fit,minmax(min(12rem,100%),1fr))] gap-3";
 /** The square that leads a card or a row: an icon, or a monogram. */
 export const tile = "grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground [&_svg]:size-4";
 
