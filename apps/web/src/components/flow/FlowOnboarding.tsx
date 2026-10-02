@@ -43,7 +43,6 @@ export function FlowOnboarding({ from, onDone, config, save }: {
     <div className="flex h-full min-h-0 flex-col">
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
-        {isDesktop && <SwitchHole />}
         {/* Stops short of the mode switch, which floats over the middle of this bar. */}
         <span className="min-w-0 flex-1 text-body font-semibold">
           <span className={cn("block truncate", isMacDesktop
@@ -51,6 +50,7 @@ export function FlowOnboarding({ from, onDone, config, save }: {
             : "max-w-[calc(50vw_-_var(--mode-switch-w,0px)/2_-_var(--spacing)*7)]")}>{`Set up Flow · ${step} of 2`}</span>
         </span>
         <Button variant="ghost" size="sm" onClick={() => finish("flow_onboarding_skipped")} className="[-webkit-app-region:no-drag]">Skip</Button>
+        {isDesktop && <SwitchHole />}
       </header>
 
       <FlowCanvas>

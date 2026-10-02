@@ -349,6 +349,8 @@ Releases before 0.1.9 predate this file — see the
   tour and reaches the button or field it landed on, instead of only closing.
 - **Flow setup says when API mode has no key yet.** Next to **Start using
   Flow**, with a link to Settings > Models; finishing setup still works.
+- **The mode switch takes clicks over Flow's setup again.** In the packaged
+  app, a click on Chat or Dictate there was taken as a window drag.
 - **Dictate's home says to turn it on first** when it is off, before holding
   its key, and the Access rows' Allow buttons line up whether or not a row has
   a ⋯ menu.

@@ -57,7 +57,9 @@ export function ModeSwitch({ className }: { className?: string }) {
  * Electron only subtracts a no-drag element from a drag region when it is a
  * DESCENDANT of it. The switch is neither: it floats over this bar from the
  * page, so its own no-drag counts for nothing here and every click on it was
- * being swallowed as a window drag. The bar reserves the space instead.
+ * being swallowed as a window drag. The bar reserves the space instead, as its
+ * LAST child: the bar's other children inherit its drag, and a region later in
+ * the page wins, so a title stretched under the switch would drag again.
  *
  * Window-centred rather than centred in this flex row, because that is where
  * the switch is, and every bar is padded unevenly for the traffic lights. Sized
