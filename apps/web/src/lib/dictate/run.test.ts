@@ -6,7 +6,7 @@ import type { DictateSnapshot } from "@/lib/flow/types";
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ mic = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
+function rig({ voided = false, mic = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -18,7 +18,8 @@ function rig({ mic = true, inserted = "typed" as Inserted, settings = {} as Part
   const ports: DictatePorts = {
     listen: vi.fn(async () => mic),
     beginHold: vi.fn(),
-    endHold: vi.fn(async () => { if (said) consumed.push(await dictate.heard(said)); said = ""; }),
+    // `voided`: as the owner does, the words are handed over and not waited on.
+    endHold: vi.fn(async () => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; }),
     insert: vi.fn(async (text: string) => { typed.push(text); return inserted; }),
     quietFlow: vi.fn(),
     show: (d) => void shown.push(d),
@@ -63,6 +64,35 @@ describe("holding the key", () => {
     expect(r.last()).toMatchObject({ phase: "idle", inserted: 7 });
     await vi.advanceTimersByTimeAsync(DONE_MS);
     expect(r.last()).toBeNull();
+  });
+
+  it("keeps the orb up until words handed over unawaited are typed, then lets it go", async () => {
+    let answer = (_: string) => {};
+    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
+    const released = hold(r, "send it friday");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.last()).toMatchObject({ phase: "processing" });
+    answer("Send it Friday.");
+    await released;
+    expect(r.typed).toEqual(["Send it Friday."]);
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3 });
+    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toBeNull();
+  });
+
+  it("types hands-free utterances in the order they were said, however slow the first polish", async () => {
+    const answers: ((t: string) => void)[] = [];
+    const r = rig({ settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answers.push(ok); }) });
+    await r.dictate.setHandsFree(true, true);
+    const first = r.dictate.heard("first one");
+    const second = r.dictate.heard("second one");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answers).toHaveLength(1);
+    answers[0]!("First.");
+    await vi.advanceTimersByTimeAsync(0);
+    answers[1]!("Second.");
+    await Promise.all([first, second]);
+    expect(r.typed).toEqual(["First.", " Second."]);
   });
 
   it("lets Flow's turn go before it listens", () => {

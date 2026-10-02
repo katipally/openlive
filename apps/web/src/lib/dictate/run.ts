@@ -93,6 +93,9 @@ export function createDictate(ports: DictatePorts) {
   let typed = 0;
   let linger: ReturnType<typeof setTimeout> | null = null;
   let d: DictateSnapshot | null = null;
+  // Utterances are cleaned up and typed one after another, so a slow polish
+  // never lets the next one land first.
+  let work: Promise<unknown> = Promise.resolve();
 
   const set = (patch: Partial<DictateSnapshot>) => {
     d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", ...d, ...patch };
@@ -230,7 +233,12 @@ export function createDictate(ports: DictatePorts) {
       if (!(await opening)) return;
       set({ phase: "processing" });
       await ports.endHold();
-      if (mode === "hold") finish();
+      if (mode !== "hold") return;
+      // The engine hands the words over without waiting for them to be typed, so
+      // the orb waits here; the key is free meanwhile for the next press.
+      mode = null;
+      await work;
+      if (!mode) finish();
     },
     async holdCancel() {
       if (mode !== "hold") return;
@@ -264,8 +272,10 @@ export function createDictate(ports: DictatePorts) {
       if (discarding) return true;
       if (!mode) return false;
       const s = ports.settings();
-      if (commanding) await command(text, s);
-      else await dictation(text, s);
+      const asCommand = commanding;
+      const run = work.then(() => (asCommand ? command(text, s) : dictation(text, s)));
+      work = run.catch(() => {});
+      await run;
       return true;
     },
   };
