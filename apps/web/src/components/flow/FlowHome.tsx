@@ -237,7 +237,7 @@ function BrainChip({ config }: { config: ReturnType<typeof useFlowConfig>["confi
   const brain = config && flowBrain(config);
   const label = !brain ? "\u2026"
     : brain.kind === "acp" ? (isAgentId(brain.agentId) ? AGENT_REGISTRY[brain.agentId].label : brain.agentId || "No agent chosen")
-    : `API mode \u00b7 ${choice.loading ? "\u2026" : choice.model}`;
+    : `API mode \u00b7 ${choice.loading ? "\u2026" : choice.usable ? choice.model : `${choice.providerName}: no key yet`}`;
   return (
     <ChipButton onClick={() => openSettingsTab("flow")} tip="Change the brain">
       {brain?.kind === "acp" && isAgentId(brain.agentId) ? <AgentIcon id={brain.agentId} /> : <OpenLiveOrb size={12} />}
