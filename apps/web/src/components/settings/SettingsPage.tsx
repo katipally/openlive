@@ -14,7 +14,7 @@ import { ChatSettings } from "./ChatSettings";
 import { DictateSettings } from "./DictateSettings";
 import { SettingsNav, type SettingsGo } from "./nav";
 import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
-import { AgentsSettings } from "./AgentsSettings";
+import { AgentsRecheck, AgentsSettings } from "./AgentsSettings";
 import { CapabilitiesSettings } from "./CapabilitiesSettings";
 import { MemoryClearAll, MemorySettings } from "./MemorySettings";
 import { AboutSettings } from "./AboutSettings";
@@ -35,7 +35,7 @@ export const SECTIONS = [
   { id: "dictate", label: "Dictate", sub: "Hotkey, cleanup, words", desc: "Talk instead of type, in any app.", icon: Mic, Comp: DictateSettings, group: "Modes", fresh: true },
   { id: "chat", label: "Chat", sub: "Push-to-talk, narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "models", label: "Models", sub: "API · BYOK", desc: "Your own key, your own model.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Intelligence", shared: true },
-  { id: "agents", label: "Agents", sub: "Install, sign in", icon: Bot, Comp: AgentsSettings, group: "Intelligence", shared: true },
+  { id: "agents", label: "Agents", sub: "Install, sign in", desc: "Coding agents that can think for Chat, Flow and Dictate.", icon: Bot, Comp: AgentsSettings, Action: AgentsRecheck, group: "Intelligence", shared: true, wide: true },
   { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, fresh: true, wide: true },
   { id: "memory", label: "Memory", sub: "Facts about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, group: "Intelligence", shared: true, fresh: true, wide: true },
   { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, group: "Voice", shared: true },

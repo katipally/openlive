@@ -1,64 +1,104 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy } from "lucide-react";
+import { RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy, Eye, EyeOff, Search, Bot } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { useAgentActions, trackAgentAction, type ActionKind } from "@/lib/agentActions";
 import { telemetry } from "@/lib/telemetry";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
-import { cn } from "@/lib/cn";
-import { Switch, Button, Tooltip, Chip, ListGroup } from "@/components/ui";
-import { Section } from "./Section";
+import { Button, Tooltip, Input, groupLabel, type DotTone } from "@/components/ui";
+import { useSettingsNav } from "./nav";
+import { EmptyState, FILTER_AT, NoMatch, OneLine, QueryState, StatusCard, grid2, type MenuAction } from "./common";
+
+// Re-probe on window focus: sign-in/out finishes in a separate terminal, so
+// coming back to the app should reflect the new state without a manual click.
+const useAgents = () => useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchOnWindowFocus: true });
+
+/** The page's one action: probe every agent again. */
+export function AgentsRecheck() {
+  const { refetch, isFetching } = useAgents();
+  return (
+    <Button size="sm" onClick={() => refetch()} disabled={isFetching}>
+      <RefreshCw className={isFetching ? "animate-spin" : undefined} /> Re-check
+    </Button>
+  );
+}
+
+type Group = "ready" | "signin" | "missing";
+const groupOf = (a: AgentStatus): Group =>
+  !a.installed ? "missing" : a.credState === "login_required" ? "signin" : "ready";
+const GROUPS: readonly { id: Group; label: string }[] = [
+  { id: "ready", label: "Ready" },
+  { id: "signin", label: "Sign in needed" },
+  { id: "missing", label: "Not installed" },
+];
 
 export function AgentsSettings() {
-  // Re-probe on window focus: sign-in/out finishes in a separate terminal, so
-  // coming back to the app should reflect the new state without a manual click.
-  const { data: agents = [], isLoading, refetch, isFetching } = useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchOnWindowFocus: true });
+  const { data: agents = [], isLoading, error, refetch, isFetching } = useAgents();
+  const go = useSettingsNav();
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const shown = q ? agents.filter((a) => a.label.toLowerCase().includes(q)) : agents;
+  const openModels = <Button size="sm" onClick={() => go("models")}>Open Models</Button>;
 
   return (
-    <div className="flex flex-col gap-7">
-      <Section id="set-agents-list" title="Coding agents"
-        desc={<>Each agent runs on <span className="text-foreground">your own machine with your own login</span>. OpenLive drives it locally over ACP and never sees its data. Install, sign in or out (opens the agent&apos;s own flow in a terminal), or hide an agent from the pickers and History. Its sessions stay on disk.</>}>
-        <div className="flex flex-col gap-2.5">
-          {isLoading && <p className="text-label text-muted-foreground">Checking…</p>}
-          {agents.length > 0 && <ListGroup>{agents.map((a) => <AgentRow key={a.id} a={a} />)}</ListGroup>}
-          <Button variant="ghost" size="sm" className="self-start" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={isFetching ? "animate-spin" : undefined} /> Re-check
-          </Button>
-        </div>
-      </Section>
+    <div id="set-agents-list" className="flex flex-col gap-7">
+      <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => refetch()} what="check the coding agents" />
+      {agents.length > FILTER_AT && (
+        <Input type="search" size="sm" icon={<Search />} value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find an agent" aria-label="Find an agent" className="w-full max-w-xs" />
+      )}
+      {q && !shown.length && <NoMatch what="agent" query={query} />}
+      {!isLoading && !error && !agents.length && (
+        <EmptyState icon={Bot} actions={openModels}>No coding agents found. Keep using an API model.</EmptyState>
+      )}
+      {agents.length > 0 && GROUPS.map((g) => {
+        const list = shown.filter((a) => groupOf(a) === g.id);
+        // An empty Ready group still shows on a fresh machine, to say what to do.
+        if (!list.length && (q || g.id !== "ready")) return null;
+        return (
+          <section key={g.id} aria-label={g.label} className="flex flex-col gap-3">
+            <h2 className={groupLabel}>{g.label} <span className="font-normal tabular-nums">{list.length}</span></h2>
+            {list.length
+              ? <div className={grid2}>{list.map((a) => <AgentCard key={a.id} a={a} />)}</div>
+              : <EmptyState icon={Bot} actions={openModels}>Nothing ready yet. Install one below, or keep using an API model.</EmptyState>}
+          </section>
+        );
+      })}
     </div>
   );
 }
 
-/** The row's single readiness verdict, derived from install + credential probes. */
-function statusChip(a: AgentStatus) {
-  if (!a.installed) return { text: "Not installed", dot: "muted" } as const;
-  if (a.credState === "ready") return { text: "Ready", dot: "success" } as const;
-  // Wizard agents (hermes) aren't "signed out" in this state — their setup was
+/** The card's single readiness verdict, derived from install + credential probes. */
+function statusOf(a: AgentStatus): { text: string; tone: DotTone } {
+  if (!a.installed) return { text: "Not installed", tone: "muted" };
+  if (a.credState === "ready") return { text: "Ready", tone: "success" };
+  // Wizard agents (hermes) aren't "signed out" in this state: their setup was
   // started but never finished (no provider picked). Say that.
-  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", dot: "arc" } as const;
-  return { text: "Installed", dot: "success" } as const; // creds unknowable — don't cry wolf
+  if (a.credState === "login_required") return { text: a.wizard ? "Setup incomplete" : "Sign in needed", tone: "arc" };
+  return { text: "Installed", tone: "success" }; // creds unknowable: don't cry wolf
 }
+
+const RUNNING: Record<ActionKind, string> = { install: "Installing", uninstall: "Uninstalling", login: "Signing in", logout: "Signing out", update: "Updating" };
 
 // One agent: status (probed, never asked of the agent), install / sign-in /
 // sign-out / uninstall (streamed via the background store, so it survives closing
-// this panel), a visibility toggle, and the advanced ACP-command override.
-function AgentRow({ a }: { a: AgentStatus }) {
+// this panel), and whether it shows in the pickers.
+function AgentCard({ a }: { a: AgentStatus }) {
   const qc = useQueryClient();
   const run = useAgentActions((s) => s.runs[a.id]);
   const start = useAgentActions((s) => s.run);
-  const [confirmUn, setConfirmUn] = useState(false);
+  const [open, setOpen] = useState(false);
   const [waiting, setWaiting] = useState<{ action: ActionKind; startedAt: number } | null>(null);
   // An install or sign-in just ended, so the next time this agent reads Ready is its first.
   const readyNext = useRef(false);
 
   // When a background action finishes, re-check installed/signed-in status.
-  // A terminal action (sign-in) merely OPENS a terminal and returns — the user
-  // finishes there, so keep polling and the row flips by itself. Detect that from
+  // A terminal action (sign-in) merely OPENS a terminal and returns; the user
+  // finishes there, so keep polling and the card flips by itself. Detect that from
   // the server's own result marker rather than guessing from the action: a
   // headless install streams its result inline and is already DONE, so telling the
   // user to go finish in a terminal would just be wrong.
@@ -107,84 +147,80 @@ function AgentRow({ a }: { a: AgentStatus }) {
 
   const busy = !!run?.running;
   const running = run?.running ? run.action : null;
-  const chip = statusChip(a);
+  const status = statusOf(a);
+  const spin = (kind: ActionKind, Icon: typeof Download) => running === kind ? <Loader2 className="animate-spin" /> : <Icon />;
+
+  // While a run is in flight only the copy stays: the store runs one action per agent.
+  const more: MenuAction[] = !a.installed ? [] : [
+    ...(a.canUpdate && !busy ? [{ label: "Update", icon: ArrowUpCircle, run: () => start(a.id, "update") }] : []),
+    { label: "Copy sign-in command", icon: Copy, run: copyLogin },
+    ...(a.credState === "ready" && a.canLogout && !busy ? [{ label: "Sign out", icon: LogOut, run: () => start(a.id, "logout") }] : []),
+    ...(a.canUninstall && !busy ? [{
+      label: "Uninstall", icon: Trash2, run: () => start(a.id, "uninstall"),
+      confirm: a.wizard ? "Delete its history and keys too?" : "Uninstall?",
+    }] : []),
+  ];
+
+  let action: ReactNode = null;
+  if (!a.installed && a.canInstall) {
+    action = <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>{spin("install", Download)} Install</Button>;
+  } else if (a.installed && a.credState !== "ready") {
+    action = (
+      <Button variant={a.credState === "login_required" ? "primary" : "secondary"} size="sm" onClick={() => start(a.id, "login")} disabled={busy}>
+        {spin("login", LogIn)} {a.wizard ? "Finish setup" : "Sign in"}
+      </Button>
+    );
+  } else if (a.installed) {
+    action = <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Show less" : "Details"}</Button>;
+  }
+
+  const eyeLabel = a.hidden ? `Hidden from pickers and History. Show ${a.label}` : `Shown in pickers and History. Hide ${a.label}`;
+  const detail = [
+    a.version ?? (a.installed ? null : "Not installed"),
+    a.installed && a.credState === "ready" ? "signed in" : null,
+    a.hidden ? "hidden" : null,
+  ].filter(Boolean).join(" · ");
 
   return (
-    <div className={cn("py-3 transition", a.hidden && "opacity-60")}>
-      <div className="flex items-start gap-3">
-        <AgentIcon id={a.id as AgentId} className="mt-0.5 size-5 shrink-0 text-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-body font-medium text-foreground">
-            {a.label}
-            <Chip dot={chip.dot}>{chip.text}</Chip>
-          </div>
-          <p className="mt-0.5 truncate font-mono text-caption text-faint">
-            {a.version ? <>{a.version} · </> : null}
-            {a.credState === "ready" && a.authDetail ? <>{a.authDetail} · </> : null}session store · {a.sessions}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {!a.installed && a.canInstall && (
-              <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>
-                {running === "install" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} Install
-              </Button>
-            )}
-            {a.installed && a.credState !== "ready" && (
-              <>
-                <Button variant={a.credState === "login_required" ? "primary" : "secondary"} size="sm" onClick={() => start(a.id, "login")} disabled={busy}>
-                  {running === "login" ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />} {a.wizard ? "Finish setup" : "Sign in"}
-                </Button>
-                <Tooltip label={`Copy the command to run yourself: ${a.loginCommand}`}>
-                  <Button size="sm" onClick={copyLogin}>
-                    <Copy className="size-3.5" /> Copy command
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {a.installed && a.credState === "ready" && a.canLogout && (
-              <Button size="sm" onClick={() => start(a.id, "logout")} disabled={busy}>
-                {running === "logout" ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />} Sign out
-              </Button>
-            )}
-            {a.installed && a.canUpdate && (
-              <Tooltip label="Reinstall the latest CLI release">
-                <Button size="sm" onClick={() => { if (!busy) start(a.id, "update"); }} aria-disabled={busy || undefined}>
-                  {running === "update" ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUpCircle className="size-3.5" />} Update
-                </Button>
-              </Tooltip>
-            )}
-            {a.installed && a.canUninstall && (
-              <Tooltip label={a.wizard && `Removes ${a.sessions}, including its chat history and credentials`}>
-                <Button variant={confirmUn ? "destructive" : "secondary"} size="sm" aria-disabled={busy || undefined}
-                  onClick={() => { if (busy) return; if (confirmUn) { setConfirmUn(false); start(a.id, "uninstall"); } else setConfirmUn(true); }}
-                  onBlur={() => setConfirmUn(false)}>
-                  {running === "uninstall" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} {confirmUn ? "Confirm?" : "Uninstall"}
-                </Button>
-              </Tooltip>
-            )}
-            <Tooltip label={a.hidden ? "Hidden from pickers and History" : "Shown in pickers and History"} className="ml-auto">
-              <label className="flex cursor-pointer select-none items-center gap-2 text-caption text-muted-foreground">
-                {a.hidden ? "Hidden" : "Shown"}
-                <Switch on={!a.hidden} onFlip={() => setHidden(!a.hidden)} />
-              </label>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
-
-      {confirmUn && a.wizard && (
-        <p className="mt-2 text-caption text-danger">This deletes {a.sessions}, Hermes chat history and credentials included. There is no undo.</p>
+    <StatusCard className={a.hidden ? "opacity-60" : undefined}
+      icon={<AgentIcon id={a.id as AgentId} className="text-foreground" />}
+      name={a.label} detail={detail || undefined}
+      tone={running ? "accent" : status.tone} status={running ? RUNNING[running] : status.text}
+      action={action} more={more}
+      aside={(
+        <Tooltip label={eyeLabel}>
+          <Button variant="ghost" size="sm" icon aria-label={eyeLabel} aria-pressed={!a.hidden} onClick={() => setHidden(!a.hidden)}>
+            {a.hidden ? <EyeOff /> : <Eye />}
+          </Button>
+        </Tooltip>
+      )}>
+      {open && a.installed && (
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t border-border pt-3 text-label">
+          {a.version && <Fact term="Version"><OneLine text={a.version} className="font-mono" /></Fact>}
+          {a.authDetail && <Fact term="Signed in as"><OneLine text={a.authDetail} /></Fact>}
+          <Fact term="Sessions"><OneLine text={a.sessions} className="font-mono" /></Fact>
+          <Fact term="Sign in with"><OneLine text={a.loginCommand} className="font-mono" /></Fact>
+        </dl>
       )}
 
       {waiting && a.credState !== "ready" && (
-        <p className="mt-2 flex items-center gap-1.5 text-caption text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" /> Waiting for you to finish in the terminal. This updates by itself.
+        <p className="flex items-center gap-1.5 text-caption text-muted-foreground">
+          <Loader2 className="size-3 shrink-0 animate-spin" /> Finish in the terminal. This updates by itself.
         </p>
       )}
 
       {run && (run.running || run.log) && (
-        <pre className="openlive-scroll mt-2.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-2.5 font-mono text-caption leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>
+        <pre className="openlive-scroll max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface p-2.5 font-mono text-caption leading-relaxed text-muted-foreground">{run.log || "Starting…"}</pre>
       )}
+    </StatusCard>
+  );
+}
 
-    </div>
+function Fact({ term, children }: { term: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{term}</dt>
+      <dd className="min-w-0 text-foreground">{children}</dd>
+    </>
   );
 }

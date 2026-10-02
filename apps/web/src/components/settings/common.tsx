@@ -138,20 +138,22 @@ export function MoreMenu({ label, actions }: { label: string; actions: readonly 
 }
 
 /** One thing to set up (an agent, a connector): its mark and name, where it
- *  stands, the one thing to do next, and the rest under ⋯. `children` is the
- *  card's body when it opens up (versions, paths). */
-export function StatusCard({ icon, name, detail, tone, status, action, more = [], children }: {
+ *  stands, the one thing to do next, and the rest under ⋯. `aside` is a quiet
+ *  icon button before the ⋯ (shown or hidden); `children` is the card's body
+ *  when it opens up (versions, paths). */
+export function StatusCard({ icon, name, detail, tone, status, action, aside, more = [], children, className }: {
   icon: ReactNode; name: string; detail?: string; tone: DotTone; status: string;
-  action?: ReactNode; more?: readonly MenuAction[]; children?: ReactNode;
+  action?: ReactNode; aside?: ReactNode; more?: readonly MenuAction[]; children?: ReactNode; className?: string;
 }) {
   return (
-    <div className={cn(card, "gap-3 p-card-x")}>
+    <div className={cn(card, "gap-3 p-card-x", className)}>
       <div className="flex min-w-0 items-center gap-3">
         <span className={tile}>{icon}</span>
         <span className="flex min-w-0 flex-1 flex-col">
           <OneLine text={name} className="text-body font-medium text-foreground" />
           {detail && <OneLine text={detail} className="text-caption text-faint" />}
         </span>
+        {aside}
         <MoreMenu label={`More for ${name}`} actions={more} />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
