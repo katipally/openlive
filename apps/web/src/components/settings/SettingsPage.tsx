@@ -13,7 +13,7 @@ import { PipelineSettings } from "./PipelineSettings";
 import { ChatSettings } from "./ChatSettings";
 import { DictateSettings } from "./DictateSettings";
 import { SettingsNav, type SettingsGo } from "./nav";
-import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
+import { Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsRecheck, AgentsSettings } from "./AgentsSettings";
 import { CapabilitiesSettings } from "./CapabilitiesSettings";
 import { MemoryClearAll, MemorySettings } from "./MemorySettings";
@@ -306,7 +306,7 @@ export function SettingsPage() {
                     </span>
                     <span data-truncates className={cn("min-w-0", rail)}>
                       <span className={cn("flex flex-wrap items-center gap-x-1.5 text-body font-medium", on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground")}>
-                        {s.label}{s.fresh && <Badge tone="accent">New</Badge>}
+                        {s.label}
                       </span>
                       <span className="block truncate text-caption text-faint">{s.sub}</span>
                     </span>
