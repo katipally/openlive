@@ -184,6 +184,11 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
   const settings = (what: FlowPermissionName) =>
     isMac || (desktopPlatform === "win32" && what === "microphone") ? () => void flowBridge()?.openSettings(what) : undefined;
   const consent = !!config?.consent.granted;
+  const micOk = perms?.microphone === "granted";
+  const inputOk = !!perms?.accessibility && perms.postEvents !== false;
+  const screenOk = !!perms?.screenRecording && caps?.report?.capture !== false;
+  // A row with no ⋯ keeps its place while another row shows one, so every Allow lines up.
+  const menuSlot = (!micOk && !!settings("microphone")) || (!inputOk && !!settings("accessibility")) || (!screenOk && !!settings("screen"));
 
   return (
     <ListGroup>
@@ -192,26 +197,26 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
           <Button size="sm" onClick={refresh}>Check now</Button>
         </ListRow>
       )}
-      <Status label="Microphone" ok={perms?.microphone === "granted"}
-        state={perms?.microphone === "granted" ? "Allowed" : perms?.microphone === "denied" ? "Refused" : "Not asked"}
+      <Status label="Microphone" ok={micOk}
+        state={micOk ? "Allowed" : perms?.microphone === "denied" ? "Refused" : "Not asked"}
         tone={perms?.microphone === "denied" ? "danger" : undefined}
         action={{ label: "Allow", run: ask("microphone") }} settings={settings("microphone")} />
-      <Status label={isMac ? "Accessibility" : "Input access"} ok={!!perms?.accessibility && perms.postEvents !== false}
-        state={perms?.accessibility && perms.postEvents !== false ? "Allowed" : "Not allowed"}
+      <Status label={isMac ? "Accessibility" : "Input access"} ok={inputOk}
+        state={inputOk ? "Allowed" : "Not allowed"}
         action={{ label: "Allow", run: ask("accessibility") }} settings={settings("accessibility")} />
-      <Status label="Screen" ok={!!perms?.screenRecording && caps?.report?.capture !== false}
+      <Status label="Screen" ok={screenOk}
         state={!perms?.screenRecording ? "Not allowed" : caps?.report?.capture === false ? "Reopen OpenLive to use it" : "Allowed"}
         action={perms?.screenRecording ? undefined : { label: "Allow", run: ask("screen") }} settings={settings("screen")} />
       {computer.status?.available && computer.status.grants.map((g) => (
         <Status key={g.id} label={`Computer use: ${g.id === "accessibility" ? "Accessibility" : "Screen"}`} ok={g.granted}
           state={g.granted ? "Allowed" : "Not allowed"} action={{ label: "Allow", run: () => computer.request(g.id) }}
-          detail={g.granted ? undefined : g.detail} />
+          detail={g.granted ? undefined : g.detail} menuSlot={menuSlot} />
       ))}
       <Status label="Act on this machine" ok={consent} state={consent ? "Allowed" : "Asks first"}
         action={{
           label: consent ? "Take it back" : "Allow",
           run: () => save({ consent: consent ? { granted: false, at: "" } : { granted: true, at: new Date().toISOString() } }),
-        }} keep />
+        }} keep menuSlot={menuSlot} />
     </ListGroup>
   );
 }
@@ -242,15 +247,19 @@ function Toggle({ label, detail, info, on, onFlip }: { label: string; detail?: s
 
 /** A grant: a dot, a word, and the one thing to do about it. The action hides
  *  once granted, except where granting is also the way back out (`keep`).
- *  `settings` is the way in by hand, for when the prompt is not wanted, under ⋯. */
-function Status({ label, ok, state, tone, action, keep, settings, detail }: {
-  label: string; ok: boolean; state: string; tone?: DotTone; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void; detail?: string;
+ *  `settings` is the way in by hand, for when the prompt is not wanted, under ⋯;
+ *  `menuSlot` holds that ⋯'s room on a row without one. */
+function Status({ label, ok, state, tone, action, keep, settings, detail, menuSlot }: {
+  label: string; ok: boolean; state: string; tone?: DotTone; action?: { label: string; run: () => void }; keep?: boolean; settings?: () => void; detail?: string; menuSlot?: boolean;
 }) {
+  const acting = !!action && (keep || !ok);
+  const menu = !!settings && !ok;
   return (
     <ListRow label={label} detail={detail}>
       <span className="shrink-0"><StatusDot tone={tone ?? (ok ? "success" : "arc")}>{state}</StatusDot></span>
-      {action && (keep || !ok) && <Button size="sm" onClick={action.run}>{action.label}</Button>}
-      {settings && !ok && <MoreMenu label={`More for ${label}`} actions={[{ label: "Open system settings", run: settings }]} />}
+      {acting && <Button size="sm" onClick={action.run}>{action.label}</Button>}
+      {menu ? <MoreMenu label={`More for ${label}`} actions={[{ label: "Open system settings", run: settings }]} />
+        : acting && menuSlot && <span aria-hidden className="size-control-sm shrink-0" />}
     </ListRow>
   );
 }

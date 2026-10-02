@@ -175,7 +175,7 @@ function Recent({ own }: { own: FlowConfig["dictate"] | undefined }) {
         <Empty>
           {own?.history === "off"
             ? "History is off, so dictations are not kept."
-            : <>Nothing yet. Click into any text box, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" /> and say something.</>}
+            : <>Nothing yet. {own?.enabled ? "Click" : "Turn it on, then click"} into any text box, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" /> and say something.</>}
         </Empty>
       )}
       {items.slice(0, RECENT).map((d) => <Row key={d.id} d={d} />)}
