@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, Video, VideoOff } from "lucide-react";
+import { Mic, VideoOff } from "lucide-react";
 import type { DeviceOpt } from "@/lib/live/liveStore";
 import type { ModelProgress } from "@/lib/live/models";
 import { cn } from "@/lib/cn";

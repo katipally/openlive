@@ -6,7 +6,6 @@ import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
 import { allowedEfforts } from "@openlive/harness/types";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { useUi } from "@/lib/uiStore";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { apiSummary } from "@/lib/live/howItRuns";
 import { HowItRuns, Field, Picker, AutoControl, ThinkNote, THINK_HINT, effortName } from "./SetupControls";

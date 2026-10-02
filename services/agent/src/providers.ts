@@ -1,6 +1,6 @@
 import {
   listProviders, createProvider, updateProvider,
-  getProviderApiKey, getSetting, setSetting, getAllSettings,
+  getProviderApiKey, getSetting, getAllSettings,
 } from "@openlive/db";
 import {
   BUILTIN_PROVIDERS, envKeyFor, isReasoningModel, resolveApiMode, withSettings,
