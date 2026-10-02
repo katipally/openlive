@@ -202,7 +202,7 @@ export default function Home() {
       <ConnectionBanner />
       <Welcome onPending={setWelcomePending} />
       <PrivacyNotice onPending={setNoticePending} />
-      <FeedbackPrompt hold={noticePending || liveOpen} />
+      <FeedbackPrompt hold={noticePending || welcomePending || liveOpen} />
     </div>
   );
 }

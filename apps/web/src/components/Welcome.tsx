@@ -12,6 +12,7 @@ import { AccessRows } from "@/components/flow/FlowSettings";
 import { LinkRow } from "@/components/settings/nav";
 import { tile } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { afterWelcome, allGranted, FLOW_ONBOARDED_KEY } from "@/lib/flow/onboarding";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
@@ -54,12 +55,14 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   const passedAccess = useRef(false);
   const setMode = useUi((s) => s.setMode);
   const openSettingsTab = useUi((s) => s.openSettingsTab);
+  // Step 2 opens Settings, which steps in front until it is closed again.
+  const settingsOpen = useUi((s) => s.settingsOpen);
+  const root = useRef<HTMLDivElement>(null);
 
   // Decided after mount: localStorage is not there during SSR.
   useEffect(() => setOpen(owed()), []);
   useEffect(() => onPending(open), [open, onPending]);
 
-  if (!open) return null;
   const finish = (mode?: AppMode) => {
     markSeen();
     coverFlowAccess(passedAccess.current, allGranted(caps, !!config?.consent.granted));
@@ -70,10 +73,13 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
     if (step === 3) passedAccess.current = true;
     if (step < STEPS) setStep(step + 1); else finish();
   };
+  useFocusTrap(root, open && !settingsOpen, () => finish());
+
+  if (!open || settingsOpen) return null;
   const hold = config ? hotkeyKeys(config.dictate.hotkey, desktopPlatform) : [];
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Welcome to OpenLive" data-covering="settings" className="fixed inset-0 z-settings flex flex-col bg-background text-left">
+    <div ref={root} role="dialog" aria-modal="true" aria-label="Welcome to OpenLive" data-covering="settings" className="fixed inset-0 z-settings flex flex-col bg-background text-left">
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
         <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Welcome · ${step} of ${STEPS}`}</span>
