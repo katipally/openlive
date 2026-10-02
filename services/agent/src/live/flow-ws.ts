@@ -14,7 +14,7 @@ import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
 import { computer } from "../computer/helper.js";
 import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
-import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type PermissionAskOption } from "../agents/index.js";
+import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption } from "../agents/index.js";
 import { emitEvent, emitFact } from "../telemetry/emit.js";
 import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent } from "../telemetry/facts.js";
 import { isAgentId } from "@openlive/shared";
@@ -175,6 +175,25 @@ const YES_NO: PermissionAskOption[] = [
   { id: "deny", label: "Cancel", kind: "reject_once" },
 ];
 
+const CANCEL: PermissionAskOption = { id: "deny", label: "Cancel", kind: "reject_once" };
+/** A pick-one field with more choices than this is not asked as chips. */
+const MAX_CHOICES = 6;
+
+/**
+ * A server's form as the orb can ask it: chips, so nothing to fill in, or one
+ * yes-or-no or pick-one field. Null for anything that needs typing. O(choices).
+ */
+export function formChoice(schema: unknown): { options: PermissionAskOption[]; content(id: string): Record<string, unknown> } | null {
+  const fields = Object.entries((schema as { properties?: Record<string, { type?: string; enum?: unknown[] }> } | null)?.properties ?? {});
+  if (!fields.length) return { options: YES_NO, content: () => ({}) };
+  const [key, f] = fields[0]!;
+  if (fields.length > 1) return null;
+  if (f.type === "boolean") return { options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }, CANCEL], content: (id) => ({ [key]: id === "yes" }) };
+  const choices = f.enum?.every((v) => typeof v === "string") ? (f.enum as string[]) : [];
+  if (!choices.length || choices.length > MAX_CHOICES) return null;
+  return { options: [...choices.map((v, i) => ({ id: `c${i}`, label: v })), CANCEL], content: (id) => ({ [key]: choices[Number(id.slice(1))] }) };
+}
+
 export class FlowLiveSession {
   private closed = false;
   private ac: AbortController | null = null;
@@ -270,6 +289,7 @@ export class FlowLiveSession {
     ...(computer.available() && { computer }),
     workspace: flowAgentCwd,
     fence: homedir,
+    elicit: (req) => this.elicit(req),
   };
 
   // Declared after `toolSession`: a class field is initialized in source order.
@@ -652,6 +672,7 @@ export class FlowLiveSession {
         mcpServers: [wire],
         preamble: buildFlowAcpPreamble({ tools: this.tools.list }),
         onMeta: (meta) => { this.agentMeta = meta; },
+        askElicitation: (req) => this.elicit(req),
       }),
       (question, options, toolCallId) => this.answerForAgent(question, options, toolCallId, signal),
       { startMs: 60_000 },
@@ -748,6 +769,23 @@ export class FlowLiveSession {
     emitEvent("onboarding_step", { step: "flow_consent_granted" });
     try { await updateFlowConfig((cur) => ({ ...cur, consent: { granted: true, at: new Date().toISOString() } })); }
     catch (e) { log.error("flow", "consent:", e); }
+  }
+
+  /**
+   * A connector or the coding agent needs the person mid-call, asked with the
+   * orb's chips as a permission is. A page opens only once they say yes; a form
+   * is asked only when chips can answer it (formChoice), and declined otherwise.
+   */
+  private async elicit(req: ElicitationAsk): Promise<ElicitationAnswer> {
+    const signal = this.ac?.signal ?? AbortSignal.abort();
+    if (req.mode === "url") {
+      if (!req.url || !(await this.askPermission(`${req.message} Open ${URL.parse(req.url)?.host || "the page"} in your browser?`, signal))) return { action: "decline" };
+      try { await this.toolSession.device!.control({ kind: "open_url", url: req.url }); return { action: "accept" }; }
+      catch (e) { log.warn("flow", "elicitation url:", e); return { action: "cancel" }; }
+    }
+    const form = formChoice(req.schema);
+    const id = form ? await this.ask(req.message, signal, form.options) : "";
+    return form && id ? { action: "accept", content: form.content(id) } : { action: "decline" };
   }
 
   /** The same permission protocol chat uses: chips on the orb, spoken yes/no. */

@@ -110,7 +110,7 @@ vi.mock("../agents/index.js", async (importOriginal) => ({
 const dataDir = mkdtempSync(join(tmpdir(), "ol-flow-ws-"));
 process.env.OPENLIVE_HOME = dataDir;
 afterAll(() => { delete process.env.OPENLIVE_HOME; rmSync(dataDir, { recursive: true, force: true }); });
-const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta } = await import("./flow-ws.js");
+const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta, formChoice } = await import("./flow-ws.js");
 const { setSetting, updateMemory } = await import("@openlive/db");
 const { readNotes } = await import("../memory/notes.js");
 const { cancelledText, sentAside } = await import("../turn.js");
@@ -863,5 +863,19 @@ describe("what a Flow turn reports to main", () => {
     ws.client({ t: "flow_cancel" });
     await until(() => turnsDone(ws) === 2);
     expect(events("flow_consent_result")).toEqual([]);
+  });
+});
+
+describe("a server's form on the orb", () => {
+  it("is asked as chips when chips can answer it, and not otherwise", () => {
+    expect(formChoice({ type: "object", properties: {} })!.content("allow")).toEqual({});
+    const yes = formChoice({ type: "object", properties: { sure: { type: "boolean" } } })!;
+    expect(yes.options.map((o) => o.label)).toEqual(["Yes", "No", "Cancel"]);
+    expect([yes.content("yes"), yes.content("no")]).toEqual([{ sure: true }, { sure: false }]);
+    const pick = formChoice({ type: "object", properties: { size: { type: "string", enum: ["S", "M", "L"] } } })!;
+    expect(pick.options.map((o) => o.label)).toEqual(["S", "M", "L", "Cancel"]);
+    expect(pick.content(pick.options[1]!.id)).toEqual({ size: "M" });
+    expect(formChoice({ type: "object", properties: { name: { type: "string" } } })).toBeNull();
+    expect(formChoice({ type: "object", properties: { a: { type: "boolean" }, b: { type: "boolean" } } })).toBeNull();
   });
 });

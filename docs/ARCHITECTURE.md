@@ -969,9 +969,14 @@ An MCP server the user adds once, offered to every brain in both modes.
   says so, and only `POST /connectors/:id/consent` sets it. Results never carry a
   secret: no header or env value, no arguments, no URL query, and any secret
   value a server echoes into an error is blanked.
-- **Elicitation.** A question the server asks mid-call goes to the newest call
-  running on that connector. In a call, URL and form modes reuse the ACP
-  elicitation card; elsewhere a URL opens in the browser and a form is declined.
+- **Elicitation.** A question the server asks mid-call goes to the session
+  whose call asked: over HTTP the request arrives in that call's async context
+  (`AsyncLocalStorage`); over stdio, which names no call, it goes to the one
+  session with calls running there, and is declined when there are two. In a
+  call, URL and form modes reuse the ACP elicitation card. In Flow the orb asks
+  with chips: a URL opens only after a yes, and a form is asked when chips can
+  answer it (nothing to fill in, or one yes-or-no or pick-one field) and
+  declined otherwise. A session that cannot ask declines; nothing opens unasked.
 - **Import** (`import.ts`). Claude Desktop, Claude Code (user scope), Codex,
   Cursor, Gemini CLI and VS Code, at each tool's path for the OS. Preview marks
   duplicates of existing connectors; commit reads the files again and imports

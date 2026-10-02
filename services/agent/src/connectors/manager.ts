@@ -1,9 +1,9 @@
 import { Client, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError, SdkError, SdkErrorCode, type CallToolResult, type ElicitRequestParams, type ElicitResult, type FetchLike, type Tool as McpTool, type Transport } from "@modelcontextprotocol/client";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { connectorSecrets, getConnectorRow, setConnectorTools, transportWire, type CachedTool, type ConnectorRow } from "@openlive/db";
 import type { ConnectorStatus } from "@openlive/shared";
 import type { Session } from "../capabilities/types.js";
-import { log } from "../log.js";
 import { ConnectorOAuth, redirectUrl } from "./oauth.js";
 import { stdioParams } from "./spawn.js";
 
@@ -23,7 +23,7 @@ const STDERR_TAIL = 2000;
 export interface ConnectorState { status: ConnectorStatus; error?: string }
 
 /** A session making a call, so a server's question mid-call reaches the person who asked. */
-type Caller = Pick<Session, "elicit" | "openUrl" | "device">;
+type Caller = Pick<Session, "elicit">;
 
 /** `config`: what the connection was opened with (see configOf). */
 interface Live { client: Client; close(): Promise<void>; config?: string }
@@ -43,8 +43,10 @@ export class ConnectorManager {
   private opening = new Map<string, Promise<Client>>();
   private state = new Map<string, ConnectorState>();
   private retries = new Map<string, { attempt: number; timer?: NodeJS.Timeout }>();
-  /** In-flight calls per connector, newest last. */
+  /** In-flight calls per connector. */
   private callers = new Map<string, Caller[]>();
+  /** The call a server's question belongs to, where the SDK runs its handler in that call's own async context. */
+  private asking = new AsyncLocalStorage<Caller>();
 
   constructor(private readonly opts: { fetch?: FetchLike; version?: string } = {}) {}
 
@@ -76,7 +78,11 @@ export class ConnectorManager {
     const stack = this.callers.get(id) ?? [];
     stack.push(caller);
     this.callers.set(id, stack);
-    const run = async () => (await this.client(id)).callTool({ name: tool, arguments: args }, { signal: caller.signal, timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true });
+    // Connect outside the caller's context: a transport opened inside it would carry it into every later message.
+    const run = async () => {
+      const client = await this.client(id);
+      return this.asking.run(caller, () => client.callTool({ name: tool, arguments: args }, { signal: caller.signal, timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true }));
+    };
     try {
       try { return await run(); }
       catch (e) {
@@ -272,34 +278,27 @@ export class ConnectorManager {
   }
 
   /**
-   * A server asks the person something mid-call. It goes to the newest call
-   * running on that connector: one connection serves every session, and the
-   * request carries nothing that names the call it belongs to. A page to visit
-   * opens in the browser; a form needs a session that can show one (a call),
-   * and is declined everywhere else.
+   * A server asks the person something mid-call, and it goes to the session
+   * whose call asked. One connection serves every session, so that is the call
+   * whose async context the request arrived in (an HTTP server's reply to it),
+   * else the one session with calls running on that connector: a stdio request
+   * names no call. With several sessions and no way to tell, it is declined
+   * rather than put to the wrong person. A session asks before it opens a page; one
+   * that cannot ask declines.
    */
   private async elicit(id: string, params: ElicitRequestParams): Promise<ElicitResult> {
-    const caller = this.callers.get(id)?.at(-1);
-    if (!caller) return { action: "decline" };
-    if (caller.elicit) {
-      const url = params.mode === "url";
-      const answer = await caller.elicit({
-        mode: url ? "url" : "form",
-        message: params.message,
-        ...(url ? { url: params.url, elicitationId: params.elicitationId } : { schema: params.requestedSchema }),
-      });
-      return answer.action === "accept" ? { action: "accept", ...(answer.content && { content: answer.content as ElicitResult["content"] }) } : { action: answer.action };
-    }
-    if (params.mode !== "url") return { action: "decline" };
-    try {
-      if (caller.device) await caller.device.control({ kind: "open_url", url: params.url });
-      else if (caller.openUrl) await caller.openUrl(params.url);
-      else return { action: "decline" };
-      return { action: "accept" };
-    } catch (e) {
-      log.warn("connectors", "elicitation url:", e);
-      return { action: "cancel" };
-    }
+    // A session's calls share its one `elicit`, so calls running in one session are still one asker. O(calls running).
+    const running = new Set(this.callers.get(id)?.map((c) => c.elicit));
+    const own = this.asking.getStore();
+    const ask = own ? own.elicit : running.size === 1 ? [...running][0] : undefined;
+    if (!ask) return { action: "decline" };
+    const url = params.mode === "url";
+    const answer = await ask({
+      mode: url ? "url" : "form",
+      message: params.message,
+      ...(url ? { url: params.url, elicitationId: params.elicitationId } : { schema: params.requestedSchema }),
+    });
+    return answer.action === "accept" ? { action: "accept", ...(answer.content && { content: answer.content as ElicitResult["content"] }) } : { action: answer.action };
   }
 }
 

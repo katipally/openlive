@@ -102,6 +102,21 @@ describe("a stdio connector", () => {
     await done();
   });
 
+  it("asks a session running two calls at once, and never guesses between two sessions", async () => {
+    const asked: string[] = [];
+    const ask = (who: string, sure: boolean) => async () => { asked.push(who); await new Promise((r) => setTimeout(r, 50)); return { action: "accept" as const, content: { sure } }; };
+    const one = await agentSession(ask("one", true));
+    const both = await Promise.all([1, 2].map(() => one.agent.callTool({ name: "fixture__confirm", arguments: {} })));
+    expect(both.map((r) => r.content)).toEqual([[{ type: "text", text: "sure=true" }], [{ type: "text", text: "sure=true" }]]);
+    const a = await agentSession(ask("a", false));
+    const b = await agentSession(ask("b", true));
+    // stdio names no call, so with two sessions waiting neither is asked.
+    const [ra, rb] = await Promise.all([a.agent.callTool({ name: "fixture__confirm", arguments: {} }), b.agent.callTool({ name: "fixture__confirm", arguments: {} })]);
+    expect([ra.isError, rb.isError]).toEqual([true, true]);
+    expect(asked).toEqual(["one", "one"]);
+    await Promise.all([one.done(), a.done(), b.done()]);
+  });
+
   it("declines a form where the session cannot show one", async () => {
     const { agent, done } = await agentSession();
     const r = await agent.callTool({ name: "fixture__confirm", arguments: {} });
@@ -130,5 +145,38 @@ describe("a stdio connector", () => {
     const pid = started().at(-1);
     await manager.shutdown();
     expect(() => process.kill(pid!, 0)).toThrow();
+  });
+});
+
+describe("an http connector", () => {
+  it("puts each question to the session whose call asked, when two ask at once", async () => {
+    const { Server, inputRequired, acceptedContent, createMcpHandler } = await import("@modelcontextprotocol/server");
+    const { serve } = await import("@hono/node-server");
+    const handler = createMcpHandler(() => {
+      const server = new Server({ name: "remote", version: "1" }, { capabilities: { tools: {} } });
+      server.setRequestHandler("tools/list", async () => ({ tools: [{ name: "confirm", description: "Ask first.", inputSchema: { type: "object", properties: {} } }] }));
+      server.setRequestHandler("tools/call", async (_req, ctx) => {
+        const answer = acceptedContent(ctx.mcpReq.inputResponses, "ok");
+        if (!answer) return inputRequired({ inputRequests: { ok: inputRequired.elicit({ message: "Go ahead?", requestedSchema: { type: "object", properties: { who: { type: "string" } }, required: ["who"] } }) } });
+        return { content: [{ type: "text", text: `who=${answer.who}` }] };
+      });
+      return server;
+    });
+    let http!: ReturnType<typeof serve>;
+    const port = await new Promise<number>((resolve) => { http = serve({ fetch: (req) => handler.fetch(req), port: 0, hostname: "127.0.0.1" }, (info) => resolve(info.port)); });
+    const own = new ConnectorManager();
+    const row = await db.createConnector({ name: "Remote", transport: { type: "http", url: `http://127.0.0.1:${port}/mcp` } });
+    try {
+      const caller = (who: string, ms: number) => ({
+        signal: new AbortController().signal,
+        elicit: async () => { await new Promise((r) => setTimeout(r, ms)); return { action: "accept" as const, content: { who } }; },
+      });
+      const [a, b] = await Promise.all([own.call(row.id, "confirm", {}, caller("a", 80)), own.call(row.id, "confirm", {}, caller("b", 0))]);
+      expect([a.content, b.content]).toEqual([[{ type: "text", text: "who=a" }], [{ type: "text", text: "who=b" }]]);
+    } finally {
+      await own.shutdown();
+      await handler.close().catch(() => {});
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    }
   });
 });
