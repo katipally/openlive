@@ -109,7 +109,9 @@ function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["
   return (
     <div className="flex min-h-row flex-wrap items-center gap-x-3 gap-y-1 py-2">
       <span className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
-        <span className="line-clamp-3 whitespace-pre-line break-words text-body text-foreground">{d.final}</span>
+        <Tooltip label={d.final} truncated className="flex min-w-0 max-w-full">
+          <span className="line-clamp-3 whitespace-pre-line break-words text-body text-foreground">{d.final}</span>
+        </Tooltip>
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted-foreground">
           <span>{timeOf(d.at)}</span>
           {d.app && <span className="break-words">{d.app}</span>}

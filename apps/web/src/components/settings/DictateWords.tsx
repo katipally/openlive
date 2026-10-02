@@ -120,7 +120,9 @@ function Snippets({ snippets, save }: { snippets: Snippet[]; save: (s: Snippet[]
               <div key={i} className="flex min-h-row flex-wrap items-center gap-x-3 gap-y-1 py-2">
                 <span className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
                   <span className="break-words text-body text-foreground">{s.trigger}</span>
-                  <span className="line-clamp-2 whitespace-pre-line break-words text-label text-muted-foreground">{s.text}</span>
+                  <Tooltip label={s.text} truncated className="flex min-w-0 max-w-full">
+                    <span className="line-clamp-2 whitespace-pre-line break-words text-label text-muted-foreground">{s.text}</span>
+                  </Tooltip>
                 </span>
                 <span className="flex">
                   <Tooltip label="Edit"><Button variant="ghost" size="sm" icon onClick={() => setEditing(i)} aria-label={`Edit ${s.trigger}`}><Pencil /></Button></Tooltip>

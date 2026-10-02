@@ -245,11 +245,14 @@ function HotkeyRow({ binding, fallback, taken: taken_, label, detail, info, onPi
   return (
     <>
       <ListRow label={label} detail={picking ? "Press a key or combo, Esc cancels" : detail} info={info}>
-        {picking
-          ? <Button size="sm" onClick={() => setPicking(false)}>Cancel</Button>
-          : <Keycaps keys={keys} label={keys.join(" ")} />}
-        {!picking && isDesktop && <Button size="sm" onClick={() => { setRefused(false); setPicking(true); }}>Change</Button>}
-        {!picking && binding !== fallback && fallback !== taken_ && <Button size="sm" variant="ghost" onClick={() => onPick(fallback)}>Reset</Button>}
+        {/* One unit, so a narrow row moves the key and its buttons down together. */}
+        <span className="flex flex-wrap items-center gap-2">
+          {picking
+            ? <Button size="sm" onClick={() => setPicking(false)}>Cancel</Button>
+            : <Keycaps keys={keys} label={keys.join(" ")} />}
+          {!picking && isDesktop && <Button size="sm" onClick={() => { setRefused(false); setPicking(true); }}>Change</Button>}
+          {!picking && binding !== fallback && fallback !== taken_ && <Button size="sm" variant="ghost" onClick={() => onPick(fallback)}>Reset</Button>}
+        </span>
         {refused && (
           <div className="basis-full">
             <StatusDot tone="arc">{refused === "taken" ? "Dictate's other key is that one. Pick another." : "That key also types. Use a modifier, Caps Lock or F13 to F24."}</StatusDot>
