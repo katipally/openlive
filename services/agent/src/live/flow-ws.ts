@@ -287,6 +287,8 @@ export class FlowLiveSession {
       write: (text) => this.bridge("clipboard_write", text),
     },
     device: bridgedDevice((arg) => this.bridge("flow_device", arg, DEVICE_TIMEOUT_MS)),
+    // An empty answer is a desktop that never replied, so it is not claimed to have worked.
+    dictate: async (on) => (await this.bridge("flow_dictate", on ? "on" : "off")) || "The desktop did not answer, so dictation was not changed.",
     ...(computer.available() && { computer }),
     workspace: flowAgentCwd,
     fence: homedir,
@@ -626,7 +628,7 @@ export class FlowLiveSession {
   // ── client handshakes ─────────────────────────────────────────────────────
 
   /** Run an OS action on the user's machine and await its result. */
-  private bridge(op: "clipboard_read" | "clipboard_write" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device", arg?: string, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<string> {
+  private bridge(op: "clipboard_read" | "clipboard_write" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device" | "flow_dictate", arg?: string, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<string> {
     if (this.closed) return Promise.resolve("");
     return new Promise((resolve) => {
       const reqId = randomUUID();

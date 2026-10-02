@@ -13,7 +13,7 @@ export type AgentMeta = AgentMetaWire;
 // when the ask comes from a coding agent — drives styling + voice yes/no mapping.
 export type PermissionOption = { id: string; label: string; kind?: string };
 export type ElicitationWire = { reqId: string; mode: "url" | "form"; message: string; url?: string; schema?: unknown; expiresAt?: number };
-export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device";
+export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device" | "flow_dictate";
 
 /** Where the live socket is. The desktop app hands over the agent's port, chosen
  *  at launch; the web build uses its baked URL (dev), else its own host. */

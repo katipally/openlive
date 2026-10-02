@@ -86,6 +86,8 @@ export interface Session {
   device?: DevicePort;
   /** The computer-use helper, where it runs. Supersedes ol-input's pointer, keyboard and screenshot tools. */
   computer?: ComputerPort;
+  /** Hands-free Dictate on or off, on the desktop's orb. Resolves to how it went, in a sentence. */
+  dictate?: (on: boolean) => Promise<string>;
   /** Opening a page in the default browser, for a session without the device. */
   openUrl?: (url: string) => Promise<string>;
   share?: LiveShare;

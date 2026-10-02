@@ -149,6 +149,23 @@ describe("one server for every mode", () => {
 // one after it with "Server already initialized", which the agent reported as
 // having no tools at all. These are the shapes that happen in practice: an agent
 // that restarts, two Flow sessions at once, and an agent on either protocol era.
+describe("set_dictation", () => {
+  it("reaches a coding agent over MCP exactly as the built-in brain runs it", async () => {
+    const asked: boolean[] = [];
+    const dictate = async (on: boolean) => { asked.push(on); return on ? "Dictation is on." : "Dictation is off."; };
+    const tools = registry.tools(FLOW, { foreground: { capture: async () => null }, insert, clipboard, device, dictate });
+    const server = mcpServer({ tools, ctx: () => ({ signal: new AbortController().signal, context: null, dictate }) });
+    const client = new Client({ name: "agent", version: "1" });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain("set_dictation");
+    const r = await client.callTool({ name: "set_dictation", arguments: { on: true } });
+    expect(r.isError).toBe(false);
+    expect(r.content).toEqual([{ type: "text", text: "Dictation is on." }]);
+    expect(asked).toEqual([true]);
+  });
+});
+
 describe("the wire an ACP agent connects to", () => {
   const serve = () => serveMcp({
     tools: flowTools(),

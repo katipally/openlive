@@ -35,7 +35,7 @@ export const CHAT: Profile<Ask> = {
 
 export const FLOW: Profile<ConsentOpts> = {
   name: "flow",
-  order: ["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context"],
+  order: ["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context", "set_dictation"],
   prompt: (tools, lang) => buildFlowPrompt({ tools, lang }),
   approval: consentApprove,
 };

@@ -123,4 +123,16 @@ const getContext: Tool<Record<string, never>, { context: unknown }> = {
   },
 };
 
-export const TEXT_TOOLS: Tool[] = [insertText, readSelection, clipboardRead, clipboardWrite, getContext];
+const setDictation: Tool<{ on: boolean }, { on: boolean }> = {
+  name: "set_dictation",
+  group: "text",
+  description: "Turn hands-free dictation on or off. While it is on, what the user says is cleaned up and typed at their cursor instead of coming to you. Use it when they ask to start or stop dictating.",
+  parameters: { type: "object", properties: { on: { type: "boolean", description: "true to start dictating, false to stop" } }, required: ["on"], additionalProperties: false },
+  promptGuidelines: ["After set_dictation turns it on, answer in a few words: what they say next is typed, not sent to you."],
+  available: (s) => !!s.dictate,
+  async execute(args, ctx) {
+    return { content: [text(await ctx.dictate!(args.on === true))], details: { on: args.on === true } };
+  },
+};
+
+export const TEXT_TOOLS: Tool[] = [insertText, readSelection, clipboardRead, clipboardWrite, getContext, setDictation];

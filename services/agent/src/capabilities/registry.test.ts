@@ -56,6 +56,14 @@ describe("the registry", () => {
     expect(a).not.toBe(b);
   });
 
+  it("offers set_dictation where the desktop's orb can take it, with the text tools, and nowhere else", () => {
+    const dictate = async () => "Dictation is on.";
+    const withOrb = names(FLOW, { ...flow, dictate });
+    expect(withOrb.slice(0, 6)).toEqual(["insert_text", "read_selection", "clipboard_read", "clipboard_write", "get_context", "set_dictation"]);
+    expect(names(FLOW, flow)).not.toContain("set_dictation");
+    expect(names(CHAT, call)).not.toContain("set_dictation");
+  });
+
   it("offers nothing a session cannot reach", () => {
     expect(names(CHAT, {})).toEqual(["delegate", "remember", ...REMINDERS, FIND, ...SETUP]);
   });
