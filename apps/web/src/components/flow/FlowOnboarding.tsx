@@ -20,12 +20,14 @@ import { SwitchHole } from "./ModeSwitch";
 // the thinking. Everything finer lives in Settings. "Skip" finishes from either
 // step; Flow asks for anything missing the first time it needs it.
 
-export function FlowOnboarding({ onDone, config, save }: {
+/** `from` is 2 when the app's Welcome already showed the access step. */
+export function FlowOnboarding({ from, onDone, config, save }: {
+  from: 1 | 2;
   onDone: () => void;
   config: FlowConfig | null;
   save: (patch: FlowConfigPatch) => void;
 }) {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2>(from);
   useEffect(() => {
     telemetry.track("onboarding_step", { step: step === 1 ? "flow_onboarding_shown" : "flow_onboarding_step2" });
   }, [step]);

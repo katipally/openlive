@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Bot, SlidersHorizontal } from "lucide-react";
 import { Button, Keycap, Keycaps, ListGroup } from "@/components/ui";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
@@ -12,6 +12,8 @@ import { AccessRows } from "@/components/flow/FlowSettings";
 import { LinkRow } from "@/components/settings/nav";
 import { tile } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { afterWelcome, allGranted, FLOW_ONBOARDED_KEY } from "@/lib/flow/onboarding";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { useUi, type AppMode } from "@/lib/uiStore";
@@ -33,12 +35,23 @@ const LINE: Record<AppMode, string> = {
 /** Owed to someone who has never been welcomed and never seen the home tour, which every earlier version showed. */
 const owed = (): boolean => { try { return localStorage.getItem(WELCOMED_KEY) !== "1" && !tourSeen("home"); } catch { return false; } };
 const markSeen = (): void => { try { localStorage.setItem(WELCOMED_KEY, "1"); } catch { /* private mode: shown again next launch */ } };
+/** Flow's first run opens past its access step when this one covered it. */
+const coverFlowAccess = (passed: boolean, granted: boolean): void => {
+  try {
+    const flag = localStorage.getItem(FLOW_ONBOARDED_KEY);
+    const next = afterWelcome(flag, passed, granted);
+    if (next !== null && next !== flag) localStorage.setItem(FLOW_ONBOARDED_KEY, next);
+  } catch { /* private mode: Flow asks again */ }
+};
 
 /** `onPending` tells the page while it is up, so the home tour waits its turn. */
 export function Welcome({ onPending }: { onPending: (pending: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(1);
   const { config, save } = useFlowConfig();
+  // Read on open and polled on the access step, so a grant given there counts.
+  const { caps } = useFlowCapabilities(open && step === 3);
+  const passedAccess = useRef(false);
   const setMode = useUi((s) => s.setMode);
   const openSettingsTab = useUi((s) => s.openSettingsTab);
 
@@ -47,7 +60,16 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   useEffect(() => onPending(open), [open, onPending]);
 
   if (!open) return null;
-  const finish = (mode?: AppMode) => { markSeen(); setOpen(false); if (mode) setMode(mode); };
+  const finish = (mode?: AppMode) => {
+    markSeen();
+    coverFlowAccess(passedAccess.current, allGranted(caps, !!config?.consent.granted));
+    setOpen(false);
+    if (mode) setMode(mode);
+  };
+  const next = () => {
+    if (step === 3) passedAccess.current = true;
+    if (step < STEPS) setStep(step + 1); else finish();
+  };
   const hold = config ? hotkeyKeys(config.dictate.hotkey, desktopPlatform) : [];
 
   return (
@@ -129,7 +151,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
             </Button>
           )}
           <span className="flex-1" />
-          <Button variant="primary" size="lg" onClick={() => (step < STEPS ? setStep(step + 1) : finish())}>
+          <Button variant="primary" size="lg" onClick={next}>
             {step < STEPS ? "Continue" : "Done"}
             <ArrowRight aria-hidden />
           </Button>
