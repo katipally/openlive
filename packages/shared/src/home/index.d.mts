@@ -16,6 +16,8 @@ export interface HomeLayout {
   state: string;
   portalToken: string;
   migration: string;
+  /** The app's remembered view and preferences (packages/db/src/ui-state.ts). */
+  ui: string;
   logs: string;
   cache: string;
   scratch: string;
@@ -37,5 +39,7 @@ export function writeAtomic(file: string, text: string | Uint8Array): void;
 export function loadKey(keyFile: string, env?: Env): Buffer;
 export function encrypt(key: Buffer, plaintext: string): string;
 export function decrypt(key: Buffer, stored: string): string;
+export function wipeRefusal(home: unknown, o?: { platform?: string; homedir?: string }): string | null;
+export function wipeHome(home: string, o?: { platform?: string; homedir?: string }): string[];
 export interface MigrationReport { version: number; at: string; moved: string[]; backups: string[]; skipped: string[] }
 export function migrateHome(home: string, o?: { from?: string; userData?: string; env?: Env; platform?: string; homedir?: string }): MigrationReport | null;

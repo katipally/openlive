@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decrypt, encrypt, layout, loadKey, migrateHome, readMcp, resolveHome, runsFingerprint, userHome, writeMcp } from "./index.mjs";
+import { decrypt, encrypt, layout, loadKey, migrateHome, readMcp, resolveHome, runsFingerprint, userHome, wipeHome, wipeRefusal, writeMcp } from "./index.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const temps: string[] = [];
@@ -53,7 +53,7 @@ describe("where the home is", () => {
       encKey: "/h/secrets/.enc-key", providers: "/h/secrets/providers.json", connectorSecrets: "/h/secrets/connectors.json",
       settingSecrets: "/h/secrets/settings.json", data: "/h/data", state: "/h/state", portalToken: "/h/state/portal-token",
       migration: "/h/state/migration.json", logs: "/h/logs", scratch: "/h/cache/scratch", debug: "/h/cache/debug",
-      checkpoints: "/h/cache/checkpoints", workspace: "/h/workspace",
+      checkpoints: "/h/cache/checkpoints", workspace: "/h/workspace", ui: "/h/state/ui.json",
     });
     const moved = layout("/h", { env: { OPENLIVE_SKILLS_DIR: "/s", OPENLIVE_FLOW_HOME: "/f" }, platform: "linux" });
     expect([moved.skills, moved.flowHome, moved.settings]).toEqual(["/s", "/f", "/h/settings.json"]);
@@ -282,5 +282,52 @@ describe("moving into the home", () => {
     utimesSync(join(home, "state", ".migrate.lock"), old, old);
     expect(migrateHome(home, { env: {} })?.moved).toHaveLength(1);
     expect(existsSync(join(home, "state", ".migrate.lock"))).toBe(false);
+  });
+});
+
+describe("wipeRefusal", () => {
+  const mac = { platform: "darwin", homedir: "/Users/me" };
+  const win = { platform: "win32", homedir: "C:\\Users\\me" };
+  it("lets OpenLive's own folders through, wherever they sit", () => {
+    expect(wipeRefusal("/Users/me/.openlive", mac)).toBeNull();
+    expect(wipeRefusal("/Users/me/code/openlive/data", mac)).toBeNull();
+    expect(wipeRefusal("/srv/openlive", mac)).toBeNull();
+    expect(wipeRefusal("/Users/me/..openlive", mac)).toBeNull();
+    expect(wipeRefusal("C:\\Users\\me\\.openlive", win)).toBeNull();
+    expect(wipeRefusal("D:\\openlive", win)).toBeNull();
+  });
+  it("refuses empty, relative, root, the home folder and anything above it", () => {
+    for (const bad of [undefined, "", "  ", "data", "./x", "/", "/Users/me", "/Users/me/", "/Users", "/Users/me/.openlive/.."]) expect(wipeRefusal(bad, mac)).not.toBeNull();
+    for (const bad of ["C:\\", "D:\\", "C:\\Users", "c:\\users\\ME", "relative\\x"]) expect(wipeRefusal(bad, win)).not.toBeNull();
+  });
+});
+
+describe("wipeHome", () => {
+  it("empties the folder, keeps it, and removes links without following them", () => {
+    const home = temp(), outside = temp();
+    put(join(home, "settings.json"), "{}");
+    put(join(home, "state", "ui.json"), "{}");
+    put(join(outside, "keep.txt"), "mine");
+    symlinkSync(outside, join(home, "linked"), posix ? "dir" : "junction");
+    expect(wipeHome(home, { homedir: "/nowhere" }).sort()).toEqual(["linked", "settings.json", "state"]);
+    expect(readdirSync(home)).toEqual([]);
+    expect(readFileSync(join(outside, "keep.txt"), "utf8")).toBe("mine");
+  });
+  it("throws before touching anything when the folder is refused", () => {
+    const home = temp();
+    put(join(home, "a.txt"), "a");
+    expect(() => wipeHome(home, { homedir: join(home, "me") })).toThrow(/home folder/);
+    expect(readFileSync(join(home, "a.txt"), "utf8")).toBe("a");
+  });
+  it("judges a linked home by where it leads", () => {
+    const real = realpathSync(temp()), links = temp();
+    const home = join(links, "openlive");
+    symlinkSync(real, home, posix ? "dir" : "junction");
+    put(join(real, "a.txt"), "a");
+    expect(() => wipeHome(home, { homedir: join(real, "me") })).toThrow(/home folder/);
+    expect(existsSync(join(real, "a.txt"))).toBe(true);
+  });
+  it("is a no-op for a folder that is not there", () => {
+    expect(wipeHome(join(temp(), "gone"), { homedir: "/nowhere" })).toEqual([]);
   });
 });

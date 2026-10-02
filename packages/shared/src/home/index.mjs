@@ -56,6 +56,7 @@ export function layout(home = resolveHome(), { env = process.env, platform = pro
     state,
     portalToken: p.join(state, "portal-token"),
     migration: p.join(state, "migration.json"),
+    ui: p.join(state, "ui.json"),
     logs: p.join(home, "logs"),
     cache,
     scratch: p.join(cache, "scratch"),
@@ -123,6 +124,42 @@ export function decrypt(key, stored) {
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
   decipher.setAuthTag(Buffer.from(tagHex, "hex"));
   return Buffer.concat([decipher.update(Buffer.from(dataHex, "hex")), decipher.final()]).toString("utf8");
+}
+
+// ── starting over ────────────────────────────────────────────────────────────
+
+/**
+ * Why `home` must not be emptied, or null when it may be. Refused: an empty or
+ * relative path, a filesystem root, the user's own home folder or any folder
+ * above it, since emptying one of those takes far more than OpenLive's files.
+ */
+export function wipeRefusal(home, { platform = process.platform, homedir = os.homedir() } = {}) {
+  const p = pathFor(platform);
+  if (typeof home !== "string" || !home.trim() || !p.isAbsolute(home)) return "The OpenLive folder is not an absolute path.";
+  const dir = p.resolve(home);
+  if (p.parse(dir).root === dir) return `${dir} is the root of a drive.`;
+  const rel = p.relative(dir, p.resolve(homedir));
+  const outside = rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel);
+  if (!outside) return `${dir} holds your whole home folder.`;
+  return null;
+}
+
+/**
+ * Empty `home`, keeping the folder itself. Throws the refusal instead when
+ * wipeRefusal names one. Symlinks inside are removed, never followed, so
+ * nothing outside the folder goes. O(entries under home).
+ */
+export function wipeHome(home, opts) {
+  const no = wipeRefusal(home, opts);
+  if (no) throw new Error(no);
+  if (!fs.existsSync(home)) return [];
+  // A home that is itself a link is judged by where it leads.
+  const real = fs.realpathSync(home);
+  const via = wipeRefusal(real, opts);
+  if (via) throw new Error(via);
+  const names = fs.readdirSync(real);
+  for (const n of names) fs.rmSync(path.join(real, n), { recursive: true, force: true, maxRetries: 5 });
+  return names;
 }
 
 // ── the move from the old layout ─────────────────────────────────────────────
