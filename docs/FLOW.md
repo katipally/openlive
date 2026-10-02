@@ -299,7 +299,7 @@ rows, each with a line on what it needs:
 - **Computer use: Screen.** On X11 there is nothing to allow. On Wayland,
   **Allow** shows the system's screen sharing dialog once: share every screen
   and allow remote control. The approval is kept (a restore token, in
-  `~/.local/state/openlive/computer-use/`) until you revoke it in the system's
+  the OpenLive folder's `state/portal-token`) until you revoke it in the system's
   privacy settings or press Stop on the screen-sharing indicator, which also
   makes OpenLive forget it. While Flow is using the screen, GNOME and KDE show
   their screen-sharing indicator; it goes away two minutes after the last use.

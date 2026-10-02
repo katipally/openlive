@@ -244,7 +244,7 @@ keys, model ids or error text.
 
 Everything OpenLive keeps on your computer is in one folder, like `~/.claude`:
 `~/.openlive` on macOS and Linux, `%USERPROFILE%\.openlive` on Windows. Settings >
-About > **Show OpenLive folder** opens it. Set `OPENLIVE_HOME` to put it elsewhere.
+About > Your data > **Open folder** opens it. Set `OPENLIVE_HOME` to put it elsewhere.
 
 ```
 ~/.openlive/
@@ -322,6 +322,10 @@ packages/harness provider-neutral model adapters, live model listing, cost/effor
 packages/db      the store under ~/.openlive: encrypted keys, settings, chats, connectors
 packages/flow-store Flow's config and session history in ~/.openlive/flow
 native/ol-input  Rust addon for Flow: the global key, typing, capture, OCR, input
+native/openlive-cu  Rust computer-use helper the agent drives over a local socket,
+                 shipped as its own app so its OS grants are its own
+tools/           evals behind the root scripts: voice:*, voiceprint:eval,
+                 addressee:*, converse:eval
 ```
 
 Flow's pieces: `apps/web/src/components/flow` and `src/lib/flow` (the orb and its
