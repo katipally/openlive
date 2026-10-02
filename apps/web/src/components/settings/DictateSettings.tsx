@@ -29,7 +29,7 @@ import { DictateHistory, historyQuery } from "./DictateHistory";
 const DEFAULT_KEY = "option_right";
 const DEFAULT_COMMAND_KEY = "shift+option_right";
 type Pane = "basics" | "words" | "commands" | "history";
-const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
+export const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
 const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; detail: string; info?: string }[] = [
   { id: "enter", label: "“Press enter”", detail: "Presses Return" },
   { id: "newLine", label: "“New line”", detail: "Line break, no send", info: "Shift+Return, which breaks the line in chat boxes without sending. In a terminal it runs the line." },

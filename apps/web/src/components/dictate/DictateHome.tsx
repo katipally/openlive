@@ -3,15 +3,18 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Copy, Languages, Settings2, Sparkles, WholeWord } from "lucide-react";
-import type { DictateTone, Dictation, FlowConfig } from "@openlive/flow-store";
+import type { Dictation, FlowConfig } from "@openlive/flow-store";
 import { Button, Chip, Keycaps, Segmented, Switch, Tooltip, groupLabel, linkClass, pill } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { SwitchHole } from "@/components/flow/ModeSwitch";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { historyQuery } from "@/components/settings/DictateHistory";
+import { TONES } from "@/components/settings/DictateSettings";
+import { QueryState, StatusDot } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { flowBridge, type FlowPermissionName } from "@/lib/flow/bridge";
+import { keyListenerNote } from "@/lib/flow/failure";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
 import { CURATED_LANGUAGES, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
@@ -26,12 +29,11 @@ import { cn } from "@/lib/cn";
 // is in Settings > Dictate, one press away.
 
 const RECENT = 5;
-const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
 const WORDS_AT = { anchor: "set-dictate-dictionary", reveal: "set-dictate-words" };
 const HISTORY_AT = { anchor: "set-dictate-history-list", reveal: "set-dictate-history" };
 
 export function DictateHome() {
-  const { config, save } = useFlowConfig();
+  const { config, save, error, refetch } = useFlowConfig();
   const { caps, refresh } = useFlowCapabilities();
   const settingsOpen = useUi((s) => s.settingsOpen);
   const openSettingsTab = useUi((s) => s.openSettingsTab);
@@ -46,8 +48,9 @@ export function DictateHome() {
   const on = !!own?.enabled;
   const perms = caps?.permissions;
   const missing: FlowPermissionName[] = perms && !caps?.addonError
-    ? [...(perms.microphone !== "granted" ? ["microphone" as const] : []), ...(!perms.accessibility ? ["accessibility" as const] : [])]
+    ? [...(perms.microphone !== "granted" ? ["microphone" as const] : []), ...(!perms.accessibility || perms.postEvents === false ? ["accessibility" as const] : [])]
     : [];
+  const keyNote = on ? keyListenerNote(caps) : "";
 
   return (
     <div className="flex h-dvh flex-col">
@@ -82,6 +85,9 @@ export function DictateHome() {
                 ))}
               </div>
             )}
+            {keyNote && <StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot>}
+            {!config && <QueryState loading={false} error={error || null} retrying={false} onRetry={refetch} what="read Dictate's settings" />}
+            {config && error && <p role="alert" className="max-w-full break-words text-label text-destructive-text">{error}</p>}
             {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />}
 
             {own && <QuickPills own={own} save={(patch) => save({ dictate: patch })} off={!on} />}
