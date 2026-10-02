@@ -215,7 +215,7 @@ One summary per Flow session and per call.
 
 ### `flow_session`
 
-Each time Flow's orb closes. One event covers one time the orb was open. A double tap by accident shows up as a session with 0 turns.
+Each time Flow's orb closes. One event covers one time the orb was open. A double tap by accident shows up as a session with 0 turns. The orb up for Dictate alone is not a Flow session and sends nothing.
 
 Limit: none.
 

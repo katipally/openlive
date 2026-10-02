@@ -6,6 +6,22 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Added
+- **Dictate.** Hold Right Alt (Right Option on macOS) and talk; letting go
+  types the cleaned-up words where your cursor is, in any app, with no brain and
+  nothing spoken back. Double-tap for hands-free, tap once more to stop. The
+  orb shows it in chartreuse with Flow's own motion, a dashed ring hands-free
+  and one line of what it heard. Turn it on in Settings > Dictate, where the
+  key can be changed (with a warning where Right Alt may be AltGr). See
+  [docs/DICTATE.md](docs/DICTATE.md).
+- **On-device cleanup for Dictate**, each rule its own switch: punctuation,
+  filler words, backtrack ("actually", "no wait", "scratch that"), spoken lists
+  and numbers.
+- **A mic button beside Flow's orb** and a `set_dictation` tool, so "turn on
+  dictation" works by voice with every brain, coding agents included.
+- **Put my clipboard back** in Settings > General > Typing at cursor. On by
+  default, as before; off, typed text stays on the clipboard.
+
 ### Removed
 - **Mini mode.** The floating always-on-top call bar, its tray item and its
   global talk hotkey (Settings → General → Mini mode) are gone. A call now shows

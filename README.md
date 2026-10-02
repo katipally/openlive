@@ -180,6 +180,10 @@ Flow is the voice assistant that lives over your dock, not in a window.
 The full guide, with every setting, failure card, platform detail, and the
 architecture, is in [docs/FLOW.md](docs/FLOW.md).
 
+**Dictate** types what you say: hold Right Alt (Right Option on macOS), talk,
+let go, and the cleaned-up words land at your cursor, with no brain involved.
+Double-tap for hands-free. See [docs/DICTATE.md](docs/DICTATE.md).
+
 ## Screenshots
 
 | Home | In a live call |
