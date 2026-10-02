@@ -3,13 +3,13 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "models" | "voice" | "engine" | "agents" | "capabilities" | "memory" | "chat" | "flow" | "privacy" | "about";
+export type SettingsTabId = "general" | "flow" | "dictate" | "chat" | "models" | "agents" | "capabilities" | "memory" | "voice" | "engine" | "privacy" | "about";
 
 /** The subtabs of Capabilities. Each was, or could have been, a tab of its own. */
 export const CAPABILITY_TABS = ["tools", "skills", "connectors"] as const;
 export type CapabilityTab = (typeof CAPABILITY_TABS)[number];
 
-export const SETTINGS_TABS: readonly string[] = ["general", "models", "voice", "engine", "agents", "capabilities", "memory", "chat", "flow", "privacy", "about"] satisfies SettingsTabId[];
+export const SETTINGS_TABS: readonly string[] = ["general", "flow", "dictate", "chat", "models", "agents", "capabilities", "memory", "voice", "engine", "privacy", "about"] satisfies SettingsTabId[];
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
 const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice", tools: "capabilities", skills: "capabilities", connectors: "capabilities" };

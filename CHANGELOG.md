@@ -15,6 +15,11 @@ Releases before 0.1.9 predate this file — see the
   Saved settings that still carry it load as before.
 
 ### Changed
+- **Settings, regrouped.** General leads, then **Modes** (Flow, Dictate,
+  Chat), **Intelligence** (Models, Agents, Capabilities, Memory), **Voice**
+  (Voice, Speech engine) and **App** (Privacy, About), each with a line short
+  enough to read whole. A narrow window folds the list to icons, each named on
+  hover.
 - **A shorter tray menu.** It reads: the status in plain words with the Flow
   hotkey (**Flow is ready · Double-tap ⌃**), **Open OpenLive**, **Start Flow**,
   **Settings…** and **Quit OpenLive**. **Flow armed** moved to Settings > Flow

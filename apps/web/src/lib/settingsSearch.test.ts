@@ -135,7 +135,7 @@ describe("privacy settings", () => {
 describe("resolveSettingsTab", () => {
   it("keeps current ids and maps old ones to the tab that holds them now", () => {
     expect(resolveSettingsTab("models")).toBe("models");
-    for (const id of ["engine", "chat", "flow", "voice", "privacy"]) expect(resolveSettingsTab(id)).toBe(id);
+    for (const id of ["engine", "chat", "flow", "dictate", "voice", "privacy"]) expect(resolveSettingsTab(id)).toBe(id);
     expect(resolveSettingsTab("pipeline")).toBe("engine");
     expect(resolveSettingsTab("voices")).toBe("voice");
   });

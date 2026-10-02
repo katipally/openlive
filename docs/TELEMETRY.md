@@ -629,6 +629,7 @@ Limit: at most 3 per day.
 | `n_settings_tab_memory` | Times the Memory page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_chat` | Times the Chat page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_flow` | Times the Flow page of Settings was shown. | whole number, 0 to 999 | sometimes |
+| `n_settings_tab_dictate` | Times the Dictate page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_privacy` | Times the Privacy page of Settings was shown. | whole number, 0 to 999 | sometimes |
 | `n_settings_tab_about` | Times the About page of Settings was shown. | whole number, 0 to 999 | sometimes |
 

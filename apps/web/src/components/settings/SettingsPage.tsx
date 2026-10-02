@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, motion, stagger } from "motion/react";
-import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Blocks, Brain } from "lucide-react";
+import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Blocks, Brain, Mic } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { useAppVersion } from "@/lib/useAppVersion";
@@ -11,6 +11,7 @@ import { ModelsSettings } from "./ModelsSettings";
 import { VoiceSettings } from "./VoiceSettings";
 import { PipelineSettings } from "./PipelineSettings";
 import { ChatSettings } from "./ChatSettings";
+import { DictateSettings } from "./DictateSettings";
 import { SettingsNav, type SettingsGo } from "./nav";
 import { Badge, Chip, Input, Tooltip, groupLabel } from "@/components/ui";
 import { AgentsSettings } from "./AgentsSettings";
@@ -26,25 +27,26 @@ import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop, MOD } from "
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { capabilityTab, resolveSettingsTab, searchSettings, type SettingsEntry, type SettingsTabId } from "@/lib/settingsSearch";
 
-// `group` heads a run of the nav: what Chat and Flow share, then what each mode
-// keeps for itself. `desc` is the page's own line when it says more than `sub`.
+// `group` names the run of the nav a section belongs to; a heading opens each
+// run. `desc` is the page's own line when it says more than `sub`.
 export const SECTIONS = [
-  { id: "general", label: "General", sub: "Appearance & startup", icon: Settings2, Comp: GeneralSettings },
-  { id: "models", label: "Models", sub: "API mode · BYOK", desc: "Your own key, your own model.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Shared by Chat and Flow", shared: true },
-  { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, shared: true },
-  { id: "engine", label: "Speech engine", sub: "VAD · STT · turns · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, shared: true, fresh: true },
-  { id: "agents", label: "Agents", sub: "Install, sign in & visibility", icon: Bot, Comp: AgentsSettings, shared: true },
-  { id: "capabilities", label: "Capabilities", sub: "Tools, skills & connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, shared: true, fresh: true, wide: true },
-  { id: "memory", label: "Memory", sub: "What it remembers about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, shared: true, fresh: true, wide: true },
-  { id: "chat", label: "Chat", sub: "Push-to-talk & narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
-  { id: "flow", label: "Flow", sub: "Trigger, typing & access", icon: Waves, Comp: FlowSettings },
-  { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "", desktop: true },
-  { id: "about", label: "About", sub: "Version & links", icon: Info, Comp: AboutSettings },
+  { id: "general", label: "General", sub: "Look, startup, typing", desc: "Look, startup and typing.", icon: Settings2, Comp: GeneralSettings },
+  { id: "flow", label: "Flow", sub: "Trigger, brain, access", desc: "Talk to your computer from anywhere.", icon: Waves, Comp: FlowSettings, group: "Modes" },
+  { id: "dictate", label: "Dictate", sub: "Hotkey, cleanup, words", desc: "Talk instead of type, in any app.", icon: Mic, Comp: DictateSettings, group: "Modes", fresh: true },
+  { id: "chat", label: "Chat", sub: "Push-to-talk, narration", desc: "What only a call does.", icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
+  { id: "models", label: "Models", sub: "API · BYOK", desc: "Your own key, your own model.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Intelligence", shared: true },
+  { id: "agents", label: "Agents", sub: "Install, sign in", icon: Bot, Comp: AgentsSettings, group: "Intelligence", shared: true },
+  { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What every brain can use, API models and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, fresh: true, wide: true },
+  { id: "memory", label: "Memory", sub: "Facts about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, group: "Intelligence", shared: true, fresh: true, wide: true },
+  { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in both modes.", icon: AudioWaveform, Comp: VoiceSettings, group: "Voice", shared: true },
+  { id: "engine", label: "Speech engine", sub: "VAD · STT · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, group: "Voice", shared: true, fresh: true },
+  { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "App", desktop: true },
+  { id: "about", label: "About", sub: "Version, links", icon: Info, Comp: AboutSettings, group: "App" },
 ] as const satisfies readonly Sec[];
 type TabId = (typeof SECTIONS)[number]["id"];
 interface Sec {
   id: SettingsTabId; label: string; sub: string; icon: typeof Info; Comp: () => React.ReactNode;
-  group?: string; desc?: string; shared?: boolean; fresh?: boolean;
+  group?: "Modes" | "Intelligence" | "Voice" | "App"; desc?: string; shared?: boolean; fresh?: boolean;
   /** The one action beside the page's title. */
   Action?: () => React.ReactNode;
   /** Cards side by side: a wider column than the reading width. */
@@ -278,14 +280,19 @@ export function SettingsPage() {
                 })}
               </div>
             ) : <p id={listId} role="status" className="px-3 py-2 text-label text-muted-foreground">No matches</p>
-          ) : shownSections().map((s: Sec) => {
+          ) : shownSections().map((s: Sec, i, shown: readonly Sec[]) => {
             const on = s.id === tab;
             return (
               <Fragment key={s.id}>
-                {s.group !== undefined && (
-                  <p aria-hidden={!s.group} className={cn("px-3 pb-1 pt-4", groupLabel, !s.group && "pt-2", rail)}>{s.group}</p>
+                {/* Keyed off the run, not the first section of it: a run whose first
+                    section is desktop-only still gets its heading in a browser. */}
+                {s.group && s.group !== shown[i - 1]?.group && (
+                  <p className={cn("px-3 pb-1 pt-4", groupLabel, rail && "@max-3xl/settings:px-2 @max-3xl/settings:py-2")}>
+                    <span className={cn("block", rail)}>{s.group}</span>
+                    {rail && <span aria-hidden className="mx-auto hidden h-px w-6 bg-border @max-3xl/settings:block" />}
+                  </p>
                 )}
-                <Tooltip label={s.label} truncated className="flex w-full">
+                <Tooltip label={`${s.label} · ${s.sub}`} truncated className="flex w-full">
                   <button onClick={() => setTab(s.id)} aria-current={on ? "page" : undefined}
                     className={cn("ol-set-navitem group relative isolate flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
                       !on && "hover:bg-foreground/[0.04]")}>
@@ -337,7 +344,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Set once, used everywhere", body: "Models, Voice, Speech engine, Agents, Capabilities and Memory are shared by Chat and Flow. Chat and Flow below them keep only what each mode needs for itself." },
+        { target: "settings-nav", title: "Set once, used everywhere", body: "Modes keeps what Flow, Dictate and Chat each need for themselves. Intelligence and Voice are set once and every mode uses them." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>
