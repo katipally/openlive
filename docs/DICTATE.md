@@ -31,7 +31,7 @@ macOS, Windows and Linux.
 |---|---|
 | Hold the key (Right Option ⌥ on macOS, Right Alt elsewhere) | Push to talk. Letting go types what you said. A quick tap types nothing. |
 | Double-tap the key | Hands-free: each finished sentence is typed as you go. One more tap stops it. |
-| The mic button above Flow's orb | Hands-free on or off. |
+| The mic button above Flow's orb | Hands-free on. While it is on, the button is a **Hands-free** badge; click it to stop. |
 | Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It starts once Flow's reply ends. |
 
 Dictate is off until you turn it on in Settings > Dictate. The key is watched,
@@ -52,6 +52,18 @@ state uses.
 | Listening | `#C6F135` | Flow listening, riding your voice |
 | Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
+Right above the orb, in the mic button's place, a badge says how it is
+listening: the key and **Hold** while you hold it, a chartreuse **Hands-free**
+with a stop square while hands-free is on. The mic, the badges and the line
+above them fade into one another rather than popping. Above the badge, one line:
+
+```
+ listening    hey can you send the report
+ processing   ◌ Hey, can you send the report?   (spinner, the words shimmer)
+ polishing    ◌ Polishing                       (with AI polish on)
+ done         ✓ 6 words              [Undo]
+```
+
 The first press after a while, or after launch, opens the microphone and
 starts the speech engine, which takes a moment: the line says **Getting
 ready**, and you can talk straight away. Everything said from the key going
@@ -60,11 +72,9 @@ not write down are said so on the orb (**Your words could not be written
 down.**), never dropped quietly. Flow's own cards (no brain set up, say) never
 show on Dictate's orb with Flow closed.
 
-Hands-free draws a dashed ring round the orb. Under it, one line shows how
-Dictate is held (the key, or **Hands-free** with **Stop**) and what it heard so
-far; a long sentence drops its oldest words so the newest stay in view. When the
-words land it says **Inserted N words** with an **Undo** button, then the orb
-goes. Undo does what "undo that" does, once, and is offered for five seconds or
+A long sentence drops its oldest words so the newest stay in view. When the
+words land the line says **N words** with an **Undo** button, then the orb
+goes. Stopping hands-free gives the orb back at once. Undo does what "undo that" does, once, and is offered for five seconds or
 until the next words start: OpenLive cannot tell when you type somewhere else,
 so it times out instead.
 

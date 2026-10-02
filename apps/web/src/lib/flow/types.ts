@@ -66,10 +66,12 @@ export interface DictateSnapshot {
   handsFree: boolean;
   /** Command mode: what is said is an instruction for the selection. */
   command: boolean;
-  /** The key as the person reads it, for the hold pill. */
+  /** The key as the person reads it, for the Hold badge. */
   keys: string[];
-  /** What it has heard so far this utterance. */
+  /** What it has heard so far this utterance, and while processing, the words being worked on. */
   partial: string;
+  /** AI polish is rewriting the words. */
+  polishing: boolean;
   /** Words the last utterance typed, shown once it lands. */
   inserted: number;
   /** Why it typed nothing, or where the words went instead. */

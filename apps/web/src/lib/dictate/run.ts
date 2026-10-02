@@ -20,7 +20,7 @@ export interface DictateSettings {
   rules: CleanupRules;
   lang: string;
   keys: string[];
-  /** Command mode's key, for its hold pill. */
+  /** Command mode's key, for its Command badge. */
   commandKeys: string[];
   words: readonly string[];
   snippets: readonly Snippet[];
@@ -142,19 +142,20 @@ export function createDictate(ports: DictatePorts) {
   let work: Promise<unknown> = Promise.resolve();
 
   const set = (patch: Partial<DictateSnapshot>) => {
-    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", inserted: 0, note: "", undo: false, ready: true, ...d, ...patch };
+    d = { phase: "listening", handsFree: false, command: false, keys: ports.settings().keys, partial: "", polishing: false, inserted: 0, note: "", undo: false, ready: true, ...d, ...patch };
     if (patch.undo) { clearTimeout(offer); offer = setTimeout(() => { if (d?.undo) set({ undo: false }); }, UNDO_MS); }
     ports.show(d);
   };
   const stopLinger = () => { if (linger) clearTimeout(linger); linger = null; };
-  /** Done: what it did stays up a moment, then the orb goes back. */
-  const finish = () => {
+  /** Done: what it did stays up a moment, then the orb goes back. `now`: the
+   *  person stopped it, so the orb goes back straight away. */
+  const finish = (now = false) => {
     mode = null;
     ports.release();
     stopLinger();
     if (!d) return;
-    if (!d.inserted && !d.note) return giveBack();
-    // What lingers for Undo is not still hands-free: no ring, no Stop.
+    if (now || (!d.inserted && !d.note)) return giveBack();
+    // What lingers is not still hands-free: no Hands-free badge.
     if (d.handsFree) set({ handsFree: false });
     linger = setTimeout(giveBack, d.undo ? UNDO_MS : DONE_MS);
   };
@@ -182,7 +183,7 @@ export function createDictate(ports: DictatePorts) {
     if (!byKey) ports.gestureOpen(on);
     if (!on) {
       if (mode !== "handsFree") return "Dictation was already off.";
-      finish();
+      finish(true);
       return "Dictation is off.";
     }
     if (mode === "handsFree") return "Dictation is already on.";
@@ -233,6 +234,7 @@ export function createDictate(ports: DictatePorts) {
    */
   const polish = async (clean: string, tone: Tone): Promise<{ final: string; out: Inserted; note: string }> => {
     const space = lead();
+    set({ polishing: true });
     let opened = null as Promise<Typing | null> | null;
     let sent = "";
     let pushing = Promise.resolve();
@@ -286,7 +288,7 @@ export function createDictate(ports: DictatePorts) {
     const said = spoken ? spoken.before : text;
     const clean = applyDictionary(cleanup(said, s.rules, s.lang), s.words);
     if (!clean && !spoken) { set({ partial: "" }); return; }
-    set({ phase: "processing", partial: "" });
+    set({ phase: "processing", partial: clean });
     const snippet = snippetFor(clean, s.snippets);
     let final = snippet ?? clean;
     let note = "";
@@ -295,23 +297,23 @@ export function createDictate(ports: DictatePorts) {
     else if (final) out = await put(final);
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
     const obeyed = spoken ? await obey(spoken.command) : "";
-    set({ phase: "idle", inserted: out === "typed" && last ? countWords(last) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
+    set({ phase: "idle", partial: "", polishing: false, inserted: out === "typed" && last ? countWords(last) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
     if (spoken?.command === "stop") await setHandsFree(false, false);
   };
 
   const command = async (text: string, s: DictateSettings) => {
     const instruction = cleanup(text, s.rules, s.lang);
     if (!instruction) { set({ partial: "" }); return; }
-    set({ phase: "processing", partial: "" });
+    set({ phase: "processing", partial: instruction });
     const ask = { kind: "command", text: instruction, selection: await ports.selection() } as const;
-    if (ask.selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", note: TOO_LONG }); return; }
+    if (ask.selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", partial: "", note: TOO_LONG }); return; }
     let result: string;
     try { result = await think(ask, COMMAND_MS); }
-    catch (e) { set({ phase: "idle", note: (e instanceof Error && e.message) || COMMAND_FAILED }); return; }
+    catch (e) { set({ phase: "idle", partial: "", note: (e instanceof Error && e.message) || COMMAND_FAILED }); return; }
     // Typed over the selection, it replaces it.
     const out = await put(result);
     if (out !== "failed") ports.record({ raw: text, cleaned: instruction, final: result, command: true, copied: out === "copied" });
-    set({ phase: "idle", inserted: out === "typed" ? countWords(result) : 0, note: insertedNote(out), undo: last !== null });
+    set({ phase: "idle", partial: "", inserted: out === "typed" ? countWords(result) : 0, note: insertedNote(out), undo: last !== null });
   };
 
   return {
@@ -333,7 +335,7 @@ export function createDictate(ports: DictatePorts) {
       set({ phase: "processing" });
       const written = await ports.endHold(performance.now() - up);
       if (mode !== "hold") return;
-      if (!written) set({ phase: "idle", note: NOT_WRITTEN });
+      if (!written) set({ phase: "idle", partial: "", note: NOT_WRITTEN });
       // The engine hands the words over without waiting for them to be typed, so
       // the orb waits here; the key is free meanwhile for the next press.
       mode = null;

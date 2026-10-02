@@ -69,7 +69,9 @@ describe("holding the key", () => {
     expect(r.typed).toEqual(["Send 25 copies to Maya by Friday."]);
     // Taken: the owner returns before Flow's brain ever sees the sentence.
     expect(r.consumed).toEqual([true]);
-    expect(r.last()).toMatchObject({ phase: "idle", inserted: 7, undo: true });
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 7, undo: true, partial: "" });
+    // While it was typed, the orb showed the cleaned-up words, never a polish.
+    expect(r.shown).toContainEqual(expect.objectContaining({ phase: "processing", partial: "Send 25 copies to Maya by Friday.", polishing: false }));
     await vi.advanceTimersByTimeAsync(UNDO_MS);
     expect(r.last()).toBeNull();
   });
@@ -79,11 +81,12 @@ describe("holding the key", () => {
     const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
     const released = hold(r, "send it friday");
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.last()).toMatchObject({ phase: "processing" });
+    // The cleaned-up words stay on the orb while the polish works on them.
+    expect(r.last()).toMatchObject({ phase: "processing", partial: "Send it Friday.", polishing: true });
     answer("Send it Friday.");
     await released;
     expect(r.typed).toEqual(["Send it Friday."]);
-    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3 });
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3, partial: "", polishing: false });
     await vi.advanceTimersByTimeAsync(UNDO_MS);
     expect(r.last()).toBeNull();
   });
@@ -181,7 +184,8 @@ describe("hands-free", () => {
     expect(await r.dictate.toggle()).toBe("Dictation is off.");
     expect(r.ports.release).toHaveBeenCalledTimes(1);
     expect(r.ports.gestureOpen).toHaveBeenLastCalledWith(false);
-    expect(r.last()).toMatchObject({ handsFree: false, undo: true });
+    // Stopped by the person: the orb goes back at once, with nothing lingering.
+    expect(r.last()).toBeNull();
     expect(await r.dictate.heard("not for dictate")).toBe(false);
   });
 

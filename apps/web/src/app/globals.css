@@ -203,7 +203,7 @@
      arc/10 tint. The fill stays bright; #e2701f as text was 2.7:1. */
   --arc-text: #9a4a0a;
   /* Dictate's chartreuse (the orb's dictate palettes in lib/waveOrb.ts), one in
-     both themes, so its mic button matches the orb it sits on. */
+     both themes, so its Hands-free badge matches the orb it sits on. */
   --dictate: #c6f135;
   --dictate-foreground: #0b0b0c;
 
@@ -701,6 +701,21 @@ details > :not(summary) { transition: opacity var(--dur-fast) var(--ease-out-qua
   color: transparent;
   animation: arc-sweep 2.4s linear infinite;
 }
+/* The same sweep in Dictate's chartreuse, toned toward the text colour so it reads in both themes. */
+.dictate-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--color-foreground) 30%,
+    color-mix(in oklab, var(--color-dictate) 65%, var(--color-foreground)) 50%,
+    var(--color-foreground) 70%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: arc-sweep 1.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .dictate-shimmer { animation: none; } }
 
 .text-chat { font-size: var(--text-chat); line-height: var(--text-chat--line-height); }
 

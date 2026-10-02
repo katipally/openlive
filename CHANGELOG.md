@@ -10,8 +10,9 @@ Releases before 0.1.9 predate this file — see the
 - **Dictate.** Hold Right Alt (Right Option on macOS) and talk; letting go
   types the cleaned-up words where your cursor is, in any app, with no brain and
   nothing spoken back. Double-tap for hands-free, tap once more to stop. The
-  orb shows it in chartreuse with Flow's own motion, a dashed ring hands-free
-  and one line of what it heard. Turn it on in Settings > Dictate, where the
+  orb shows it in chartreuse with Flow's own motion, a Hold or Hands-free
+  badge above it (hands-free's stops it when clicked) and one line of what it
+  heard, which shimmers with a spinner while it is cleaned up or polished. Turn it on in Settings > Dictate, where the
   key can be changed (with a warning where Right Alt may be AltGr). See
   [docs/DICTATE.md](docs/DICTATE.md).
 - **On-device cleanup for Dictate**, each rule its own switch: punctuation,

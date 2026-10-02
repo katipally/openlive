@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Lock, Maximize2, Mic, MicOff, PhoneOff, Square, Undo2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Loader2, Maximize2, Mic, MicOff, PhoneOff, Square, Undo2, X } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type CallOrbState, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
@@ -41,6 +41,11 @@ const ORB_SIZE = 64;
 /** How far the orb's glow reaches past it. The window's bottom edge would cut
  *  it off, so the orb sits at least this far above that edge. */
 const ORB_GLOW = (ORB_SIZE * (1 / WAVE_ORB_RADIUS - 1)) / 2;
+
+/** The badges above the orb: the mic button's height, so swapping them never moves the orb. */
+const BADGE = "flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-caption font-medium text-muted-strong shadow-card origin-bottom transition duration-fast ease-standard motion-reduce:transition-none";
+const BADGE_ON = "scale-100 opacity-100";
+const BADGE_OFF = "pointer-events-none translate-y-1 scale-90 opacity-0";
 
 /** One solid surface for every panel in the window. */
 const PANEL = "border border-border bg-surface shadow-card";
@@ -116,9 +121,22 @@ export function FlowOrb() {
   const replied = lastReplied.current;
 
   useEffect(() => { if (captioned) setStripUp(true); }, [captioned]);
+  // Dictate's strip rises and sinks like the caption, on its last words.
+  const dictating = shown && !!s.dictate;
+  const dictateRef = useRef<HTMLDivElement>(null);
+  const [dictateUp, setDictateUp] = useState(false);
+  const lastDictate = useRef<DictateSnapshot | null>(null);
+  if (s.dictate) lastDictate.current = s.dictate;
+  useEffect(() => { if (dictating) setDictateUp(true); }, [dictating]);
+  useRise(dictateRef, dictating, dictateUp, () => setDictateUp(false), 0.2);
+  // What sits above the orb. A badge leaving keeps its words while it fades.
+  const badge = !shown || !s.dictate ? null : s.dictate.handsFree ? "handsFree" : s.dictate.phase === "listening" ? "hold" : null;
+  const lastHeld = useRef({ keys: [] as string[], command: false });
+  if (badge === "hold" && s.dictate) lastHeld.current = { keys: s.dictate.keys, command: s.dictate.command };
+  const held = lastHeld.current;
   useEffect(() => { if (asking) setCardUp(true); }, [asking]);
   // Gone with the window rather than left sinking in it.
-  useEffect(() => { if (!shown) { setStripUp(false); setCardUp(false); } }, [shown]);
+  useEffect(() => { if (!shown) { setStripUp(false); setCardUp(false); setDictateUp(false); } }, [shown]);
   useRise(stripRef, captioned, stripUp, () => setStripUp(false), 0.2);
   useRise(cardRef, asking, cardUp, () => setCardUp(false), 0.25);
 
@@ -201,7 +219,7 @@ export function FlowOrb() {
   }, []);
   // A card or a strip can rise under a pointer that is not moving, and no move
   // arrives to make its buttons clickable.
-  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, s.dictate?.handsFree]);
+  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, s.dictate?.handsFree, dictateUp, s.dictate?.undo]);
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (
@@ -296,8 +314,12 @@ export function FlowOrb() {
       )}
 
       {/* Dictate's words as they are heard, one line that drops its oldest
-          words off the start. With nothing heard yet it is the pill alone. */}
-      {shown && s.dictate && <DictateStrip d={s.dictate} onStop={() => cmd({ t: "dictateToggle" })} onUndo={() => cmd({ t: "dictateUndo" })} />}
+          words off the start, then the same words while they are worked on. */}
+      {dictateUp && lastDictate.current && (
+        <div ref={dictateRef} className="flex max-w-full shrink-0 justify-center">
+          <DictateStrip d={lastDictate.current} onUndo={() => cmd({ t: "dictateUndo" })} />
+        </div>
+      )}
 
       {/* Drawn the whole time Flow is acting, not on hover: someone has to be
           able to see what it is doing without going to look for it. The window
@@ -325,19 +347,30 @@ export function FlowOrb() {
           never moves the orb out from under the pointer that asked for them.
           Each is a hit only while drawn, so the air around the orb stays
           click-through. */}
-      <Control label={s.dictate?.handsFree ? "Stop dictation" : "Start dictation"} shown={hovered} on={!!s.dictate?.handsFree}
-        onClick={() => cmd({ t: "dictateToggle" })} side="top">
-        <Mic className="size-4" />
-      </Control>
+      {/* One place above the orb for the mic button or, while Dictate listens,
+          how it is listening. All three share the cell and cross-fade, so one
+          becomes the next instead of popping, and the orb never moves.
+          Hands-free's is also its off switch. */}
+      <div className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+        <Control label="Start dictation" shown={hovered && !badge} onClick={() => cmd({ t: "dictateToggle" })} side="top">
+          <Mic className="size-4" />
+        </Control>
+        <span aria-hidden={badge !== "hold"} className={cn(BADGE, badge === "hold" ? BADGE_ON : BADGE_OFF)}>
+          <Keycaps keys={held.keys} label={held.keys.join(" ")} /> {held.command ? "Command" : "Hold"}
+        </span>
+        <button type="button" data-hit={badge === "handsFree" || undefined} tabIndex={badge === "handsFree" ? 0 : -1} aria-hidden={badge !== "handsFree"}
+          onClick={() => cmd({ t: "dictateToggle" })} aria-label="Stop dictating"
+          className={cn(BADGE, "gap-2 border-transparent bg-dictate pr-2.5 text-dictate-foreground hover:bg-dictate/85 [-webkit-app-region:no-drag]", badge === "handsFree" ? BADGE_ON : BADGE_OFF)}>
+          <span className="size-1.5 rounded-full bg-dictate-foreground" aria-hidden />
+          Hands-free <Square className="size-2.5 fill-current" aria-hidden />
+        </button>
+      </div>
       <div className="relative shrink-0">
         <Control label="Close Flow" shown={hovered} onClick={() => cmd({ t: "flowCancel" })} side="left"><X className="size-4" /></Control>
         {/* flow-root keeps the canvas's negative margins (its glow) inside this box,
             which would otherwise be the glow's height: the ring an oval, the hit too tall. */}
         <div data-hit className="relative flow-root">
           <Orb phase={orbPhase(s)} getLevels={() => ({ mic: 0, agent: bands.current.agentLevel })} getBands={() => bands.current} size={ORB_SIZE} />
-          {s.dictate?.handsFree && (
-            <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border border-dashed border-foreground/30" />
-          )}
         </div>
         <Control label="Open OpenLive" shown={hovered} onClick={() => flowBridge()?.expand()} side="right"><Maximize2 className="size-4" /></Control>
       </div>
@@ -413,16 +446,14 @@ const CONTROL_PLACE = {
 const CONTROL_GROW = { left: "origin-right", right: "origin-left", top: "origin-bottom" };
 
 /** A round button around the orb, growing out of its edge on hover, or on
- *  keyboard focus. `on` is a toggle that is on, drawn in Dictate's chartreuse. */
-function Control({ label, shown, onClick, side, on, children }: {
-  label: string; shown: boolean; onClick: () => void; side: keyof typeof CONTROL_PLACE; on?: boolean; children: React.ReactNode;
+ *  keyboard focus. */
+function Control({ label, shown, onClick, side, children }: {
+  label: string; shown: boolean; onClick: () => void; side: keyof typeof CONTROL_PLACE; children: React.ReactNode;
 }) {
   return (
     <Tooltip label={label} className={cn(CONTROL_PLACE[side], !shown && "pointer-events-none")}>
       <button type="button" onClick={onClick} aria-label={label} data-hit={shown || undefined}
-        className={cn("grid size-8 place-items-center rounded-full border shadow-card transition duration-fast ease-standard active:scale-90 [-webkit-app-region:no-drag]",
-          on ? "border-transparent bg-dictate text-dictate-foreground hover:bg-dictate/85"
-            : "border-border bg-surface text-muted-strong hover:border-border-heavy hover:bg-card hover:text-foreground",
+        className={cn("grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-strong shadow-card transition duration-fast ease-standard hover:border-border-heavy hover:bg-card hover:text-foreground active:scale-90 [-webkit-app-region:no-drag]",
           CONTROL_GROW[side], shown ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0 focus-visible:scale-100 focus-visible:opacity-100")}>
         {children}
       </button>
@@ -430,38 +461,76 @@ function Control({ label, shown, onClick, side, on, children }: {
   );
 }
 
-/** Dictate under the orb: how it is held, then what it heard, is doing or did. */
-function DictateStrip({ d, onStop, onUndo }: { d: DictateSnapshot; onStop: () => void; onUndo: () => void }) {
-  const said = d.note || (d.phase === "processing" ? (d.command ? "Working on it" : d.inserted ? `Cleaning up, ${d.inserted} ${d.inserted === 1 ? "word" : "words"} in` : "Cleaning up") : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (d.ready ? "" : "Getting ready"));
+/** Processing is often over in a few hundred ms: the strip shows it at least
+ *  this long so it reads as work, not a flicker. The words are typed meanwhile;
+ *  only the strip waits. */
+const PROCESSING_MIN_MS = 500;
+
+/** `d`, except that leaving processing waits out PROCESSING_MIN_MS. */
+function useHeldProcessing(d: DictateSnapshot): DictateSnapshot {
+  const [held, setHeld] = useState(d);
+  const since = useRef(0);
+  const holding = useRef(false);
+  useEffect(() => {
+    const wait = holding.current && d.phase !== "processing" ? PROCESSING_MIN_MS - (performance.now() - since.current) : 0;
+    const show = () => {
+      if (d.phase === "processing" && !holding.current) since.current = performance.now();
+      holding.current = d.phase === "processing";
+      setHeld(d);
+    };
+    if (wait <= 0) return show();
+    const t = setTimeout(show, wait);
+    return () => clearTimeout(t);
+  }, [d]);
+  return held;
+}
+
+/** Dictate under the orb: what it hears, the words while they are worked on, then what landed. */
+function DictateStrip({ d: live, onUndo }: { d: DictateSnapshot; onUndo: () => void }) {
+  const d = useHeldProcessing(live);
+  const working = d.phase === "processing";
+  const landed = !working && !d.note && d.inserted > 0;
+  const label = working && (d.polishing ? "Polishing" : d.command ? "Rewriting" : !d.partial && "Cleaning up");
+  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (d.ready ? "Listening" : "Getting ready"));
+  // Words still coming, or being worked on, drop their oldest off the start;
+  // a status or a note is read whole, so it wraps instead.
+  const flowing = said === d.partial;
+  const kind = working ? "working" : landed ? "landed" : d.note ? "note" : "live";
+  const boxRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const width = useRef(0);
+  // One state giving way to the next eases the strip to its new width and fades
+  // the new words in, instead of the strip snapping around them.
+  useLayoutEffect(() => {
+    const box = boxRef.current, body = bodyRef.current;
+    if (!box || !body) return;
+    const from = width.current, to = box.offsetWidth;
+    width.current = to;
+    if (!from || prefersReduced()) return;
+    if (from !== to) gsap.fromTo(box, { width: from }, { width: to, duration: DUR.fast, ease: EASE.out, overwrite: true, clearProps: "width" });
+    gsap.fromTo(body, { autoAlpha: 0.15, y: 3 }, { autoAlpha: 1, y: 0, duration: DUR.fast, ease: EASE.out, overwrite: true });
+  }, [kind]);
+  useLayoutEffect(() => { if (boxRef.current && !gsap.isTweening(boxRef.current)) width.current = boxRef.current.offsetWidth; });
   return (
-    <div data-hit={d.handsFree || d.undo || undefined}
-      className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-1.5", PANEL)}>
-      <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1 text-caption font-medium text-muted-strong">
-        {d.handsFree
-          ? <><Lock className="size-3" aria-hidden /> Hands-free</>
-          : <><Keycaps keys={d.keys} label={d.keys.join(" ")} /> {d.command ? "Command" : "Hold"}</>}
-      </span>
-      {/* Words still coming drop their oldest off the start; a status or a note
-          is read whole, so it wraps instead. */}
-      {said && (said === d.partial
-        ? (
-          <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1 pr-2">
-            <span role="status" className="shrink-0 grow text-label font-medium">{said}</span>
-          </span>
-        )
-        : <span role="status" className="min-w-0 flex-1 py-1 pr-2 text-label font-medium [overflow-wrap:anywhere]">{said}</span>)}
-      {d.undo && (
-        <button type="button" onClick={onUndo}
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
-          <Undo2 className="size-3" aria-hidden /> Undo
-        </button>
-      )}
-      {d.handsFree && (
-        <button type="button" onClick={onStop} aria-label="Stop dictating"
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
-          <Square className="size-3 fill-current" aria-hidden /> Stop
-        </button>
-      )}
+    <div ref={boxRef} data-hit={d.undo || undefined}
+      className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 overflow-hidden rounded-[20px] py-1.5 pl-4", d.undo ? "pr-1.5" : "pr-4", PANEL)}>
+      <div ref={bodyRef} className="flex min-w-0 flex-1 items-center gap-2.5">
+        {working ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-strong motion-reduce:animate-none" aria-hidden />
+          : landed && <Check className="size-3.5 shrink-0 text-muted-strong" aria-hidden />}
+        {flowing
+          ? (
+            <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1">
+              <span role="status" className={cn("shrink-0 grow text-label font-medium", working && "dictate-shimmer")}>{said}</span>
+            </span>
+          )
+          : <span role="status" className={cn("min-w-0 flex-1 py-1 text-label font-medium [overflow-wrap:anywhere]", working ? "dictate-shimmer" : !d.note && !landed && "text-muted-strong")}>{said}</span>}
+        {d.undo && (
+          <button type="button" onClick={onUndo}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-caption font-medium text-muted-strong transition hover:bg-foreground/10 hover:text-foreground [-webkit-app-region:no-drag]">
+            <Undo2 className="size-3" aria-hidden /> Undo
+          </button>
+        )}
+      </div>
     </div>
   );
 }
