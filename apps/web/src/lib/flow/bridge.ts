@@ -17,8 +17,8 @@ export interface FlowPermissions {
    *  reports one combined grant, and the UI degrades per grant on that. */
   postEvents?: boolean;
 }
-/** Settings > General > Typing at cursor's Advanced timing. A field left out keeps the addon's default. */
-export interface InsertionTiming { modifierHoldMs?: number; clipboardQuietMs?: number; clipboardTimeoutMs?: number }
+/** Settings > General > Typing at cursor's Advanced timing and clipboard switch. A field left out keeps the addon's default. */
+export interface InsertionTiming { modifierHoldMs?: number; clipboardQuietMs?: number; clipboardTimeoutMs?: number; restoreClipboard?: boolean }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
 /** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent
  *  when the addon could not be loaded. */
@@ -59,6 +59,8 @@ export interface FlowCapabilities {
  *  gesture that is always true beats a key nobody remembers rebinding, and the
  *  addon never swallows it, so Control keeps working as Control. */
 export const FLOW_TRIGGER = "ctrl";
+/** Dictate's binding id with the addon. */
+export const DICTATE_BINDING = "dictate";
 
 export type FlowPermissionName = "accessibility" | "microphone" | "screen";
 /** Which screen asked for a permission, for the onboarding funnel. */
@@ -84,14 +86,16 @@ export interface FlowBridge {
   /** Flow's off switch, and a subscription to it. */
   setArmed(armed: boolean): void;
   onArmed(cb: (armed: boolean) => void): () => void;
-  /** Watch for the gesture. The key is never swallowed. */
-  register(id: string, binding: string): Promise<Guarded<void>>;
+  /** Watch for the gesture, and with `hold` for the key being held. The key is never swallowed. */
+  register(id: string, binding: string, hold?: boolean): Promise<Guarded<void>>;
   unregister(id: string): Promise<Guarded<void>>;
   suspend(): Promise<Guarded<void>>;
   resume(): Promise<Guarded<void>>;
   /** Flow closed, and the gesture was not what closed it. Without this the
    *  addon's toggle drifts out of step with what is on screen. */
   closed(): Promise<Guarded<void>>;
+  /** The toggle under `id` was thrown another way: Dictate's hands-free from the mic button or by voice. */
+  gestureOpen(id: string, open: boolean): Promise<Guarded<void>>;
   insertBegin(method?: string, timing?: InsertionTiming): Promise<Guarded<number>>;
   insertPush(session: number, chunk: string): Promise<Guarded<void>>;
   insertEnd(session: number): Promise<Guarded<void>>;
@@ -101,7 +105,8 @@ export interface FlowBridge {
   /** One perception or control call into the addon, named by `fn`. */
   device(fn: string, args: unknown): Promise<Guarded<unknown>>;
   warmOcr(): Promise<Guarded<void>>;
-  summon(): void;
+  /** "dictate" shows the orb for Dictate alone, which is not a Flow session. */
+  summon(mode?: "flow" | "dictate"): void;
   /** `reason` is why it closed, for the session's summary. Omitted, it counts as "other". */
   dismiss(reason?: FlowCloseReason): void;
   /** The orb window is about to hide: play the exit, then call `hidden`. */

@@ -797,10 +797,12 @@ function createFlowWindow() {
   return flowWin;
 }
 
-function summonFlow() {
+function summonFlow(_e, mode) {
   const win = createFlowWindow();
   // A summon of an open Flow (a resumed session, a new turn) is the same open.
-  if (!flowSummoned) {
+  // Dictate shows the same orb but is not a Flow session, so it is not counted as one.
+  if (!flowCounted && mode !== "dictate") {
+    flowCounted = true;
     telemetry.openFlow();
     telemetry.markActiveDay("flow");
     telemetry.reportOnboardingStep("first_flow_summon");
@@ -832,7 +834,7 @@ function summonFlow() {
 function dismissFlow(reason) {
   if (!flowWin || flowWin.isDestroyed() || !flowSummoned || flowHiding) return;
   flowEndedBy = reason;
-  if (!flowWin.isVisible()) { flowSummoned = false; telemetry.closeFlow(flowEndedBy); syncCallOrb(); refreshTray(); return; }
+  if (!flowWin.isVisible()) { flowSummoned = false; closeFlowCount(); syncCallOrb(); refreshTray(); return; }
   setClickThrough(flowWin, true);
   flowWin.webContents.send("openlive:flow-hiding");
   flowHiding = setTimeout(finishDismissFlow, FLOW_EXIT_MS);
@@ -842,7 +844,7 @@ function finishDismissFlow() {
   clearTimeout(flowHiding);
   flowHiding = null;
   flowSummoned = false;
-  telemetry.closeFlow(flowEndedBy);
+  closeFlowCount();
   if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
   syncCallOrb();
   refreshTray();
@@ -934,6 +936,12 @@ function setFlowArmed(next) {
 let callState = null;     // { muted, startedAt } while a call is live, else null
 let callEndedBy = "other"; // what main knows of why it ends; the renderer's own reason outranks it
 let flowSummoned = false;
+let flowCounted = false; // summoned as Flow, not only for Dictate: a Flow session telemetry has opened
+
+function closeFlowCount() {
+  if (flowCounted) telemetry.closeFlow(flowEndedBy);
+  flowCounted = false;
+}
 
 const callOrbWanted = () => !!callState && !!mainWin && !mainWin.isDestroyed()
   && (mainWin.isMinimized() || !mainWin.isVisible());

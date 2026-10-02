@@ -29,7 +29,8 @@ let hooked = false;
 // The addon only reports a hook that started and then died.
 let startError = null;
 let secureTimer = null;
-let armed = true; // Settings > Flow's "Listen for the Flow hotkey"; the hook itself is suspended to match
+let armed = true; // Settings > Flow's "Listen for the Flow hotkey"; Flow's binding alone is muted to match, so Dictate's keeps working
+const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
 const bindings = new Map(); // id -> the binding the renderer registered, for the tray to show
 let target = () => null; // the webContents that receives effects
 let telemetry = null;
@@ -91,7 +92,7 @@ function initialize() {
     startError = null;
     hooked = true;
     telemetry.reportOnboardingStep("flow_hook_started");
-    if (!armed) api.suspendHook();
+    if (!armed) api.suspendHook(FLOW_BINDING);
   }
   startSecureInputPoll();
   return api.permissionStatus();
@@ -103,7 +104,7 @@ function initialize() {
 function setArmed(next) {
   armed = !!next;
   if (!hooked) return armed;
-  try { armed ? load().resumeHook() : load().suspendHook(); }
+  try { armed ? load().resumeHook(FLOW_BINDING) : load().suspendHook(FLOW_BINDING); }
   catch (e) { console.error("[flow-input] arm:", e); }
   return armed;
 }
@@ -182,10 +183,13 @@ async function openSettings(what) {
   return true;
 }
 
-/** Only the three timings, each a whole number of ms, so a stray field never reaches the addon. */
+/** Only the three timings, each a whole number of ms, and the restore switch, so a stray field never reaches the addon. */
 function insertionTiming(t) {
   const ms = (v) => (Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 60_000) : undefined);
-  return t && { modifierHoldMs: ms(t.modifierHoldMs), clipboardQuietMs: ms(t.clipboardQuietMs), clipboardTimeoutMs: ms(t.clipboardTimeoutMs) };
+  return t && {
+    modifierHoldMs: ms(t.modifierHoldMs), clipboardQuietMs: ms(t.clipboardQuietMs), clipboardTimeoutMs: ms(t.clipboardTimeoutMs),
+    restoreClipboard: typeof t.restoreClipboard === "boolean" ? t.restoreClipboard : undefined,
+  };
 }
 
 function teardown() {
@@ -205,7 +209,7 @@ function install(getTarget, telemetryClient) {
   ipcMain.handle("openlive:flow-request", guard(request));
   ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
-  ipcMain.handle("openlive:flow-register", guard((id, key) => { load().registerBinding(id, key); bindings.set(id, key); }));
+  ipcMain.handle("openlive:flow-register", guard((id, key, hold) => { load().registerBinding(id, key, hold === true); bindings.set(id, key); }));
   ipcMain.handle("openlive:flow-unregister", guard((id) => { load().unregisterBinding(id); bindings.delete(id); }));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
@@ -213,6 +217,7 @@ function install(getTarget, telemetryClient) {
   // leave it unregistered so no page script can turn the mic on.
   if (!app.isPackaged) ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
   ipcMain.handle("openlive:flow-closed", guard(() => load().notifyClosed()));
+  ipcMain.handle("openlive:flow-gesture-open", guard((id, open) => load().notifyOpen(String(id), open === true)));
 
   ipcMain.handle("openlive:flow-insert", guard((text, method, timing) => load().insertText(text, method, insertionTiming(timing))));
   ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => load().beginInsertion(method, insertionTiming(timing))));
@@ -227,4 +232,4 @@ function install(getTarget, telemetryClient) {
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, request, hookFailure };
+module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, request, hookFailure, insertionTiming };

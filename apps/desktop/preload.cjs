@@ -118,12 +118,13 @@ contextBridge.exposeInMainWorld("openlive", {
     // flow_settings, flow_home, other).
     request: (what, askedFrom) => ipcRenderer.invoke("openlive:flow-request", what, typeof askedFrom === "string" ? askedFrom : undefined),
     openSettings: (what) => ipcRenderer.invoke("openlive:flow-open-settings", what),
-    register: (id, binding) => ipcRenderer.invoke("openlive:flow-register", id, binding),
+    register: (id, binding, hold) => ipcRenderer.invoke("openlive:flow-register", id, binding, hold === true),
     unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
     suspend: () => ipcRenderer.invoke("openlive:flow-suspend"),
     resume: () => ipcRenderer.invoke("openlive:flow-resume"),
     trigger: (id, pressed) => ipcRenderer.invoke("openlive:flow-trigger", id, pressed),
     closed: () => ipcRenderer.invoke("openlive:flow-closed"),
+    gestureOpen: (id, open) => ipcRenderer.invoke("openlive:flow-gesture-open", id, !!open),
     insert: (text, method, timing) => ipcRenderer.invoke("openlive:flow-insert", text, method, timing),
     insertBegin: (method, timing) => ipcRenderer.invoke("openlive:flow-insert-begin", method, timing),
     insertPush: (session, chunk) => ipcRenderer.invoke("openlive:flow-insert-push", session, chunk),
@@ -143,7 +144,8 @@ contextBridge.exposeInMainWorld("openlive", {
     warmOcr: () => ipcRenderer.invoke("openlive:flow-warm-ocr"),
     // The orb: docked bottom-centre above the dock, summoned by the gesture and
     // gone on the gesture again. The window never resizes; only its content moves.
-    summon: () => ipcRenderer.send("openlive:flow-summon"),
+    // "dictate" shows the orb for Dictate alone, which is not a Flow session.
+    summon: (mode) => ipcRenderer.send("openlive:flow-summon", mode === "dictate" ? "dictate" : "flow"),
     // `reason`, optional: why it closes (gesture, orb_button, idle, disarmed, sleep_or_lock, other).
     dismiss: (reason) => ipcRenderer.send("openlive:flow-dismiss", typeof reason === "string" ? reason : undefined),
     // Closing: the main process asks, the orb plays its exit, then answers.
