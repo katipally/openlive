@@ -118,9 +118,9 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
       </div>
       <div className={cn("flex flex-wrap gap-1.5", !g.enabled && "opacity-60")}>
         {shown.map((t) => (
-          <Tooltip key={t.name} label={t.asksFirst ? `${t.description} Asks first.` : t.description}>
+          <Tooltip key={t.name} label={t.unavailable ?? (t.asksFirst ? `${t.description} Asks first.` : t.description)}>
             <span tabIndex={0} className="rounded-full">
-              <Chip className="font-mono"><ToolGlyph tool={t.name} className="text-current" />{t.name}{t.asksFirst && <ShieldQuestion aria-label="Asks first" />}</Chip>
+              <Chip className={cn("font-mono", t.unavailable && "line-through opacity-60")}><ToolGlyph tool={t.name} className="text-current" />{t.name}{t.asksFirst && <ShieldQuestion aria-label="Asks first" />}</Chip>
             </span>
           </Tooltip>
         ))}

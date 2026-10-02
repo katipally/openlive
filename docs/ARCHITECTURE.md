@@ -620,7 +620,9 @@ precheck, approve, run, tally).
   own tools only: a coding agent keeps its built-in file, shell and web tools,
   and Settings says so on each switch. `/capabilities`
   (`routes.ts`, proxied at `/api/capabilities`) lists the groups from
-  `builtinCatalog()`, switches one, and saves or clears the Exa key, which it
+  `builtinCatalog()`, each tool no session on this device gets marked
+  `unavailable` with why (the computer-use helper's own, where it cannot run:
+  `unavailableTools()`), switches one, and saves or clears the Exa key, which it
   never sends back.
 - **Profiles** (`profiles.ts`). `CHAT` and `FLOW` set the order the model sees,
   the system prompt (each builder renders the guidelines of the tools the

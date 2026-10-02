@@ -8,6 +8,8 @@ export interface BuiltinToolWire {
   description: string;
   /** It asks before it changes something. */
   asksFirst: boolean;
+  /** Why no session on this device gets it, when none does. */
+  unavailable?: string;
 }
 
 export interface ToolGroupWire {

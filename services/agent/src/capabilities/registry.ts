@@ -14,7 +14,7 @@ import { disabledGroups } from "./groups.js";
 import type { OnDemandMode } from "@openlive/shared";
 import { onDemandActive, onDemandMode, onDemandTools } from "./on-demand.js";
 import type { DevicePort } from "./device.js";
-import type { ComputerPort } from "../computer/helper.js";
+import { computer, type ComputerPort } from "../computer/helper.js";
 import type { Session, Tool } from "./types.js";
 
 // Every tool OpenLive has, in one place. A mode does not own tools: a profile
@@ -61,6 +61,17 @@ const builtins: ToolProvider = (s) => [
  */
 export const builtinCatalog = (): Tool[] =>
   [...builtins({ device: {} as DevicePort, computer: {} as ComputerPort }), ...WORKER_TOOLS];
+
+/**
+ * The catalog's tools no session here can get, each with why: the helper's own
+ * where it cannot run (what ol-input also does stays, as no session loses it).
+ * O(tools).
+ */
+export function unavailableTools(why: string | null = computer.whyUnavailable()): Map<string, string> {
+  if (!why) return new Map();
+  const kept = new Set(deviceTools({ device: {} as DevicePort }).map((t) => t.name));
+  return new Map(computerTools({ computer: {} as ComputerPort, device: {} as DevicePort }).filter((t) => !kept.has(t.name)).map((t) => [t.name, why]));
+}
 
 export class ToolRegistry {
   private readonly providers: ToolProvider[] = [];

@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { getSetting, setSetting } from "@openlive/db";
 import type { CapabilitiesWire } from "@openlive/shared";
-import { builtinCatalog } from "./registry.js";
+import { builtinCatalog, unavailableTools } from "./registry.js";
 import { disabledGroups, GROUPS, groupTools, setGroupEnabled, type ToolGroupId } from "./groups.js";
 import { AUTO_THRESHOLD, onDemandActive, onDemandMode, setOnDemandMode } from "./on-demand.js";
 import { listedConnectorTools } from "../connectors/tools.js";
@@ -20,7 +20,7 @@ function onDemand(): CapabilitiesWire["onDemand"] {
 }
 
 const wire = (): CapabilitiesWire => ({
-  groups: groupTools(builtinCatalog(), disabledGroups()),
+  groups: groupTools(builtinCatalog(), disabledGroups(), unavailableTools()),
   onDemand: onDemand(),
   exaKey: getSetting("exa_api_key") ? "saved" : process.env.EXA_API_KEY?.trim() ? "env" : null,
 });

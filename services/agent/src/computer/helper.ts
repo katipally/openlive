@@ -124,7 +124,14 @@ export class ComputerHelper implements ComputerPort {
 
   /** Whether a session should be offered the helper's tools. Never starts it. */
   available(): boolean {
-    return !this.unsupported && !this.resting() && this.opts.locate() !== null;
+    return !this.whyUnavailable();
+  }
+
+  /** Why a session is not offered the helper's tools, in a sentence for Settings; null when it is. Never starts it. */
+  whyUnavailable(): string | null {
+    if (this.unsupported) return this.unsupported;
+    if (this.resting()) return "The computer-use helper keeps stopping, so it is resting for a minute.";
+    return this.opts.locate() === null ? "The computer-use helper is not on this device, so the basic pointer and keyboard tools stand in." : null;
   }
 
   /** Too many crashes lately: leave it alone until the window passes. */

@@ -8,7 +8,7 @@ import type { Tool } from "./types.js";
 const dir = mkdtempSync(join(tmpdir(), "ol-capabilities-"));
 process.env.OPENLIVE_HOME = dir;
 const { firstSentence, GROUPS, groupTools } = await import("./groups.js");
-const { builtinCatalog, registry } = await import("./registry.js");
+const { builtinCatalog, registry, unavailableTools } = await import("./registry.js");
 const { capabilityRoutes } = await import("./routes.js");
 const { CHAT } = await import("./profiles.js");
 
@@ -53,6 +53,16 @@ describe("tool groups", () => {
     expect(ids).toEqual(Object.keys(GROUPS));
     const web = groupTools(catalog, new Set()).find((g) => g.id === "web")!;
     expect(web.tools.map((t) => t.name)).toEqual(["delegate", "web_search", "fetch_url"]);
+  });
+
+  it("marks the helper's own tools unavailable, with why, where it cannot run, and keeps what ol-input also does", () => {
+    expect(unavailableTools(null).size).toBe(0);
+    const off = unavailableTools("No helper here.");
+    expect(off.get("get_app_state")).toBe("No helper here.");
+    expect(off.has("click")).toBe(false);
+    const computer = groupTools(builtinCatalog(), new Set(), off).find((g) => g.id === "computer")!;
+    expect(computer.tools.find((t) => t.name === "get_app_state")!.unavailable).toBe("No helper here.");
+    expect(computer.tools.find((t) => t.name === "click")!.unavailable).toBeUndefined();
   });
 });
 

@@ -50,18 +50,20 @@ export function firstSentence(text: string): string {
 }
 
 /**
- * Every grouped tool in GROUPS order, with whether each group is on. One pass
+ * Every grouped tool in GROUPS order, with whether each group is on and why a
+ * tool none of this device's sessions get is missing. One pass
  * over the tools and one over the groups: O(tools + groups). A name offered
  * twice keeps its first, as the registry does.
  */
-export function groupTools(tools: readonly Tool[], off: ReadonlySet<string>): ToolGroupWire[] {
+export function groupTools(tools: readonly Tool[], off: ReadonlySet<string>, unavailable: ReadonlyMap<string, string> = new Map()): ToolGroupWire[] {
   const byGroup = new Map<string, BuiltinToolWire[]>();
   const seen = new Set<string>();
   for (const t of tools) {
     if (!t.group || seen.has(t.name)) continue;
     seen.add(t.name);
     const list = byGroup.get(t.group) ?? [];
-    list.push({ name: t.name, description: firstSentence(t.description), asksFirst: !!t.confirm });
+    const why = unavailable.get(t.name);
+    list.push({ name: t.name, description: firstSentence(t.description), asksFirst: !!t.confirm, ...(why && { unavailable: why }) });
     byGroup.set(t.group, list);
   }
   return (Object.entries(GROUPS) as [ToolGroupId, (typeof GROUPS)[ToolGroupId]][]).flatMap(([id, g]) => {
