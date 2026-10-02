@@ -94,7 +94,8 @@ Every page of Settings is built from the same few parts, so they read alike:
 - **Links to another page**: `LinkRow` (`settings/nav.tsx`), with an `icon` when
   the row leads a group.
 - **Cards** (`settings/common.tsx`): `StatusCard` (icon, name, `StatusDot` tone
-  and word, one `action`, the rest in `more`), `MoreMenu` for any other ⋯.
+  and word, one `action`, a quiet icon `aside` such as shown or hidden, the rest
+  in `more`), `MoreMenu` for any other ⋯.
 - **States** (`settings/common.tsx`): `EmptyState` (one line, one action, an
   optional `icon`), `LoadingRows`, and `QueryState` for loading or an inline
   error with Retry.
