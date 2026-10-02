@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
-import { CONTROL, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { Button, linkClass } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
@@ -51,11 +52,13 @@ export function FlowOnboarding({ onDone, config, save }: {
             <AccessRows config={config} save={save} askedFrom="onboarding" />
             <details className="group">
               <summary className={cn("cursor-pointer list-none text-label [&::-webkit-details-marker]:hidden", linkClass)}>
-                What Flow never does
+                What OpenLive never does
               </summary>
               <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-label text-muted-strong">
-                <li>{`Never listens to the keyboard beyond ${CONTROL}.`}</li>
-                <li>Mic opens only on the gesture. No wake word.</li>
+                <li>{config?.dictate.enabled
+                  ? `Never listens to the keyboard beyond ${CONTROL} and Dictate's keys, ${[config.dictate.hotkey, config.dictate.commandHotkey].map((k) => hotkeyKeys(k, desktopPlatform).join(" ")).join(" and ")}.`
+                  : `Never listens to the keyboard beyond ${CONTROL}, and Dictate's key once you turn Dictate on.`}</li>
+                <li>Mic opens only on the gesture or Dictate&rsquo;s key. No wake word.</li>
                 <li>No audio is kept.</li>
                 <li>Nothing leaves this machine except what the brain needs.</li>
               </ul>
