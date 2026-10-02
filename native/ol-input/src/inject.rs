@@ -65,7 +65,7 @@ pub fn refresh_layout() {
 /// How long a chord's modifier is held either side of its key, unless Flow's settings say otherwise.
 pub const MODIFIER_HOLD: Duration = Duration::from_millis(50);
 
-/// How a paste is timed, from Flow's Advanced timing settings.
+/// How a paste is timed, from the Advanced timing of Settings > General > Typing at cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timing {
     /// Some apps poll global keyboard state instead of reading the event's flags.

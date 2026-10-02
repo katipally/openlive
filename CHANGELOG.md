@@ -20,6 +20,9 @@ Releases before 0.1.9 predate this file — see the
   (Voice, Speech engine) and **App** (Privacy, About), each with a line short
   enough to read whole. A narrow window folds the list to icons, each named on
   hover.
+- **Typing at cursor moved to General.** Paste or type and the Advanced
+  timing now live in Settings > General, shared by Flow and Dictate; Flow
+  links there. Saved choices carry over.
 - **A shorter tray menu.** It reads: the status in plain words with the Flow
   hotkey (**Flow is ready · Double-tap ⌃**), **Open OpenLive**, **Start Flow**,
   **Settings…** and **Quit OpenLive**. **Flow armed** moved to Settings > Flow

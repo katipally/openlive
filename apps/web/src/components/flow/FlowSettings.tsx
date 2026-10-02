@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { FlowConfig, InsertionMethod } from "@openlive/flow-store";
+import type { FlowConfig } from "@openlive/flow-store";
+import { TextCursorInput } from "lucide-react";
 import { flowTurn } from "@openlive/flow-store/shared";
 import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { cn } from "@/lib/cn";
-import { Keycap, Switch, Select, Slider, Button, linkClass, ListGroup, ListRow, Segmented, Advanced } from "@/components/ui";
+import { Keycap, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented } from "@/components/ui";
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
@@ -43,7 +44,7 @@ function voiceLine(c: PipelineConfig): string {
 }
 
 export function FlowSettings() {
-  const { config, save, error, saving } = useFlowConfig();
+  const { config, save, error } = useFlowConfig();
   const choice = useApiModeChoice();
   const go = useSettingsNav();
   const [pipeline, setPipeline] = useState(() => loadPipelineConfig());
@@ -139,23 +140,9 @@ export function FlowSettings() {
         </ListGroup>
       </Section>
 
-      <Section id="set-flow-typing" title="Typing" desc="Paste is instant. Some apps prefer it typed out.">
+      <Section id="set-flow-typing" title="Typing at cursor" desc="Shared with Dictate, set in General.">
         <ListGroup>
-          <ListRow label="How text goes in">
-            <Segmented label="How text goes in" value={config.insertion.method}
-              options={[{ id: "paste" as InsertionMethod, label: "Paste" }, { id: "type" as InsertionMethod, label: "Type it out" }]}
-              onChange={(method) => save({ insertion: { method } })} />
-          </ListRow>
-          <Advanced id="flow:typing" label="Advanced timing" className="py-1">
-            <div className={cn("flex flex-col gap-3", config.insertion.method !== "paste" && "opacity-60")}>
-              <Slider label="Hold the modifier for" min={0} max={300} step={10} value={config.insertion.modifierHoldMs} commitOnRelease saving={saving}
-                format={(v) => `${v} ms`} onChange={(modifierHoldMs) => save({ insertion: { modifierHoldMs } })} />
-              <Slider label="Wait before putting the clipboard back" min={0} max={1000} step={25} value={config.insertion.clipboardQuietMs} commitOnRelease saving={saving}
-                format={(v) => `${v} ms`} onChange={(clipboardQuietMs) => save({ insertion: { clipboardQuietMs } })} />
-              <Slider label="Give up waiting after" min={1000} max={20_000} step={500} value={config.insertion.clipboardTimeoutMs} commitOnRelease saving={saving}
-                format={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(clipboardTimeoutMs) => save({ insertion: { clipboardTimeoutMs } })} />
-            </div>
-          </Advanced>
+          <LinkRow icon={TextCursorInput} label="Paste or type, clipboard" value="General" shared={false} onGo={() => go("general", "set-general-typing")} />
         </ListGroup>
       </Section>
 

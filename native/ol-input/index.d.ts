@@ -5,7 +5,7 @@ export interface HookEffect {
   bindingId?: string;
 }
 
-/** Flow's Advanced timing settings, in ms. A field left out keeps its default
+/** The Advanced timing of Settings > General > Typing at cursor, in ms. A field left out keeps its default
  *  (50, 200 and 8000); each is capped (1000, 5000 and 60000). */
 export interface InsertionTiming {
   /** How long the modifier is held either side of the paste key. */

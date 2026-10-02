@@ -85,6 +85,12 @@ describe("settings search", () => {
     expect(SETTINGS_INDEX.find((e) => e.label === "Listening sounds")!.tab).toBe("voice");
   });
 
+  it("finds typing at the cursor under General, where Flow and Dictate share it", () => {
+    for (const q of ["typing", "paste", "clipboard", "how text goes in", "type it out"]) expect(find(q)).toContain("Typing at cursor");
+    const rows = SETTINGS_INDEX.filter((e) => e.label === "Typing at cursor" || e.anchor === "set-flow-typing");
+    expect(rows.map((e) => [e.tab, e.anchor])).toEqual([["general", "set-general-typing"]]);
+  });
+
   it("every anchor is a settings id", () => {
     for (const e of SETTINGS_INDEX) expect(e.anchor).toMatch(/^set-/);
   });

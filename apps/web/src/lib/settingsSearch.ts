@@ -56,6 +56,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Keyboard shortcuts", keywords: "keys hotkeys", tab: "general", anchor: "set-general-shortcuts" },
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },
   { label: "End Flow and calls when the screen locks", keywords: "lock locked sleep suspend keep going close hang up", tab: "general", anchor: "set-general-lock", desktop: true, os: ["darwin", "win32"] },
+  { label: "Typing at cursor", keywords: "how text goes in paste type it out typing insertion insert clipboard put back restore timing modifier dictate flow", tab: "general", anchor: "set-general-typing" },
 
   { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
   { label: "Model", keywords: "llm live model vision reasoning default", tab: "models", anchor: "set-models-model" },
@@ -99,7 +100,6 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },
   { label: "Stay open after the last reply", keywords: "idle timeout close", tab: "flow", anchor: "set-flow-voice" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },
-  { label: "How text goes in", keywords: "typing paste type insertion clipboard timing", tab: "flow", anchor: "set-flow-typing" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent computer use helper", tab: "flow", anchor: "set-flow-access" },
 
   { label: "Share anonymous usage", keywords: "telemetry analytics usage data tracking diagnostics opt out collect send privacy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },

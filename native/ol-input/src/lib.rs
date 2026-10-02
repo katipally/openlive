@@ -206,7 +206,7 @@ impl napi::Task for InsertTask {
     }
 }
 
-/// Flow's Advanced timing settings. A field left out keeps its default.
+/// The Advanced timing of Settings > General > Typing at cursor. A field left out keeps its default.
 #[napi(object)]
 pub struct InsertionTiming {
     pub modifier_hold_ms: Option<u32>,

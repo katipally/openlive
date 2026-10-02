@@ -194,7 +194,7 @@ Every card also has **Close Flow**.
 
 ## Settings
 
-Settings > Flow ("Trigger, voice & typing"):
+Settings > Flow ("Trigger, brain, access"):
 
 | Section | Setting | Options |
 |---|---|---|
@@ -204,7 +204,7 @@ Settings > Flow ("Trigger, voice & typing"):
 | | Wait before answering | Patient, Even, Quick |
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
-| Typing | How text goes in | Paste (instant) or Type it out, plus advanced timing |
+| Typing at cursor | Paste or type, clipboard | Goes to Settings > General > Typing at cursor, shared with Dictate |
 | Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status and the button to grant or withdraw |
 
 API mode's provider, model, vision model and Ollama address live in Settings >
@@ -326,8 +326,9 @@ PipeWire (installed by default on current GNOME and KDE), and pasting needs
   mic in use, Do Not Disturb), output is muted, or **Say replies out loud** is off.
 - **"I could not reach the model".** For Ollama, check it is running and the
   address in Settings > Models.
-- **Typed text lands wrong in some apps.** Switch **How text goes in** to
-  **Type it out**, or tune the advanced timing.
+- **Typed text lands wrong in some apps.** In Settings > General > Typing at
+  cursor, switch **How text goes in** to **Type it out**, or tune the Advanced
+  timing.
 
 ## Architecture (for developers)
 

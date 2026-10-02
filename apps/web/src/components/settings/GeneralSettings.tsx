@@ -8,9 +8,13 @@ import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
 import { desktopPlatform, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
-import { Switch, Button, ListGroup, ListRow, Segmented, type SegOption, Textarea } from "@/components/ui";
+import type { InsertionMethod } from "@openlive/flow-store";
+import { Switch, Button, ListGroup, ListRow, Segmented, type SegOption, Textarea, Advanced, Slider } from "@/components/ui";
 import { GLASS_REASON, setLook, useAppearance, type Look } from "@/lib/look";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { cn } from "@/lib/cn";
 import { Section } from "./Section";
+import { QueryState } from "./common";
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -110,6 +114,36 @@ function CustomInstructions() {
   );
 }
 
+const METHODS: SegOption<InsertionMethod>[] = [{ id: "paste", label: "Paste" }, { id: "type", label: "Type it out" }];
+
+/** How Flow and Dictate put text where the cursor is. Stored in Flow's config,
+ *  whose `insertion` keys the input addon reads on every paste. */
+function TypingAtCursor() {
+  const { config, save, error, saving, loading, refetch } = useFlowConfig();
+  if (!config) return <QueryState loading={loading} error={error || null} retrying={false} onRetry={refetch} what="read the typing settings" />;
+  const { insertion } = config;
+  return (
+    <div className="flex flex-col gap-2">
+      <ListGroup>
+        <ListRow label="How text goes in" info="Paste is instant. Type it out works in apps that block paste.">
+          <Segmented label="How text goes in" value={insertion.method} options={METHODS} onChange={(method) => save({ insertion: { method } })} />
+        </ListRow>
+        <Advanced id="flow:typing" label="Advanced timing" className="py-1">
+          <div className={cn("flex flex-col gap-3", insertion.method !== "paste" && "opacity-60")}>
+            <Slider label="Hold the modifier for" min={0} max={300} step={10} value={insertion.modifierHoldMs} commitOnRelease saving={saving}
+              format={(v) => `${v} ms`} onChange={(modifierHoldMs) => save({ insertion: { modifierHoldMs } })} />
+            <Slider label="Wait before putting the clipboard back" min={0} max={1000} step={25} value={insertion.clipboardQuietMs} commitOnRelease saving={saving}
+              format={(v) => `${v} ms`} onChange={(clipboardQuietMs) => save({ insertion: { clipboardQuietMs } })} />
+            <Slider label="Give up waiting after" min={1000} max={20_000} step={500} value={insertion.clipboardTimeoutMs} commitOnRelease saving={saving}
+              format={(v) => `${(v / 1000).toFixed(1)} s`} onChange={(clipboardTimeoutMs) => save({ insertion: { clipboardTimeoutMs } })} />
+          </div>
+        </Advanced>
+      </ListGroup>
+      {error && <p className="text-label text-destructive-text">{error}</p>}
+    </div>
+  );
+}
+
 export function GeneralSettings() {
   const openShortcuts = useUi((s) => s.setShortcutsOpen);
   return (
@@ -142,6 +176,10 @@ export function GeneralSettings() {
           <EndOnLockToggle />
         </Section>
       )}
+
+      <Section id="set-general-typing" title="Typing at cursor" desc="How Flow and Dictate put text in other apps.">
+        <TypingAtCursor />
+      </Section>
     </div>
   );
 }

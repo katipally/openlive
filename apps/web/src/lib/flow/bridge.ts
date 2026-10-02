@@ -17,7 +17,7 @@ export interface FlowPermissions {
    *  reports one combined grant, and the UI degrades per grant on that. */
   postEvents?: boolean;
 }
-/** Settings > Flow > Typing's Advanced timing. A field left out keeps the addon's default. */
+/** Settings > General > Typing at cursor's Advanced timing. A field left out keeps the addon's default. */
 export interface InsertionTiming { modifierHoldMs?: number; clipboardQuietMs?: number; clipboardTimeoutMs?: number }
 export interface SecureInputStatus { active: boolean; culprit?: string; changed: boolean }
 /** The addon's own report, as `native/ol-input/index.d.ts` defines it. Absent
