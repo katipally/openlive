@@ -35,6 +35,7 @@ files:
   - flow-cursor.html
   - splash.html
   - telemetry-map.cjs
+  - window-state.cjs
   # Product-usage telemetry: every runtime file of telemetry/, not its tests. A file
   # missing here is a "Cannot find module" at launch (packaging.test.ts checks).
   - telemetry/aggregator.cjs

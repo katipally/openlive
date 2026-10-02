@@ -16,6 +16,7 @@ const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
+const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
 const { trayTemplate } = require("./tray-menu.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
@@ -389,25 +390,17 @@ function agentArgs() {
   return [`--openlive-agent-port=${AGENT_PORT}`, ...(AGENT_TOKEN ? [`--openlive-agent-token=${AGENT_TOKEN}`] : [])];
 }
 
-// ── window bounds: remember size/position across launches ─────────────────────
+// ── window bounds: remember size, position, maximized and fullscreen ─────────
 const windowStateFile = () => stateFile("window-state.json");
+const MAIN_MIN = { width: 940, height: 640 };
 function loadWindowState() {
-  try {
-    const s = JSON.parse(fs.readFileSync(windowStateFile(), "utf8"));
-    // Only restore if the saved rect still lands on a connected display.
-    const onScreen = screen.getAllDisplays().some((d) => {
-      const b = d.workArea;
-      return s.x >= b.x - 40 && s.y >= b.y - 40 && s.x < b.x + b.width - 40 && s.y < b.y + b.height - 40;
-    });
-    if (s.width > 400 && s.height > 300 && (s.x == null || onScreen)) return s;
-  } catch { /* no saved state */ }
-  return null;
+  let saved = null;
+  try { saved = JSON.parse(fs.readFileSync(windowStateFile(), "utf8")); } catch { /* no saved state */ }
+  return restoreWindow(saved, { displays: screen.getAllDisplays(), primary: screen.getPrimaryDisplay(), min: MAIN_MIN });
 }
 function saveWindowState() {
-  // Skip fullscreen bounds: persisting them would reopen the window screen-filling
-  // instead of at its real size.
-  if (!mainWin || mainWin.isFullScreen()) return;
-  try { fs.writeFileSync(windowStateFile(), JSON.stringify(mainWin.getBounds())); } catch { /* best-effort */ }
+  if (!mainWin || mainWin.isDestroyed()) return;
+  try { writeAtomic(fs, windowStateFile(), JSON.stringify(windowSnapshot(mainWin))); } catch { /* best-effort */ }
 }
 
 // ── one-time things (first ⌘Q notice, the login-item default) ────────────────
@@ -575,7 +568,7 @@ function createSplash() {
 function createMainWindow() {
   const saved = loadWindowState();
   mainWin = new BrowserWindow({
-    width: saved?.width || 1180, height: saved?.height || 800, minWidth: 940, minHeight: 640,
+    width: saved?.width || 1180, height: saved?.height || 800, minWidth: MAIN_MIN.width, minHeight: MAIN_MIN.height,
     ...(saved && saved.x != null ? { x: saved.x, y: saved.y } : {}),
     show: false,
     // Never `transparent: true`: transparent windows take a slower macOS compositing
@@ -613,7 +606,7 @@ function createMainWindow() {
       ],
     },
   });
-  for (const ev of ["resize", "move", "close"]) mainWin.on(ev, saveWindowState);
+  for (const ev of ["resize", "move", "close", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) mainWin.on(ev, saveWindowState);
   // A backstop for OS settings that change without telling nativeTheme.
   mainWin.on("focus", refreshLook);
   mainWin.on("focus", () => telemetry.markActiveDay("main_window"));
@@ -634,6 +627,9 @@ function createMainWindow() {
 
   mainWin.loadURL(WEB_URL);
   mainWin.once("ready-to-show", () => {
+    // Before show, so it opens in that state rather than animating into it.
+    if (saved?.maximized) mainWin.maximize();
+    if (saved?.fullscreen) mainWin.setFullScreen(true);
     mainWin.show();
     if (splashWin) splashWin.close();
     refreshTray();
