@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { stringify } from "yaml";
 import { z } from "zod";
-import { disabledSkills, setSkillEnabled, skillsDir } from "@openlive/db";
+import { disabledSkills, setSkillEnabled, skillKey, skillsDir } from "@openlive/db";
 import { SKILL_DESCRIPTION_MAX, skillNameProblem, type SkillListWire, type SkillWire } from "@openlive/shared";
 import { bundledSkillsDir, catalog, rescan, resources, scanRoot, type SkillEntry } from "./catalog.js";
 import { parseSkill } from "./parse.js";
@@ -17,7 +17,7 @@ import { copySkill, previewSkills, skillImportSources } from "./import.js";
 export const skillRoutes = new Hono();
 
 const wire = (s: SkillEntry, off: Set<string>, replacedBy?: SkillWire["replacedBy"]): SkillWire => ({
-  name: s.name, description: s.description, source: s.source, dir: s.dir, enabled: !off.has(s.name),
+  name: s.name, description: s.description, source: s.source, dir: s.dir, enabled: !off.has(skillKey(s.source, s.name)),
   resources: resources(s.dir).files.length, warnings: s.warnings,
   ...(s.license && { license: s.license }), ...(s.compatibility && { compatibility: s.compatibility }),
   ...(replacedBy && { replacedBy }),
@@ -127,7 +127,7 @@ skillRoutes.post("/skill/:name/enabled", async (c) => {
   const name = c.req.param("name");
   const s = catalog(workspaceOf(c)).skills.find((k) => k.name === name);
   if (!s) return c.json({ error: "not found" }, 404);
-  await setSkillEnabled(name, b.enabled);
+  await setSkillEnabled(s.source, name, b.enabled);
   return c.json(wire(s, disabledSkills()));
 });
 
@@ -138,7 +138,7 @@ skillRoutes.delete("/skill/:name", async (c) => {
   // A linked folder loses the link, never what it points to.
   if (lstatSync(s.dir).isSymbolicLink()) unlinkSync(s.dir);
   else rmSync(s.dir, { recursive: true, force: true });
-  await setSkillEnabled(name, true);
+  await setSkillEnabled("user", name, true);
   return c.json({ ok: true });
 });
 

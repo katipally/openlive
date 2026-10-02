@@ -1034,7 +1034,10 @@ frontmatter `name` and `description`, optional `license`, `compatibility`,
   `~/.openlive/skills` beside `~/.claude/skills` and `~/.agents/skills` for the
   installed app, and `<repo>/data/skills` in a dev checkout: skills are files a
   person opens, edits and shares. `OPENLIVE_SKILLS_DIR` moves it. Which skills are
-  switched off is the only state OpenLive keeps, by name, in `<home>/state/skills.json`.
+  switched off is the only state OpenLive keeps, as `source:name` (`user`,
+  `workspace` or `bundled`) in `<home>/state/skills.json`, so turning off a
+  project's skill leaves yours of the same name on. A bare name written before
+  that still counts for every source until that skill is switched again.
 - **Workspace skills.** A call with a bound folder also reads
   `<folder>/.claude/skills` and `<folder>/.agents/skills`, in place and never
   copied. The folder is one the user picked, so it is trusted as they are; a

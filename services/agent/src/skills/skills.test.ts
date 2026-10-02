@@ -113,10 +113,33 @@ describe("the skill tools", () => {
   it("are not offered at all with no skill enabled", async () => {
     expect(skillTools()({})).toEqual([]);
     skill(userDir, "pdf", md("pdf", "PDFs."));
-    await setSkillEnabled("pdf", false);
+    await setSkillEnabled("user", "pdf", false);
     expect(skillTools()({})).toEqual([]);
-    await setSkillEnabled("pdf", true);
+    await setSkillEnabled("user", "pdf", true);
     expect(skillTools()({}).map((t) => t.name)).toEqual(["activate_skill", "read_skill_file"]);
+  });
+
+  it("turns off a project's skill without turning off yours of the same name, and keeps an old by-name switch working", async () => {
+    skill(userDir, "pdf", md("pdf", "Mine."));
+    const ws = join(tmp, "project");
+    skill(join(ws, ".agents", "skills"), "pdf", md("pdf", "The project's."));
+    rescan();
+    const offered = (workspace?: string) => {
+      const [activate] = skillTools()(workspace ? { workspace: () => workspace } : {});
+      return activate?.description.match(/<description>(.*?)<\/description>/)?.[1];
+    };
+    await setSkillEnabled("workspace", "pdf", false);
+    expect(offered(ws)).toBeUndefined();
+    expect(offered()).toBe("Mine.");
+    await setSkillEnabled("workspace", "pdf", true);
+    // skills.json as it was before keys named a source: the bare name is off everywhere.
+    writeFileSync(join(tmp, "data", "state", "skills.json"), JSON.stringify({ disabled: ["pdf"] }));
+    expect(offered()).toBeUndefined();
+    await setSkillEnabled("user", "pdf", true);
+    expect(offered()).toBe("Mine.");
+    expect(offered(ws)).toBeUndefined();
+    await setSkillEnabled("workspace", "pdf", true);
+    rmSync(ws, { recursive: true, force: true });
   });
 
   it("carry the catalog in activate_skill, and load a skill once per session", async () => {

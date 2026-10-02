@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { disabledSkills } from "@openlive/db";
+import { disabledSkills, skillKey } from "@openlive/db";
 import type { ToolProvider } from "../capabilities/registry.js";
 import type { ToolSet } from "../capabilities/dispatch.js";
 import { confine } from "../capabilities/files.js";
@@ -122,7 +122,7 @@ export const saveSkill: Tool<SaveArgs, { skill: string; dir: string }> = {
 export function skillTools(): ToolProvider {
   return (s) => {
     const off = disabledSkills();
-    const on = catalog(s.workspace?.() ?? "").skills.filter((k) => !off.has(k.name));
+    const on = catalog(s.workspace?.() ?? "").skills.filter((k) => !off.has(skillKey(k.source, k.name)));
     if (!on.length) return [];
     const skills = new Map(on.map((k) => [k.name, k]));
     return [activateSkill(skills, new Set()), readSkillFile(skills)];
