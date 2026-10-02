@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDictate, DONE_MS, type DictatePorts, type Inserted } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ mic = true, inserted = "typed" as Inserted } = {}) {
+function rig({ mic = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
+  const pressed: [string[], number | undefined][] = [];
+  const asked: RewriteAsk[] = [];
+  const kept: unknown[] = [];
   let said = "";
   let dictate: ReturnType<typeof createDictate>;
   const consumed: boolean[] = [];
@@ -19,10 +23,26 @@ function rig({ mic = true, inserted = "typed" as Inserted } = {}) {
     quietFlow: vi.fn(),
     show: (d) => void shown.push(d),
     gestureOpen: vi.fn(),
-    settings: () => ({ rules: RULES, lang: "en", keys: ["Right ⌥"] }),
+    rewrite: vi.fn(async (ask: RewriteAsk) => { asked.push(ask); return rewrite(ask); }),
+    warm: vi.fn(),
+    selection: vi.fn(async () => selection),
+    keys: vi.fn(async (keys: string[], times?: number) => { pressed.push([keys, times]); return true; }),
+    record: (d) => void kept.push(d),
+    settings: () => ({
+      rules: RULES, lang: "en", keys: ["Right ⌥"], commandKeys: ["⇧", "Right ⌥"], words: [], snippets: [],
+      commands: new Set<SpokenCommand>(["enter", "newLine", "newParagraph", "undo", "stop"]), polish: { enabled: false, tone: "natural" }, ...settings,
+    }),
   };
   dictate = createDictate(ports);
-  return { dictate, ports, shown, typed, consumed, say: (t: string) => { said = t; }, last: () => shown[shown.length - 1] };
+  return { dictate, ports, shown, typed, pressed, asked, kept, consumed, say: (t: string) => { said = t; }, last: () => shown[shown.length - 1] };
+}
+
+/** A hold that says `text`, start to finish. */
+async function hold(r: ReturnType<typeof rig>, text: string, command = false) {
+  r.dictate.holdStart(command);
+  await vi.advanceTimersByTimeAsync(0);
+  r.say(text);
+  await r.dictate.holdEnd();
 }
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); });
@@ -144,4 +164,163 @@ it("takes nothing while it is off", async () => {
   const r = rig();
   expect(await r.dictate.heard("for Flow")).toBe(false);
   expect(r.typed).toEqual([]);
+});
+
+describe("the word lists", () => {
+  it("spells dictionary words the user's way, and keeps the dictation in history", async () => {
+    const r = rig({ settings: { words: ["OpenLive"] } });
+    await hold(r, "i love open live");
+    expect(r.typed).toEqual(["I love OpenLive."]);
+    expect(r.kept).toEqual([{ raw: "i love open live", cleaned: "I love OpenLive.", final: "I love OpenLive.", copied: false }]);
+  });
+
+  it("types a snippet's text for its trigger said alone, never polished", async () => {
+    const r = rig({ settings: { snippets: [{ trigger: "my address", text: "221B Baker Street" }], polish: { enabled: true, tone: "formal" } } });
+    await hold(r, "my address");
+    expect(r.typed).toEqual(["221B Baker Street"]);
+    expect(r.asked).toEqual([]);
+  });
+});
+
+describe("AI polish", () => {
+  const on = { polish: { enabled: true, tone: "casual" as const } };
+
+  it("types the brain's rewrite of the cleaned-up words, warming it on the press", async () => {
+    const r = rig({ settings: on });
+    await hold(r, "um send it by friday");
+    expect(r.ports.warm).toHaveBeenCalled();
+    expect(r.asked).toEqual([{ kind: "polish", text: "Send it by Friday.", tone: "casual" }]);
+    expect(r.typed).toEqual(["REWRITTEN Send it by Friday."]);
+  });
+
+  it("falls back to the cleaned-up words when the brain fails, API or agent alike", async () => {
+    const r = rig({ settings: on, rewrite: async () => { throw new Error("No API key for OpenAI."); } });
+    await hold(r, "send it by friday");
+    expect(r.typed).toEqual(["Send it by Friday."]);
+    expect(r.last()?.note).toMatch(/did not answer/);
+  });
+
+  it("falls back to the cleaned-up words once it takes too long, and hangs up on the brain", async () => {
+    let signal: AbortSignal | undefined;
+    const r = rig({ settings: on });
+    r.ports.rewrite = vi.fn((_ask: RewriteAsk, s: AbortSignal) => { signal = s; return new Promise<string>(() => {}); });
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    r.say("send it by friday");
+    const done = r.dictate.holdEnd();
+    await vi.advanceTimersByTimeAsync(POLISH_MS);
+    await done;
+    expect(signal?.aborted).toBe(true);
+    expect(r.typed).toEqual(["Send it by Friday."]);
+  });
+
+  it("falls back on an empty answer too", async () => {
+    const r = rig({ settings: on, rewrite: async () => "  " });
+    await hold(r, "send it by friday");
+    expect(r.typed).toEqual(["Send it by Friday."]);
+  });
+});
+
+describe("spoken commands", () => {
+  it("presses Enter after typing what came before it", async () => {
+    const r = rig();
+    await hold(r, "Sounds good. Press enter.");
+    expect(r.typed).toEqual(["Sounds good."]);
+    expect(r.pressed).toEqual([[["enter"], undefined]]);
+  });
+
+  it("types the words when they are part of the sentence", async () => {
+    const r = rig();
+    await hold(r, "I will press enter later");
+    expect(r.typed).toEqual(["I will press enter later."]);
+    expect(r.pressed).toEqual([]);
+  });
+
+  it("breaks the line with Shift+Enter, and the next words start it with no space", async () => {
+    const r = rig();
+    await r.dictate.setHandsFree(true, false);
+    await r.dictate.heard("first line");
+    await r.dictate.heard("new paragraph");
+    await r.dictate.heard("second line");
+    expect(r.pressed).toEqual([[["shift", "enter"], 2]]);
+    expect(r.typed).toEqual(["First line", "Second line"]);
+  });
+
+  it("takes back the last insertion with one Backspace per character, once", async () => {
+    const r = rig();
+    await r.dictate.setHandsFree(true, false);
+    await r.dictate.heard("send it");
+    await r.dictate.heard("and more 👍");
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([[["backspace"], " And more 👍".length - 1]]);
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toHaveLength(1);
+    expect(r.last()?.note).toMatch(/Nothing/);
+  });
+
+  it("stops hands-free on \"stop dictating\", and only hands-free", async () => {
+    const r = rig();
+    await r.dictate.setHandsFree(true, false);
+    await r.dictate.heard("that is all. stop dictating");
+    expect(r.typed).toEqual(["That is all."]);
+    expect(r.dictate.active()).toBe(false);
+    const held = rig();
+    await hold(held, "stop dictating");
+    expect(held.typed).toEqual(["Stop dictating"]);
+  });
+
+  it("leaves another language as said", async () => {
+    const r = rig({ settings: { lang: "es" } });
+    await hold(r, "press enter");
+    expect(r.typed).toEqual(["press enter"]);
+  });
+});
+
+describe("command mode", () => {
+  it("rewrites the selection as told and types over it", async () => {
+    const r = rig({ selection: "hey can u send the numbers", rewrite: async () => "Could you send the numbers?" });
+    await hold(r, "um make it polite", true);
+    expect(r.ports.warm).toHaveBeenCalled();
+    expect(r.asked).toEqual([{ kind: "command", text: "Make it polite.", selection: "hey can u send the numbers" }]);
+    expect(r.typed).toEqual(["Could you send the numbers?"]);
+    expect(r.kept).toEqual([{ raw: "um make it polite", cleaned: "Make it polite.", final: "Could you send the numbers?", command: true, copied: false }]);
+  });
+
+  it("writes at the cursor when nothing is selected, and shows it is a command", async () => {
+    const r = rig({ rewrite: async () => "A haiku." });
+    r.dictate.holdStart(true);
+    expect(r.last()).toMatchObject({ command: true, keys: ["⇧", "Right ⌥"] });
+    await vi.advanceTimersByTimeAsync(0);
+    r.say("write a haiku");
+    await r.dictate.holdEnd();
+    expect(r.asked[0]).toMatchObject({ selection: "" });
+    expect(r.typed).toEqual(["A haiku."]);
+  });
+
+  it("changes nothing when the brain fails or runs out of time", async () => {
+    const r = rig({ selection: "keep me", rewrite: async () => { throw new Error("rate limited"); } });
+    await hold(r, "make it formal", true);
+    expect(r.typed).toEqual([]);
+    expect(r.last()?.note).toBe("rate limited");
+    const slow = rig({ selection: "keep me" });
+    slow.ports.rewrite = vi.fn(() => new Promise<string>(() => {}));
+    slow.dictate.holdStart(true);
+    await vi.advanceTimersByTimeAsync(0);
+    slow.say("make it formal");
+    const done = slow.dictate.holdEnd();
+    await vi.advanceTimersByTimeAsync(COMMAND_MS);
+    await done;
+    expect(slow.typed).toEqual([]);
+    expect(slow.last()?.note).toMatch(/nothing changed/);
+  });
+
+  it("takes over a plain hold when Shift joins it", async () => {
+    const r = rig({ rewrite: async () => "Done." });
+    r.dictate.holdStart();
+    r.dictate.holdStart(true);
+    await vi.advanceTimersByTimeAsync(0);
+    r.say("fix the typo");
+    await r.dictate.holdEnd();
+    expect(r.asked[0]?.kind).toBe("command");
+  });
 });

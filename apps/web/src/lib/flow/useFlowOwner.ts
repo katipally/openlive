@@ -20,8 +20,9 @@ import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
 import { createDictate, type Inserted } from "@/lib/dictate/run";
+import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { DICTATE_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
+import { DICTATE_BINDING, DICTATE_COMMAND_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
@@ -55,6 +56,8 @@ const MIC: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: t
 // The microphone outlives a dictation by this much, so the second tap of a
 // double-tap, or the next hold, finds it already open.
 const DICTATE_MIC_GRACE_MS = 1500;
+const NONE: never[] = [];
+const JSON_POST = { method: "POST", headers: { "content-type": "application/json" } } as const;
 
 /** Chunked so a megapixel frame cannot blow the argument limit of `apply`. */
 function base64(buf: ArrayBuffer): string {
@@ -88,8 +91,8 @@ export function useFlowOwner(): void {
   const disarmed = useRef(false);
   /** Whether the addon currently holds a registration. */
   const armed = useRef(false);
-  /** The key the addon holds for Dictate, or null while it holds none. */
-  const dictateKey = useRef<string | null>(null);
+  /** The keys the addon holds for Dictate and its command mode, by binding id. */
+  const dictateKeys = useRef(new Map<string, string>());
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
@@ -262,20 +265,23 @@ export function useFlowOwner(): void {
       await api.register(BINDING_ID, FLOW_TRIGGER);
       armed.current = true;
       // A hook that was just started holds no Dictate key, whatever was registered before.
-      dictateKey.current = null;
+      dictateKeys.current.clear();
       await syncDictateKey();
     };
 
-    /** Dictate's key registered as its settings say: the one picked while it is on, none while it is off. */
+    /** Dictate's keys registered as its settings say: the ones picked while it is on, none while it is off. */
     const syncDictateKey = async () => {
-      const want = armed.current && settings.current?.dictate.enabled ? settings.current.dictate.hotkey : null;
-      if (want === dictateKey.current) return;
-      if (dictateKey.current) await api.unregister(DICTATE_BINDING);
-      dictateKey.current = null;
-      if (!want) return;
-      const r = await api.register(DICTATE_BINDING, want, true);
-      if (r.ok) dictateKey.current = want;
-      else log.error("flow", "dictate key:", r.error);
+      const own = armed.current && settings.current?.dictate.enabled ? settings.current.dictate : null;
+      for (const [id, want] of [[DICTATE_BINDING, own?.hotkey], [DICTATE_COMMAND_BINDING, own?.commandHotkey]] as const) {
+        const held = dictateKeys.current.get(id);
+        if (want === held) continue;
+        if (held) await api.unregister(id);
+        dictateKeys.current.delete(id);
+        if (!want) continue;
+        const r = await api.register(id, want, true);
+        if (r.ok) dictateKeys.current.set(id, want);
+        else log.error("flow", "dictate key:", r.error);
+      }
     };
 
     /** The settings the runtime actually runs on. */
@@ -586,12 +592,35 @@ export function useFlowOwner(): void {
         micGrace = setTimeout(() => { if (!summoned.current && !snap.current.dictate) teardownMic(); }, DICTATE_MIC_GRACE_MS);
       },
       gestureOpen: (open) => void api.gestureOpen(DICTATE_BINDING, open),
+      rewrite: async (ask, signal) => {
+        const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(ask), signal });
+        const body = (await r.json().catch(() => ({}))) as { text?: unknown; error?: string };
+        if (!r.ok || typeof body.text !== "string") throw new Error(body.error || `HTTP ${r.status}`);
+        return body.text;
+      },
+      warm: () => void fetch("/api/dictate/warm", { ...JSON_POST, body: "{}" }).catch(() => {}),
+      // The accessibility APIs first; where they cannot see the selection, a copy reads it.
+      selection: async () => {
+        const seen = valueOr(await api.context(), undefined)?.selection;
+        return seen ?? valueOr(await api.copySelection(settings.current?.insertion), null) ?? "";
+      },
+      keys: async (keys, times) => (await api.keys(keys, times)).ok,
+      record: (d) => void (async () => {
+        const front = valueOr(await api.device("foreground", {}), null) as { appName?: string } | null;
+        await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, ...(front?.appName && { app: front.appName }) }) });
+      })().catch((e) => log.debug("flow", "dictate history:", e)),
       settings: () => {
         const own = settings.current?.dictate;
+        const commands = own?.commands;
         return {
           rules: own?.cleanup ?? { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
           lang: loadPipelineConfig().language,
           keys: hotkeyKeys(own?.hotkey ?? "option_right", desktopPlatform),
+          commandKeys: hotkeyKeys(own?.commandHotkey ?? "shift+option_right", desktopPlatform),
+          words: own?.words ?? NONE,
+          snippets: own?.snippets ?? NONE,
+          commands: new Set(commands ? (Object.keys(commands) as SpokenCommand[]).filter((c) => commands[c]) : []),
+          polish: own?.polish ?? { enabled: false, tone: "natural" },
         };
       },
     });
@@ -783,6 +812,14 @@ export function useFlowOwner(): void {
     // ── wiring ────────────────────────────────────────────────────────────
     const tray = trayAsk();
     const offEffect = api.onEffect((e) => {
+      if (e.bindingId === DICTATE_COMMAND_BINDING) {
+        if (e.kind === "hold_start") dictate.holdStart(true);
+        else if (e.kind === "hold_end") void dictate.holdEnd();
+        else if (e.kind === "hold_cancel") void dictate.holdCancel();
+        // A double tap means nothing here: its capture is dropped and the next press holds again.
+        else { void dictate.holdCancel(); void api.gestureOpen(DICTATE_COMMAND_BINDING, false); }
+        return;
+      }
       if (e.bindingId === DICTATE_BINDING) {
         if (e.kind === "hold_start") dictate.holdStart();
         else if (e.kind === "hold_end") void dictate.holdEnd();
@@ -886,7 +923,7 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       teardownMic();
       void api.unregister(BINDING_ID);
-      if (dictateKey.current) void api.unregister(DICTATE_BINDING);
+      for (const id of dictateKeys.current.keys()) void api.unregister(id);
       clearTimeout(micGrace);
       client.current?.close();
       client.current = null;

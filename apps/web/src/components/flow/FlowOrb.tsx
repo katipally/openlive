@@ -409,14 +409,14 @@ function Control({ label, shown, onClick, side, nth = 0, pressed, children }: {
 
 /** Dictate under the orb: how it is held, then what it heard, is doing or did. */
 function DictateStrip({ d, onStop }: { d: DictateSnapshot; onStop: () => void }) {
-  const said = d.note || (d.phase === "processing" ? "Cleaning up" : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial);
+  const said = d.note || (d.phase === "processing" ? (d.command ? "Working on it" : "Cleaning up") : d.inserted ? `Inserted ${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial);
   return (
     <div data-hit={d.handsFree || undefined}
       className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 items-center gap-2.5 rounded-[20px] py-1.5 pl-1.5", PANEL)}>
       <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 py-1 text-caption font-medium text-muted-strong">
         {d.handsFree
           ? <><Lock className="size-3" aria-hidden /> Hands-free</>
-          : <><Keycaps keys={d.keys} label={d.keys.join(" ")} /> Hold</>}
+          : <><Keycaps keys={d.keys} label={d.keys.join(" ")} /> {d.command ? "Command" : "Hold"}</>}
       </span>
       {said && (
         <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1 pr-2">

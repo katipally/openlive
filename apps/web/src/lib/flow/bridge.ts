@@ -61,6 +61,8 @@ export interface FlowCapabilities {
 export const FLOW_TRIGGER = "ctrl";
 /** Dictate's binding id with the addon. */
 export const DICTATE_BINDING = "dictate";
+/** Command mode's: Dictate's key with Shift, by default. */
+export const DICTATE_COMMAND_BINDING = "dictate_command";
 
 export type FlowPermissionName = "accessibility" | "microphone" | "screen";
 /** Which screen asked for a permission, for the onboarding funnel. */

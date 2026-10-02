@@ -60,10 +60,12 @@ export interface FlowSnapshot {
 
 /** Dictate on the orb: Flow's orb in Dictate's colours, with what it heard. */
 export interface DictateSnapshot {
-  /** idle: hands-free and waiting for words. processing: cleaning up and typing. */
+  /** idle: hands-free and waiting for words. processing: cleaning up, rewriting and typing. */
   phase: "idle" | "listening" | "processing";
   /** Open until stopped, rather than held by the key. */
   handsFree: boolean;
+  /** Command mode: what is said is an instruction for the selection. */
+  command: boolean;
   /** The key as the person reads it, for the hold pill. */
   keys: string[];
   /** What it has heard so far this utterance. */
