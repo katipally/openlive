@@ -284,9 +284,39 @@ pub fn foreground_window() -> Result<Option<WindowInfo>, String> {
         let pid: i32 = msg_send![app, processIdentifier];
         pid as u32
     };
-    // The list is front to back, so the frontmost app's first entry is the
-    // window the user is actually in.
-    Ok(window_list()?.into_iter().find(|window| window.pid == pid))
+    // The list is front to back, but an app's own helper panel can sit in front
+    // of the window the user is in (TextEdit leaves one after a paste), so the
+    // window accessibility calls focused wins, and the first entry is the fallback.
+    let mut windows: Vec<WindowInfo> = window_list()?
+        .into_iter()
+        .filter(|window| window.pid == pid)
+        .collect();
+    let focused = ax_focused_origin(pid).and_then(|origin| {
+        windows
+            .iter()
+            .position(|window| window.origin.x == origin.x && window.origin.y == origin.y)
+    });
+    Ok(match focused {
+        Some(index) => Some(windows.swap_remove(index)),
+        None => windows.into_iter().next(),
+    })
+}
+
+fn ax_focused_origin(pid: u32) -> Option<CGPoint> {
+    let app = unsafe { AXUIElementCreateApplication(pid as i32) };
+    if app.is_null() {
+        return None;
+    }
+    let attribute = cfstring("AXFocusedWindow");
+    let mut window: *mut c_void = ptr::null_mut();
+    let status = unsafe { AXUIElementCopyAttributeValue(app, as_cf(&attribute), &mut window) };
+    unsafe { CFRelease(app.cast()) };
+    if status != 0 || window.is_null() {
+        return None;
+    }
+    let origin = ax_point(window, "AXPosition");
+    unsafe { CFRelease(window.cast()) };
+    origin
 }
 
 fn ax_app_for(id: u32) -> Result<(*mut c_void, WindowInfo), String> {
