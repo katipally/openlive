@@ -314,6 +314,24 @@ it("an utterance that finishes transcribing while a later reply plays cuts that 
   tts.complete = false;
 });
 
+it("drops a sentence still being said or transcribed when told to discard, and hears the next one", async () => {
+  const sent: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
+  Object.assign(eng, { micRms: 1 });
+  let open!: () => void;
+  Object.assign(tts, { heard: "said before the stop", at: [], complete: true, gate: new Promise<void>((r) => { open = r; }) });
+  eng.onSpeechStart();
+  const transcribing = eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+  eng.discard();
+  open();
+  await transcribing;
+  tts.heard = "said after it";
+  eng.onSpeechStart();
+  await eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+  expect(sent).toEqual(["said after it"]);
+  Object.assign(tts, { complete: false, gate: Promise.resolve() });
+});
+
 it("a turn's word onsets run on across its segments", async () => {
   const sent: [string, number[]][] = [];
   const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string, at: number[]) => sent.push([t, at]) } as never, { ...playNow, playing: () => false } as never) as any;

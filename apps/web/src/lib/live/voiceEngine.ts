@@ -224,6 +224,7 @@ export class VoiceEngine {
   private print: { mic: string; gate: boolean } | null = null;
   private others = new OtherVoices(SAME_VOICE);
   private segment = 0;                             // counts segments, so a late verdict finds its own
+  private dropped = 0;                             // segments up to this one were discarded
   private probe: Float32Array[] = [];              // this segment's frames while GATE_MS checks remain
   // The voiceprint's latest verdict on this segment. "other": the segment is
   // ignored like echo, unless all of it says otherwise at its end.
@@ -630,6 +631,7 @@ export class VoiceEngine {
   // `overReply`: said over a paused reply. Talk after it can cut the reply before
   // its words are in, and a sound said over the reply is still never a turn.
   private async onSpeechEnd(audio: Float32Array, final?: Promise<Heard>, verdict?: Verdict, vadEnded = true, voiced = this.voicedMs, overReply = !!this.tentative) {
+    const seg = this.segment;
     if (vadEnded) {
       if (this.echo) {
         this.echo = false;
@@ -703,6 +705,7 @@ export class VoiceEngine {
       ]);
       const text = heard.text.trim();
       if (this.stopped) return;
+      if (seg <= this.dropped) { if (!this.hearing) this.setPhase("idle"); return; }
       // Someone else's voice never starts a turn, and a reply it paused goes on.
       if (gated && who && !who.v.you) {
         if (this.tentative) { this.resumeReply(); return; }
@@ -1203,6 +1206,15 @@ export class VoiceEngine {
     if (handover) p = "speaking";
     if (p !== this.phase) { this.phase = p; if (!this.tentative) this.h.onPhase(p); }
     if (handover && !this.replyOpen) this.waitDrainThenIdle(this.epoch);
+  }
+
+  /** What was heard up to now goes nowhere, a sentence still being said or
+   *  transcribed included; what is said after it is heard as ever. */
+  discard() {
+    this.dropped = this.segment;
+    this.clearHold();
+    this.pending = null;
+    this.deferred = [];
   }
 
   /** Mute (manual / hands-free toggle): pause listening; a held pending is dropped. */
