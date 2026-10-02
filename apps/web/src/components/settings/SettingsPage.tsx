@@ -40,8 +40,8 @@ export const SECTIONS = [
   { id: "memory", label: "Memory", sub: "Facts about you", desc: "Facts every brain carries into a conversation.", icon: Brain, Comp: MemorySettings, Action: MemoryClearAll, group: "Intelligence", shared: true, fresh: true, wide: true },
   { id: "voice", label: "Voice", sub: "Language, voice, pace", desc: "How OpenLive hears and speaks, in every mode.", icon: AudioWaveform, Comp: VoiceSettings, group: "Voice", shared: true },
   { id: "engine", label: "Speech engine", sub: "VAD · STT · TTS", desc: "Your whole voice pipeline runs on-device. Nothing here leaves your machine.", icon: Cpu, Comp: PipelineSettings, group: "Voice", shared: true, fresh: true },
-  { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use, and how to turn it off.", icon: ShieldCheck, Comp: PrivacySettings, group: "App", desktop: true },
-  { id: "about", label: "About", sub: "Version, links", icon: Info, Comp: AboutSettings, group: "App" },
+  { id: "privacy", label: "Privacy", sub: "Anonymous usage", desc: "What OpenLive shares about its own use.", icon: ShieldCheck, Comp: PrivacySettings, group: "App", desktop: true },
+  { id: "about", label: "About", sub: "Version, links", desc: "Version, folder and links.", icon: Info, Comp: AboutSettings, group: "App" },
 ] as const satisfies readonly Sec[];
 type TabId = (typeof SECTIONS)[number]["id"];
 interface Sec {
