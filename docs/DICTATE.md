@@ -122,6 +122,8 @@ what to do, let go.
   clipboard back** says.
 - With nothing selected, what you ask for is written at the cursor.
 - A failure, or 45 seconds without an answer, changes nothing and says why.
+- A selection over 20,000 characters (or 64 KB once sent) is not sent: the orb
+  says "Selection too long for a command."
 - The key is changeable in Settings > Dictate > Commands, and may not be
   Dictate's own key. A double tap of it does nothing.
 

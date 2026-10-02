@@ -344,6 +344,17 @@ describe("command mode", () => {
     expect(slow.last()?.note).toMatch(/nothing changed/);
   });
 
+  it("says a selection is too long instead of sending what the brain would refuse", async () => {
+    // Over the length, and under it but over the body once JSON escapes it.
+    for (const selection of ["a".repeat(20_001), "\u0007".repeat(12_000)]) {
+      const r = rig({ selection });
+      await hold(r, "make it formal", true);
+      expect(r.asked).toEqual([]);
+      expect(r.typed).toEqual([]);
+      expect(r.last()).toMatchObject({ phase: "idle", note: "Selection too long for a command." });
+    }
+  });
+
   it("takes over a plain hold when Shift joins it", async () => {
     const r = rig({ rewrite: async () => "Done." });
     r.dictate.holdStart();

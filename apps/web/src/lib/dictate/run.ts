@@ -1,6 +1,7 @@
 import { cleanup, type CleanupRules } from "./cleanup";
 import { applyDictionary, snippetFor, spokenCommand, type Snippet, type SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
+import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
 
 // Dictate inside Flow's owner renderer: hold the key and talk, or go hands-free,
 // and each finished utterance is cleaned up on this machine and typed at the
@@ -66,6 +67,7 @@ const POLISH_LATE = "AI polish did not answer. Typed it as cleaned up.";
 const COMMAND_FAILED = "The brain did not answer, so nothing changed.";
 const NOTHING_TO_UNDO = "Nothing of mine to take back.";
 const KEYS_FAILED = "That key could not be pressed.";
+const TOO_LONG = "Selection too long for a command.";
 
 /** Past this the cleaned-up words go in as they are, so dictation is never lost to a slow brain. */
 export const POLISH_MS = 15_000;
@@ -206,9 +208,10 @@ export function createDictate(ports: DictatePorts) {
     const instruction = cleanup(text, s.rules, s.lang);
     if (!instruction) { set({ partial: "" }); return; }
     set({ phase: "processing", partial: "" });
-    const selection = await ports.selection();
+    const ask = { kind: "command", text: instruction, selection: await ports.selection() } as const;
+    if (ask.selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", note: TOO_LONG }); return; }
     let result: string;
-    try { result = await think({ kind: "command", text: instruction, selection }, COMMAND_MS); }
+    try { result = await think(ask, COMMAND_MS); }
     catch (e) { set({ phase: "idle", note: (e instanceof Error && e.message) || COMMAND_FAILED }); return; }
     // Typed over the selection, it replaces it.
     const out = await put(result);

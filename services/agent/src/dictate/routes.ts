@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
 import { log } from "../log.js";
 import { rewrite, warm, type RewriteAsk } from "./rewrite.js";
 
@@ -9,13 +10,12 @@ import { rewrite, warm, type RewriteAsk } from "./rewrite.js";
 
 export const dictateRoutes = new Hono();
 
-const TEXT_MAX = 20_000;
 const ask = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("polish"), text: z.string().min(1).max(TEXT_MAX), tone: z.enum(["natural", "casual", "formal"]) }),
-  z.object({ kind: z.literal("command"), text: z.string().min(1).max(TEXT_MAX), selection: z.string().max(TEXT_MAX) }),
+  z.object({ kind: z.literal("polish"), text: z.string().min(1).max(DICTATE_TEXT_MAX), tone: z.enum(["natural", "casual", "formal"]) }),
+  z.object({ kind: z.literal("command"), text: z.string().min(1).max(DICTATE_TEXT_MAX), selection: z.string().max(DICTATE_TEXT_MAX) }),
 ]);
 
-dictateRoutes.post("/rewrite", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
+dictateRoutes.post("/rewrite", bodyLimit({ maxSize: DICTATE_BODY_MAX, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
   let body: unknown;
   try { body = await c.req.json(); } catch { body = null; }
   const parsed = ask.safeParse(body);

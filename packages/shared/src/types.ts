@@ -71,3 +71,7 @@ export type MessageBlock =
   // Rich ACP tool call (coding agents) — the final merged state, with terminal
   // output snapshotted in at persist time so old transcripts are self-contained.
   | { type: "acp_tool"; call: ToolCallState };
+
+/** Dictate's rewrite (/dictate/rewrite): the longest text or selection it takes, and the largest body. */
+export const DICTATE_TEXT_MAX = 20_000;
+export const DICTATE_BODY_MAX = 64 * 1024;

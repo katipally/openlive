@@ -28,6 +28,7 @@ Releases before 0.1.9 predate this file — see the
 - **Command mode.** Select text, hold Shift with Dictate's key and say what to
   do ("make this formal", "translate to Spanish"); the selection is replaced
   with the result, or with nothing selected the text is written at the cursor.
+  A selection over 20,000 characters says so on the orb instead of being sent.
 - **Dictionary and snippets** in Settings > Dictate > Words: names and jargon
   spelled your way, and a phrase said alone that types its full text.
 - **Spoken commands**, each its own switch: "press enter", "new line", "new
