@@ -27,6 +27,7 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
 import { FeedbackPrompt } from "@/components/FeedbackPrompt";
 import { DictateHome } from "@/components/dictate/DictateHome";
+import { Welcome } from "@/components/Welcome";
 
 // One home for the mode switch: top centre of the window, clear of the traffic
 // lights on the left and the window controls on the right, in every mode.
@@ -59,6 +60,7 @@ export default function Home() {
   const reduce = useReducedMotion();
   // The first-run notice goes first: two overlays would contend for the same first look.
   const [noticePending, setNoticePending] = useState(false);
+  const [welcomePending, setWelcomePending] = useState(false);
 
   // The saved mode, applied after mount: this store is evaluated during SSR too,
   // so seeding it from localStorage there would be a hydration mismatch.
@@ -181,7 +183,7 @@ export default function Home() {
               </a>
             </footer>
 
-            <SpotlightTour id="home" active={!liveOpen && !noticePending} steps={[
+            <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
               { target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
@@ -198,6 +200,7 @@ export default function Home() {
       <CommandPalette onNewChat={startNew} />
       <ShortcutsSheet />
       <ConnectionBanner />
+      <Welcome onPending={setWelcomePending} />
       <PrivacyNotice onPending={setNoticePending} />
       <FeedbackPrompt hold={noticePending || liveOpen} />
     </div>
