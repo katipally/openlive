@@ -130,7 +130,7 @@ const editFileTool: Tool<{ path: string; find: string; replace: string }, null> 
     const find = String(args?.find ?? ""); const replace = String(args?.replace ?? "");
     // Again, since the file may have changed while the person was deciding.
     const body = await matchOnce(abs, find);
-    try { await checkpointed(confine(root(ctx), "")!, abs, body.replace(find, replace), "edit_file"); }
+    try { await checkpointed(confine(root(ctx), "")!, abs, body.replace(find, () => replace), "edit_file"); }
     catch (e: any) { return fail(`Couldn't write that file: ${String(e?.message ?? e)}`); }
     return t(`Edited ${rel}.`);
   },

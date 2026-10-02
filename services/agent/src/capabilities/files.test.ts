@@ -68,6 +68,9 @@ test("the file tools read inside the workspace and refuse without one", async ()
     await assert.rejects(tool("read_file").execute({ path: "../x" }, ctx(tmp)), /outside the workspace/);
     await tool("edit_file").execute({ path: "a.txt", find: "hello", replace: "bye" }, ctx(tmp));
     assert.deepStrictEqual((await tool("read_file").execute({ path: "a.txt" }, ctx(tmp))).content, [{ type: "text", text: "bye" }]);
+    const literal = "$& $1 $$ $` $' $<n>";
+    await tool("edit_file").execute({ path: "a.txt", find: "bye", replace: literal }, ctx(tmp));
+    assert.deepStrictEqual((await tool("read_file").execute({ path: "a.txt" }, ctx(tmp))).content, [{ type: "text", text: literal }]);
     assert.strictEqual(tool("write_file").available!({}), false);
     assert.strictEqual(tool("write_file").available!({ workspace: () => "" }), true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
