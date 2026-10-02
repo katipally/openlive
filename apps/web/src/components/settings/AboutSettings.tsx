@@ -81,12 +81,12 @@ function YourData() {
     const r = await fetch("/api/home", { cache: "no-store" });
     if (!r.ok) throw new Error("The folder could not be read.");
     return ((await r.json()) as { home: string }).home;
-  }, staleTime: Infinity }).data;
+  }, staleTime: Infinity });
   const [confirming, setConfirming] = useState(false);
   return (
     <Section id="set-about-data" title="Your data" desc="Chats, memory, settings, skills and logs, all on this machine.">
       <ListGroup>
-        <ListRow label="OpenLive folder" detail={<span className="break-all font-mono">{home ?? "\u2026"}</span>}>
+        <ListRow label="OpenLive folder" detail={home.error ? home.error.message : <span className="break-all font-mono">{home.data ?? "\u2026"}</span>}>
           {isDesktop && bridge && (
             <Button size="sm" onClick={() => void bridge?.("open_home").then((r) => { if (r !== "Opened.") toast(r); })}>
               <FolderOpen aria-hidden /> Open folder
