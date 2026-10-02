@@ -189,7 +189,7 @@ Double-tap for hands-free. See [docs/DICTATE.md](docs/DICTATE.md).
 | Home | In a live call |
 |---|---|
 | ![Home](assets/home.png) | ![In a live call](assets/hero.png) |
-| **Pre-call setup** | **Settings — agents** |
+| **Pre-call setup** | **Settings, General** |
 | ![Pre-call setup](assets/lobby.png) | ![Settings](assets/settings.png) |
 | **Clone your voice** | **Flow home** |
 | ![Clone Voice](assets/clone-voice.png) | ![Flow home](assets/flow-home.png) |
@@ -199,6 +199,8 @@ Double-tap for hands-free. See [docs/DICTATE.md](docs/DICTATE.md).
 | ![Flow speaking](assets/flow-orb-speaking.png) | ![Flow hover controls](assets/flow-orb-hover.png) |
 | **A failure card with its fix** | **Settings, Flow** |
 | ![Flow failure card](assets/flow-orb-failure.png) | ![Settings, Flow](assets/flow-settings.png) |
+| **Dictate, words and snippets** | |
+| ![Settings, Dictate, Words](assets/dictate.png) | |
 
 ## Why on-device voice matters
 

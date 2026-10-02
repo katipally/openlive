@@ -190,6 +190,8 @@ what to do, let go.
   hotwords without a model change, and the Whisper pipeline has no prompt
   input, so the dictionary works on the text instead.
 
+![Settings > Dictate > Words](../assets/dictate.png)
+
 ## Spoken commands
 
 Each has its own switch in Settings > Dictate > Commands. A command counts when
