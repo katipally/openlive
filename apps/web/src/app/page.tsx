@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
-import { restoreMode, useUi } from "@/lib/uiStore";
+import { APP_MODES, restoreMode, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
@@ -26,13 +26,14 @@ import { ShortcutsSheet } from "@/components/ShortcutsSheet";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
 import { FeedbackPrompt } from "@/components/FeedbackPrompt";
+import { DictateHome } from "@/components/dictate/DictateHome";
 
 // One home for the mode switch: top centre of the window, clear of the traffic
 // lights on the left and the window controls on the right, in every mode.
 const MODE_SWITCH_AT = "fixed left-1/2 top-2 z-nav -translate-x-1/2";
 
-// Views slide the way the switch reads: Flow sits right of Chat. `custom` is the
-// direction (1 toward Flow, -1 toward Chat, 0 to only cross-fade).
+// Views slide the way the switch reads: Chat, Flow, Dictate, left to right.
+// `custom` is the direction (1 rightward, -1 leftward, 0 to only cross-fade).
 const VIEW = {
   variants: {
     enter: (d: number) => ({ x: `${d * 6}%`, opacity: 0 }),
@@ -110,13 +111,16 @@ export default function Home() {
     setLiveOpen(true);
   };
 
-  // Flow swaps the whole window rather than sharing the lobby's centred layout.
-  // Its gesture is armed by the owner renderer either way, so this only changes
-  // what is on screen. A call in progress keeps Chat up: you cannot switch
-  // mid-call. The switch and Settings sit outside the sliding views, so changing
-  // mode never moves or remounts them.
-  const flow = mode === "flow" && !liveOpen;
-  const dir = reduce ? 0 : flow ? 1 : -1;
+  // Flow and Dictate swap the whole window rather than sharing the lobby's
+  // centred layout. Their keys are armed by the owner renderer either way, so
+  // this only changes what is on screen. A call in progress keeps Chat up: you
+  // cannot switch mid-call. The switch and Settings sit outside the sliding
+  // views, so changing mode never moves or remounts them.
+  const view = liveOpen ? "chat" : mode;
+  // The direction is fixed on the render the view changes in; a re-render keeps it.
+  const shown = useRef({ view, dir: 0 });
+  if (shown.current.view !== view) shown.current = { view, dir: Math.sign(APP_MODES.indexOf(view) - APP_MODES.indexOf(shown.current.view)) };
+  const dir = reduce ? 0 : shown.current.dir;
 
   return (
     // The one stacking context the views used to own: at rest the views add none,
@@ -128,9 +132,13 @@ export default function Home() {
       <div data-layer="view" className="relative">
       {!liveOpen && <ModeSwitch className={MODE_SWITCH_AT} />}
       <AnimatePresence initial={false} mode="popLayout" custom={dir}>
-        {flow ? (
+        {view === "flow" ? (
           <motion.main key="flow" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col text-left">
             <FlowShell />
+          </motion.main>
+        ) : view === "dictate" ? (
+          <motion.main key="dictate" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col text-left">
+            <DictateHome />
           </motion.main>
         ) : (
           <motion.main key="chat" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col items-center justify-center px-6 text-center">
@@ -174,6 +182,7 @@ export default function Home() {
             </footer>
 
             <SpotlightTour id="home" active={!liveOpen && !noticePending} steps={[
+              { target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." },
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
@@ -184,7 +193,7 @@ export default function Home() {
       </AnimatePresence>
       </div>
       {liveOpen && <div data-layer="stage"><LiveDock key={activeChatId} chatId={activeChatId} onExit={() => setLiveOpen(false)} /></div>}
-      {!flow && <div data-layer="drawer"><HistorySidebar /></div>}
+      {view === "chat" && <div data-layer="drawer"><HistorySidebar /></div>}
       <SettingsPage />
       <CommandPalette onNewChat={startNew} />
       <ShortcutsSheet />

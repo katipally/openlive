@@ -30,7 +30,7 @@ const markSeen = (): void => { try { localStorage.setItem(ONBOARDED_KEY, "1"); }
  * the switch is, and this bar is padded unevenly for the traffic lights.
  */
 export const SwitchHole = () => (
-  <div aria-hidden className="fixed left-1/2 top-0 h-14 w-[11rem] -translate-x-1/2 [-webkit-app-region:no-drag]" />
+  <div aria-hidden className="fixed left-1/2 top-0 h-14 w-[17.5rem] -translate-x-1/2 [-webkit-app-region:no-drag]" />
 );
 
 export function FlowShell() {

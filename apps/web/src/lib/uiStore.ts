@@ -13,7 +13,10 @@ interface UiState {
   settingsTab: string | null;             // deep-link a tab when opening (consumed by the modal)
   settingsOrigin: string;                 // where Settings was opened from, for its "Back to …"
   openSettings: () => void;
-  openSettingsTab: (tab: string) => void; // open Settings straight to a tab
+  /** Open Settings straight to a tab, and optionally to one row on it (a search result's anchor and reveal). */
+  openSettingsTab: (tab: string, at?: SettingsJump) => void;
+  /** The row a deep link asked for, consumed with `settingsTab`. */
+  settingsJump: SettingsJump | null;
   closeSettings: () => void;
   /** The Capabilities subtab: the one a deep link or this viewer last chose. */
   capabilitiesTab: CapabilityTab;
@@ -36,7 +39,10 @@ interface UiState {
   setShortcutsOpen: (v: boolean) => void;
 }
 
-export type AppMode = "chat" | "flow";
+export type AppMode = "chat" | "flow" | "dictate";
+export const APP_MODES: readonly AppMode[] = ["chat", "flow", "dictate"];
+export const MODE_LABEL: Record<AppMode, string> = { chat: "Chat", flow: "Flow", dictate: "Dictate" };
+export interface SettingsJump { anchor: string; reveal?: string }
 
 const MODE_KEY = "openlive-mode";
 const CAPABILITIES_KEY = "openlive-capabilities-tab";
@@ -47,7 +53,8 @@ const CAPABILITIES_KEY = "openlive-capabilities-tab";
 export function restoreMode(): void {
   try {
     const saved = localStorage.getItem(MODE_KEY);
-    if (saved === "flow" || saved === "chat") useUi.setState({ mode: saved });
+    const mode = APP_MODES.find((m) => m === saved);
+    if (mode) useUi.setState({ mode });
     const tab = capabilityTab(localStorage.getItem(CAPABILITIES_KEY));
     if (tab) useUi.setState({ capabilitiesTab: tab });
   } catch { /* private mode */ }
@@ -60,21 +67,22 @@ function settingsOrigin(s: UiState): string {
   if (s.settingsOpen) return s.settingsOrigin;
   if (useLiveStore.getState().active) return "call";
   if (s.liveOpen) return "OpenLive";
-  return s.mode === "flow" ? "Flow" : "Chat";
+  return MODE_LABEL[s.mode];
 }
 
 export const useUi = create<UiState>((set, get) => ({
   settingsOpen: false,
   settingsTab: null,
+  settingsJump: null,
   settingsOrigin: "Chat",
   // A fresh open starts at General; opening again while open keeps the tab.
   openSettings: () => {
     if (!get().settingsOpen) featureUsed("n_settings_open");
     set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), ...(s.settingsOpen ? {} : { settingsTab: "general" }) }));
   },
-  openSettingsTab: (tab) => {
+  openSettingsTab: (tab, at) => {
     if (!get().settingsOpen) featureUsed("n_settings_open");
-    set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), settingsTab: tab }));
+    set((s) => ({ settingsOpen: true, settingsOrigin: settingsOrigin(s), settingsTab: tab, settingsJump: at ?? null }));
   },
   closeSettings: () => set({ settingsOpen: false }),
   capabilitiesTab: "tools",

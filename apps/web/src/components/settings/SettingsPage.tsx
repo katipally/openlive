@@ -106,7 +106,9 @@ export function SettingsPage() {
     const sub = capabilityTab(wantTab);
     if (sub) useUi.getState().setCapabilitiesTab(sub);
     setTab(want);
-    useUi.setState({ settingsTab: null });
+    const at = useUi.getState().settingsJump;
+    if (at) setJump(at);
+    useUi.setState({ settingsTab: null, settingsJump: null });
   }, [openStore, wantTab]);
 
   // ⌘F / Ctrl+F while Settings is up goes to its search, not the page's find.

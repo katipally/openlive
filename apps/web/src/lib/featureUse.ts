@@ -21,6 +21,7 @@ const FIRST: Partial<Record<FeatureCounterKey, Step>> = {
   n_ptt_toggle: "first_ptt_on",
   n_mode_to_flow: "first_mode_switch",
   n_mode_to_chat: "first_mode_switch",
+  n_mode_to_dictate: "first_mode_switch",
   n_shortcuts_sheet: "first_shortcuts_sheet",
 };
 

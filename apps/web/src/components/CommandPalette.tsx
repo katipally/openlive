@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { Search, Plus, MessageSquare, Waves, Keyboard, SunMoon, History, LifeBuoy, type LucideIcon } from "lucide-react";
+import { Search, Plus, Keyboard, SunMoon, History, LifeBuoy, type LucideIcon } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { isTextTarget } from "@/lib/live/keyTargets";
@@ -16,6 +16,7 @@ import { useBrainId } from "@/lib/useBrainId";
 import { cn } from "@/lib/cn";
 import { useMotionTokens } from "@/lib/motion";
 import { shownSections } from "@/components/settings/SettingsPage";
+import { MODE_COUNTER, MODES } from "@/components/flow/ModeSwitch";
 import { Keycap, groupLabel, sidePanel } from "@/components/ui";
 
 type PaletteCommand = Command & { icon: LucideIcon };
@@ -78,21 +79,20 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
     const ui = useUi.getState();
     // Actions that change what the window shows would land behind Settings.
     const leaveSettings = () => ui.closeSettings();
-    const flowShown = mode === "flow" && !liveOpen;
+    const chatShown = mode === "chat" || liveOpen;
     const out: PaletteCommand[] = [];
     // A new conversation remounts the dock, which would drop a live call.
     if (!inCall) out.push({ id: "new", label: "New chat", group: "Actions", icon: Plus, keywords: "conversation call talk openlive lobby start",
       run: () => { leaveSettings(); onNewChat(); } });
     // The switch is hidden while the lobby or a call is up; so is this.
-    if (!liveOpen) out.push(mode === "flow"
-      ? { id: "mode", label: "Switch to Chat", group: "Actions", icon: MessageSquare, keywords: "mode", run: () => { leaveSettings(); featureUsed("n_mode_to_chat"); ui.setMode("chat"); } }
-      : { id: "mode", label: "Switch to Flow", group: "Actions", icon: Waves, keywords: "mode", run: () => { leaveSettings(); featureUsed("n_mode_to_flow"); ui.setMode("flow"); } });
+    if (!liveOpen) for (const m of MODES) if (m.id !== mode) out.push({ id: `mode-${m.id}`, label: `Switch to ${m.label}`, group: "Actions", icon: m.icon, keywords: "mode",
+      run: () => { leaveSettings(); featureUsed(MODE_COUNTER[m.id]); ui.setMode(m.id); } });
     out.push({ id: "shortcuts", label: "Show shortcuts", group: "Actions", icon: Keyboard, keywords: "keyboard keys help", keys: ["?"],
       run: () => ui.setShortcutsOpen(true) });
     out.push({ id: "theme", label: "Toggle theme", group: "Actions", icon: SunMoon, keywords: "dark light appearance",
       hint: resolvedTheme === "dark" ? "Now dark" : "Now light", run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark") });
     // The History drawer lives in the Chat view.
-    if (!flowShown) out.push({ id: "history", label: "Open history", group: "Actions", icon: History, keywords: "sessions resume past conversations",
+    if (chatShown) out.push({ id: "history", label: "Open history", group: "Actions", icon: History, keywords: "sessions resume past conversations",
       run: () => { leaveSettings(); ui.setHistoryOpen(true); } });
     out.push({ id: "report", label: "Report a problem", group: "Actions", icon: LifeBuoy, keywords: "bug issue github feedback broken help",
       hint: "Opens a GitHub issue", run: () => void reportProblem(brainId) });

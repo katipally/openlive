@@ -607,8 +607,9 @@ Limit: at most 3 per day.
 | `n_flow_history_open` | Flow sessions opened from Flow's history. | whole number, 0 to 999 | sometimes |
 | `n_flow_history_search` | Searches in Flow's history. | whole number, 0 to 999 | sometimes |
 | `n_flow_carry_on` | Times Carry on was used to continue a Flow session. | whole number, 0 to 999 | sometimes |
-| `n_mode_to_flow` | Switches from Chat to Flow. | whole number, 0 to 999 | sometimes |
-| `n_mode_to_chat` | Switches from Flow to Chat. | whole number, 0 to 999 | sometimes |
+| `n_mode_to_flow` | Switches to Flow. | whole number, 0 to 999 | sometimes |
+| `n_mode_to_chat` | Switches to Chat. | whole number, 0 to 999 | sometimes |
+| `n_mode_to_dictate` | Switches to Dictate. | whole number, 0 to 999 | sometimes |
 | `n_lobby_open` | Times the call setup screen was opened. | whole number, 0 to 999 | sometimes |
 | `n_camera_on` | Times the camera was turned on in a call. | whole number, 0 to 999 | sometimes |
 | `n_screen_on` | Times screen sharing was turned on in a call. | whole number, 0 to 999 | sometimes |
@@ -802,5 +803,5 @@ The Values cells link here for the long lists.
 | `first_screen_share` | Screen sharing was turned on in a call for the first time. |
 | `first_typed_message` | A message was typed in a call for the first time. |
 | `first_ptt_on` | Push to talk was switched on for the first time. |
-| `first_mode_switch` | You switched between Chat and Flow for the first time. |
+| `first_mode_switch` | You switched between Chat, Flow and Dictate for the first time. |
 | `first_shortcuts_sheet` | The keyboard shortcuts sheet was opened for the first time. |

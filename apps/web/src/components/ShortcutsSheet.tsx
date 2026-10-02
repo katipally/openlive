@@ -5,7 +5,9 @@ import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useUi } from "@/lib/uiStore";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { CONTROL, isDesktop, isMac, MOD } from "@/lib/platform";
+import { CONTROL, desktopPlatform, isDesktop, isMac, MOD } from "@/lib/platform";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { Keycap, Button, Tooltip, groupLabel, SidePanelHeader, sidePanel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useMotionTokens } from "@/lib/motion";
@@ -71,20 +73,7 @@ export function ShortcutsSheet() {
         {/* Two columns while they fit, one when the window is narrow: no breakpoint,
             the grid decides from the space it has. */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-x-8 gap-y-5 border-t border-border px-5 py-5">
-          {GROUPS.map((g) => (
-            <section key={g.title} className="min-w-0">
-              <h3 className={groupLabel}>{g.title}</h3>
-              {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}
-              <dl className="mt-2 flex flex-col gap-1.5">
-                {g.rows.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-3 text-label">
-                    <dt className="min-w-0 break-words text-muted-strong">{r.label}</dt>
-                    <dd className="flex shrink-0 items-center gap-1">{r.keys.map((k, i) => <Keycap key={i}>{k}</Keycap>)}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
+          <Groups />
         </div>
 
         <p className="border-t border-border px-5 py-3 text-caption text-faint">
@@ -95,4 +84,32 @@ export function ShortcutsSheet() {
     )}
     </AnimatePresence>
   );
+}
+
+/** Mounted only while the sheet is open, so Dictate's keys are read then and not on every page load. */
+function Groups() {
+  const own = useFlowConfig().config?.dictate;
+  // Dictate's keys are the person's own, and bound only while it is on.
+  const hold = own ? hotkeyKeys(own.hotkey, desktopPlatform) : [];
+  const dictate = isDesktop && own?.enabled ? [{ title: "Dictate, from any app", rows: [
+    { label: "Hold to talk, release to type", keys: hold },
+    { label: "Hands-free, tap again to stop", keys: [...hold, ...hold] },
+    { label: "Command mode, hold and say the change", keys: hotkeyKeys(own.commandHotkey, desktopPlatform) },
+  ] }] : [];
+  // After Flow's group, which only the desktop has.
+  const at = isDesktop ? 2 : 1;
+  return [...GROUPS.slice(0, at), ...dictate, ...GROUPS.slice(at)].map((g: (typeof GROUPS)[number]) => (
+    <section key={g.title} className="min-w-0">
+      <h3 className={groupLabel}>{g.title}</h3>
+      {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}
+      <dl className="mt-2 flex flex-col gap-1.5">
+        {g.rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between gap-3 text-label">
+            <dt className="min-w-0 break-words text-muted-strong">{r.label}</dt>
+            <dd className="flex shrink-0 items-center gap-1">{r.keys.map((k, i) => <Keycap key={i}>{k}</Keycap>)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  ));
 }
