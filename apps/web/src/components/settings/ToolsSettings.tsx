@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { asksFirst, chipOverflow, filterGroups, onDemandCaption } from "@/lib/capabilities";
-import { Button, Chip, ConfirmButton, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
+import { Button, Chip, ConfirmButton, InfoTip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
 import { BuiltInBadge, NoMatch, OneLine, QueryState, card, grid2, msg, tile } from "./common";
 
 export const capabilitiesQuery = { queryKey: ["capabilities"], queryFn: api.capabilities };
@@ -67,7 +67,7 @@ export function ToolsSettings() {
     <div id="set-capabilities-tools-list" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a tool" aria-label="Find a tool" className="min-w-0 flex-1 basis-48" />
-        <span className="text-caption text-muted-foreground">All built in. Turn off what you never need.</span>
+        <InfoTip label="All built in. Turn off what you never need. A switch applies from the next turn." />
       </div>
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} />
       {filter.trim() && data && shown.length === 0 && <NoMatch what="tool" query={filter} />}
@@ -135,7 +135,7 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
       {(asks > 0 || g.needs) && (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
           {asks > 0 && <span className="inline-flex items-center gap-1.5"><span aria-hidden className="size-1.5 rounded-full bg-arc" />{asks} ask first</span>}
-          {g.needs && <span>{g.needs}</span>}
+          {g.needs && <OneLine text={g.needs} />}
         </span>
       )}
     </div>
@@ -158,7 +158,7 @@ function Upcoming() {
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
       <span className="text-caption text-muted-foreground">Upcoming</span>
-      {data.items.length === 0 && <span className="text-label text-faint">Nothing yet. Ask in a call or in Flow, like “remind me at 6 to call the bank”.</span>}
+      {data.items.length === 0 && <OneLine text="Nothing yet. Ask in a call or in Flow, like “remind me at 6 to call the bank”." className="text-label text-faint" />}
       {data.items.slice(0, UPCOMING).map((r) => (
         <div key={r.id} className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 flex-col">
@@ -186,7 +186,7 @@ function RecentEdits() {
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
       <span className="text-caption text-muted-foreground">Recent edits</span>
-      {data.items.length === 0 && <span className="text-label text-faint">None yet. Changes OpenLive makes to your workspace files show here, ready to undo.</span>}
+      {data.items.length === 0 && <OneLine text="None yet. Changes OpenLive makes to your workspace files show here, ready to undo." className="text-label text-faint" />}
       {data.items.slice(0, RECENT).map((e) => (
         <div key={e.id} className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 flex-col">

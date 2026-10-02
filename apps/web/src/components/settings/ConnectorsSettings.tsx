@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Download, ExternalLink, Loader2, LogIn, LogOut, Pencil, Plus, RotateCcw, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Loader2, LogIn, LogOut, Pencil, Plug, Plus, RotateCcw, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import type { ConnectorImportSource, ConnectorWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
@@ -13,7 +13,7 @@ import {
   type EditDraft, type KeyRow,
 } from "@/lib/connectors";
 import { Badge, Button, Checkbox, Chip, ConfirmButton, Disclosure, Input, ListGroup, Notice, Segmented, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
-import { BuiltInBadge, EmptyState, FILTER_AT, NoMatch, OneLine, QueryState, field, inset, msg, panel, tile } from "./common";
+import { BuiltInBadge, EmptyState, FILTER_AT, MoreMenu, NoMatch, OneLine, QueryState, StatusDot, field, inset, msg, panel, tile, type MenuAction } from "./common";
 import { capabilitiesQuery, useFlipGroup } from "./ToolsSettings";
 
 export const connectorsQuery = { queryKey: ["connectors"], queryFn: api.connectors };
@@ -95,8 +95,8 @@ export function ConnectorsSettings() {
     <div id="set-capabilities-connectors-list" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a connector" aria-label="Find a connector" className="min-w-0 flex-1 basis-40" />
-        <span className="flex flex-wrap gap-1.5">
-          <Button onClick={() => setAdding("import")} disabled={adding === "import"}><Download /> Import</Button>
+        <span className="flex items-center gap-1.5">
+          <MoreMenu label="More for connectors" actions={adding === "import" ? [] : [{ label: "Import", icon: Download, run: () => setAdding("import") }]} />
           <Button variant="primary" onClick={() => setAdding("add")} disabled={adding === "add"}><Plus /> Add connector</Button>
         </span>
       </div>
@@ -123,10 +123,10 @@ export function ConnectorsSettings() {
       )}
       {q && !exaShown && shown.length === 0 && <NoMatch what="connector" query={filter} />}
       {list && all.length === 0 && !q && !adding && (
-        <EmptyState actions={<>
+        <EmptyState icon={Plug} actions={<>
           <Button size="sm" variant="primary" onClick={() => setAdding("add")}><Plus /> Add connector</Button>
           <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-        </>}>No connectors of your own yet. Add an MCP server by its URL, paste a config, or bring over the ones from Claude, Codex, Cursor, Gemini CLI or VS Code.</EmptyState>
+        </>}>No connectors of your own yet. Add an MCP server, or import yours from other tools.</EmptyState>
       )}
       <p className="text-caption text-muted-foreground">Changes apply from the next turn.</p>
     </div>
@@ -134,9 +134,9 @@ export function ConnectorsSettings() {
 }
 
 /** The parts every connector row shares: its tile, name, status, transport, and the switch and disclosure on the right. */
-function RowHead({ name, status, badge, line, problem, action, count, on, onFlip, switchTip, open, onOpen, bodyId }: {
+function RowHead({ name, status, badge, line, problem, action, count, on, onFlip, switchTip, open, onOpen, bodyId, more = [] }: {
   name: string; status: React.ReactNode; badge?: React.ReactNode; line: string; problem?: string; action?: React.ReactNode; count: string;
-  on: boolean; onFlip: () => void; switchTip?: string; open: boolean; onOpen: () => void; bodyId: string;
+  on: boolean; onFlip: () => void; switchTip?: string; open: boolean; onOpen: () => void; bodyId: string; more?: readonly MenuAction[];
 }) {
   const flip = (
     <label className="flex cursor-pointer items-center">
@@ -162,6 +162,7 @@ function RowHead({ name, status, badge, line, problem, action, count, on, onFlip
         {action}
         <span className="whitespace-nowrap text-caption tabular-nums text-muted-foreground">{count}</span>
         {switchTip ? <Tooltip label={switchTip}>{flip}</Tooltip> : flip}
+        <MoreMenu label={`More for ${name}`} actions={more} />
         <Button variant="ghost" icon onClick={onOpen} aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Hide" : "Show"} details for ${name}`}>
           <ChevronDown className={cn("transition-transform duration-fast motion-reduce:transition-none", open && "rotate-180")} />
         </Button>
@@ -193,7 +194,7 @@ function ExaRow() {
   const status = data.exaKey === "saved" ? "Your key" : data.exaKey === "env" ? "Key from EXA_API_KEY" : "Free tier";
   return (
     <div id="set-capabilities-exa">
-      <RowHead name="Web search (Exa)" line="mcp.exa.ai" status={<Chip dot={web.enabled ? "success" : "muted"}>{web.enabled ? status : "Off"}</Chip>} badge={<BuiltInBadge />}
+      <RowHead name="Web search (Exa)" line="mcp.exa.ai" status={<StatusDot tone={web.enabled ? "success" : "muted"}>{web.enabled ? status : "Off"}</StatusDot>} badge={<BuiltInBadge />}
         count={`${web.tools.length} tools`} on={web.enabled} onFlip={() => flip(web)} switchTip="Same switch as Web research in Tools"
         open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} />
       <Disclosure open={open}>
@@ -263,11 +264,15 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
 
   return (
     <div>
-      <RowHead name={c.name} line={transportLine(c.transport)} status={<Chip dot={status.dot}>{status.text}</Chip>}
+      <RowHead name={c.name} line={transportLine(c.transport)} status={<StatusDot tone={status.dot}>{status.text}</StatusDot>}
         problem={c.status === "error" ? c.error : undefined} action={action}
         count={c.tools.length ? `${c.tools.length} ${c.tools.length === 1 ? "tool" : "tools"}${off ? ` · ${off} off` : ""}` : "No tools yet"}
         on={c.enabled} onFlip={() => flip({ ...c, enabled: !c.enabled }, () => api.setConnectorEnabled(c.id, !c.enabled), `Couldn’t turn ${c.name} ${c.enabled ? "off" : "on"}.`)}
-        open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} />
+        open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} more={busy ? [] : [
+          ...(c.signedIn ? [{ label: "Sign out", icon: LogOut, run: () => void run("signout", () => api.signOutConnector(c.id), `Couldn’t sign out of ${c.name}.`) }] : []),
+          ...(editing ? [] : [{ label: "Edit", icon: Pencil, run: () => { setEditing(true); setOpen(true); } }]),
+          { label: "Remove", icon: Trash2, confirm: "Remove it?", run: () => void run("remove", () => api.removeConnector(c.id), `Couldn’t remove ${c.name}.`) },
+        ]} />
 
       {waiting && c.status !== "connected" && (
         <p role="status" className="flex flex-wrap items-center gap-1.5 px-card-x pb-3 text-caption text-muted-foreground">
@@ -319,19 +324,7 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
               </label>
             </Tooltip>
           )}
-          <span className="flex flex-wrap items-center gap-1.5">
-            {c.tools.length > 0 && <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">{asksDot} asks first</span>}
-            <span className="ml-auto flex flex-wrap gap-1.5">
-              {c.signedIn && (
-                <Button variant="ghost" size="sm" onClick={() => void run("signout", () => api.signOutConnector(c.id), `Couldn’t sign out of ${c.name}.`)} disabled={!!busy}>
-                  {spin("signout", LogOut)} Sign out
-                </Button>
-              )}
-              {!editing && <Button variant="ghost" size="sm" onClick={() => setEditing(true)} aria-label={`Edit ${c.name}`}><Pencil /> Edit</Button>}
-              <ConfirmButton label={`Remove ${c.name}`} icon={<Trash2 />} confirm="Remove it?" disabled={!!busy}
-                onConfirm={() => run("remove", () => api.removeConnector(c.id), `Couldn’t remove ${c.name}.`)} />
-            </span>
-          </span>
+          {c.tools.length > 0 && <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">{asksDot} asks first</span>}
         </div>
       </Disclosure>
     </div>

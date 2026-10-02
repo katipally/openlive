@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, FolderOpen, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
+import { Download, Eye, FolderOpen, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { SKILL_DESCRIPTION_MAX, type SkillImportSource, type SkillListWire, type SkillWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
@@ -10,8 +10,8 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems, skillRole, splitSkills } from "@/lib/skills";
-import { Badge, Button, Checkbox, ConfirmButton, Input, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
-import { BuiltInBadge, EmptyState, NoMatch, OneLine, QueryState, card, field, grid3, inset, msg, panel } from "./common";
+import { Badge, Button, Checkbox, Input, ListGroup, ListRow, Switch, Textarea, Tooltip, groupLabel } from "@/components/ui";
+import { BuiltInBadge, EmptyState, MoreMenu, NoMatch, OneLine, QueryState, field, inset, msg, panel, type MenuAction } from "./common";
 
 export const skillsQuery = (workspace: string) => ({ queryKey: ["skills", workspace], queryFn: () => api.skills(workspace) });
 
@@ -53,9 +53,9 @@ export function SkillsSettings() {
         {extra}
       </div>
       {list.length > 0 && (
-        <div className={grid3}>
-          {list.map((s) => <SkillCard key={`${s.source}:${s.name}`} s={s} workspace={workspace} put={put} refresh={refresh} />)}
-        </div>
+        <ListGroup>
+          {list.map((s) => <SkillRow key={`${s.source}:${s.name}`} s={s} workspace={workspace} put={put} refresh={refresh} />)}
+        </ListGroup>
       )}
     </section>
   );
@@ -64,17 +64,14 @@ export function SkillsSettings() {
     <div id="set-capabilities-skills-list" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a skill" aria-label="Find a skill" className="min-w-0 flex-1 basis-40" />
-        <span className="flex flex-wrap items-center gap-1.5">
-          <Tooltip label="Open the skills folder">
-            <Button variant="ghost" icon onClick={() => void reveal()} aria-label="Open the skills folder"><FolderOpen /></Button>
-          </Tooltip>
-          <Tooltip label="Look for new or changed skill folders">
-            <Button variant="ghost" icon onClick={() => void rescan()} disabled={busy} aria-label="Rescan">{busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}</Button>
-          </Tooltip>
-          <Button onClick={() => setAdding("import")} disabled={adding === "import"}><Download /> Import</Button>
-          <Tooltip label="Every brain loads a skill when a task calls for it. Type /name in a call to load one yourself.">
-            <Button variant="primary" onClick={() => setAdding("new")} disabled={adding === "new"}><Plus /> New skill</Button>
-          </Tooltip>
+        <span className="flex items-center gap-1.5">
+          {busy && <Loader2 aria-label="Rescanning" className="size-4 animate-spin text-muted-foreground" />}
+          <MoreMenu label="More for skills folder" actions={[
+            { label: "Open the skills folder", icon: FolderOpen, run: () => void reveal() },
+            ...(busy ? [] : [{ label: "Rescan", icon: RotateCcw, run: () => void rescan() }]),
+            ...(adding === "import" ? [] : [{ label: "Import", icon: Download, run: () => setAdding("import") }]),
+          ]} />
+          <Button variant="primary" onClick={() => setAdding("new")} disabled={adding === "new"}><Plus /> New skill</Button>
         </span>
       </div>
       {adding === "new" && <NewPanel taken={all.map((s) => s.name)} onDone={() => { setAdding(null); void refresh(); }} onCancel={() => setAdding(null)} />}
@@ -88,17 +85,18 @@ export function SkillsSettings() {
         </Tooltip>
       ))}
       {data && !q && yours.length === 0 && !adding && (
-        <EmptyState actions={<>
+        <EmptyState icon={Sparkles} actions={<>
           <Button size="sm" variant="primary" onClick={() => setAdding("new")}><Plus /> New skill</Button>
           <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
-        </>}>No skills of your own yet. Write one, drop a skill folder into the folder above, or bring over the ones from Claude Code, Codex or Gemini CLI.</EmptyState>
+        </>}>No skills of your own yet. Write one, or import yours from other tools.</EmptyState>
       )}
       {data && data.problems.length > 0 && <Problems problems={data.problems} />}
+      {data && <p className="text-caption text-muted-foreground">Every brain loads a skill when a task calls for it. Type /name in a call to load one yourself.</p>}
     </div>
   );
 }
 
-function SkillCard({ s, workspace, put, refresh }: { s: SkillWire; workspace: string; put: (s: SkillWire) => void; refresh: () => Promise<void> }) {
+function SkillRow({ s, workspace, put, refresh }: { s: SkillWire; workspace: string; put: (s: SkillWire) => void; refresh: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const { builtIn, own } = skillRole(s.source);
   const flip = () => {
@@ -110,46 +108,41 @@ function SkillCard({ s, workspace, put, refresh }: { s: SkillWire; workspace: st
     catch (e) { toast(`Couldn’t remove ${s.name}. ${msg(e)}`); }
   };
   const files = s.resources ? `${s.resources + 1} files` : "SKILL.md";
+  const more: MenuAction[] = [
+    ...(open ? [] : [{ label: own ? "Edit" : "View", icon: own ? Pencil : Eye, run: () => setOpen(true) }]),
+    ...(own ? [{ label: "Remove", icon: Trash2, run: () => void remove(), confirm: "Remove its folder?" }] : []),
+  ];
 
   return (
-    <div className={cn(card, "gap-2 p-3", open && "col-span-full")}>
-      <div className="flex items-center gap-2">
-        <Tooltip label={s.name} truncated className="flex min-w-0 flex-1">
-          <span className={cn("min-w-0 truncate font-mono text-body font-medium text-foreground", (!s.enabled || s.replacedBy) && "opacity-60")}>{s.name}</span>
-        </Tooltip>
+    <ListRow
+      label={(
+        <span className={cn("flex min-w-0 flex-wrap items-center gap-1.5", (!s.enabled || s.replacedBy) && "opacity-60")}>
+          <OneLine text={s.name} className="font-mono font-medium" />
+          {builtIn && <BuiltInBadge />}
+          {s.replacedBy && <Badge>{s.replacedBy === "user" ? "Replaced by yours" : "Replaced by the project’s"}</Badge>}
+          {s.source === "workspace" && <Badge tone="accent">Workspace</Badge>}
+          {s.warnings.length > 0 && (
+            <Tooltip label={s.warnings.join(" ")}>
+              <span tabIndex={0} className="inline-flex rounded-sm">
+                <Badge tone="arc"><TriangleAlert aria-hidden /> {s.warnings.length === 1 ? "1 warning" : `${s.warnings.length} warnings`}</Badge>
+              </span>
+            </Tooltip>
+          )}
+          <span className="text-caption text-faint">{files}</span>
+        </span>
+      )}
+      detail={s.description}>
+      <span className="flex shrink-0 items-center gap-1">
+        <MoreMenu label={`More for ${s.name}`} actions={more} />
         {!s.replacedBy && (
           <label className="flex cursor-pointer items-center">
             <span className="sr-only">Use {s.name}</span>
             <Switch on={s.enabled} onFlip={flip} />
           </label>
         )}
-      </div>
-      <Tooltip label={s.description} truncated className={cn("flex min-w-0 max-w-full flex-1", !s.enabled && "opacity-60")}>
-        <p className="line-clamp-2 min-w-0 break-words text-label text-muted-foreground">{s.description}</p>
-      </Tooltip>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {builtIn && <BuiltInBadge />}
-        {s.replacedBy && <Badge>{s.replacedBy === "user" ? "Replaced by yours" : "Replaced by the project’s"}</Badge>}
-        {s.source === "workspace" && <Badge tone="accent">Workspace</Badge>}
-        {s.warnings.length > 0 && (
-          <Tooltip label={s.warnings.join(" ")}>
-            <span tabIndex={0} className="inline-flex rounded-sm">
-              <Badge tone="arc"><TriangleAlert aria-hidden /> {s.warnings.length === 1 ? "1 warning" : `${s.warnings.length} warnings`}</Badge>
-            </span>
-          </Tooltip>
-        )}
-        <span className="text-caption text-faint">{files}</span>
-        <span className="ml-auto flex items-center gap-0.5">
-          {!open && (
-            <Tooltip label={own ? "Edit" : "View"}>
-              <Button variant="ghost" size="sm" icon onClick={() => setOpen(true)} aria-label={`${own ? "Edit" : "View"} ${s.name}`}>{own ? <Pencil /> : <Eye />}</Button>
-            </Tooltip>
-          )}
-          {own && <ConfirmButton label={`Remove ${s.name}`} icon={<Trash2 />} confirm="Remove its folder?" onConfirm={remove} />}
-        </span>
-      </div>
-      {open && <Editor s={s} workspace={workspace} onSaved={(next) => { put(next); setOpen(false); }} onClose={() => setOpen(false)} />}
-    </div>
+      </span>
+      {open && <div className="min-w-0 basis-full"><Editor s={s} workspace={workspace} onSaved={(next) => { put(next); setOpen(false); }} onClose={() => setOpen(false)} /></div>}
+    </ListRow>
   );
 }
 
