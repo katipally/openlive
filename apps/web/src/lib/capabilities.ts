@@ -23,7 +23,7 @@ export const asksFirst = (g: ToolGroupWire) => g.tools.reduce((n, t) => n + (t.a
 
 const tools = (n: number) => `${n} connector tool${n === 1 ? "" : "s"}`;
 
-/** One line on how connector tools reach the next session. */
+/** One line on how connector tools reach the next turn. */
 export function onDemandCaption(d: OnDemandWire): string {
   if (d.active) return `Active: ${tools(d.toolCount)} load on demand`;
   if (d.mode === "off") return "Off: every connector tool goes with every request";

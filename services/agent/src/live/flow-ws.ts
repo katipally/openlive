@@ -9,6 +9,7 @@ import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
 import { serveMcp } from "../capabilities/mcp.js";
 import { registry } from "../capabilities/registry.js";
+import { offerOf } from "../capabilities/dispatch.js";
 import { FLOW } from "../capabilities/profiles.js";
 import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
 import { computer } from "../computer/helper.js";
@@ -383,6 +384,7 @@ export class FlowLiveSession {
     this.consented = cfg.consent.granted;
     this.ident = flowIdent(cfg);
     this.approve = this.freshApprove();
+    this.refreshTools();
     const timer = new TurnTimer();
     let finished = false;
     try {
@@ -453,6 +455,20 @@ export class FlowLiveSession {
         void this.run();
       }
     }
+  }
+
+  /**
+   * The tools built again for a turn, kept only when a switch (a connector,
+   * skill or group) changed what they offer: an unchanged set keeps its device
+   * tools' last screenshot and the prompt cache. Every brain then sees the new
+   * set: the built-in one on this turn, a coding agent through the MCP server.
+   */
+  private refreshTools(): void {
+    const next = registry.tools(FLOW, this.toolSession);
+    if (offerOf(next) === offerOf(this.tools)) return;
+    this.tools = next;
+    void this.mcp?.then((m) => m.toolsChanged()).catch(() => {});
+    this.agent?.toolsChanged?.(next.list.map((t) => t.name));
   }
 
   private freshApprove(): Approve {

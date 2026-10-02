@@ -128,7 +128,7 @@ export function ConnectorsSettings() {
           <Button size="sm" onClick={() => setAdding("import")}><Download /> Import</Button>
         </>}>No connectors of your own yet. Add an MCP server by its URL, paste a config, or bring over the ones from Claude, Codex, Cursor, Gemini CLI or VS Code.</EmptyState>
       )}
-      <p className="text-caption text-muted-foreground">Changes apply from the next call or Flow run.</p>
+      <p className="text-caption text-muted-foreground">Changes apply from the next turn.</p>
     </div>
   );
 }

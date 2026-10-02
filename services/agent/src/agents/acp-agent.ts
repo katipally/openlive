@@ -125,6 +125,7 @@ export class AcpAgent implements Agent {
   private sessionId = "";
   private seedText = "";
   private cutNote = "";
+  private toolsNote = "";
   private turnEmit: Emit | null = null;
   private alive = false;
   private supportsImages = false; // agent accepts image content blocks (camera/screen frames)
@@ -169,6 +170,12 @@ export class AcpAgent implements Agent {
     this.cutNote = (heard
       ? `[The user cut you off. Of your last reply they heard only: "${heard}"]\n\n`
       : "[The user cut you off before hearing any of your last reply.]\n\n") + (cancelled ? `${AGENT_CANCELLED}\n\n` : "");
+  }
+
+  toolsChanged(names: string[]) {
+    this.toolsNote = this.hosted.length
+      ? `[OpenLive's own tools changed. They are now: ${names.join(", ")}. If your list of the "${MCP_SERVER_NAME}" server's tools is older than this, list them again before you call one.]\n\n`
+      : "";
   }
 
   async start(_signal: AbortSignal): Promise<void> {
@@ -751,9 +758,10 @@ export class AcpAgent implements Agent {
         : seen ? `\n\n[A vision model is looking at the user's ${sources} live right now and reports: ${seen}\nTalk about what's actually there, as what you're both looking at. Don't mention "the image" or that another model described it.]`
         : `\n\n[The user is sharing their ${sources}, but you can't view images here — ask them to describe what they're showing.]`;
     }
-    const body = this.seedText + this.cutNote + userText;
+    const body = this.seedText + this.cutNote + this.toolsNote + userText;
     this.seedText = "";
     this.cutNote = "";
+    this.toolsNote = "";
 
     // Interleave the frames as image blocks so the agent sees the camera/screen.
     const prompt: PromptBlock[] = [{ type: "text", text: body }];

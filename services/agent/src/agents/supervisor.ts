@@ -70,6 +70,8 @@ export class AgentSupervisor implements Agent {
     this.agent.cut?.(spoken, cancelled);
   }
 
+  toolsChanged(names: string[]) { this.agent.toolsChanged?.(names); }
+
   async setModel(modelId: string): Promise<void> { await this.agent.setModel?.(modelId); }
   async setMode(modeId: string): Promise<void> { await this.agent.setMode?.(modeId); }
   async setOption(optionId: string, valueId: string): Promise<void> { await this.agent.setOption?.(optionId, valueId); }

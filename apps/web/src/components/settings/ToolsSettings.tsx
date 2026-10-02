@@ -38,9 +38,9 @@ export function useFlipGroup() {
 }
 
 const MODES: readonly SegOption<OnDemandMode>[] = [
-  { id: "auto", label: "Auto", title: "When many connector tools are on. Applies from the next call or Flow run." },
-  { id: "on", label: "On", title: "Always. Applies from the next call or Flow run." },
-  { id: "off", label: "Off", title: "Never. Applies from the next call or Flow run." },
+  { id: "auto", label: "Auto", title: "When many connector tools are on. Applies from the next turn." },
+  { id: "on", label: "On", title: "Always. Applies from the next turn." },
+  { id: "off", label: "Off", title: "Never. Applies from the next turn." },
 ];
 
 /** Sets how connector tools load: moves at once, and goes back if the agent says no. */
@@ -109,7 +109,7 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
           </span>
           <OneLine text={g.description} className="text-label text-muted-foreground" />
         </div>
-        <Tooltip label="Switches OpenLive's own tools only: a coding agent keeps its built-in ones. Applies from the next call or Flow run.">
+        <Tooltip label="Switches OpenLive's own tools only: a coding agent keeps its built-in ones. Applies from the next turn.">
           <label className="flex cursor-pointer items-center">
             <span className="sr-only">Use {g.name}</span>
             <Switch on={g.enabled} onFlip={onFlip} />

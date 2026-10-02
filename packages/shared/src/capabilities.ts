@@ -27,11 +27,12 @@ export interface ToolGroupWire {
 export type OnDemandMode = "auto" | "on" | "off";
 
 /** How connector tools reach a session: each its own tool, or found on demand
- *  behind two. Decided when a session starts, for the whole session. */
+ *  behind two. Decided when a session builds its tools: at its start, and on a
+ *  turn after a switch changed what they offer. */
 export interface OnDemandWire {
   available: boolean;
   mode: OnDemandMode;
-  /** Whether the next session would hold them back, as the mode and the count stand now. */
+  /** Whether the next turn would hold them back, as the mode and the count stand now. */
   active: boolean;
   /** Connector tools that are on. */
   toolCount: number;

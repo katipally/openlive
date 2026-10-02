@@ -27,6 +27,8 @@ export interface Agent {
    *  its own memory of what it wrote, so the next turn tells it. `cancelled`: the
    *  cut stopped the turn itself, so its request is dead too. */
   cut?(spoken: string, cancelled?: boolean): void;
+  /** OpenLive's own tools changed mid-session (a connector, skill or group switched): the next turn tells it their names. */
+  toolsChanged?(names: string[]): void;
   dispose(): Promise<void>;
   /** Switch the agent's model / mode / config option mid-session. */
   setModel?(modelId: string): Promise<void>;

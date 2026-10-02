@@ -610,13 +610,21 @@ precheck, approve, run, tally).
 - **The registry** (`registry.ts`). `registry.tools(profile, session)` returns a
   `ToolSet`, ordered for the mode and looked up by name in O(1). Sources of tools
   are `ToolProvider`s; the built-ins are one, and a provider registered later
-  never shadows a name already taken.
+  never shadows a name already taken. Chat and Flow build their set again at
+  each turn's start and keep the new one only when what it offers changed
+  (`offerOf`: names, descriptions, schemas, asks-first, read-only), so a
+  connector, skill or group switched mid-session counts from the next turn,
+  while an unchanged set keeps its device tools' last screenshot and the prompt
+  cache. The built-in brain reads the set per turn; the `openlive` MCP server
+  serves it per request, publishes `tools/list_changed` to a 2026-07-28 agent
+  listening (`subscriptions/listen`), and a 2025 agent, which cannot listen, is
+  told the new names at the head of its next turn (`Agent.toolsChanged`).
 - **Groups** (`groups.ts`). Each built-in tool names its `group` (Computer use,
   Files, Find and undo, Web research, Text, Assistant, Reminders, Shell, Skills, Connectors); `GROUPS`
   says how each reads in
   Settings. A group switched off is listed in `disabledToolGroups` in
   settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
-  every new session, every brain and the MCP server alike. It reaches OpenLive's
+  the next turn, every brain and the MCP server alike. It reaches OpenLive's
   own tools only: a coding agent keeps its built-in file, shell and web tools,
   and Settings says so on each switch. `/capabilities`
   (`routes.ts`, proxied at `/api/capabilities`) lists the groups from
@@ -955,9 +963,9 @@ An MCP server the user adds once, offered to every brain in both modes.
   what that session's set held back. The mode is
   `connectorToolLoading` in settings.json, `auto | on | off`, default `auto`:
   on past 40 connector tools or about 8k tokens of their schemas (Flow's own 38
-  tools are about 5.2k). It is decided when a session's `ToolSet` is built and
-  never changes under it, so the tools array heading the prompt cache stays
-  byte-identical. Every brain gets the same three tools, the `openlive` MCP server
+  tools are about 5.2k). It is decided when a session's `ToolSet` is built, and
+  a set is rebuilt only when a switch changed what it offers, so the tools array
+  heading the prompt cache stays byte-identical turn to turn. Every brain gets the same three tools, the `openlive` MCP server
   included, Claude Code too: its own MCP tool search is off on a proxy host and
   on some models, and our tools work everywhere. Native tool search
   (Anthropic `defer_loading`, OpenAI `tool_search`) is not used: it needs

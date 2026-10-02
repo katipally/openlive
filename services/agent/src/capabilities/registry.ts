@@ -87,8 +87,9 @@ export class ToolRegistry {
    * offered twice keeps its first registration, so a later provider can never
    * shadow a built-in. A group switched off in Settings is left out, for
    * every brain and the MCP server alike. Connector tools past the on-demand
-   * threshold are held back behind find_tools and use_tool, decided here once
-   * for the session's whole life. O(n log n) in the number of tools.
+   * threshold are held back behind find_tools and use_tool, decided each time
+   * a session builds its tools: at its start, and on a turn after a switch
+   * changed what they offer. O(n log n) in the number of tools.
    */
   tools(profile: Ordering, s: Session, mode: OnDemandMode = onDemandMode()): ToolSet {
     const rank = new Map(profile.order.map((name, i) => [name, i]));

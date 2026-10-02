@@ -170,6 +170,26 @@ test("a coding agent is told what the built-in brain remembered", async () => {
   ws.emit("close");
 }, 20_000);
 
+test("a coding agent hears on its next turn that a switch changed OpenLive's tools", async () => {
+  const { setGroupEnabled } = await import("../capabilities/groups.ts");
+  const prompts = await stubAgent();
+  const { ws, say, done, started } = connect("call-switch");
+  await started;
+  say({ t: "user_text", text: "Hi." });
+  await done();
+  expect(prompts().at(-1)!.text).not.toContain("tools changed");
+  await setGroupEnabled("reminders", false);
+  try {
+    ws.sent.length = 0;
+    say({ t: "user_text", text: "Again." });
+    await done();
+    const told = /\[OpenLive's own tools changed\. They are now: ([^\]]*?)\. If/.exec(prompts().at(-1)!.text)?.[1] ?? "";
+    expect(told).toContain("remember");
+    expect(told).not.toContain("set_timer");
+  } finally { await setGroupEnabled("reminders", true); }
+  ws.emit("close");
+}, 20_000);
+
 test("a coding agent keeps what it learns about the user in OpenLive's memory, which every brain reads", async () => {
   const { callPreamble } = await import("../agents/acp-agent.ts");
   expect(callPreamble(["look", "remember"])).toContain("save it with OpenLive's remember tool, never your own memory");

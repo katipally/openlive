@@ -36,6 +36,9 @@ const fake = vi.hoisted(() => ({
   cancelled: [] as string[],
   /** Where the coding-agent brain reports its own tools. */
   agentTool: null as null | ((call: Record<string, unknown>, settled: boolean) => void),
+  /** How often the MCP server was told the tools changed, and what the agent was told they are. */
+  listChanged: 0,
+  toldTools: [] as string[][],
 }));
 
 const store = {
@@ -82,7 +85,7 @@ vi.mock("../flow/brain.js", () => {
 
 vi.mock("../capabilities/mcp.js", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
-  serveMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {} }; },
+  serveMcp: async (opts: typeof fake.mcp) => { fake.mcp = opts; return { wire: {}, close: async () => {}, toolsChanged: () => { fake.listChanged++; } }; },
 }));
 
 vi.mock("../agents/supervisor.js", () => ({
@@ -92,6 +95,7 @@ vi.mock("../agents/supervisor.js", () => ({
     async start() {}
     seed() {}
     cut(spoken: string, cancelled?: boolean) { fake.cuts.push(spoken); if (cancelled) fake.cancelled.push(spoken); }
+    toolsChanged(names: string[]) { fake.toldTools.push(names); }
     async dispose() {}
   },
 }));
@@ -877,5 +881,48 @@ describe("a server's form on the orb", () => {
     expect(pick.content(pick.options[1]!.id)).toEqual({ size: "M" });
     expect(formChoice({ type: "object", properties: { name: { type: "string" } } })).toBeNull();
     expect(formChoice({ type: "object", properties: { a: { type: "boolean" }, b: { type: "boolean" } } })).toBeNull();
+  });
+});
+
+describe("a tool switched mid-session", () => {
+  it("is gone from the next turn, for the built-in brain and a coding agent alike", async () => {
+    const { setGroupEnabled } = await import("../capabilities/groups.js");
+    const names = () => fake.reqs.at(-1)!.tools.map((t) => t.name);
+    fake.brain = null;
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Hi.");
+    ws.say("hi");
+    await until(() => turnsDone(ws) === 1);
+    expect(names()).toContain("set_timer");
+    await setGroupEnabled("reminders", false);
+    try {
+      fake.script = reply("Hi.");
+      ws.say("again");
+      await until(() => turnsDone(ws) === 2);
+      expect(names()).not.toContain("set_timer");
+      ws.emit("close");
+
+      await setGroupEnabled("reminders", true);
+      fake.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" };
+      const ws2 = new FakeSocket();
+      new FlowLiveSession(ws2 as never);
+      fake.script = reply("Hi.");
+      ws2.say("hi");
+      await until(() => turnsDone(ws2) === 1);
+      const changed = fake.listChanged;
+      await setGroupEnabled("reminders", false);
+      fake.script = reply("Hi.");
+      ws2.say("again");
+      await until(() => turnsDone(ws2) === 2);
+      expect(fake.mcp!.tools.list.map((t) => t.name)).not.toContain("set_timer");
+      expect(fake.listChanged).toBe(changed + 1);
+      expect(fake.toldTools.at(-1)).not.toContain("set_timer");
+      expect(fake.toldTools.at(-1)).toContain("insert_text");
+      ws2.emit("close");
+    } finally {
+      await setGroupEnabled("reminders", true);
+      fake.brain = null;
+    }
   });
 });

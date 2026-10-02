@@ -108,7 +108,7 @@ export const saveSkill: Tool<SaveArgs, { skill: string; dir: string }> = {
     if ("error" in r) throw new Error(r.error);
     const { skill } = r;
     return {
-      content: [text(`Saved the ${skill.name} skill in ${skill.dir}. Every brain can load it from the next call or Flow session; the user can edit or remove it in Settings, Capabilities, Skills.`)],
+      content: [text(`Saved the ${skill.name} skill in ${skill.dir}. Every brain can load it from the next turn; the user can edit or remove it in Settings, Capabilities, Skills.`)],
       details: { skill: skill.name, dir: skill.dir },
     };
   },

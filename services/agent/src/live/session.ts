@@ -7,7 +7,7 @@ import type { Message } from "@openlive/harness";
 import type { Approve, Emit, Session, Tool } from "../capabilities/types.js";
 import { registry } from "../capabilities/registry.js";
 import { CHAT } from "../capabilities/profiles.js";
-import { ToolSet } from "../capabilities/dispatch.js";
+import { offerOf, ToolSet } from "../capabilities/dispatch.js";
 import { bridgedDevice, DEVICE_TIMEOUT_MS } from "../capabilities/device.js";
 import { computer } from "../computer/helper.js";
 import { MCP_SERVER_NAME, serveMcp } from "../capabilities/mcp.js";
@@ -355,6 +355,7 @@ export class LiveSession {
       if (this.chatId && getSetting(`agentCut:${this.chatId}`)) await setSetting(`agentCut:${this.chatId}`, "");
       // A typed "/name" loads that OpenLive skill for the turn, unless the bound
       // agent has a command by that name: the agent's own commands come first.
+      this.refreshTools();
       const word = typed && !aside ? /^\/(\S+)/.exec(text.trim())?.[1] : undefined;
       const skill = word && !this.lastMeta?.commands.some((c) => c.name === word)
         ? await slashSkill(text, this.tools, { ...this.toolSession, signal: ac.signal, context: null })
@@ -610,6 +611,16 @@ export class LiveSession {
     const set = registry.tools(CHAT, this.toolSession);
     const chip = (t: Tool) => (OWN_UI.has(t.name) ? t : this.chipped(t));
     return new ToolSet(set.list.map(chip), set.onDemand?.list.map(chip));
+  }
+
+  /** The call's tools built again for a turn, kept only when a switch changed what they offer (see FlowLiveSession.refreshTools). */
+  private refreshTools(): void {
+    const next = this.callTools();
+    if (offerOf(next) === offerOf(this.tools)) return;
+    this.tools = next;
+    this.runner.tools = next;
+    void this.mcp?.then((m) => m.toolsChanged()).catch(() => {});
+    this.agent?.toolsChanged?.(next.list.map((t) => t.name));
   }
 
   /** A tool with its chip in the running turn, the same whichever brain calls it. */

@@ -44,7 +44,7 @@ export interface McpOpts {
 /** The low-level server, not McpServer: McpServer validates arguments and names
  *  before a handler runs, which would refuse the hallucinated calls dispatch repairs. */
 export function mcpServer(opts: McpOpts): Server {
-  const server = new Server({ name: MCP_SERVER_NAME, version: "1" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: MCP_SERVER_NAME, version: "1" }, { capabilities: { tools: { listChanged: true } } });
 
   server.setRequestHandler("tools/list", async () => ({
     tools: opts.tools.list.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters as { type: "object" }, ...(t.readOnly && { annotations: { readOnlyHint: true } }) })),
@@ -80,7 +80,7 @@ export function mcpServer(opts: McpOpts): Server {
  * second `initialize` or to be torn down by one agent's DELETE, so an agent that
  * restarts, a second session and a reconnect all get the same tools.
  */
-export async function serveMcp(opts: McpOpts): Promise<{ wire: McpServerWire; close(): Promise<void> }> {
+export async function serveMcp(opts: McpOpts): Promise<{ wire: McpServerWire; close(): Promise<void>; toolsChanged(): void }> {
   const path = `/mcp/${randomUUID()}`;
   const handler = createMcpHandler(() => mcpServer(opts));
   const hosts = localhostAllowedHostnames();
@@ -93,6 +93,8 @@ export async function serveMcp(opts: McpOpts): Promise<{ wire: McpServerWire; cl
 
   return {
     wire: { type: "http", name: MCP_SERVER_NAME, url: `http://127.0.0.1:${port}${path}`, headers: [] },
+    /** Tells every agent listening (2026-07-28 `subscriptions/listen`) to list the tools again. A 2025 agent cannot listen: the session tells it in words. */
+    toolsChanged: () => handler.notify.toolsChanged(),
     close: async () => {
       await handler.close().catch(() => {});
       await new Promise<void>((resolve) => http.close(() => resolve()));

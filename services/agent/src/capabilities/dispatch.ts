@@ -122,6 +122,10 @@ export class ToolSet {
   }
 }
 
+/** What a set offers a model, as one string: two sets that read the same are the same offer. O(total schema size). */
+export const offerOf = (s: ToolSet): string =>
+  JSON.stringify([s.list, s.onDemand?.list ?? []].map((l) => l.map((t) => [t.name, t.description, t.parameters, !!t.confirm, !!t.readOnly])));
+
 /**
  * Repair a model's tool call, then prune it to the keys the tool declares.
  *

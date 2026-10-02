@@ -28,7 +28,7 @@ const OFF_KEY = "disabledToolGroups";
 
 const parse = (v: string | undefined) => new Set((v ?? "").split(",").map((s) => s.trim()).filter(Boolean));
 
-/** The groups switched off. Read fresh, so the next session sees a change. */
+/** The groups switched off. Read fresh, so the next turn sees a change. */
 export const disabledGroups = (): ReadonlySet<string> => parse(getSetting(OFF_KEY));
 
 export async function setGroupEnabled(id: ToolGroupId, enabled: boolean): Promise<void> {
