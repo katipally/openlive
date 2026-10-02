@@ -9,15 +9,15 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/historyList";
 import { budgetMeter, budgetSegments, filterNotes, noteProblem } from "@/lib/memory";
-import { Badge, Button, ConfirmButton, Input, Textarea, Tooltip } from "@/components/ui";
-import { EmptyState, NoMatch, QueryState, card, grid2, msg } from "./common";
+import { Button, Input, ListGroup, ListRow, Textarea, groupLabel } from "@/components/ui";
+import { EmptyState, MoreMenu, NoMatch, OneLine, QueryState, card, msg } from "./common";
 
 const memoryQuery = { queryKey: ["memory"], queryFn: api.memory };
 // Notes drawn at once: the list can run to hundreds, and the filter reaches the rest.
 const PAGE = 50;
 const SEGMENT = { used: "bg-accent", free: "bg-foreground/5", unused: "bg-foreground/20" } as const;
 
-/** Clear all, beside the page's title. */
+/** The ⋯ beside the page's title, holding Clear all. */
 export function MemoryClearAll() {
   const qc = useQueryClient();
   const { data } = useQuery({ ...memoryQuery, retry: 1 });
@@ -27,7 +27,7 @@ export function MemoryClearAll() {
     try { qc.setQueryData(memoryQuery.queryKey, await api.clearNotes()); }
     catch (e) { toast(`Couldn’t clear memory. ${msg(e)}`); }
   };
-  return <ConfirmButton label="Clear all" confirm={`Clear all ${n}?`} onConfirm={clear} />;
+  return <MoreMenu label="More for Memory" actions={[{ label: "Clear all", icon: Trash2, confirm: `Clear all ${n}?`, run: () => void clear() }]} />;
 }
 
 /** The notes every brain carries into its prompt. The agent adds to them on its
@@ -45,45 +45,50 @@ export function MemorySettings() {
   const matches = filterNotes(all, filter);
   const meter = data && budgetMeter(data);
 
+  const page = matches.slice(0, shown);
+  const inUse = page.filter((n) => n.inUse);
+  const past = page.filter((n) => !n.inUse);
+  const tone = { ok: "text-muted-foreground", near: "text-arc-text", full: "text-destructive-text" }[meter?.tone ?? "ok"];
+
   return (
     <div id="set-memory-list" className="flex flex-col gap-4">
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} />
       {data && meter && (
         <>
-          <AddNote notes={all} full={all.length >= data.max} onSaved={put} />
-          <div className="flex flex-col gap-2">
+          <div className={cn(card, "gap-2 p-card-x")}>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="text-body font-medium text-foreground">Prompt budget</span>
+              <span className={cn("text-caption tabular-nums", tone)}>{data.used.toLocaleString()} / {data.budget.toLocaleString()} characters</span>
+            </div>
             <div role="meter" aria-label="Prompt budget used by memory" aria-valuemin={0} aria-valuemax={data.budget} aria-valuenow={Math.min(data.used, data.budget)}
               className="flex h-2 w-full gap-0.5">
               {budgetSegments(data).map((x) => <span key={x.key} style={{ flexGrow: x.weight }} className={cn("h-full min-w-0.5 basis-0 rounded-sm", SEGMENT[x.kind])} />)}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted-foreground">
-              <span className={cn("inline-flex items-center gap-1.5", meter.tone === "near" && "text-arc-text")}>
-                <span aria-hidden className="size-1.5 rounded-full bg-accent" />
-                {all.length - meter.unused} in use · {data.used.toLocaleString()} of {data.budget.toLocaleString()} characters
-              </span>
-              {meter.unused > 0 && (
-                <Tooltip label="Past the prompt budget, so no brain sees them. Delete or shorten some to bring them back.">
-                  <span tabIndex={0} className="inline-flex items-center gap-1.5 rounded-sm">
-                    <span aria-hidden className="size-1.5 rounded-full bg-foreground/30" />{meter.unused} saved, not in use
-                  </span>
-                </Tooltip>
-              )}
-              {all.length > 0 && (
-                <Input type="search" size="sm" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find" aria-label="Find a note"
-                  className="ml-auto min-w-0 max-w-[13rem] flex-1 basis-32" />
-              )}
-            </div>
+            {meter.tone !== "ok" && (
+              <OneLine className={cn("text-caption", tone)}
+                text={meter.tone === "full" ? `Full. ${meter.unused} saved past it, so no brain sees them.` : "Nearly full. Notes past it are saved, but no brain sees them."} />
+            )}
           </div>
+          <AddNote notes={all} full={all.length >= data.max} onSaved={put} />
+          {all.length > 0 && (
+            <Input type="search" size="sm" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find" aria-label="Find a note"
+              className="w-full max-w-xs" />
+          )}
         </>
       )}
       {data && all.length === 0 && (
-        <EmptyState>Nothing remembered yet. Add a fact above, or ask an assistant: &ldquo;Remember that I prefer short answers.&rdquo;</EmptyState>
+        <EmptyState icon={Brain}>Nothing remembered yet. Add a fact above, or say &ldquo;remember that&rdquo; in a call.</EmptyState>
       )}
       {filter.trim() && matches.length === 0 && all.length > 0 && <NoMatch what="note" query={filter} />}
-      {matches.length > 0 && (
-        <div className={grid2}>
-          {matches.slice(0, shown).map((n) => <NoteCard key={n.id} n={n} all={all} put={put} />)}
-        </div>
+      {inUse.length > 0 && <ListGroup>{inUse.map((n) => <NoteRow key={n.id} n={n} all={all} put={put} />)}</ListGroup>}
+      {past.length > 0 && (
+        <section aria-label="Past the budget" className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h3 className={groupLabel}>Past the budget</h3>
+            <span className="text-caption text-muted-foreground">Saved, but no brain sees these.</span>
+          </div>
+          <ListGroup className="opacity-60">{past.map((n) => <NoteRow key={n.id} n={n} all={all} put={put} />)}</ListGroup>
+        </section>
       )}
       {matches.length > shown && (
         <Button size="sm" className="self-center" onClick={() => setShown((s) => s + PAGE)}>Show {Math.min(PAGE, matches.length - shown)} more of {matches.length - shown}</Button>
@@ -124,36 +129,20 @@ function AddNote({ notes, full, onSaved }: { notes: readonly NoteWire[]; full: b
   );
 }
 
-function NoteCard({ n, all, put }: { n: NoteWire; all: readonly NoteWire[]; put: (m: MemoryWire) => void }) {
+function NoteRow({ n, all, put }: { n: NoteWire; all: readonly NoteWire[]; put: (m: MemoryWire) => void }) {
   const [editing, setEditing] = useState(false);
   const remove = async () => {
     try { put(await api.removeNote(n.id)); }
     catch (e) { toast(`Couldn’t delete that note. ${msg(e)}`); }
   };
+  if (editing) return <div className="py-3"><Editor n={n} all={all} onSaved={(m) => { put(m); setEditing(false); }} onCancel={() => setEditing(false)} /></div>;
   return (
-    <div className={cn(card, "gap-2.5 p-3.5", !n.inUse && "border border-dashed border-border-heavy bg-transparent shadow-none")}>
-      {editing ? (
-        <Editor n={n} all={all} onSaved={(m) => { put(m); setEditing(false); }} onCancel={() => setEditing(false)} />
-      ) : (
-        <>
-          <p className={cn("min-w-0 flex-1 break-words text-callout text-foreground", !n.inUse && "opacity-60")}>{n.text}</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {!n.inUse && (
-              <Tooltip label="Past the prompt budget, so no brain sees it. Still saved.">
-                <span tabIndex={0} className="inline-flex rounded-sm"><Badge tone="arc">Not in use</Badge></span>
-              </Tooltip>
-            )}
-            {n.at != null && <span className="text-caption text-faint">{relativeTime(new Date(n.at).toISOString())}</span>}
-            <span className="ml-auto flex items-center gap-0.5">
-              <Tooltip label="Edit">
-                <Button variant="ghost" size="sm" icon onClick={() => setEditing(true)} aria-label={`Edit: ${n.text.slice(0, 40)}`}><Pencil /></Button>
-              </Tooltip>
-              <ConfirmButton label={`Delete: ${n.text.slice(0, 40)}`} icon={<Trash2 />} confirm="Delete it?" onConfirm={remove} />
-            </span>
-          </div>
-        </>
-      )}
-    </div>
+    <ListRow label={<OneLine text={n.text} />} detail={n.at != null ? relativeTime(new Date(n.at).toISOString()) : undefined}>
+      <MoreMenu label={`More for ${n.text.slice(0, 40)}`} actions={[
+        { label: "Edit", icon: Pencil, run: () => setEditing(true) },
+        { label: "Delete", icon: Trash2, confirm: "Delete it?", run: () => void remove() },
+      ]} />
+    </ListRow>
   );
 }
 
