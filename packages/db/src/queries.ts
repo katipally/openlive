@@ -128,6 +128,11 @@ export function listChats(): ChatSummary[] {
   return rows.map(toSummary);
 }
 
+/** Whether a chat is saved. O(log chats): the id is the primary key. */
+export function chatExists(id: string): boolean {
+  return !!getDb().prepare("SELECT 1 FROM chats WHERE id = ?").get(id);
+}
+
 /** Stamp a session's agent + workspace so history groups it agent→workspace→session.
  *  Called when a conversation binds (built-in or a coding agent) in the lobby/call. */
 export async function setChatContext(chatId: string, agentId: string | null, cwd: string): Promise<void> {
