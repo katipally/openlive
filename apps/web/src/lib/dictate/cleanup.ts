@@ -85,14 +85,16 @@ function backtrack(ts: Tok[]): Tok[] {
     }
     const k = w === "actually" ? 1 : (w === "no" && lc(next) === "wait") || (w === "wait" && lc(next) === "no") ? 2 : 0;
     const prev = out[out.length - 1];
-    if (k && prev && PAUSE.test(prev.post) && !ENDS.test(ts[i + k - 1]!.post)) {
+    // A speech engine often writes the pause before a correction as a period: "to Priya. Actually Maya."
+    const stop = !!prev && !PAUSE.test(prev.post) && /\.$/.test(prev.post);
+    if (k && prev && (PAUSE.test(prev.post) || stop) && !ENDS.test(ts[i + k - 1]!.post)) {
       // The correction runs to the next pause, and is only a swap when it is short.
       const fix: Tok[] = [];
       for (let j = i + k; j < ts.length && fix.length <= MAX_SWAP; j++) {
         fix.push({ ...ts[j]! });
         if (/[,.!?;…]/.test(ts[j]!.post)) break;
       }
-      const n = fix.length, said = out.length - starts[starts.length - 1]!;
+      const n = fix.length, said = out.length - (starts[starts.length - (stop ? 2 : 1)] ?? 0);
       const swap = n >= 1 && n <= MAX_SWAP && said > n
         && (n === 1 ? !NOT_A_SWAP.has(lc(fix[0])) : lc(fix[0]) === lc(out[out.length - n]) || lc(fix[n - 1]) === lc(prev));
       if (swap) {

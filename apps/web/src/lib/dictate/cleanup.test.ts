@@ -81,6 +81,7 @@ describe("backtrack", () => {
       ["book the office, actually the cafe", "book the cafe"],
       ["call at 3 pm, actually 4 pm", "call at 4 pm"],
       ["The meeting is on Monday, actually, Tuesday.", "The meeting is on Tuesday."],
+      ["Send the file to Priya. Actually Maya.", "Send the file to Maya."],
     ]);
   });
 
@@ -95,6 +96,7 @@ describe("backtrack", () => {
       ["I think, actually, that it is fine", "I think, actually, that it is fine"],
       ["there was no wait at all", "there was no wait at all"],
       ["Fine. Actually Maya.", "Fine. Actually Maya."],
+      ["It went well. Actually everyone came.", "It went well. Actually everyone came."],
     ]);
   });
 
