@@ -96,8 +96,10 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
 
 - The brain is Flow's unless **Use a different one for Dictate** picks
   another, an API model or a coding agent. An API model is offered no tools; a
-  coding agent is started with none of OpenLive's and every permission it asks
-  for is refused. A coding agent is kept warm between dictations (let go after
+  coding agent is started with none of OpenLive's, none of its own where its
+  launch can turn them off (Claude Code, Codex, Gemini CLI, OpenCode; Copilot
+  loses shell, writes and the web), and every permission it asks for is
+  refused. A coding agent is kept warm between dictations (let go after
   5 quiet minutes or 20 rewrites) and is started on the key press, so the
   first rewrite does not wait on a cold start where it can help it.
 - Nothing said is lost: a failure, an empty answer or 15 seconds without one
@@ -261,7 +263,8 @@ One microphone, one engine, one orb, so the two take turns:
   `hold` like Dictate's. Both keys down at once is command mode.
 - **Rewrite**: `services/agent/src/dictate/rewrite.ts`. API mode streams the
   provider with `tools: []`; a coding agent is an `AcpAgent` with Dictate's own
-  preamble, no MCP servers and a permission handler that always refuses. The
+  preamble, no MCP servers, the registry's `acp.toolless` launch and a
+  permission handler that always refuses. The
   renderer holds the deadline and aborts the request, which ends the turn.
 - **Keys**: ol-input's `keypress(keys, times)` repeats the last key with the
   modifiers held (one call for "undo that"), and `copySelection(timing)` sends
