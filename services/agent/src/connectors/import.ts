@@ -78,6 +78,26 @@ export function fromMcpServers(json: unknown, key = "mcpServers", bare = false):
   });
 }
 
+/**
+ * Claude Code's ~/.claude.json: user scope at the top, then each project's own
+ * (local scope) under `projects[path]`. A name is kept once: user scope first,
+ * as the one every project sees, then the first project that defines it.
+ * O(servers).
+ */
+export function fromClaudeCode(json: unknown): Found[] {
+  const out = fromMcpServers(json);
+  const names = new Set(out.map((f) => f.name));
+  const projects = isObj(json) && isObj(json.projects) ? json.projects : {};
+  for (const [dir, project] of Object.entries(projects)) {
+    for (const f of fromMcpServers(project)) {
+      if (names.has(f.name)) continue;
+      names.add(f.name);
+      out.push({ ...f, warnings: [`Claude Code uses it only in ${dir}.`, ...f.warnings] });
+    }
+  }
+  return out;
+}
+
 /** Gemini CLI: `httpUrl` is streamable HTTP, `url` is SSE, `command` is stdio. */
 export function fromGemini(json: unknown): Found[] {
   const servers = isObj(json) && isObj(json.mcpServers) ? json.mcpServers : {};
@@ -133,7 +153,7 @@ export function importSources(platform: NodeJS.Platform = process.platform, env:
   if (win) claudeDesktop.push(join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude", "claude_desktop_config.json"));
   return [
     { id: "claude-desktop", label: "Claude Desktop", paths: claudeDesktop, parse: json((j) => fromMcpServers(j)) },
-    { id: "claude-code", label: "Claude Code", paths: [join(env.CLAUDE_CONFIG_DIR || home, ".claude.json")], parse: json((j) => fromMcpServers(j)) },
+    { id: "claude-code", label: "Claude Code", paths: [join(env.CLAUDE_CONFIG_DIR || home, ".claude.json")], parse: json(fromClaudeCode) },
     { id: "codex", label: "Codex", paths: [join(env.CODEX_HOME || join(home, ".codex"), "config.toml")], parse: fromCodex },
     { id: "cursor", label: "Cursor", paths: [join(home, ".cursor", "mcp.json")], parse: json((j) => fromMcpServers(j)) },
     { id: "gemini", label: "Gemini CLI", paths: [join(home, ".gemini", "settings.json")], parse: json(fromGemini) },

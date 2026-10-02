@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ConnectorRow } from "@openlive/db";
-import { fromCodex, fromGemini, fromMcpServers, fromVsCode, importSources, preview, readSource } from "./import.js";
+import { fromClaudeCode, fromCodex, fromGemini, fromMcpServers, fromVsCode, importSources, preview, readSource } from "./import.js";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const json = (name: string) => JSON.parse(fixture(name)) as unknown;
@@ -16,9 +16,13 @@ describe("reading other tools' MCP configs", () => {
     });
   });
 
-  it("Claude Code: user scope only, http and sse, and a ${VAR} it would fill itself left for the user", () => {
-    const found = fromMcpServers(json("claude.json"));
-    expect(found.map((f) => f.name)).toEqual(["linear", "legacy", "fs"]);
+  it("Claude Code: user scope, then each project's own, http and sse, and a ${VAR} it would fill itself left for the user", () => {
+    const found = fromClaudeCode(json("claude.json"));
+    // User scope wins a name; a project's server comes once, from the first project naming it.
+    expect(found.map((f) => f.name)).toEqual(["linear", "legacy", "fs", "project-only", "notes"]);
+    expect(found[3]!.transport).toMatchObject({ type: "stdio", command: "nope" });
+    expect(found[3]!.warnings[0]).toBe("Claude Code uses it only in /Users/me/code.");
+    expect(found[4]!.warnings[0]).toBe("Claude Code uses it only in /Users/me/other.");
     expect(found[0]!.transport).toEqual({ type: "http", url: "https://mcp.linear.app/mcp", headers: {} });
     expect(found[0]!.warnings[0]).toContain("${LINEAR_TOKEN}");
     expect(found[1]!.transport).toMatchObject({ type: "http", url: "https://legacy.example.com/sse" });

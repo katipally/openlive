@@ -983,7 +983,7 @@ An MCP server the user adds once, offered to every brain in both modes.
   with chips: a URL opens only after a yes, and a form is asked when chips can
   answer it (nothing to fill in, or one yes-or-no or pick-one field) and
   declined otherwise. A session that cannot ask declines; nothing opens unasked.
-- **Import** (`import.ts`). Claude Desktop, Claude Code (user scope), Codex,
+- **Import** (`import.ts`). Claude Desktop, Claude Code (user scope, then each project's own, a name kept once), Codex,
   Cursor, Gemini CLI and VS Code, at each tool's path for the OS. Preview marks
   duplicates of existing connectors; commit reads the files again and imports
   only definitions, never a sign-in. Imported stdio servers wait for consent.

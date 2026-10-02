@@ -5,5 +5,8 @@
     "legacy": { "type": "sse", "url": "https://legacy.example.com/sse" },
     "fs": { "type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Desktop"], "env": {} }
   },
-  "projects": { "/Users/me/code": { "mcpServers": { "project-only": { "command": "nope" } } } }
+  "projects": {
+    "/Users/me/code": { "mcpServers": { "project-only": { "command": "nope" }, "linear": { "type": "http", "url": "https://mcp.linear.app/other" } } },
+    "/Users/me/other": { "mcpServers": { "project-only": { "command": "later" }, "notes": { "type": "http", "url": "https://notes.example.com/mcp" } } }
+  }
 }
