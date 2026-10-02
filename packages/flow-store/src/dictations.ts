@@ -21,6 +21,8 @@ export interface Dictation {
   final: string;
   /** The app in front, where the platform names it. */
   app?: string;
+  /** Its window then, so "Insert again" can go back to it while it is open. */
+  windowId?: number;
   /** Command mode's result rather than a dictation. */
   command?: boolean;
   /** Put on the clipboard because nothing took the typing. */
@@ -42,7 +44,7 @@ export function addDictation(d: Omit<Dictation, "id" | "at">, keep: DictateKeep,
   if (keep === "off") return null;
   const entry: Dictation = {
     id: randomUUID(), at, raw: cut(d.raw), cleaned: cut(d.cleaned), final: cut(d.final),
-    ...(d.app && { app: cut(d.app).slice(0, 120) }), ...(d.command && { command: true }), ...(d.copied && { copied: true }),
+    ...(d.app && { app: cut(d.app).slice(0, 120) }), ...(Number.isInteger(d.windowId) && { windowId: d.windowId }), ...(d.command && { command: true }), ...(d.copied && { copied: true }),
   };
   ensureDir(flowDir());
   appendFileSync(dictationsPath(), `${JSON.stringify(entry)}\n`, { mode: 0o600 });

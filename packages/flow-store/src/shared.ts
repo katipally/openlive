@@ -5,6 +5,10 @@ import type { FlowConfig } from "./config";
 
 export type FlowBrain = Omit<FlowConfig["brain"], "override">;
 
+/** Bounds on what Dictate's word lists may hold, so a hand-edited file cannot
+ *  make every dictation slow or the settings file huge. */
+export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;
+
 const CHAT_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
 
 /** The brain Flow thinks with: its own when the override is on, else Chat's

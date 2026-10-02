@@ -1,6 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import lockfile from "proper-lockfile";
 import { configPath, ensureDir, flowDir } from "./paths";
+import { DICTATE_LIMITS } from "./shared";
 
 // One versioned schema for everything Flow can be configured with. Two rules it
 // must never break: every field has a default, and an unknown or missing key
@@ -18,9 +19,6 @@ const INSERTION_METHODS = ["paste", "type"] as const;
 const BRAIN_KINDS = ["api", "acp"] as const;
 const TONES = ["natural", "casual", "formal"] as const;
 const KEEPS = ["off", "day", "week", "month", "forever"] as const;
-/** Bounds on what Dictate's word lists may hold, so a hand-edited file cannot
- *  make every dictation slow or the settings file huge. */
-export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;
 
 export interface FlowConfig {
   version: number;

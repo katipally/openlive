@@ -606,8 +606,8 @@ export function useFlowOwner(): void {
       },
       keys: async (keys, times) => (await api.keys(keys, times)).ok,
       record: (d) => void (async () => {
-        const front = valueOr(await api.device("foreground", {}), null) as { appName?: string } | null;
-        await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, ...(front?.appName && { app: front.appName }) }) });
+        const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
+        await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, app: front?.appName, windowId: front?.id }) });
       })().catch((e) => log.debug("flow", "dictate history:", e)),
       settings: () => {
         const own = settings.current?.dictate;

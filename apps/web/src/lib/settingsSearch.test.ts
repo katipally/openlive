@@ -37,7 +37,13 @@ describe("settings search", () => {
   });
 
   it("finds the pronunciation dictionary by what people call it", () => {
-    for (const q of ["pronunciation", "dictionary", "mispronounced", "respell"]) expect(find(q)).toEqual(["Pronunciation"]);
+    for (const q of ["pronunciation", "mispronounced", "respell"]) expect(find(q)).toEqual(["Pronunciation"]);
+    // Dictate's dictionary is the other one.
+    expect(find("dictionary")).toEqual(["Dictionary", "Pronunciation"]);
+  });
+
+  it("a Dictate row opens its subtab first", () => {
+    for (const e of SETTINGS_INDEX.filter((x) => x.tab === "dictate")) expect(e.reveal).toMatch(/^set-dictate-(basics|words|commands|history)$/);
   });
 
   it("needs every term, in any order", () => {
@@ -96,7 +102,7 @@ describe("settings search", () => {
   });
 
   it("a row inside a speech engine stage has its own anchor and opens its stage first", () => {
-    const staged = SETTINGS_INDEX.filter((e) => e.reveal && e.tab !== "capabilities");
+    const staged = SETTINGS_INDEX.filter((e) => e.reveal && e.tab !== "capabilities" && e.tab !== "dictate");
     expect(staged.map((e) => e.label)).toEqual(expect.arrayContaining(["Voiceprint", "Side talk"]));
     for (const e of staged) {
       expect(e.tab).toBe("engine");

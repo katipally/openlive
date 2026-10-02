@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   try {
     const k = keep();
     const s = (v: unknown) => (typeof v === "string" ? v : "");
-    addDictation({ raw: s(d.raw), cleaned: s(d.cleaned), final: d.final, app: s(d.app) || undefined, command: d.command === true, copied: d.copied === true }, k);
+    addDictation({ raw: s(d.raw), cleaned: s(d.cleaned), final: d.final, app: s(d.app) || undefined, windowId: typeof d.windowId === "number" ? d.windowId : undefined, command: d.command === true, copied: d.copied === true }, k);
     // O(kept) per dictation: the read also compacts, which keeps the file under twice the cap.
     readDictations(k);
     return NextResponse.json({ ok: true });
