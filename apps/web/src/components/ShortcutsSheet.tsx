@@ -13,10 +13,12 @@ import { cn } from "@/lib/cn";
 import { useMotionTokens } from "@/lib/motion";
 
 type Row = { label: string; keys: string[] };
+type Group = { title: string; note?: string; rows: Row[] };
 
 // Only what is really bound. Settings and ⌘Q are native menu accelerators and
 // Flow's gesture lives in the desktop shell, so the browser build leaves them out.
-const GROUPS: { title: string; note?: string; rows: Row[] }[] = [
+// Dictate's group goes between these and the call's, from the person's own keys.
+const APP_GROUPS: Group[] = [
   { title: "Anywhere in OpenLive", rows: [
     { label: "Command palette", keys: [MOD, "K"] },
     ...(isDesktop ? [{ label: "Settings", keys: [MOD, ","] }] : []),
@@ -26,6 +28,8 @@ const GROUPS: { title: string; note?: string; rows: Row[] }[] = [
   ...(isDesktop ? [{ title: "Flow, from any app", rows: [
     { label: "Talk, then again to close", keys: [CONTROL, CONTROL] },
   ] }] : []),
+];
+const CALL_GROUPS: Group[] = [
   { title: "In a call", rows: [
     { label: "Mute / unmute", keys: ["M"] },
     { label: "Camera on / off", keys: ["C"] },
@@ -91,14 +95,12 @@ function Groups() {
   const own = useFlowConfig().config?.dictate;
   // Dictate's keys are the person's own, and bound only while it is on.
   const hold = own ? hotkeyKeys(own.hotkey, desktopPlatform) : [];
-  const dictate = isDesktop && own?.enabled ? [{ title: "Dictate, from any app", rows: [
+  const dictate: Group[] = isDesktop && own?.enabled ? [{ title: "Dictate, from any app", rows: [
     { label: "Hold to talk, release to type", keys: hold },
     { label: "Hands-free, tap again to stop", keys: [...hold, ...hold] },
     { label: "Command mode, hold and say the change", keys: hotkeyKeys(own.commandHotkey, desktopPlatform) },
   ] }] : [];
-  // After Flow's group, which only the desktop has.
-  const at = isDesktop ? 2 : 1;
-  return [...GROUPS.slice(0, at), ...dictate, ...GROUPS.slice(at)].map((g: (typeof GROUPS)[number]) => (
+  return [...APP_GROUPS, ...dictate, ...CALL_GROUPS].map((g) => (
     <section key={g.title} className="min-w-0">
       <h3 className={groupLabel}>{g.title}</h3>
       {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}
