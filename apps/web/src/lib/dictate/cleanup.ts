@@ -30,7 +30,7 @@ interface Tok {
 }
 
 const ENDS = /[.!?…]$/;
-const PAUSE = /([,;:—–]|\.\.\.|…)$/;
+const PAUSE = /([,;:\u2014\u2013]|\.\.\.|…)$/;
 const lc = (t: Tok | undefined) => t?.core.toLowerCase() ?? "";
 
 function tokenize(text: string): Tok[] {
