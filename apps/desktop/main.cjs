@@ -18,6 +18,7 @@ const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
 const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
 const { trayTemplate } = require("./tray-menu.cjs");
+const { loginDefaultReady } = require("./login-item.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
 const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
@@ -1291,10 +1292,12 @@ function wireResetIpc() {
     const { response } = await dialog.showMessageBox(mainWin, {
       type: "warning", buttons: ["Erase everything", "Cancel"], defaultId: 1, cancelId: 1,
       message: "Erase all of OpenLive's data on this computer?",
-      detail: `Everything in ${HOME} goes: chats, Dictate history, memory, settings, skills, saved keys, logs, downloaded voice models and the files in Flow's workspace. It cannot be undone, and OpenLive starts again fresh.\n\nYour coding agents keep their own sessions and logins. If usage data is off, it stays off.`,
+      detail: `Everything in ${HOME} goes: chats, Dictate history, memory, settings, skills, saved keys, logs, downloaded voice models and the files in Flow's workspace. It cannot be undone, and OpenLive starts again fresh.\n\nYour coding agents keep their own sessions and logins. If usage data is off, it stays off, and Open at login keeps your setting.`,
     });
     if (response !== 0) return { cancelled: true };
     const { enabled, noticeSeen } = telemetry.getStatus();
+    let loginDefaultDone = false;
+    try { loginDefaultDone = JSON.parse(fs.readFileSync(onceFile(), "utf8")).loginItemDefault === true; } catch { /* never applied */ }
     app.isQuitting = true;
     await killChildren();
     const ses = session.defaultSession;
@@ -1305,6 +1308,11 @@ function wireResetIpc() {
     try { home.wipeHome(HOME); } catch (err) { failed = err; }
     if (noticeSeen && !enabled) {
       try { home.privateDir(PATHS.state); fs.writeFileSync(stateFile("telemetry-off"), "", { mode: 0o600 }); } catch { /* the notice asks again */ }
+    }
+    // The login item lives in the OS, not the home: without its marker the next
+    // launch would turn back on one the person had turned off.
+    if (loginDefaultDone) {
+      try { home.privateDir(PATHS.state); fs.writeFileSync(onceFile(), JSON.stringify({ loginItemDefault: true })); } catch { /* best-effort */ }
     }
     if (failed) dialog.showErrorBox("OpenLive could not erase everything", `${failed.message || failed}\n\nWhat is left is in ${HOME}. OpenLive starts again now.`);
     app.relaunch();
@@ -1529,8 +1537,15 @@ async function boot() {
   // Hook effects drive Flow's cascade, which lives in the owner renderer.
   flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry);
   // Open at login by default, once, for the installed app only (never the dev
-  // binary). After that the person's choice in Settings stands.
-  if (app.isPackaged && firstTime("loginItemDefault") && !loginItem()) loginItem(true);
+  // binary). After that the person's choice in Settings stands. Run from a DMG or
+  // a download, the default waits for a launch from where it was installed.
+  const ready = app.isPackaged && loginDefaultReady({
+    platform: process.platform,
+    inApplications: process.platform === "darwin" && app.isInApplicationsFolder(),
+    exe: process.env.APPIMAGE || process.execPath,
+    downloads: app.getPath("downloads"),
+  });
+  if (ready && firstTime("loginItemDefault") && !loginItem()) loginItem(true);
   // A login launch comes up as just the tray, with Flow ready.
   const hidden = !!tray && openedAtLogin;
   if (hidden && process.platform === "darwin") app.dock.hide();

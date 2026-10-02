@@ -47,7 +47,13 @@ Releases before 0.1.9 predate this file — see the
   fullscreen if it was, on a screen that is still connected.
 - **Reset local data** in Settings > About erases the OpenLive folder and the
   app's browser storage, after a native confirm, and restarts fresh. Coding
-  agents keep their own sessions and logins; a usage-data opt-out stays.
+  agents keep their own sessions and logins; a usage-data opt-out and your
+  Open at login choice stay.
+- **Open at login is on by default** for the installed app, set once on its
+  first launch from where it was installed: an Applications folder on macOS,
+  the installer on Windows, an AppImage kept outside Downloads on Linux. Run
+  from the DMG or a download, it waits for that launch. Settings > General
+  turns it off, and it stays off.
 
 ### Removed
 - **Mini mode.** The floating always-on-top call bar, its tray item and its

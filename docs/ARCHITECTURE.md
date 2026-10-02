@@ -1412,7 +1412,9 @@ models' cache and its flag (see ui.json below).
   refuses an empty or relative path, a drive root, the user's home folder and any
   folder above it, judging a linked home by where it leads; links inside are
   removed, never followed. A usage-data opt-out is written back as
-  `state/telemetry-off`. Coding agents' own folders are outside the home and
+  `state/telemetry-off`, and an applied open-at-login default as
+  `state/once.json`, since the login item lives in the OS and would otherwise be
+  turned back on. Coding agents' own folders are outside the home and
   untouched. A dev checkout refuses: its servers belong to pnpm.
 - **mcp.json**, as written:
 
