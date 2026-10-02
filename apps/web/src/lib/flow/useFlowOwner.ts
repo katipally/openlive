@@ -23,7 +23,7 @@ import { createDictate, readRewrite, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { DICTATE_BINDING, DICTATE_COMMAND_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
-import { deriveFailure, turnFailure } from "./failure";
+import { deriveFailure, forOrb, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
 import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
@@ -107,7 +107,7 @@ export function useFlowOwner(): void {
     if (!api || !panel) return; // not the desktop app: Flow has nothing to own
 
     // ── publishing ────────────────────────────────────────────────────────
-    const publish = () => panel.panelState?.({ k: "s", s: { ...NO_CALL, permission: permission.current, flow: snap.current } });
+    const publish = () => panel.panelState?.({ k: "s", s: { ...NO_CALL, permission: permission.current, flow: forOrb(snap.current, summoned.current) } });
     const patch = (p: Partial<FlowSnapshot>) => { snap.current = { ...snap.current, ...p }; publish(); };
     const setPhase = (phase: FlowPhase, detail = "") => {
       if (snap.current.phase === phase && snap.current.detail === detail) return;

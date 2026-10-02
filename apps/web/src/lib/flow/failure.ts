@@ -1,9 +1,14 @@
 import type { ErrorClass } from "@openlive/shared";
-import type { FlowFailure } from "./types";
+import type { FlowFailure, FlowSnapshot } from "./types";
 
 // Nothing silent. Every way Flow can be unable to do its job has a state with a
 // cause and exactly one thing the user can press, and each is derived from a
 // capability that was actually read rather than assumed.
+
+/** Flow as the orb is sent it. A failure is Flow's own: with Flow closed the orb
+ *  is Dictate's, and one found by health meanwhile, or kept from the last
+ *  session, would flash up as Dictate's orb leaves. */
+export const forOrb = (s: FlowSnapshot, flowOpen: boolean): FlowSnapshot => (flowOpen || !s.failure ? s : { ...s, failure: null });
 
 export interface FlowHealth {
   platform: string;

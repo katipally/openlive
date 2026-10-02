@@ -342,6 +342,9 @@ Releases before 0.1.9 predate this file — see the
   down is now kept and written down once the engine is up, with **Getting
   ready** on the orb meanwhile. Words heard that still cannot be written down
   are said so on the orb, never dropped quietly.
+- **No Flow card flashes as Dictate's orb leaves.** With Flow closed, a Flow
+  problem (no brain set up, say) could show its card for a moment as a
+  Dictate-only session ended. Flow's cards now show only while Flow is open.
 - **Flow's reply shows on the orb when it is not said out loud.** With Say
   replies out loud off, or a turn gone quiet, the reply is written in the
   caption strip, wrapping and scrolling, until the next turn.

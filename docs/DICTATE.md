@@ -57,7 +57,8 @@ starts the speech engine, which takes a moment: the line says **Getting
 ready**, and you can talk straight away. Everything said from the key going
 down is kept and written down once the engine is up. Words it heard but could
 not write down are said so on the orb (**Your words could not be written
-down.**), never dropped quietly.
+down.**), never dropped quietly. Flow's own cards (no brain set up, say) never
+show on Dictate's orb with Flow closed.
 
 Hands-free draws a dashed ring round the orb. Under it, one line shows how
 Dictate is held (the key, or **Hands-free** with **Stop**) and what it heard so

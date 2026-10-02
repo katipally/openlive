@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, keyListenerNote, turnFailure, type FlowHealth } from "./failure";
+import { deriveFailure, forOrb, keyListenerNote, turnFailure, type FlowHealth } from "./failure";
+import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
   platform: "darwin", accessibility: true, secureInput: false,
@@ -164,5 +165,19 @@ describe("keyListenerNote", () => {
   });
   it("names the Wayland limit", () => {
     expect(keyListenerNote({ hookError: null, wayland: true })).toMatch(/Wayland/);
+  });
+});
+
+describe("forOrb", () => {
+  const failure = deriveFailure({ ...HEALTHY, brainReady: false })!;
+  const dictating = { ...IDLE_FLOW, failure, dictate: { phase: "idle" as const, handsFree: false, command: false, keys: [], partial: "", inserted: 3, note: "", undo: true, ready: true } };
+
+  it("shows Flow's failure while Flow is open", () => {
+    expect(forOrb(dictating, true).failure).toBe(failure);
+  });
+
+  it("never shows it on Dictate's orb with Flow closed, during the session or as it goes", () => {
+    expect(forOrb(dictating, false)).toEqual({ ...dictating, failure: null });
+    expect(forOrb({ ...dictating, dictate: null }, false).failure).toBeNull();
   });
 });
