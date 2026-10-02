@@ -4,17 +4,19 @@ import type { Tool } from "./types.js";
 
 // The groups OpenLive's own tools come in, as Settings shows and switches them.
 // A tool names its group (Tool.group); this table only says how a group reads,
-// in the order Settings lists them. A group with no tools is not listed.
+// in the order Settings lists them. A group with no tools is not listed. A
+// switch reaches OpenLive's tools alone: a coding agent keeps its own built-in
+// ones, so a description that overlaps them says whose it is.
 
 export const GROUPS = {
   computer: { name: "Computer use", icon: "monitor", description: "Sees and drives the apps on your screen", needs: "Needs the desktop app" },
-  files: { name: "Files", icon: "folder", description: "Reads and edits your workspace folder", needs: "Needs a folder" },
-  find: { name: "Find and undo", icon: "search", description: "Finds files anywhere and undoes edits" },
-  web: { name: "Web research", icon: "globe", description: "Searches and reads the web, with sources" },
+  files: { name: "Files", icon: "folder", description: "OpenLive's own file reading and editing", needs: "Needs a folder in a call" },
+  find: { name: "Find and undo", icon: "search", description: "OpenLive's own file search, and undo for its edits" },
+  web: { name: "Web research", icon: "globe", description: "OpenLive's own web search and reading, with sources" },
   text: { name: "Text", icon: "type", description: "Types at your cursor and reads selections" },
   assistant: { name: "Assistant", icon: "sparkles", description: "Plans, remembers facts and sees what a call shares" },
   reminders: { name: "Reminders", icon: "alarm", description: "Timers and reminders, even offline" },
-  shell: { name: "Shell", icon: "terminal", description: "Runs commands on this computer", needs: "Needs the desktop app" },
+  shell: { name: "Shell", icon: "terminal", description: "OpenLive's own command runner", needs: "Needs the desktop app" },
   skills: { name: "Skills", icon: "book", description: "Saves a workflow you describe as a new skill" },
   connectors: { name: "Connectors", icon: "plug", description: "Adds, signs in to and checks your MCP connectors" },
 } as const satisfies Record<string, { name: string; icon: string; description: string; needs?: string }>;

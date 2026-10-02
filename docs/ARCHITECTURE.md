@@ -616,7 +616,9 @@ precheck, approve, run, tally).
   says how each reads in
   Settings. A group switched off is listed in `disabledToolGroups` in
   settings.json (comma-separated ids) and `registry.tools` leaves its tools out of
-  every new session, every brain and the MCP server alike. `/capabilities`
+  every new session, every brain and the MCP server alike. It reaches OpenLive's
+  own tools only: a coding agent keeps its built-in file, shell and web tools,
+  and Settings says so on each switch. `/capabilities`
   (`routes.ts`, proxied at `/api/capabilities`) lists the groups from
   `builtinCatalog()`, switches one, and saves or clears the Exa key, which it
   never sends back.

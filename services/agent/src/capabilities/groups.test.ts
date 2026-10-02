@@ -42,7 +42,7 @@ describe("tool groups", () => {
       ["files", true, [["read_file", false], ["write_file", true]]],
       ["shell", false, [["shell", true]]],
     ]);
-    expect(groups[0]).toMatchObject({ name: "Files", needs: "Needs a folder", icon: "folder" });
+    expect(groups[0]).toMatchObject({ name: "Files", needs: "Needs a folder in a call", icon: "folder" });
     expect(groups[0]!.tools[0]!.description).toBe("read_file does a thing.");
   });
 

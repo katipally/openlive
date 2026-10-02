@@ -109,7 +109,7 @@ function GroupCard({ g, onFlip }: { g: ToolGroupWire; onFlip: () => void }) {
           </span>
           <OneLine text={g.description} className="text-label text-muted-foreground" />
         </div>
-        <Tooltip label="Applies from the next call or Flow run">
+        <Tooltip label="Switches OpenLive's own tools only: a coding agent keeps its built-in ones. Applies from the next call or Flow run.">
           <label className="flex cursor-pointer items-center">
             <span className="sr-only">Use {g.name}</span>
             <Switch on={g.enabled} onFlip={onFlip} />
