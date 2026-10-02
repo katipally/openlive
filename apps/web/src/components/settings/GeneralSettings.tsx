@@ -127,6 +127,12 @@ function TypingAtCursor() {
         <ListRow label="How text goes in" info="Paste is instant. Type it out works in apps that block paste.">
           <Segmented label="How text goes in" value={insertion.method} options={METHODS} onChange={(method) => save({ insertion: { method } })} />
         </ListRow>
+        <div id="set-general-clipboard">
+          <ListRow label="Put my clipboard back" detail={insertion.restoreClipboard ? "After every paste" : "Pasted text stays on it"} asLabel
+            info="A paste goes through the clipboard. On, what you had copied comes back right after. Off, what Flow or Dictate typed stays there to paste again.">
+            <Switch on={insertion.restoreClipboard} onFlip={() => save({ insertion: { restoreClipboard: !insertion.restoreClipboard } })} />
+          </ListRow>
+        </div>
         <Advanced id="flow:typing" label="Advanced timing" className="py-1">
           <div className={cn("flex flex-col gap-3", insertion.method !== "paste" && "opacity-60")}>
             <Slider label="Hold the modifier for" min={0} max={300} step={10} value={insertion.modifierHoldMs} commitOnRelease saving={saving}

@@ -57,6 +57,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },
   { label: "End Flow and calls when the screen locks", keywords: "lock locked sleep suspend keep going close hang up", tab: "general", anchor: "set-general-lock", desktop: true, os: ["darwin", "win32"] },
   { label: "Typing at cursor", keywords: "how text goes in paste type it out typing insertion insert clipboard put back restore timing modifier dictate flow", tab: "general", anchor: "set-general-typing" },
+  { label: "Put my clipboard back", keywords: "restore clipboard keep pasted text paste copy", tab: "general", anchor: "set-general-clipboard" },
+  { label: "Dictate", keywords: "dictation turn on off talk instead of type voice typing speech to text", tab: "dictate", anchor: "set-dictate-on", desktop: true },
+  { label: "Dictate hotkey", keywords: "hold to talk push to talk key right alt option altgr change shortcut hands-free double tap", tab: "dictate", anchor: "set-dictate-trigger", desktop: true },
+  { label: "Dictation cleanup", keywords: "punctuation capitals fillers um uh backtrack scratch that actually correction lists numbers digits", tab: "dictate", anchor: "set-dictate-cleanup" },
+  { label: "Dictate brain", keywords: "agent model polish commands different override same as flow", tab: "dictate", anchor: "set-dictate-brain" },
 
   { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
   { label: "Model", keywords: "llm live model vision reasoning default", tab: "models", anchor: "set-models-model" },
