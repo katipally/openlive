@@ -799,12 +799,6 @@ function createFlowWindow() {
   // the pointer has reached the orb and asks for the clicks back.
   setClickThrough(flowWin, true);
   watchPointer(flowWin);
-  // Showing the window resets it to click-through, so the renderer has to be
-  // told: it tracks whether the pointer is on the orb, and a stale "yes" from
-  // before it was hidden would stop it ever asking for the clicks back.
-  flowWin.on("show", () => {
-    if (flowWin && !flowWin.isDestroyed()) flowWin.webContents.send("openlive:flow-shown");
-  });
   flowWin.on("closed", () => { flowWin = null; });
   return flowWin;
 }
