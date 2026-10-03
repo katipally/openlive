@@ -36,6 +36,9 @@ Releases before 0.1.9 predate this file — see the
   turning it on, then a box right there to try it in. Skippable.
 - **The tray turns Dictate on and off**, under a line that says how it stands
   and its key, and the window follows at once.
+- **Flow's switch stays as you left it.** Turned off on Flow's home or from
+  the tray, Flow stays off when OpenLive restarts; the tray now has **Turn Flow
+  on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
 - **Dictating into OpenLive's own text boxes types there,** on every platform:
@@ -69,6 +72,15 @@ Releases before 0.1.9 predate this file — see the
 - The command palette says **Open sessions**, the drawer's own name.
 - The call setup's first tour fits your API key as well as a coding agent, and
   Clear all asks **Delete it** when one dictation is kept.
+- **A Dictate hold with no words in it types nothing.** Room sound alone no
+  longer comes out as "Thanks!" or "The End", typed or copied over your
+  clipboard: the recording is checked for speech first, and the orb says **No
+  words heard.** A single short word still goes in, and the start of a hold
+  is cut to just before you speak.
+- **Esc no longer ends Welcome for good.** Esc and Skip ask **Skip setup?**
+  first, with **Keep going** to stay.
+- The sessions drawer opens under the traffic lights on macOS instead of
+  beneath them.
 
 ## [0.3.0] - 2026-10-02
 
