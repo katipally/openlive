@@ -18,7 +18,6 @@ const FIRST: Partial<Record<FeatureCounterKey, Step>> = {
   n_camera_on: "first_camera_on",
   n_screen_on: "first_screen_share",
   n_typed_msg: "first_typed_message",
-  n_ptt_toggle: "first_ptt_on",
   n_mode_to_flow: "first_mode_switch",
   n_mode_to_chat: "first_mode_switch",
   n_mode_to_dictate: "first_mode_switch",

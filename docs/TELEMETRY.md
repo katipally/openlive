@@ -614,7 +614,6 @@ Limit: at most 3 per day.
 | `n_camera_on` | Times the camera was turned on in a call. | whole number, 0 to 999 | sometimes |
 | `n_screen_on` | Times screen sharing was turned on in a call. | whole number, 0 to 999 | sometimes |
 | `n_typed_msg` | Messages typed in a call. | whole number, 0 to 999 | sometimes |
-| `n_ptt_toggle` | Times push to talk was switched on or off. | whole number, 0 to 999 | sometimes |
 | `n_not_for_you` | Times a spoken turn was marked Not for you. | whole number, 0 to 999 | sometimes |
 | `n_send_aside` | Sentences the side talk check set aside that you sent to the assistant anyway. | whole number, 0 to 999 | sometimes |
 | `n_call_shortcut` | Times an in-call keyboard shortcut was used. | whole number, 0 to 999 | sometimes |
@@ -712,8 +711,6 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `flow_consent` | Whether you have allowed Flow to act on the computer. | `on`, `off` | none |
 | `flow_insertion` | How Flow puts text in: paste or type. | `paste`, `type` | none |
 | `close_after_silence` | How long Flow and Dictate stay open with nothing said. | `30s`, `90s`, `5m`, `never`, `custom` | none |
-| `voice_input_mode` | Push to talk works by holding the key or by toggling it. | `hold`, `toggle` | none |
-| `ptt_enabled` | Push to talk, on or off. | `on`, `off` | none |
 | `talk_mode` | How you talk in Flow, Dictate and calls: hands-free or push to talk. | `hands_free`, `ptt` | none |
 | `ptt_key` | The push-to-talk key: one of the two defaults, or another key, never which. | `fn`, `ctrl_right`, `other` | none |
 

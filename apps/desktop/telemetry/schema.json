@@ -277,8 +277,8 @@
     },
     "setting_changed": {
       "props": {
-        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "close_after_silence", "voice_input_mode", "ptt_enabled", "talk_mode", "ptt_key"] },
-        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "30s", "90s", "5m", "never", "hold", "toggle", "hands_free", "ptt", "fn", "ctrl_right", "other"] },
+        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "close_after_silence", "talk_mode", "ptt_key"] },
+        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "30s", "90s", "5m", "never", "hands_free", "ptt", "fn", "ctrl_right", "other"] },
         "subject": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi", "none"], "opt": true },
         "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
       },
@@ -353,7 +353,6 @@
         "n_camera_on": { "k": "int", "max": 999, "opt": true },
         "n_screen_on": { "k": "int", "max": 999, "opt": true },
         "n_typed_msg": { "k": "int", "max": 999, "opt": true },
-        "n_ptt_toggle": { "k": "int", "max": 999, "opt": true },
         "n_not_for_you": { "k": "int", "max": 999, "opt": true },
         "n_send_aside": { "k": "int", "max": 999, "opt": true },
         "n_call_shortcut": { "k": "int", "max": 999, "opt": true },
@@ -571,12 +570,10 @@
     "flow_consent": { "values": ["on", "off"] },
     "flow_insertion": { "values": ["paste", "type"] },
     "close_after_silence": { "values": ["30s", "90s", "5m", "never", "custom"] },
-    "voice_input_mode": { "values": ["hold", "toggle"] },
-    "ptt_enabled": { "values": ["on", "off"] },
     "talk_mode": { "values": ["hands_free", "ptt"] },
     "ptt_key": { "values": ["fn", "ctrl_right", "other"] }
   },
   "subjects": { "provider": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity"], "agent": ["claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"] },
-  "counters": ["n_settings_open", "n_settings_search", "n_palette_open", "n_palette_run", "n_shortcuts_sheet", "n_history_open", "n_history_search", "n_history_resume", "n_history_resume_cli_session", "n_flow_history_open", "n_flow_history_search", "n_flow_carry_on", "n_mode_to_flow", "n_mode_to_chat", "n_mode_to_dictate", "n_lobby_open", "n_camera_on", "n_screen_on", "n_typed_msg", "n_ptt_toggle", "n_not_for_you", "n_send_aside", "n_call_shortcut", "n_settings_tab_general", "n_settings_tab_models", "n_settings_tab_voice", "n_settings_tab_engine", "n_settings_tab_agents", "n_settings_tab_capabilities", "n_settings_tab_tools", "n_settings_tab_connectors", "n_settings_tab_skills", "n_settings_tab_memory", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_dictate", "n_settings_tab_privacy", "n_settings_tab_about"],
+  "counters": ["n_settings_open", "n_settings_search", "n_palette_open", "n_palette_run", "n_shortcuts_sheet", "n_history_open", "n_history_search", "n_history_resume", "n_history_resume_cli_session", "n_flow_history_open", "n_flow_history_search", "n_flow_carry_on", "n_mode_to_flow", "n_mode_to_chat", "n_mode_to_dictate", "n_lobby_open", "n_camera_on", "n_screen_on", "n_typed_msg", "n_not_for_you", "n_send_aside", "n_call_shortcut", "n_settings_tab_general", "n_settings_tab_models", "n_settings_tab_voice", "n_settings_tab_engine", "n_settings_tab_agents", "n_settings_tab_capabilities", "n_settings_tab_tools", "n_settings_tab_connectors", "n_settings_tab_skills", "n_settings_tab_memory", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_dictate", "n_settings_tab_privacy", "n_settings_tab_about"],
   "feedback": { "minDaysAfterFirstOpen": 2, "minDaysBetweenPrompts": 7, "minDaysBetweenSessionRatings": 7, "minDaysBetweenNps": 90, "npsMinActiveDays": 7, "ignoredInARowForBackoff": 2, "backoffDays": 30, "sessionMinAnsweredTurns": 2, "sessionFreshHours": 12 }
 }
