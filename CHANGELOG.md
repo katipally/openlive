@@ -9,14 +9,34 @@ Releases before 0.1.9 predate this file — see the
 ## [0.3.0] - 2026-10-02
 
 ### Added
-- **Dictate.** Hold Right Alt (Right Option on macOS) and talk; letting go
-  types the cleaned-up words where your cursor is, in any app, with no brain and
-  nothing spoken back. Double-tap for hands-free, tap once more to stop. The
-  orb shows it in chartreuse with Flow's own motion, a Hold or Hands-free
-  badge above it (hands-free's stops it when clicked) and one line of what it
-  heard, which shimmers with a spinner while it is cleaned up or polished. Turn it on in Settings > Dictate, where the
-  key can be changed (with a warning where Right Alt may be AltGr). See
-  [docs/DICTATE.md](docs/DICTATE.md).
+- **Dictate.** Double-tap Option (Alt on Windows and Linux, either side) and
+  talk; the cleaned-up words are typed where your cursor is, in any app, with
+  no brain and nothing spoken back, and the same double tap closes it. The orb
+  shows it in chartreuse with Flow's own motion, a badge above it that says how
+  it listens and closes it when clicked, and one line of what it heard, which
+  shimmers with a spinner while it is cleaned up or polished. Turn it on on its
+  home or from the tray. See [docs/DICTATE.md](docs/DICTATE.md).
+- **How you talk, once for Flow, Dictate and calls**, in Settings > General,
+  the tray and Welcome: **Hands-free** (the default), where a pause ends what
+  you said, or **Push to talk**, where you hold a key (Fn on macOS, Right Ctrl
+  on Windows and Linux) while you talk. In push to talk the microphone is open
+  only while the key is down: it opens on the press, the hold is recorded from
+  its first sound, and every track stops on the release, so the system's
+  microphone indicator is off between holds. A call has a **Hold to talk**
+  button too, which works where the key listener cannot (the web build, Linux
+  without the `input` group).
+- **Your own keys.** Open Flow (double-tap Control), Open Dictate (double-tap
+  Option or Alt) and Push to talk each have a picker in Settings > General
+  with **Reset**, applied at once. No two share a physical key: beside a push
+  to talk key on one side, a double tap uses the other side in push to talk,
+  and a key that would leave another with none is refused with the reason.
+  With Fn on a Mac, Settings says what a press of 🌐 also does and links to
+  the setting that turns it off; on Windows and Linux, Right Alt warns that it
+  may be AltGr.
+- **Close after silence**, one choice for Flow and Dictate in Settings >
+  General: 30 sec (the default), 90 sec, 5 min or Never. In push to talk, a
+  stretch with no hold counts as silence. Calls never close on their own. Esc
+  never closes Flow or Dictate; it always goes to the app in front.
 - **Dictate is a home mode beside Chat and Flow.** Its home turns it on and
   off, shows its keys as this computer names them, puts tone, AI polish,
   language and words one press away, and lists the last few dictations to
@@ -37,14 +57,18 @@ Releases before 0.1.9 predate this file — see the
   fails or sends nothing for 25 seconds, the cleaned-up words are typed
   instead; if it stops partway, what was typed stays and all of it goes on the
   clipboard.
-- **Command mode.** Select text, hold Shift with Dictate's key and say what to
-  do ("make this formal", "translate to Spanish"); the selection is replaced
-  with the result, or with nothing selected the text is written at the cursor.
-  A selection over 20,000 characters says so on the orb instead of being sent.
+- **Edit by voice.** Select text, and with Dictate open say what to change
+  ("make this formal", "translate to Spanish"); the orb says **Editing
+  selection** and the selection is replaced with the result, using Dictate's
+  AI. The selection is read through the system's accessibility API only, never
+  copied, and read again at the end: no longer selected, what you said is
+  typed as dictation. Apps that do not share their selection that way, and
+  Wayland, get your words typed. A selection over 20,000 characters says so on
+  the orb instead of being sent.
 - **Dictionary and snippets** in Settings > Dictate > Words: names and jargon
   spelled your way, and a phrase said alone that types its full text.
 - **Spoken commands**, each its own switch: "press enter", "new line", "new
-  paragraph", "undo that" and, hands-free, "stop dictating".
+  paragraph", "undo that" and "stop dictating", which closes Dictate.
 - **Undo on the orb.** After Dictate types, the orb offers Undo for a few
   seconds; it takes the words back the way "undo that" does.
 - **Dictate history** in Settings > Dictate > History: each dictation kept on
@@ -288,6 +312,10 @@ Releases before 0.1.9 predate this file — see the
   with mute, open and end. Closing the window ends the call.
 - **Flow's "Let me talk over it" switch.** Speaking always stops Flow now.
   Saved settings that still carry it load as before.
+- **A call's push-to-talk switch, its Space key and Settings → General's Hold
+  to talk or Toggle choice.** A call talks the way you set in How you talk:
+  hands-free, or the push to talk key and the call's Hold to talk button. With
+  push-to-talk on before, How you talk starts as Push to talk.
 
 ### Changed
 - **The app's remembered state lives in the OpenLive folder.** The voice
@@ -369,7 +397,7 @@ Releases before 0.1.9 predate this file — see the
   and nothing is in both.** Dictate's home has the on/off switch, whether it
   is ready (with the fix when something is missing), how to start in your own
   keys, and your whole history: search, copy, insert again, delete, and
-  **Show more** for a long one. Settings > Dictate keeps the keys, cleanup,
+  **Show more** for a long one. Settings > Dictate keeps its trigger, cleanup,
   AI polish and its tone, who answers it, words, commands, and how long
   history is kept with **Clear all**, under one line that says whether
   Dictate is on and links to its home. Flow's on/off moved from Settings >
@@ -413,10 +441,10 @@ Releases before 0.1.9 predate this file — see the
 - **Dictate no longer types into nothing.** With no text box in focus (Finder
   in front, a list, a button), the words go on the clipboard and the orb says
   so. Where the system cannot tell what has focus, Dictate types as before.
-- **Stopping hands-free Dictate goes back to how things were.** Talk right
-  after the stop no longer opens a Flow turn: with Flow closed the microphone
-  goes quiet, with Flow open Flow listens again, and a sentence caught mid-way
-  at the stop is dropped.
+- **Closing Dictate goes back to how things were.** Talk right after the
+  close no longer opens a Flow turn: with Flow closed the microphone closes,
+  with Flow open Flow listens again, and a sentence caught mid-way at the close
+  is dropped.
 - **Dictate's first hold keeps its first words.** The speech engine takes a
   moment to start, and words said before it was up were lost, most often on
   the first hold after launch. Everything said from the moment the key goes
@@ -709,15 +737,12 @@ Releases before 0.1.9 predate this file — see the
   history does the same, instead of typing into nothing.
 - **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
   longer misses being told it is shown when it comes up for Dictate, which hid
-  the words and the Undo button. The microphone stays open, muted, for 30
-  seconds after a dictation, so the next hold is captioned from its first word;
-  then it closes, and turning Dictate off or opening Flow closes it at once.
-  The first hold after a while is captioned as soon as the engine is up,
-  including what was said while it started.
-- **Talk right after letting go of Dictate's key can no longer open a Flow
-  turn.** Dictate keeps the microphone until the words are typed.
-- **Opening Flow in the middle of a Dictate hold no longer leaves Flow waiting
-  for the key.** The hold is dropped, so Flow ends each turn on its own.
+  the words and the Undo button. A hold is captioned as soon as the engine has
+  words, including what was said while it started.
+- **Talk right after letting go of the push to talk key can no longer open a
+  Flow turn.**
+- **Opening Flow in the middle of a Dictate hold drops the hold**, so its words
+  go nowhere and Flow takes the next one.
 - **AI polish that stopped partway offers Undo only when its words landed.**
 - Agents show a coding agent's version as its number alone, without a stray
   period (GitHub Copilot) or its own name repeated (Claude Code).
