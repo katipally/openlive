@@ -1,25 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { voiceInputMode, setVoiceInputMode, type VoiceInputMode } from "@/lib/live/usePtt";
 import { toast } from "@/lib/toast";
-import { Switch, ListGroup, ListRow, Segmented, type SegOption } from "@/components/ui";
+import { Switch, ListGroup, ListRow } from "@/components/ui";
 import { Section } from "./Section";
 
 // What only a call does. The project folder, camera, screen and the model or
 // agent for a call are picked in Set up your call, per call, so they have no
-// setting here.
-
-const VOICE_INPUTS: SegOption<VoiceInputMode>[] = [{ id: "hold", label: "Hold to talk" }, { id: "toggle", label: "Tap to toggle" }];
-
-function VoiceInputPicker() {
-  const [mode, setMode] = useState<VoiceInputMode>("hold");
-  useEffect(() => setMode(voiceInputMode()), []);
-  const pick = (m: VoiceInputMode) => { setMode(m); setVoiceInputMode(m); };
-  return <Segmented label="Voice input" options={VOICE_INPUTS} value={mode} onChange={pick} />;
-}
+// setting here. How a call listens is How you talk, shared with Flow and Dictate.
 
 /** Spoken progress for coding-agent turns: a short voiced one-liner ("Step 2 of
  *  4: refactor the store.") when a tool has run a while and the agent is quiet. */
@@ -43,12 +32,6 @@ function NarrateToggle() {
 export function ChatSettings() {
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-chat-ptt" title="Push-to-talk" desc="Off: a call listens hands-free.">
-        <ListGroup>
-          <ListRow label="Space bar" detail="Turned on from the call dock"
-            info="Push-to-talk is off by default, so a call just listens hands-free. Turned on from the call's dock, Space works like a walkie-talkie."><VoiceInputPicker /></ListRow>
-        </ListGroup>
-      </Section>
       <Section id="set-chat-narrate" title="While an agent works" desc="What a call says while a coding agent is busy.">
         <ListGroup>
           <NarrateToggle />

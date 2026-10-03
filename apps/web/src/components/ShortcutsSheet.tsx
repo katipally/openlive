@@ -38,10 +38,6 @@ const CALL_GROUPS: Group[] = [
     { label: "Sessions", keys: ["H"] },
     { label: "End call", keys: [MOD, "E"] },
   ] },
-  { title: "Talking", note: "Once push-to-talk is on in a call.", rows: [
-    { label: "Push-to-talk, hold or tap", keys: ["Space"] },
-    { label: "Send a held thought now", keys: ["Enter"] },
-  ] },
 ];
 
 // The one shortcuts sheet: "?" anywhere in the main window, the palette, or
@@ -99,7 +95,12 @@ function Groups() {
   const dictate: Group[] = isDesktop && own ? [{ title: "Dictate, from any app", note: own.enabled ? undefined : "Off now. Turn it on in Dictate.", rows: [
     { label: "Start and stop dictating", keys: [...keys, ...keys] },
   ] }] : [];
-  return [...APP_GROUPS, ...dictate, ...CALL_GROUPS].map((g) => (
+  // Push to talk's key works in Flow, Dictate and a call alike, wherever the key listener runs.
+  const talking: Group = { title: "Talking", note: config?.talk.mode === "ptt" ? undefined : "Hold to talk works once How you talk is Push to talk.", rows: [
+    ...(isDesktop && config ? [{ label: "Hold to talk", keys: hotkeyKeys(config.talk.pttKey, desktopPlatform) }] : []),
+    { label: "Send a held thought now", keys: ["Enter"] },
+  ] };
+  return [...APP_GROUPS, ...dictate, ...CALL_GROUPS, talking].map((g) => (
     <section key={g.title} className="min-w-0">
       <h3 className={groupLabel}>{g.title}</h3>
       {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}

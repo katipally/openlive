@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, PanelRightOpen, Pointer } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, PanelRightOpen, Hand } from "lucide-react";
 import { animate } from "motion/react";
 import { EXIT, GENTLE, useMotionTokens } from "@/lib/motion";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
@@ -18,7 +18,6 @@ import { HoldToSend } from "./HoldToSend";
 import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
-import { setPttEnabled } from "@/lib/live/usePtt";
 import { isTextTarget } from "@/lib/live/keyTargets";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { cn } from "@/lib/cn";
@@ -45,20 +44,18 @@ export interface InCallProps {
   sendNow: () => void;
   sendAside: (id: string) => void;
   notForYou: (id: string) => void;
+  pttDown: () => void;
   pttUp: () => void;
 }
 
 export function InCall(props: InCallProps) {
   const { chatId, phase, muted, cameraOn, screenOn, cameraStream, screenStream, error,
-    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, sendAside, notForYou, pttUp } = props;
+    toggleMute, toggleCamera, toggleScreen, setMic, setCam, getLevels, getBands, onEnd, sendNow, sendAside, notForYou, pttDown, pttUp } = props;
   // Narrow selector: the captions and the status line change many times a turn,
   // so only <Caption> subscribes to them; this re-renders for the dock's state.
-  const { pttActive, pttEnabled, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
-    pttActive: s.pttActive, pttEnabled: s.pttEnabled, mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId,
+  const { ptt, mics, cams, micId, camId } = useLiveStore(useShallow((s) => ({
+    ptt: s.talk.mode === "ptt", mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId,
   })));
-  // Arm/disarm push-to-talk. Disarming while Space is held first ends the hold
-  // cleanly (the engine owns the held audio), then drops the armed flag.
-  const togglePtt = () => { if (pttEnabled && pttActive) pttUp(); setPttEnabled(!pttEnabled); };
   const root = useRef<HTMLDivElement>(null);
   const sharing = cameraOn || screenOn; // orb shrinks into the bar while a visual source is on
 
@@ -105,7 +102,7 @@ export function InCall(props: InCallProps) {
   }, []);
   const overlay = bodyW - panelW < STAGE_MIN;
 
-  // In-call keyboard shortcuts (Space/Enter already belong to push-to-talk/hold-commit).
+  // In-call keyboard shortcuts (Enter already belongs to hold-commit).
   // Skipped while Settings, a prompt or any modal is up, when typing or choosing
   // in a field, and when a modifier is involved, except ⌘E (end).
   const toggleHistory = useUi((s) => s.toggleHistory);
@@ -177,7 +174,7 @@ export function InCall(props: InCallProps) {
               solid in flat. A stable width regardless of sharing. */}
           <div data-tour="controls" role="toolbar" aria-label="Call controls"
             className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline p-1.5 shadow-pop surface-float">
-            <IconBtn on={pttEnabled} label={pttEnabled ? "Push-to-talk on: Space drives talking" : "Enable push-to-talk (Space)"} onClick={togglePtt} icon={Pointer} />
+            {ptt && <HoldToTalk down={pttDown} up={pttUp} />}
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} label={muted ? "Unmute" : "Mute"} keys="M" onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} kind="Microphone" />
             <ControlWithMenu on={cameraOn} icon={cameraOn ? Video : VideoOff} label={cameraOn ? "Turn camera off" : "Turn camera on"} keys="C" onClick={() => void toggleCamera()}
@@ -193,7 +190,7 @@ export function InCall(props: InCallProps) {
       </div>
 
       <SpotlightTour id="call" steps={[
-        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, and hang up. The pointer button on the left arms push-to-talk. Once on, Space drives talking. Press ? anytime for all shortcuts." },
+        { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, and hang up. In push to talk, hold your push-to-talk key or the hand on the left while you speak. Press ? anytime for all shortcuts." },
       ]} />
     </div>
   );
@@ -202,9 +199,9 @@ export function InCall(props: InCallProps) {
 /** The live words (yours while you speak, the agent's as it says them) and the
  *  status line: on the stage under the orb, or as one line in the sharing pill. */
 function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
-  const { userCaption, userPartial, agentCaption, agentCaptionAt, agentCaptionStart, toolStatus, warming, pttActive } = useLiveStore(useShallow((s) => ({
+  const { userCaption, userPartial, agentCaption, agentCaptionAt, agentCaptionStart, toolStatus, warming, pttActive, talk } = useLiveStore(useShallow((s) => ({
     userCaption: s.userCaption, userPartial: s.userPartial, agentCaption: s.agentCaption, agentCaptionAt: s.agentCaptionAt, agentCaptionStart: s.agentCaptionStart,
-    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive,
+    toolStatus: s.toolStatus, warming: s.warming, pttActive: s.pttActive, talk: s.talk,
   })));
   const [agentWindow, setAgentWindow] = useState("");
   // Revealed word by word even when it all fits: "$1,200.50 on 2026-09-25" is
@@ -237,8 +234,11 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
       : null;
 
   // Status line: a live tool cue while a tool runs, "Warming up…" right after
-  // connecting (both blue shimmer), push-to-talk while held, otherwise the phase label.
-  const statusLabel = pttActive ? "Push-to-talk: release to send" : toolStatus ? `${toolStatus}…` : warming ? "Warming up…" : PHASE_LABEL[phase];
+  // connecting (both blue shimmer), push-to-talk while held, what to hold while
+  // push to talk waits for it, otherwise the phase label.
+  const holdLabel = talk.keys.length ? `Hold ${talk.keys.join(" ")} to talk` : "Hold to talk";
+  const statusLabel = pttActive ? "Push-to-talk: release to send" : toolStatus ? `${toolStatus}…` : warming ? "Warming up…"
+    : talk.mode === "ptt" && phase === "idle" ? holdLabel : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
   if (pill) return (
@@ -251,6 +251,30 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
       <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-title-lg leading-snug tracking-tight">{words}</p>
       <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
     </>
+  );
+}
+
+/** Push to talk on screen: held with the pointer, or with Space while it has
+ *  focus. The only way to talk in push to talk where no key listener runs: the
+ *  web build, or Linux without the input group. */
+function HoldToTalk({ down, up }: { down: () => void; up: () => void }) {
+  const held = useLiveStore((s) => s.pttActive);
+  // Only a hold this button began is this button's to end: a release of the
+  // global key is not.
+  const mine = useRef(false);
+  const press = () => { if (mine.current) return; mine.current = true; down(); };
+  const release = () => { if (!mine.current) return; mine.current = false; up(); };
+  return (
+    <Tooltip label="Hold to talk">
+      <Button variant="ghost" icon size="lg" aria-label="Hold to talk" aria-pressed={held}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); press(); }}
+        onPointerUp={release} onPointerCancel={release} onBlur={release}
+        onKeyDown={(e) => { if (e.key !== " ") return; e.preventDefault(); if (!e.repeat) press(); }}
+        onKeyUp={(e) => { if (e.key !== " ") return; e.preventDefault(); release(); }}
+        className={cn(held && "bg-foreground/10 text-foreground")}>
+        <Hand />
+      </Button>
+    </Tooltip>
   );
 }
 

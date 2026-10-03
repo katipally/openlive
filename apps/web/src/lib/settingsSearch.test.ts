@@ -101,7 +101,9 @@ describe("settings search", () => {
   });
 
   it("files call-only rows under Chat and the engine under Speech engine", () => {
-    expect(SETTINGS_INDEX.find((e) => e.label === "Push-to-talk")!.tab).toBe("chat");
+    expect(SETTINGS_INDEX.find((e) => e.anchor === "set-chat-narrate")!.tab).toBe("chat");
+    // How a call listens is How you talk, under General, no longer Chat's own.
+    expect(SETTINGS_INDEX.some((e) => e.anchor === "set-chat-ptt")).toBe(false);
     expect(SETTINGS_INDEX.find((e) => e.label === "Speech-to-text")!.tab).toBe("engine");
     expect(SETTINGS_INDEX.find((e) => e.label === "Listening sounds")!.tab).toBe("voice");
   });

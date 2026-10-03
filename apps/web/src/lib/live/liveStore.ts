@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { ModelProgress } from "./models";
 import type { ErrorClass } from "@openlive/shared";
 import type { AgentId, AgentMeta, ElicitationWire, PermissionOption } from "./liveClient";
-import { useVoicePrefs } from "../prefs";
+import type { TalkMode } from "@openlive/flow-store";
 
 export type LivePhase = "off" | "connecting" | "loading" | "reconnecting" | "idle" | "listening" | "thinking" | "speaking";
 
@@ -33,8 +33,8 @@ interface LiveState {
   agentCaptionStart: number; // performance.now() when the current agent chunk began voicing
   toolStatus: string; // the running tool in words ("" when none), drives the live "Searching the web…" cue
   holdUntil: number | null; // mid-thought pause held: epoch-ms when it auto-sends (drives "waiting for you… tap to send")
-  pttActive: boolean;       // push-to-talk currently held (space / global hotkey)
-  pttEnabled: boolean;      // push-to-talk armed (opt-in via the in-call toggle; persisted)
+  pttActive: boolean;       // push-to-talk currently held (the global key, or the on-screen button)
+  talk: { mode: TalkMode; keys: string[] }; // how you talk, from Flow's settings: the one mode Flow, Dictate and calls share, and the push-to-talk key as read
   warming: boolean;   // true from socket-open until the agent signals warm-ready → shows "Warming up…"
   boundAgent: AgentId | null;         // coding agent this conversation talks to (null = built-in brain)
   boundCwd: string;                   // project folder for the bound agent ("" = default/home)
@@ -85,7 +85,7 @@ export const useLiveStore = create<LiveState>((set) => ({
   downloadTotal: 0,
   downloadModels: [],
   muted: false,
-  pttEnabled: false,
+  talk: { mode: "handsFree", keys: [] },
   cameraOn: false,
   screenOn: false,
   screenStream: null,
@@ -124,6 +124,3 @@ export const useLiveStore = create<LiveState>((set) => ({
     set((s) => ({ terminals: { ...s.terminals, [terminalId]: { ...(s.terminals[terminalId] ?? { output: "", truncated: false }), exitCode } } })),
 }));
 
-// Push-to-talk's arming is remembered (lib/prefs.ts); a call reads it from here.
-useLiveStore.setState({ pttEnabled: useVoicePrefs.getState().pttEnabled });
-useVoicePrefs.subscribe((p) => { if (p.pttEnabled !== useLiveStore.getState().pttEnabled) useLiveStore.setState({ pttEnabled: p.pttEnabled }); });

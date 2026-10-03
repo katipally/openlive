@@ -102,7 +102,6 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Web search key", keywords: "exa api key web search rate limit free tier built-in connector", tab: "capabilities", anchor: "set-capabilities-exa", reveal: capabilityReveal("connectors") },
   { label: "Memory", keywords: "remember notes facts forget delete clear edit add budget prompt saved what it knows about me", tab: "memory", anchor: "set-memory-list" },
 
-  { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
   { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },
 
   { label: "Flow on or off", keywords: "listen for the flow hotkey armed disarm pause turn off on enable disable control ctrl double tap trigger gesture", tab: "flow", anchor: "set-flow-status", desktop: true },

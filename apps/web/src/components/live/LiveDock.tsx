@@ -7,6 +7,9 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { useLiveSession } from "@/lib/live/useLiveSession";
 import type { CallEndedBy } from "@/lib/live/callFact";
 import { usePtt } from "@/lib/live/usePtt";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { desktopPlatform } from "@/lib/platform";
 import { useUi } from "@/lib/uiStore";
 import { api } from "@/lib/api";
 import { chatStore } from "@/lib/chatStore";
@@ -21,7 +24,7 @@ import { useHydrated } from "@/lib/useHydrated";
 // model pick, devices, model download) then the full-screen in-call view — both
 // share the same TopBar + main + sidebar skeleton so the switch feels continuous.
 export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
-  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp } = useLiveSession(chatId);
+  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp, pttCancel } = useLiveSession(chatId);
   // Narrow selector: this component must NOT subscribe to the hot per-chunk
   // fields (captions, toolStatus, todos, usage, terminals) — InCall and
   // TranscriptPanel own those. Whole-store destructuring made the entire call
@@ -35,8 +38,17 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   })));
   const openSettings = useUi((s) => s.openSettings);
 
-  // Hold Space = push-to-talk, Enter = send a held pause now.
-  usePtt(active, { pttDown, pttUp, sendNow });
+  // How you talk is Flow's setting, shared by Flow, Dictate and calls. The key's
+  // name is shown only where the key is listened to: not in the web build.
+  const talk = useFlowConfig().config?.talk;
+  const mode = talk?.mode ?? "handsFree";
+  const pttKey = talk?.pttKey ?? "";
+  useEffect(() => {
+    const keys = pttKey && openliveBridge()?.onPtt ? hotkeyKeys(pttKey, desktopPlatform) : [];
+    useLiveStore.setState({ talk: { mode, keys } });
+  }, [mode, pttKey]);
+  // The global push-to-talk key, and Enter to send a held pause now.
+  usePtt(active, { pttDown, pttUp, pttCancel, sendNow });
 
   useEffect(() => { void refreshDevices(); }, [refreshDevices]);
   // Preload a resumed conversation's transcript from the saved store.
@@ -90,7 +102,7 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
       )}
 
       {active && (
-        <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttUp={pttUp}
+        <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttDown={pttDown} pttUp={pttUp}
           cameraStream={cameraStream} screenStream={screenStream} error={error}
           toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
           setMic={(id) => void setMic(id)} setCam={setCam}

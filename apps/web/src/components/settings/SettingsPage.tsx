@@ -34,7 +34,7 @@ export const SECTIONS = [
   { id: "general", label: "General", sub: "Look, startup, typing", desc: "Look, startup and typing.", icon: Settings2, Comp: GeneralSettings },
   { id: "flow", label: "Flow", sub: "Trigger, who answers", desc: modeCopy("flow").tagline, icon: Waves, Comp: FlowSettings, group: "Modes" },
   { id: "dictate", label: "Dictate", sub: "Keys, cleanup, words", desc: modeCopy("dictate").tagline, icon: Mic, Comp: DictateSettings, group: "Modes" },
-  { id: "chat", label: "Chat", sub: "Push-to-talk, narration", desc: modeCopy("chat").tagline, icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
+  { id: "chat", label: "Chat", sub: "Narration", desc: modeCopy("chat").tagline, icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "models", label: "Models", sub: "Who answers, API key", desc: "Who answers you, and the model your own key runs.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Intelligence", shared: true },
   { id: "agents", label: "Agents", sub: "Install, sign in", desc: "Coding agents that can think for Chat, Flow and Dictate.", icon: Bot, Comp: AgentsSettings, Action: AgentsRecheck, group: "Intelligence", shared: true, wide: true },
   { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What whoever answers can use, your API key's model and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, wide: true },

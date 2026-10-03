@@ -622,6 +622,8 @@ export function useLiveSession(chatId: string) {
         onMicLost: () => { fact.current.micLost++; toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
       }, player.current ?? undefined);
       engine.current = eng;
+      // How you talk is shared with Flow and Dictate: push to talk shuts the gate between holds.
+      eng.setGate(useLiveStore.getState().talk.mode === "ptt");
       await eng.start(stream);
       if (tornDown.current) return;
 
@@ -950,8 +952,27 @@ export function useLiveSession(chatId: string) {
     if (r?.last) engine.current?.dropReply();
   }, [chatId]);
   // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
-  const pttDown = useCallback(() => { if (!engine.current) return; engine.current.beginPtt(); fact.current.ptt = true; set({ pttActive: true }); }, [set]);
-  const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(); }, [set]);
+  // Recorded from the press, so the first syllable is kept while the gated VAD wakes.
+  const pttDown = useCallback(() => {
+    const e = engine.current;
+    if (!e || useLiveStore.getState().pttActive) return;
+    e.tapeHold();
+    e.beginPtt();
+    fact.current.ptt = true;
+    set({ pttActive: true });
+  }, [set]);
+  const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(true); }, [set]);
+  // A tap or a key on top: the hold's words go nowhere.
+  const pttCancel = useCallback(() => { set({ pttActive: false }); engine.current?.dropPtt(); }, [set]);
 
-  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp };
+  // The talk mode changed mid-call (Settings or the tray): the gate follows at
+  // once, and a hold still down as push to talk goes ends as a release, its
+  // words kept, since its key is no longer watched.
+  useEffect(() => useLiveStore.subscribe((s, prev) => {
+    if (s.talk.mode === prev.talk.mode) return;
+    if (s.talk.mode !== "ptt" && s.pttActive) pttUp();
+    engine.current?.setGate(s.talk.mode === "ptt");
+  }), [pttUp]);
+
+  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp, pttCancel };
 }

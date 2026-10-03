@@ -7,7 +7,7 @@ import type { FlowFailureCode, FlowSnapshot } from "@/lib/flow/types";
 export interface PanelStateSnapshot {
   phase: LivePhase; muted: boolean; cameraOn: boolean; screenOn: boolean;
   userCaption: string; userPartial: boolean; agentCaption: string;
-  toolStatus: string; warming: boolean; pttActive: boolean; pttEnabled: boolean;
+  toolStatus: string; warming: boolean; pttActive: boolean;
   holdUntil: number | null; holdMs: number;
   permission: PendingPermission | null;
   /** Present only on the Flow orb's packets. Flow has no call, no camera and no
@@ -19,7 +19,7 @@ export interface PanelStateSnapshot {
 export const NO_CALL: PanelStateSnapshot = {
   phase: "idle", muted: false, cameraOn: false, screenOn: false,
   userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false,
-  pttActive: false, pttEnabled: false, holdUntil: null, holdMs: 0, permission: null,
+  pttActive: false, holdUntil: null, holdMs: 0, permission: null,
 };
 
 export type PanelPacket =
@@ -50,6 +50,8 @@ export interface PanelBridgeApi {
   callState?: (s: CallOrbState | null) => void;
   onCallOrb?: (cb: (s: CallOrbState | null) => void) => void;
   callCmd?: (c: CallCmd) => void;
+  /** The global push-to-talk key, routed to a live call while Flow and Dictate are closed. */
+  onPtt?: (cb: (kind: string) => void) => () => void;
 }
 
 /** The desktop preload bridge, if present (undefined in the plain browser). */
