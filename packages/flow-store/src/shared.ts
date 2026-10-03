@@ -19,6 +19,11 @@ export const flowBrain = (cfg: Pick<FlowConfig, "brain">): FlowBrain => {
   return own;
 };
 
+/** A brain picked for Flow, as the change to save: a coding agent is Flow's own,
+ *  so the override goes on with it; API mode is the default Flow follows anyway. */
+export const pickFlowBrain = (pick: Partial<FlowBrain>): Partial<FlowConfig["brain"]> =>
+  ({ ...pick, override: pick.kind === "acp" });
+
 /** The brain Dictate's AI polish and command mode think with: its own when
  *  its override is on, else Flow's. */
 export const dictateBrain = (cfg: Pick<FlowConfig, "brain" | "dictate">): FlowBrain => {

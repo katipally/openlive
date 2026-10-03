@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
 import { CONFIG_V7_FIXTURE } from "./config.v7.fixture";
-import { dictateBrain, flowBrain, flowTurn } from "./shared";
+import { dictateBrain, flowBrain, flowTurn, pickFlowBrain } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -142,6 +142,18 @@ test("a v6 API brain already was Chat's, so its override stays off", () => {
   const cfg = parseFlowConfig({ version: 6, brain: { kind: "api", agentId: "codex", agentModel: "x", agentEffort: "" } });
   expect(cfg.brain.override).toBe(false);
   expect(flowBrain(cfg).kind).toBe("api");
+});
+
+test("a coding agent picked for Flow is what Flow runs on, and picking API mode goes back to following Chat", () => {
+  const fresh = parseFlowConfig({});
+  const agent = parseFlowConfig({ ...fresh, brain: { ...fresh.brain, ...pickFlowBrain({ kind: "acp", agentId: "codex", agentModel: "" }) } });
+  expect(flowBrain(agent)).toMatchObject({ kind: "acp", agentId: "codex" });
+  // The agent's model, picked after it, keeps it Flow's own.
+  const model = parseFlowConfig({ ...agent, brain: { ...agent.brain, ...pickFlowBrain({ kind: "acp", agentModel: "gpt-5" }) } });
+  expect(flowBrain(model)).toMatchObject({ kind: "acp", agentId: "codex", agentModel: "gpt-5" });
+  const api = parseFlowConfig({ ...model, brain: { ...model.brain, ...pickFlowBrain({ kind: "api" }) } });
+  expect(api.brain.override).toBe(false);
+  expect(flowBrain(api).kind).toBe("api");
 });
 
 test("an older file walks every migration into the current version", () => {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Wrench } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
+import { flowBrain, pickFlowBrain } from "@openlive/flow-store/shared";
 import { cn } from "@/lib/cn";
 import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
@@ -37,7 +38,7 @@ export function FlowOnboarding({ from, onDone, config, save }: {
   const finish = (how: "flow_onboarding_done" | "flow_onboarding_skipped") => { telemetry.track("onboarding_step", { step: how }); onDone(); };
   const choice = useApiModeChoice();
   // Finishing stays open: the note only says the brain cannot answer yet, and where to fix it.
-  const keyGap = step === 2 && config?.brain.kind === "api" && !choice.loading && !choice.usable;
+  const keyGap = step === 2 && !!config && flowBrain(config).kind === "api" && !choice.loading && !choice.usable;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -84,7 +85,7 @@ export function FlowOnboarding({ from, onDone, config, save }: {
               <h1 className="text-title-lg font-semibold tracking-tight">Who does the thinking?</h1>
               <p className="text-body text-muted-strong">Change it any time in Settings.</p>
             </div>
-            <BrainPicker config={config} save={save} />
+            <BrainPicker config={config} save={(p) => save(p.brain ? { ...p, brain: pickFlowBrain(p.brain) } : p)} />
           </>
         )}
 

@@ -13,6 +13,7 @@ import { Select, Radio, linkClass } from "@/components/ui";
 import { useMotionTokens } from "@/lib/motion";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import type { FlowConfig } from "@openlive/flow-store";
+import { flowBrain } from "@openlive/flow-store/shared";
 import type { AgentId } from "@/lib/live/liveClient";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { StatusDot } from "@/components/settings/common";
@@ -37,10 +38,12 @@ export function BrainPicker({ config, save }: {
   const openSettingsTab = useUi((s) => s.openSettingsTab);
   const { smooth, fade } = useMotionTokens();
 
-  const kind = config?.brain.kind ?? "api";
+  // What Flow really runs on: a brain picked with Flow's override off is not it.
+  const brain = config && flowBrain(config);
+  const kind = brain?.kind ?? "api";
   const installed = (agents.data ?? []).filter((a) => a.installed && !a.hidden);
 
-  const agentId = kind === "acp" ? config?.brain.agentId ?? "" : "";
+  const agentId = kind === "acp" ? brain?.agentId ?? "" : "";
   const agentReady = !!installed.find((a) => a.id === agentId);
   const agentModels = useQuery({
     queryKey: ["agent-models", agentId],
@@ -64,7 +67,7 @@ export function BrainPicker({ config, save }: {
       </Choice>
 
       {(agents.data ?? []).filter((a) => !a.hidden).map((a) => {
-        const on = kind === "acp" && config?.brain.agentId === a.id;
+        const on = kind === "acp" && brain?.agentId === a.id;
         return (
           <Fragment key={a.id}>
             <Choice checked={on} disabled={!a.installed} title={a.label} icon={<AgentIcon id={a.id as AgentId} className="size-4 shrink-0 text-foreground" />}
@@ -81,7 +84,7 @@ export function BrainPicker({ config, save }: {
                 initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
               <div className="flex flex-col gap-2.5 py-3 pl-7">
                 <Field label="Model">
-                  <Select className="min-w-[10rem] flex-1" value={config?.brain.agentModel ?? ""}
+                  <Select className="min-w-[10rem] flex-1" value={brain?.agentModel ?? ""}
                     disabled={!agentModels.data?.models.length}
                     onChange={(e) => save({ brain: { kind: "acp", agentModel: e.target.value } })}>
                     <option value="">Agent default</option>
@@ -90,7 +93,7 @@ export function BrainPicker({ config, save }: {
                 </Field>
                 {!!agentModels.data?.effort?.values.length && (
                   <Field label="Effort" hint={THINK_HINT}>
-                    <Select className="min-w-[10rem] flex-1" value={config?.brain.agentEffort ?? ""}
+                    <Select className="min-w-[10rem] flex-1" value={brain?.agentEffort ?? ""}
                       onChange={(e) => save({ brain: { kind: "acp", agentEffort: e.target.value } })}>
                       <option value="">Agent default (recommended)</option>
                       {/* Named by id, so the levels both brains have read the same on both
