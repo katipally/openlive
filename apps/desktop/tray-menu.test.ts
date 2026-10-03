@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 
-const { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
+const { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, orbOwner, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
 
 const act = { open: vi.fn(), newCall: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), talkHandsFree: vi.fn(), talkPtt: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
 const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", armed: true, dictate: { on: false, binding: "option_right" } };
@@ -36,11 +36,23 @@ describe("the tray's Dictate line", () => {
     expect(dictateLine({ ...on, hook: "stopped" })).toBe("Dictate stopped listening");
     expect(dictateLine({ ...on, hook: "off" })).toBe("Dictate stopped listening");
     expect(dictateLine({ ...ready, dictate: null })).toBe("Dictate is off");
+    expect(dictateLine({ ...on, dictateOpen: true })).toBe("Dictate is open  ·  Double-tap ⌥");
+    expect(dictateLine({ ...on, dictateOpen: true, hook: "access" })).toBe("Dictate needs permission");
     for (const words of Object.values(DICTATE)) expect(words).not.toMatch(/:|\(/);
   });
 
   it("follows Dictate's own switch, not Flow's", () => {
     expect(dictateLine({ ...ready, readiness: "off", dictate: { on: true, binding: "f20" } })).toBe("Dictate is on  ·  Double-tap F20");
+  });
+});
+
+describe("whose the orb is", () => {
+  it("is Flow's only when summoned as Flow: Dictate's download offer reads as Dictate", () => {
+    expect(orbOwner(false, false)).toEqual({ open: false, dictateOpen: false });
+    expect(orbOwner(true, true)).toEqual({ open: true, dictateOpen: false });
+    const offer = { ...ready, dictate: { on: true, binding: "option" }, ...orbOwner(true, false) };
+    expect(statusLine(offer)).toBe("Flow is ready  ·  Double-tap ⌃");
+    expect(dictateLine(offer)).toBe("Dictate is open  ·  Double-tap ⌥");
   });
 });
 

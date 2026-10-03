@@ -484,6 +484,9 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **The tray says whose the orb is.** With Dictate's download offer on the
+  orb, the tray read **Flow is open**. Now it reads **Dictate is open**, as
+  it does while Dictate listens, and Flow's line says Flow is ready.
 - **Clear all is off when there's nothing it can delete.** With only the open
   conversation, or only the running Flow session, left, Settings offered
   Clear all and then did nothing. Now the row says that one stays and the

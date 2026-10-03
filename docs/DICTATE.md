@@ -45,6 +45,7 @@ behaves is in Settings > Dictate, and nothing is in both places.
 - **The switch**: **Dictate is on** or **Dictate is off**. The tray (menu bar)
   menu has the same switch: **Turn Dictate on** or **Turn Dictate off**, under
   a line that says how it stands (**Dictate is on · Double-tap ⌥**, **Dictate
+  is open** while the orb shows Dictate or its download offer, **Dictate
   needs permission**, **Dictate stopped listening**).
 - **Status**, while it is on: **Ready**, or buttons for what is missing
   (**Allow microphone**, **Allow Accessibility**, or **Allow input access** on

@@ -124,7 +124,8 @@ The tray (menu bar) menu is short:
 ```
 
 The status line reads **Flow is ready** (with the gesture, `Double-tap Ctrl`
-on Windows and Linux), **Flow is open**, **Flow needs permission** (with
+on Windows and Linux), **Flow is open** (only while the orb is Flow's, not
+Dictate's), **Flow needs permission** (with
 **Allow Accessibility…** under it, **Allow input access…** off macOS),
 **Flow stopped listening** (the key listener died) or **Flow is off** (the
 switch on Flow's home is off). Dictate's line works the same way; see

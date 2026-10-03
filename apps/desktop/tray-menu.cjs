@@ -13,6 +13,7 @@ const STATUS = {
 };
 const DICTATE = {
   on: "Dictate is on",
+  open: "Dictate is open",
   off: "Dictate is off",
   access: "Dictate needs permission",
   stopped: "Dictate stopped listening",
@@ -40,6 +41,10 @@ function hotkeyLabel(binding, platform) {
   return binding ? `Double-tap ${keyNames(binding, platform)}` : "";
 }
 
+/** Whose the orb is, for the two status lines: Flow's only when summoned as
+ *  Flow. Dictate, and its download offer, summon it as Dictate. */
+const orbOwner = (summoned, asFlow) => ({ open: summoned && asFlow, dictateOpen: summoned && !asFlow });
+
 /** The status line: plain words, and the gesture while it would work. */
 function statusLine({ readiness, open, binding, platform }) {
   const state = readiness === "ready" && open ? "open" : readiness;
@@ -48,11 +53,11 @@ function statusLine({ readiness, open, binding, platform }) {
 }
 
 /** Dictate's line. `dictate` is { on, binding }, its switch and the key the hook watches, null until read;
- *  `hook` is the key listener's own state, which Flow's off switch does not touch. */
-function dictateLine({ dictate, hook, platform }) {
+ *  `hook` is the key listener's own state, which Flow's off switch does not touch; `dictateOpen`, the orb showing Dictate. */
+function dictateLine({ dictate, hook, platform, dictateOpen }) {
   if (!dictate?.on) return DICTATE.off;
-  const state = hook === "ready" ? "on" : hook === "access" ? "access" : "stopped";
-  const key = state === "on" ? hotkeyLabel(dictate.binding, platform) : "";
+  const state = hook === "ready" ? (dictateOpen ? "open" : "on") : hook === "access" ? "access" : "stopped";
+  const key = hook === "ready" ? hotkeyLabel(dictate.binding, platform) : "";
   return [DICTATE[state], key].filter(Boolean).join("  ·  ");
 }
 
@@ -97,4 +102,4 @@ function trayTemplate(state, act) {
   ];
 }
 
-module.exports = { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, STATUS, DICTATE };
+module.exports = { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, orbOwner, STATUS, DICTATE };

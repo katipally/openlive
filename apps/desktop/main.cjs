@@ -18,7 +18,7 @@ const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
 const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
-const { trayTemplate } = require("./tray-menu.cjs");
+const { trayTemplate, orbOwner } = require("./tray-menu.cjs");
 const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
@@ -1041,7 +1041,7 @@ let tray = null;
 const TRAY_READINESS_POLL_MS = 3000;
 /** What the menu says depends on. Readiness comes from the same test the Flow window uses. */
 const trayState = () => ({
-  readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
+  readiness: flowInput.readiness(), ...orbOwner(flowSummoned, flowCounted), binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
   hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate: dictate && { ...dictate, binding: flowInput.binding(flowInput.DICTATE_BINDING) },
   // The key held, as the hook watches it; in hands-free, the one push to talk would watch.
   talk: talk && { ...talk, pttKey: flowInput.binding(PTT_BINDING) ?? flowInput.watched(PTT_BINDING, talk.pttKey) },

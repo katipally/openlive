@@ -169,9 +169,9 @@ export function useFlowOwner(): void {
     // switching the mic on behind an orb that is already gone.
     let openTicket = 0;
 
-    const summon = (by: OpenedBy = "gesture") => {
+    const summon = (by: OpenedBy = "gesture", mode?: "dictate") => {
       talk.stopSilence();
-      if (!summoned.current) { summoned.current = true; fact = openFact(by, perf.mark()); api.summon(); }
+      if (!summoned.current) { summoned.current = true; fact = openFact(by, perf.mark()); api.summon(mode); }
       publish();
     };
     const dismiss = (reason: FlowCloseReason = "other") => {
@@ -574,7 +574,7 @@ export function useFlowOwner(): void {
     const offerModels = async () => {
       if (askCard) {
         afterModels = "dictate";
-        summon();
+        summon(undefined, "dictate");
         patch({ failure: { ...askCard, dictate: true } });
         raise(askCard, "health");
         return true;
@@ -583,7 +583,7 @@ export function useFlowOwner(): void {
       if (!plan.missing.length) return false;
       afterModels = "dictate";
       const failure: FlowFailure = { ...modelsOffer(planModels(plan), plan.bytes), dictate: true };
-      summon();
+      summon(undefined, "dictate");
       patch({ failure });
       raise(failure, "health");
       return true;
