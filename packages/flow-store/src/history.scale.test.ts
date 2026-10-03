@@ -12,7 +12,8 @@ import { sessionsDir } from "./paths";
 const COUNT = 20_000;
 const dir = mkdtempSync(join(tmpdir(), "flow-scale-"));
 beforeAll(() => { process.env.OPENLIVE_FLOW_HOME = dir; });
-afterAll(() => { delete process.env.OPENLIVE_FLOW_HOME; rmSync(dir, { recursive: true, force: true }); });
+// Removing 20,000 files takes far longer on Windows than the default 10 s.
+afterAll(() => { delete process.env.OPENLIVE_FLOW_HOME; rmSync(dir, { recursive: true, force: true }); }, 120_000);
 
 test("an empty store lists nothing rather than failing", () => {
   expect(listSessions()).toEqual([]);

@@ -162,6 +162,7 @@ describe("POST /addressee", () => {
     rmSync(file);
   });
 
+  // Two LOG_CAP of appends, each its own write, crawl on Windows disks.
   it("keeps the newest LOG_CAP judgments, and rewrites the file before it doubles", async () => {
     const a = await import("./addressee.js");
     a.deleteLog();
@@ -172,7 +173,7 @@ describe("POST /addressee", () => {
     expect(readFileSync(a.LOG_FILE, "utf8").trim().split("\n")).toHaveLength(a.LOG_CAP);
     expect(a.labelJudgment("k0", "to")).toBe(false);
     a.deleteLog();
-  });
+  }, 30_000);
 
   it("bounds what a judgment keeps and what a label may send", async () => {
     install("addressee-mpnet-multi-int8");
