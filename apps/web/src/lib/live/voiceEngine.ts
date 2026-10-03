@@ -958,6 +958,16 @@ export class VoiceEngine {
     }
     return true;
   }
+  /** A hold given up, its words dropped: what is said next ends its own turn again. */
+  dropPtt() {
+    if (!this.ptt) return;
+    this.ptt = false;
+    void this.tape?.stop(0);
+    this.tape = null;
+    this.pending = null;
+    this.h.onPartial("");
+    if (this.muted) void this.vad?.pause();
+  }
   pttActive() { return this.ptt; }
   /** A hold begins on an engine already up: recorded from now, as a cold start's
    *  is, so a word too short for the VAD is kept. */

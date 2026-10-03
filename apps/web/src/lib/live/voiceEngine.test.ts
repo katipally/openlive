@@ -781,6 +781,25 @@ it("a hold let go while its last segment is still being transcribed waits for th
   tts.gate = Promise.resolve();
 });
 
+it("a hold given up drops its words and its tape, and the next sentence ends its own turn", async () => {
+  const sent: string[] = [];
+  const partials: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial: (t: string) => partials.push(t), onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
+  const stops: number[] = [];
+  Object.assign(eng, { vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async (lateMs: number) => { stops.push(lateMs); return null; } } });
+  eng.beginPtt();
+  expect(eng.pttActive()).toBe(true);
+  eng.pending = new Float32Array(16000).fill(0.1);
+  eng.dropPtt();
+  expect(eng.pttActive()).toBe(false);
+  expect(eng.pending).toBeNull();
+  expect(stops).toEqual([0]);
+  expect(partials).toEqual([""]);
+  // Nothing held is sent when the key comes up later.
+  expect(await eng.endPtt(true)).toBe(true);
+  expect(sent).toEqual([]);
+});
+
 it("a hold begun before the VAD was up is written down from its tape, words before the VAD included", async () => {
   const sent: string[] = [];
   const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;

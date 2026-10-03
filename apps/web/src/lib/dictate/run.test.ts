@@ -19,6 +19,7 @@ function rig({ voided = false, mic = true as boolean | Promise<boolean>, written
     listen: vi.fn(async (_hold: boolean) => mic),
     ready: vi.fn(() => mic === true),
     beginHold: vi.fn(),
+    dropHold: vi.fn(),
     // `voided`: as the owner does, the words are handed over and not waited on.
     endHold: vi.fn(async (_lateMs: number) => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; return written; }),
     // Pushed pieces land as one insertion once ended; "copied" and "failed" have no text box.
@@ -254,6 +255,20 @@ describe("the microphone after a dictation", () => {
     expect(r.ports.micIdle).toHaveBeenCalledTimes(1);
   });
 
+  it("lets go of a hold Flow is opened in the middle of, so Flow ends its own turns", async () => {
+    const r = rig();
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.ports.beginHold).toHaveBeenCalledTimes(1);
+    r.dictate.yield();
+    expect(r.ports.dropHold).toHaveBeenCalledTimes(1);
+    expect(r.ports.endHold).not.toHaveBeenCalled();
+    expect(r.dictate.active()).toBe(false);
+    // The key coming up afterwards is nothing to Dictate.
+    await r.dictate.holdEnd();
+    expect(r.ports.endHold).not.toHaveBeenCalled();
+  });
+
   it("a stray tap starts the wait too, and Flow taking the microphone ends it", async () => {
     const r = rig();
     r.dictate.holdStart();
@@ -306,6 +321,7 @@ describe("hands-free", () => {
     const r = rig();
     await r.dictate.setHandsFree(true, false);
     r.dictate.yield();
+    expect(r.ports.dropHold).not.toHaveBeenCalled();
     expect(r.ports.gestureOpen).toHaveBeenLastCalledWith(false);
     expect(r.last()).toBeNull();
     expect(r.dictate.active()).toBe(false);
@@ -411,6 +427,13 @@ describe("AI polish", () => {
     expect(r.typed).toEqual(["Please send"]);
     expect(r.ports.copy).toHaveBeenCalledWith("Send it by Friday.");
     expect(r.last()).toMatchObject({ inserted: 2, undo: true, note: "AI polish stopped partway. All of it is on the clipboard." });
+  });
+
+  it("offers no Undo when what it typed partway may not have landed", async () => {
+    const r = rig({ settings: on, ended: false });
+    streaming(r, ["Please send"], "the connection dropped");
+    await hold(r, "send it by friday");
+    expect(r.last()).toMatchObject({ undo: false, note: "AI polish stopped partway. All of it is on the clipboard." });
   });
 
   it("copies the whole rewrite where there is no text box to stream it into", async () => {

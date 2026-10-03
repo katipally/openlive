@@ -587,6 +587,7 @@ export function useFlowOwner(): void {
       },
       beginHold: () => engine.current?.beginPtt(),
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? true,
+      dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
       typing: openTyping,
       copy: copyDictation,

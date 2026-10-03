@@ -48,6 +48,8 @@ export interface DictatePorts {
   /** The key went up `lateMs` ago: the utterance is heard now, through `heard`, before
    *  this resolves. False when words were heard that could not be written down. */
   endHold(lateMs: number): Promise<boolean>;
+  /** The hold is given up and its words dropped, at once. */
+  dropHold(): void;
   /** Typing at the cursor, opened. Null where nothing in focus takes typing. */
   typing(): Promise<Typing | null>;
   /** On the clipboard. False when it could not be. */
@@ -276,7 +278,9 @@ export function createDictate(ports: DictatePorts) {
     }
     if (answer === sent && pushed && ended) return { final: answer, out: landed("typed", space + sent), note: "" };
     const final = answer ?? clean;
-    landed("typed", space + sent);
+    // Undo takes back only words known to have landed.
+    if (pushed && ended) landed("typed", space + sent);
+    else { typed++; last = null; }
     return { final, out: "typed", note: POLISH_CUT + ((await ports.copy(final)) ? ON_CLIPBOARD : "") };
   };
   const insertedNote = (out: Inserted) => (out === "copied" ? COPIED : out === "failed" ? FAILED : "");
@@ -391,6 +395,9 @@ export function createDictate(ports: DictatePorts) {
       clearTimeout(micWarm);
       if (!mode && !d) return;
       if (mode === "handsFree") ports.gestureOpen(false);
+      // Left on, the engine would wait for a release that never comes, and Flow,
+      // opened mid-hold, would never end a turn on its own.
+      if (mode === "hold") ports.dropHold();
       mode = null;
       giveBack();
     },
