@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button, notice } from "@/components/ui";
-import { aboutSize, downloadPlan, WEIGHTS_WHERE, type WeightFile } from "@/lib/live/weights";
+import { aboutSize, downloadPlan, listed, planModels, WEIGHTS_WHERE, type WeightFile } from "@/lib/live/weights";
 import { cn } from "@/lib/cn";
 
 /**
@@ -23,6 +23,8 @@ export function DownloadOffer({ title, meanwhile, files, state, yes, onYes, onNo
     return () => { live = false; };
   }, [files]);
   const size = aboutSize(bytes);
+  // Named in full: a preview with nothing loaded yet also needs speech recognition and turn-taking.
+  const what = listed(planModels({ missing: files, bytes }));
   const failed = state === "failed";
 
   return (
@@ -30,7 +32,7 @@ export function DownloadOffer({ title, meanwhile, files, state, yes, onYes, onNo
       <p className="font-medium">{failed ? "The download stopped" : title}</p>
       <p className="text-muted-strong">
         {failed ? "Check the connection and try again. Nothing half-downloaded is kept."
-          : [size ? `Downloaded once, ${size}.` : "Downloaded once.", meanwhile].filter(Boolean).join(" ")}
+          : [`${what.charAt(0).toUpperCase()}${what.slice(1)}, downloaded once${size ? `, ${size}` : ""}.`, meanwhile].filter(Boolean).join(" ")}
       </p>
       {state === "ask" && <p className="text-caption text-faint">{WEIGHTS_WHERE}</p>}
       <div className="flex flex-wrap items-center gap-2">

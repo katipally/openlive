@@ -94,7 +94,7 @@ function VoicePicker() {
   return (
     <Section id="set-voice-voice" title="Voice" desc={`From the ${engine.name} engine.`}>
       {needs && (
-        <DownloadOffer title={`Download ${engine.name} to hear its voices?`} meanwhile="The sample plays as soon as it's done." files={needs.files} state="ask" className="mb-3"
+        <DownloadOffer title={needs.files.every((f) => f.key === "tts") ? `Download ${engine.name} to hear its voices?` : "Download the voice models to hear a sample?"} meanwhile="The sample plays as soon as it's done." files={needs.files} state="ask" className="mb-3"
           yes="Download and play" onYes={() => { agreeTo(needs.files); void hear(needs.id); }} onNo={() => setNeeds(null)} />
       )}
       <div className="overflow-hidden rounded-lg bg-card shadow-card">
