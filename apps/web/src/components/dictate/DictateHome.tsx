@@ -18,7 +18,7 @@ import { keyListenerNote } from "@/lib/flow/failure";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
-import { COPIED } from "@/lib/dictate/run";
+import { COPIED, HISTORY_CHANNEL } from "@/lib/dictate/run";
 import { desktopPlatform, isDesktop, isMac, isMacDesktop } from "@/lib/platform";
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
@@ -198,6 +198,12 @@ function FirstRun({ on, flip, hold, caps, refresh }: { on: boolean; flip: () => 
 function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: FlowConfig["insertion"] }) {
   const qc = useQueryClient();
   const { data, isLoading, error, refetch, isFetching } = useQuery({ ...historyQuery, retry: 1, refetchOnWindowFocus: true });
+  // A dictation into OpenLive's own window, the Try it here box too, leaves focus here, so focus alone never refetches.
+  useEffect(() => {
+    const ch = new BroadcastChannel(HISTORY_CHANNEL);
+    ch.onmessage = () => void qc.invalidateQueries({ queryKey: historyQuery.queryKey });
+    return () => ch.close();
+  }, [qc]);
   const [filter, setFilter] = useState("");
   const items = useMemo(() => data?.items ?? [], [data]);
   // Lower-cased once per list, not once per keystroke.

@@ -19,7 +19,7 @@ import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
-import { createDictate, readRewrite, type Typing } from "@/lib/dictate/run";
+import { createDictate, HISTORY_CHANNEL, readRewrite, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { DICTATE_BINDING, DICTATE_COMMAND_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
@@ -623,6 +623,7 @@ export function useFlowOwner(): void {
       record: (d) => void (async () => {
         const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
         await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, app: front?.appName, windowId: front?.id }) });
+        const ch = new BroadcastChannel(HISTORY_CHANNEL); ch.postMessage(null); ch.close();
       })().catch((e) => log.debug("flow", "dictate history:", e)),
       settings: () => {
         const own = settings.current?.dictate;

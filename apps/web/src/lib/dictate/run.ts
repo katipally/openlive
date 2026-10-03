@@ -89,6 +89,8 @@ export const MIC_WARM_MS = 30_000;
 const NO_MIC = "I could not open the microphone.";
 const NOT_WRITTEN = "Your words could not be written down.";
 export const COPIED = "No text box in focus. Copied instead.";
+/** Flow's owner window records each dictation; this tells the main window to read the list again. */
+export const HISTORY_CHANNEL = "openlive-dictate-history";
 const FAILED = "That could not be typed or copied.";
 const POLISH_LATE = "AI polish did not answer. Typed it as cleaned up.";
 const POLISH_CUT = "AI polish stopped partway.";
