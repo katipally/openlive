@@ -10,6 +10,7 @@ import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { keyListenerNote } from "@/lib/flow/failure";
 import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
+import { POLISH_MS } from "@/lib/dictate/run";
 import { bindingOf, hotkeyKeys, mayBeAltGr } from "@/lib/dictate/hotkey";
 import { CURATED_LANGUAGES, familyInfo, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
 import { BrainPicker } from "@/components/flow/BrainPicker";
@@ -130,7 +131,7 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
       <Section id="set-dictate-polish" title="AI polish" desc="Rewrites with a brain. Slower, leaves this machine.">
         <ListGroup>
           <ListRow label="AI polish" detail={own.polish.enabled ? "After cleanup" : "Off"} asLabel
-            info="After the cleanup rules, the brain below rewrites what you said in the tone you pick. If it has not answered in 15 seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.">
+            info={`After the cleanup rules, the brain below rewrites what you said in the tone you pick. If it has not answered in ${POLISH_MS / 1000} seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.`}>
             <Switch on={own.polish.enabled} onFlip={() => save({ dictate: { polish: { ...own.polish, enabled: !own.polish.enabled } } })} />
           </ListRow>
           {own.polish.enabled && (
