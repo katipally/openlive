@@ -50,8 +50,8 @@ behaves is in Settings > Dictate, and nothing is in both places.
   Windows and Linux), or why the key listener stopped.
 - **How to start**, in your own keys: double-tap to open and close, how you
   talk inside, and editing a selection by voice.
-- **History**: every dictation kept, newest first by day, with a search once
-  there are more than 8, **Copy**, **Insert again** (back into the window it
+- **History**: every dictation kept, newest first by day, with a search, as
+  Chat's and Flow's have, **Copy**, **Insert again** (back into the window it
   came from while that window is open and a text box there has the cursor,
   else on the clipboard) and **Delete**, which hides the row at once and
   offers **Undo** on a toast for a few seconds before it really deletes, as
@@ -94,7 +94,7 @@ General > **How you talk**:
 | Way in or out | What it does |
 |---|---|
 | Double-tap Option ⌥ on macOS, Alt elsewhere (either side) | Opens Dictate; the same double tap closes it. |
-| The mic button above Flow's orb | Opens Dictate. While it is open the button is a badge (**Hands-free**, or **Hold** and the key while push to talk waits for it); click it to close. |
+| The mic button above Flow's orb | Opens Dictate. While it is open the button is a badge (**Listening**, or **Hold** and the key while push to talk waits for it); click it to close. |
 | Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It opens once Flow's reply ends. |
 | Say "stop dictating" | Types what came before it, then closes. |
 | **Close after silence** | Nothing said for that long (30 sec by default; 90 sec, 5 min or Never) closes it. In push to talk, a stretch with no hold counts as silence. |
@@ -142,7 +142,7 @@ state uses.
 | Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
 Right above the orb, in the mic button's place, a badge says how it is
-listening: **Hands-free**, **Hold** and the key while push to talk waits for
+listening: **Listening** hands-free, as Flow's says, **Hold** and the key while push to talk waits for
 it, **Getting ready** from the press until the microphone gives its first
 sound (150 to 300 ms while the device wakes), **Listening** from then on, so
 you know when to start, and **Editing selection** while what you
@@ -163,7 +163,7 @@ talk it opens on each press and every track is stopped on the release, so the
 dot is on only while the key is down. A hold is recorded from the first sound
 the microphone gives, shown on the line once the engine has words, and
 written down on release. Words it heard but could
-not write down are said so on the orb (**Your words could not be written
+not write down are said so on the orb (**Couldn't write your words
 down.**), never dropped quietly. A hold with no words in it, only the room,
 types nothing and leaves the clipboard alone: the orb says **No words heard.**
 for a moment and goes. Flow's own cards (nothing set to answer, say) never

@@ -100,7 +100,7 @@ The core, the ears / mouth / eyes:
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.
 - **Your assistant, your way.** Custom instructions in Settings → General apply to
   whoever answers, your API key's model or a coding agent. Speaking speed and spoken progress narration live
-  there too.
+  in Settings → Voice.
 
 The integrations that serve it:
 
@@ -114,8 +114,9 @@ The integrations that serve it:
   CLI sessions show up in OpenLive's History. Resume from either side.
 - **Permission relay.** When the agent wants to run a command or edit files,
   OpenLive speaks the question; answer by voice ("yes" / "no") or tap.
-- **Narrated progress.** Optional: while the agent works in silence, OpenLive speaks
-  its plan steps out loud ("Step 2 of 4 — refactor the store").
+- **Narrated progress.** Optional, in calls and in Flow alike (Settings > Voice):
+  while the agent works in silence, OpenLive speaks its plan steps out loud
+  ("Step 2 of 4: refactor the store").
 - **Live plans and costs.** The agent's working plan renders as a checklist while it
   works, and a context/cost chip tracks the session.
 - **Manage agents in Settings.** Install, sign in, update, and uninstall each

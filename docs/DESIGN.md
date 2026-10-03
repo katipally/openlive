@@ -110,7 +110,7 @@ z-modal     blocking modals (permission, elicitation, a Flow session)
 z-palette   command palette, shortcuts sheet
 z-tour      spotlight tour
 z-settings  full-window Settings
-z-drawer    Sessions drawer (z-drawer-scrim under it)
+z-drawer    History drawer (z-drawer-scrim under it)
 z-overlay   in-call popovers and side panels
 z-stage     the call setup and the call
 z-nav       the mode switch

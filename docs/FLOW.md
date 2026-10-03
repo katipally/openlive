@@ -222,16 +222,16 @@ is one, a single button that fixes it.
 | Card | Cause | Fix |
 |---|---|---|
 | Flow's key listener stopped | The global key hook died or could not start. On Linux (X11 or Wayland) that usually means no read access to `/dev/input` | **Try again** restarts it. On Linux, first add yourself to the `input` group (`sudo usermod -aG input $USER`) and sign back in |
-| I can hear you, but I cannot type for you | No Accessibility (macOS) or input access | **Open settings**, then allow OpenLive |
+| Flow hears you, but can't type for you | No Accessibility (macOS) or input access | **Open settings**, then allow OpenLive |
 | A password field has the keyboard | Secure input is on | Leave the password field |
 | Nothing is set to answer yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
-| You are offline | No network | **Try again** |
+| You're offline | No network | **Try again** |
 | Download the voice models first? | First run of Flow or Dictate: names the models, their size and where they are kept, and nothing listens until it is answered | **Download** shows the progress on the card, then opens what asked; **Try again** if it stops |
 | Download the Supertonic voice? / Download speech recognition for French? | A voice or language switched while Flow was open, or Whisper needed in place of a native engine that failed: names it, its size, and what Flow does meanwhile (it keeps the voice or model it has). Shown at the next open, or Dictate's next start, when it came up with the orb closed | **Download** fetches it and the session uses it from the next sentence; Close leaves things as they are |
-| I could not open the microphone | Another app holds it | **Try again** |
+| Couldn't open the microphone | Its access is off, or another app holds it | **Try again** |
 | Your API key is missing / The key or sign-in was refused | Missing or refused key or sign-in | **Open settings** (Models, or Agents for a coding agent) |
-| That model is not available | Unknown model | **Open settings** |
-| I could not reach the model | Provider or Ollama unreachable | **Open settings** when the address is the problem |
+| That model isn't available | Unknown model | **Open settings** |
+| Couldn't reach the model | Provider or Ollama unreachable | **Open settings** when the address is the problem |
 | Out of credit / The provider is busy right now | Billing or rate limit | Wait, or top up |
 | That answer never came back | Nothing arrived for 90 seconds | Say it again |
 | The connection dropped mid-answer | The local link went down mid-reply | Say it again |
@@ -279,7 +279,7 @@ macOS and Windows only, the systems that report a lock.
 | Turn context: front app, window title, selected text | The brain, with each turn. |
 | Screenshots, OCR text, clipboard, command output | The brain, when a tool that reads them runs. For a model that cannot see, pictures go to the vision model you set instead. |
 | Camera | Only when `camera_frame` runs, one frame, then the camera closes. |
-| Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user. A dev checkout keeps its own in `<repo>/data/flow/`. |
+| Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user, for as long as Settings > Flow > History keeps them (forever by default; a running session is never deleted). A dev checkout keeps its own in `<repo>/data/flow/`. |
 | Usage counts (session length, turns and tool calls by kind, failure card codes, timings) | OpenLive's analytics server, as numbers and fixed labels. Never words, window titles, file names, screen content or model ids. On by default, off in Settings > Privacy. Every event is listed in [TELEMETRY.md](TELEMETRY.md). |
 
 A coding agent brain uses its own provider under your own login. Its tools come
@@ -376,7 +376,7 @@ PipeWire (installed by default on current GNOME and KDE), and pasting needs
   **Computer use: Screen** under Access and answer the system's dialog.
 - **Replies come back as text, not voice.** A go-quiet rule fired (meeting app,
   mic in use, Do Not Disturb), output is muted, or **Say replies out loud** is off.
-- **"I could not reach the model".** For Ollama, check it is running and the
+- **"Couldn't reach the model".** For Ollama, check it is running and the
   address in Settings > Models.
 - **Typed text lands wrong in some apps.** In Settings > General > Typing at
   cursor, switch **How text goes in** to **Type it out**, or tune the Advanced

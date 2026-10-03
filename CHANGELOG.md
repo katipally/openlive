@@ -9,6 +9,31 @@ Releases before 0.1.9 predate this file — see the
 ## [0.3.0] - 2026-10-02
 
 ### Added
+- **History, kept as long as you say, in every mode.** Chat and Flow get the
+  History choice Dictate had: keep for a day, a week, a month, forever, or not
+  past the end of each, plus **Clear all**, in Settings > Chat and Settings >
+  Flow. It is applied on the server each time History is read and as a call or
+  a Flow session starts. Flow's take their screenshots with them. A
+  conversation or session still open is never deleted, and Chat's never
+  touches the sessions coding agents keep in their own CLIs.
+- **Chat's home says whether a call would start.** Beside who answers, a chip
+  reads Ready, or the one thing missing (install or sign in to the agent, add
+  an API key, download the voice models with their size, allow the
+  microphone) and goes to its fix, as Flow's and Dictate's homes do. Settings
+  > Chat opens with the same line.
+- **Flow narrates a coding agent's progress.** **Narrate agent progress**
+  moved to Settings > Voice and now covers Flow as well as calls: while a
+  coding agent works in silence, Flow's orb says a short status line, only
+  while it speaks at all.
+- **New call in the tray.** It brings OpenLive up on Chat's call setup, which
+  asks about a missing key, agent or download before a call can start.
+- **The command palette has the tray's verbs.** New call, Start Flow, Turn
+  Flow on or off, Turn Dictate on or off, How you talk, Open Chat, Flow or
+  Dictate history, and Show me around again.
+- **Dictate reports how it is used, as Flow and calls do.** A
+  `dictate_session` event with counts only, a `dictate_failure` code, its
+  first-run and first-dictation steps, Welcome's steps, History counters, and
+  its settings in `setting_changed`. Never what was said. See docs/TELEMETRY.md.
 - **Flow and Dictate have tours, and every tour keeps one rule.** Flow's home
   points at its switch, who answers, the readiness chip and the history;
   Dictate's, once History has a dictation, at changing text by voice, a row's
@@ -331,6 +356,25 @@ Releases before 0.1.9 predate this file — see the
   push-to-talk on before, How you talk starts as Push to talk.
 
 ### Changed
+- **Every mode's History is called History.** Chat's drawer, the hero button,
+  the call's top bar and lobby, the shortcuts sheet and the palette said
+  Sessions or Resume; Flow's list said Recent. Dictate's search shows from the
+  first dictation, as Chat's and Flow's do. Deleting one Flow session no
+  longer asks first: it hides behind an Undo toast, as in Chat and Dictate.
+- **Settings tabs share one shape.** The nav reads Chat, Flow, Dictate, as the
+  switch does, and each tab goes: status, Trigger (How you talk), Who
+  answers, Shared settings, what only that mode has, History. Chat gained its
+  status, How you talk, Who answers and shared rows; Flow's closing paragraph
+  became the Shared settings section.
+- **Flow's home asks for the microphone too.** The pills Dictate's home uses
+  now show on Flow's for a missing microphone or Accessibility.
+- **"Who answers" in Chat.** The home and the call setup said "Talk to".
+- **Skip setup asks first everywhere.** Flow's setup and Dictate's first run
+  confirm a Skip, as Welcome and the tours do.
+- **One voice for errors.** Plain and short, with contractions, in every mode:
+  "Couldn't reach the model", "You're offline". The microphone failing reads
+  the same in a call, on Flow's orb and on Dictate's. Dictate's orb badge says
+  Listening, as Flow's does.
 - **Show me around again.** Settings > About's **Replay tours** became **Show
   me around again**, under Getting started: after a confirm, Welcome, Flow's
   setup, Dictate's first run and every tour play again, as for someone new.
@@ -434,6 +478,10 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **"Using Whisper" only when it is.** A native speech engine that could not
+  run said Whisper took over even when Whisper was not downloaded. Now it says
+  Whisper can stand in once it is downloaded, and the session asks to download
+  it, with the size.
 - **Dictate's first-run cards keep your place on the keyboard.** Continue and
   Back move focus to the next card's heading instead of dropping it to the
   page, so a screen reader reads the new card and Tab goes on from there.

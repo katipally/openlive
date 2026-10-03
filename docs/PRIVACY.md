@@ -123,6 +123,8 @@ The words you say and the frames you share go to the model provider or coding ag
 
 Dictate's history (listed on Dictate's home) keeps what you dictated in a file on your machine, for as long as Settings > Dictate > Basics > History says, and never sends it anywhere. Delete one dictation on the home, all of them with Clear all in Settings, or set it to keep nothing. Plain dictation goes to no model at all; AI polish and command mode send the words, and the selected text, to your API key's provider or the coding agent that answers for Dictate.
 
+Chat's conversations and Flow's sessions, with the screenshots Flow took, have the same History choice, in Settings > Chat and Settings > Flow: keep them for a day, a week, a month, forever, or not past the end of each, and Clear all. A conversation or session still open is never deleted, and Chat's never touches the sessions coding agents keep in their own CLIs.
+
 Everything else OpenLive keeps on your machine (chats, memory, settings, saved keys, and what the app remembers between launches, like the mode and chat you left open) is in one folder, `~/.openlive` (`%USERPROFILE%\.openlive` on Windows), shown in Settings > About. Reset local data there erases all of it, along with the app's browser storage, and starts again fresh. If you turned usage data off, it stays off after a reset, and Open at login keeps your setting.
 
 ## Children
