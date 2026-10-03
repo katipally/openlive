@@ -61,6 +61,12 @@ Releases before 0.1.9 predate this file — see the
   checkout too, instead of the package's name. No settings or data move.
 - Settings > Dictate gives AI polish's real wait (25 seconds) before it types
   the cleaned-up words instead.
+- **A dictation shows in Dictate's history as it lands**, including one into
+  the Try it here box, instead of only after the window loses and regains focus.
+- Flow's home says to turn Flow on first while it is off, the way Dictate's does.
+- Settings search forgives one typo in a longer word ("memmory", "dicate")
+  when nothing matches as typed.
+- The command palette says **Open sessions**, the drawer's own name.
 
 ## [0.3.0] - 2026-10-02
 
