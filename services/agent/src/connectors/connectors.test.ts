@@ -115,7 +115,8 @@ describe("a stdio connector", () => {
     const a = await agentSession(ask("a", false));
     const b = await agentSession(ask("b", true));
     // stdio names no call, so with two sessions waiting neither is asked.
-    const [ra, rb] = await Promise.all([a.agent.callTool({ name: "fixture__confirm", arguments: {} }), b.agent.callTool({ name: "fixture__confirm", arguments: {} })]);
+    const held = { name: "fixture__confirm", arguments: { holdMs: 200 } };
+    const [ra, rb] = await Promise.all([a.agent.callTool(held), b.agent.callTool(held)]);
     expect([ra.isError, rb.isError]).toEqual([true, true]);
     expect(asked).toEqual(["one", "one"]);
     await Promise.all([one.done(), a.done(), b.done()]);

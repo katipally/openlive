@@ -11,7 +11,7 @@ if (process.env.FIXTURE_PID_FILE) appendFileSync(process.env.FIXTURE_PID_FILE, `
 const tools = [
   { name: "echo", description: "Say it back.", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }, annotations: { readOnlyHint: true } },
   { name: "make.note", description: "Write a note.", inputSchema: { type: "object", properties: { title: { type: "string" } } } },
-  { name: "confirm", description: "Ask first.", inputSchema: { type: "object", properties: {} } },
+  { name: "confirm", description: "Ask first.", inputSchema: { type: "object", properties: { holdMs: { type: "number" } } } },
 ];
 
 serveStdio(() => {
@@ -29,6 +29,8 @@ serveStdio(() => {
     };
     if (req.params.name === "confirm") {
       const answer = acceptedContent(ctx.mcpReq.inputResponses, "ok");
+      // A caller can hold the ask back, so calls it starts together are all in flight when it lands.
+      if (!answer && args.holdMs) await new Promise((r) => setTimeout(r, args.holdMs));
       if (!answer) return inputRequired({ inputRequests: { ok: inputRequired.elicit({ message: "Go ahead?", requestedSchema: { type: "object", properties: { sure: { type: "boolean" } }, required: ["sure"] } }) } });
       return { content: [{ type: "text", text: `sure=${answer.sure}` }] };
     }
