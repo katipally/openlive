@@ -176,7 +176,7 @@ history** opens the drawer.
 conversations stay: **Keep nothing** (each goes once it ends), 1 day, 7 days,
 30 days, or **Keep forever** (the default). It's applied when History is read
 and as a call starts. **Clear all** asks to confirm, then deletes every kept
-conversation. Both only touch conversations started in OpenLive: the
+conversation, and is turned off when the open one is all that's left. Both only touch conversations started in OpenLive: the
 conversation open now is never deleted, and the agents' own CLI sessions
 (Claude Code's `~/.claude/projects/…` and the like) are never touched.
 

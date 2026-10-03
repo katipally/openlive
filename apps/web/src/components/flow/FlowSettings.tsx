@@ -132,7 +132,7 @@ export function FlowSettings() {
 /** How long Flow's sessions and their screenshots stay, and Clear all. The list is on Flow's home. */
 function FlowHistory({ keep, save }: { keep: FlowConfig["history"]; save: (patch: FlowConfigPatch) => void }) {
   const qc = useQueryClient();
-  const { data: count } = useFlowSessionCount();
+  const { data: stored } = useFlowSessionCount();
   // The store prunes to the new length on its next read, which has to wait for the save to land.
   const kept = useRef(keep);
   useEffect(() => {
@@ -142,7 +142,7 @@ function FlowHistory({ keep, save }: { keep: FlowConfig["history"]; save: (patch
   }, [keep, qc]);
   return (
     <HistorySection id="set-flow-history" mode="flow" noun="sessions" desc="What you asked and the screenshots Flow took, kept on this machine only."
-      keep={keep} onKeep={(history) => save({ history })} count={count} offDetail="Each one goes once it ends"
+      keep={keep} onKeep={(history) => save({ history })} count={stored?.total} held={stored?.running ? "running" : undefined} offDetail="Each one goes once it ends"
       onClear={() => clearFlowSessions(qc)}>
       A session still running is never deleted.
     </HistorySection>

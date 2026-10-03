@@ -53,10 +53,12 @@ export function useFlowSessionPages(query: string, first: number, page: number) 
   });
 }
 
-/** How many sessions are kept, for Settings > Flow's History. */
+/** How many sessions are kept, for Settings > Flow's History, and whether the
+ *  newest is still running: one Flow runs at a time, so only it can be. */
 export const useFlowSessionCount = () => useQuery({
   queryKey: ["flow-sessions", "total"],
-  queryFn: () => json<{ total?: number }>("/api/flow/sessions?limit=1").then((r) => r.total ?? 0),
+  queryFn: () => json<{ total?: number; sessions: FlowSessionSummary[] }>("/api/flow/sessions?limit=1")
+    .then((r) => ({ total: r.total ?? 0, running: r.sessions[0]?.state === "active" })),
 });
 
 /** Clear all: every session but a running one. False when that failed. */

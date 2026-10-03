@@ -6,6 +6,7 @@ import { ConfirmButton, ListGroup, ListRow, Select } from "@/components/ui";
 import { MODE_LABEL, useUi, type AppMode } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { toast } from "@/lib/toast";
+import { clearAllRow } from "@/lib/clearAll";
 import { LinkRow } from "./nav";
 import { Section } from "./Section";
 
@@ -16,7 +17,7 @@ const KEEPS: { id: HistoryKeep; label: string }[] = [
 
 /** How long a mode's history stays on this machine, Clear all, and the way to
  *  the list on the mode's own screen. The same rows in Chat, Flow and Dictate. */
-export function HistorySection({ id, mode, noun, keep, onKeep, count, onClear, offDetail, desc, children }: {
+export function HistorySection({ id, mode, noun, keep, onKeep, count, held, onClear, offDetail, desc, children }: {
   /** The section's anchor, written out where it is used so the deep-link test can find it. */
   id: string;
   mode: AppMode;
@@ -26,6 +27,8 @@ export function HistorySection({ id, mode, noun, keep, onKeep, count, onClear, o
   onKeep: (keep: HistoryKeep) => void;
   /** How many are kept now; unknown while it loads. */
   count?: number;
+  /** Set when one of them is in use ("open", "running"), which Clear all leaves. */
+  held?: string;
   /** Deletes them all. False when that failed. */
   onClear: () => Promise<boolean>;
   /** What Keep nothing means for this mode. */
@@ -36,6 +39,7 @@ export function HistorySection({ id, mode, noun, keep, onKeep, count, onClear, o
 }) {
   const inCall = useUi((s) => s.liveOpen);
   const name = MODE_LABEL[mode];
+  const all = clearAllRow(count, noun, held);
   const clear = () => {
     featureUsed(`n_${mode}_history_clear`);
     void onClear().then((ok) => ok || toast("Couldn't delete them. Try again."));
@@ -56,9 +60,9 @@ export function HistorySection({ id, mode, noun, keep, onKeep, count, onClear, o
               {KEEPS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
             </Select>
           </ListRow>
-          {!!count && (
-            <ListRow label="Clear all" detail={`Deletes every kept ${noun.replace(/s$/, "")}`}>
-              <ConfirmButton label="Clear all" confirm={count === 1 ? "Delete it" : `Delete all ${count}`} onConfirm={clear} />
+          {all && (
+            <ListRow label="Clear all" detail={all.detail}>
+              <ConfirmButton label="Clear all" confirm={all.confirm} disabled={all.disabled} onConfirm={clear} />
             </ListRow>
           )}
           {!inCall && (

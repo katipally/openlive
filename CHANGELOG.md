@@ -484,6 +484,10 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **Clear all is off when there's nothing it can delete.** With only the open
+  conversation, or only the running Flow session, left, Settings offered
+  Clear all and then did nothing. Now the row says that one stays and the
+  button is off, the same in Chat, Flow and Dictate.
 - **Each mode's download offer names only what it uses.** Dictate's offer
   counted the voice it never speaks with, about 625 MB in all. Now Dictate
   asks for speech recognition and turn-taking, Flow adds the voice only when

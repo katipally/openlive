@@ -357,7 +357,8 @@ Settings > Flow > **History** sets how long:
 - Applied each time History is read and as a session starts, so nothing waits
   on a timer. A session's screenshots are removed from disk with it.
 - **Clear all** asks to confirm, then deletes every kept session.
-- A session still running is never deleted.
+- A session still running is never deleted, so Clear all is turned off when
+  it's the only one left.
 - Coding agents keep their own logs of what they did under their own login;
   Flow's History settings never touch those.
 

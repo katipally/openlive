@@ -50,11 +50,13 @@ function ChatHistory() {
   const onScreen = useUi(chatOnScreen);
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const { data: workspaces } = useQuery({ queryKey: ["history", "v2"], queryFn: () => api.history(onScreen) });
-  const count = workspaces?.reduce((n, w) => n + w.chats.filter((c) => c.source === "openlive").length, 0);
+  const own = workspaces?.flatMap((w) => w.chats.filter((c) => c.source === "openlive"));
+  const count = own?.length;
+  const open = !!onScreen && !!own?.some((c) => c.id === onScreen);
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["settings"] }), qc.invalidateQueries({ queryKey: ["history", "v2"] })]);
   return (
     <HistorySection id="set-chat-history" mode="chat" noun="conversations" desc="Your conversations in OpenLive, kept on this machine only."
-      keep={historyKeep(settings?.chatHistory)} count={count} offDetail="Each one goes once it ends"
+      keep={historyKeep(settings?.chatHistory)} count={count} held={open ? "open" : undefined} offDetail="Each one goes once it ends"
       onKeep={(chatHistory) => void api.updateSettings({ chatHistory }).then(refresh, () => toast("Couldn't save that setting. Try again."))}
       onClear={() => api.clearChats(onScreen).then(refresh).then(() => true, () => false)}>
       Only conversations started in OpenLive. Sessions from the agents&apos; own CLIs stay as they are.
