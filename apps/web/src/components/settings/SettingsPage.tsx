@@ -4,6 +4,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState 
 import { animate, motion, stagger } from "motion/react";
 import { ChevronLeft, Settings2, SlidersHorizontal, Waves, AudioWaveform, Cpu, Bot, MessageSquare, Info, Search, Link2, ShieldCheck, Blocks, Brain, Mic } from "lucide-react";
 import { useUi } from "@/lib/uiStore";
+import { useOnboarding } from "@/lib/prefs";
 import { featureUsed } from "@/lib/featureUse";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { GeneralSettings } from "./GeneralSettings";
@@ -68,6 +69,8 @@ const HIT_MS = 1600;
 export function SettingsPage() {
   const appVersion = useAppVersion();
   const openStore = useUi((s) => s.settingsOpen);
+  // Welcome is still owed (a first launch, or Show me around again from About): its tour waits for it.
+  const welcomeOwed = useOnboarding((s) => !s.welcomed && !s.tours.includes("home"));
   const closeStore = useUi((s) => s.closeSettings);
   const wantTab = useUi((s) => s.settingsTab);
   const origin = useUi((s) => s.settingsOrigin);
@@ -354,7 +357,7 @@ export function SettingsPage() {
         </main>
       </div>
 
-      <SpotlightTour id="settings" steps={[
+      <SpotlightTour id="settings" active={!welcomeOwed} steps={[
         { target: "settings-nav", title: "Set once, used everywhere", body: "Modes keeps what Chat, Flow and Dictate each need for themselves. Intelligence and Voice are set once and every mode uses them." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bug, createLucideIcon, ExternalLink, FolderOpen, RotateCcw, Trash2 } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
+import { useTourGate } from "@/components/SpotlightTour";
 import { bridge, isDesktop } from "@/lib/platform";
 import { REPO_URL } from "@/lib/repo";
 import { reportProblem } from "@/lib/reportProblem";
@@ -71,6 +72,8 @@ function ShowMeAround() {
   const [asking, setAsking] = useState(false);
   const reset = () => {
     resetOnboarding();
+    // What this launch's first runs covered would otherwise keep those steps out of the replayed tours.
+    useTourGate.setState({ covered: new Set() });
     setAsking(false);
     toast("Welcome opens when you close Settings, then each mode's setup and each tour plays again.", "info");
   };

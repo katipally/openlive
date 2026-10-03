@@ -74,6 +74,11 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
     coverConcepts(...(["modes", "whoAnswers"] as const).slice(0, reached.current));
     coverFlowAccess(passedAccess.current, allGranted(caps, !!config?.consent.granted));
     setOpen(false);
+    // Welcome stays mounted, so Show me around again would reopen it where it ended.
+    setStep(1);
+    setAsking(false);
+    reached.current = 1;
+    passedAccess.current = false;
     if (mode) setMode(mode);
   };
   const next = () => {
