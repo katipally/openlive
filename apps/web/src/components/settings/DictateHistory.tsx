@@ -54,7 +54,7 @@ export function DictateHistory({ own, save }: { own: FlowConfig["dictate"]; save
         </ListRow>
         {count > 0 && (
           <ListRow label="Clear all" detail="Deletes every kept dictation">
-            <ConfirmButton label="Clear all" confirm={`Delete all ${count}`} onConfirm={() => void dropDictations(qc)} />
+            <ConfirmButton label="Clear all" confirm={count === 1 ? "Delete it" : `Delete all ${count}`} onConfirm={() => void dropDictations(qc)} />
           </ListRow>
         )}
         {!inCall && (
