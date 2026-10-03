@@ -92,13 +92,12 @@ export function ShortcutsSheet() {
 
 /** Mounted only while the sheet is open, so Dictate's keys are read then and not on every page load. */
 function Groups() {
-  const own = useFlowConfig().config?.dictate;
-  // Dictate's keys are the person's own, and bound only while it is on.
-  const hold = own ? hotkeyKeys(own.hotkey, desktopPlatform) : [];
+  const config = useFlowConfig().config;
+  const own = config?.dictate;
+  // Dictate's key is the person's own, and bound only while it is on.
+  const keys = config ? hotkeyKeys(config.talk.dictateKey, desktopPlatform) : [];
   const dictate: Group[] = isDesktop && own ? [{ title: "Dictate, from any app", note: own.enabled ? undefined : "Off now. Turn it on in Dictate.", rows: [
-    { label: "Hold to talk, release to type", keys: hold },
-    { label: "Hands-free, tap again to stop", keys: [...hold, ...hold] },
-    { label: "Command mode, hold and say the change", keys: hotkeyKeys(own.commandHotkey, desktopPlatform) },
+    { label: "Start and stop dictating", keys: [...keys, ...keys] },
   ] }] : [];
   return [...APP_GROUPS, ...dictate, ...CALL_GROUPS].map((g) => (
     <section key={g.title} className="min-w-0">

@@ -11,7 +11,7 @@ import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
 import { POLISH_MS } from "@/lib/dictate/run";
 import { bindingOf, hotkeyKeys, mayBeAltGr } from "@/lib/dictate/hotkey";
 import { CURATED_LANGUAGES, familyInfo, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
-import { dictateBrain, flowBrain } from "@openlive/flow-store/shared";
+import { dictateBrain, flowBrain, toggleKeyOk } from "@openlive/flow-store/shared";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { Section } from "./Section";
 import { LinkRow, useSettingsNav } from "./nav";
@@ -27,8 +27,7 @@ import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 // mode and the spoken commands. Typing, voice and the speech engine are shared
 // with Flow and Chat, so they are rows that go there.
 
-const DEFAULT_KEY = "option_right";
-const DEFAULT_COMMAND_KEY = "shift+option_right";
+const DEFAULT_KEY = "option";
 type Pane = "basics" | "words" | "commands";
 const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
 const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; detail: string; info?: string }[] = [
@@ -40,7 +39,7 @@ const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; deta
   { id: "stop", label: "“Stop dictating”", detail: "Ends hands-free" },
 ];
 /** Keys that are never AltGr, for a layout where Right Alt is. */
-const ALTERNATIVES = ["ctrl_right", "capslock", "f13"];
+const ALTERNATIVES = ["option_left", "f13"];
 const EXAMPLE = "um so send twenty five copies to uh Priya, actually Maya, by friday";
 
 const RULES: { id: keyof CleanupRules; label: string; detail: string; info: string }[] = [
@@ -98,10 +97,9 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
           ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
           : (
             <ListGroup>
-              <HotkeyRow binding={own.hotkey} fallback={DEFAULT_KEY} taken={own.commandHotkey} onPick={(hotkey) => save({ dictate: { hotkey } })}
-                label="Hold to talk" detail="Release types it" info="Hold the key and talk. Letting go types what you said where your cursor is." />
-              <ListRow label="Hands-free" detail="Double-tap, then tap to stop"
-                info="Or press the mic beside Flow's orb, or ask Flow to start dictation. Each pause types what you said." />
+              <HotkeyRow binding={config.talk.dictateKey} fallback={DEFAULT_KEY} taken={config.talk.flowKey} onPick={(dictateKey) => save({ talk: { dictateKey } })}
+                label="Open and close" detail="Tap twice, again to stop"
+                info="Tap the key twice in any app, or press the mic beside Flow's orb, or ask Flow to start dictation. Each pause types what you said." />
             </ListGroup>
           )}
       </Section>
@@ -183,14 +181,6 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
   const own = config.dictate;
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-dictate-command" title="Command mode" desc="Select text, hold the keys, say the change.">
-        <ListGroup>
-          <HotkeyRow binding={own.commandHotkey} fallback={DEFAULT_COMMAND_KEY} taken={own.hotkey} onPick={(commandHotkey) => save({ dictate: { commandHotkey } })}
-            label="Hotkey" detail="Hold while you speak"
-            info="Say what to do, like “make this formal” or “translate to Spanish”: the selected text is rewritten and replaced. With nothing selected, what you ask for is written at the cursor. A selection the system cannot read is copied, and your clipboard put back." />
-        </ListGroup>
-      </Section>
-
       <Section id="set-dictate-spoken" title="Spoken commands" desc={loadPipelineConfig().language === "en" ? "Said alone, or after a pause." : "Said in English only, alone or after a pause."}>
         <ListGroup>
           {SPOKEN.map((c) => (
@@ -206,7 +196,7 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
 
 /** The key, and a picker that takes the next keys pressed together. */
 function HotkeyRow({ binding, fallback, taken: taken_, label, detail, info, onPick }: {
-  binding: string; fallback: string; /** The other Dictate key, which this one may not be. */ taken: string;
+  binding: string; fallback: string; /** Flow's key, which this one may not be. */ taken: string;
   label: string; detail: string; info: string; onPick: (binding: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -232,7 +222,8 @@ function HotkeyRow({ binding, fallback, taken: taken_, label, detail, info, onPi
       e.preventDefault();
       held.delete(e.code);
       if (held.size || !seen.size) return;
-      const next = bindingOf(seen);
+      const keys = bindingOf(seen);
+      const next = keys && toggleKeyOk(keys, desktopPlatform) ? keys : null;
       seen.clear();
       setRefused(!next ? "types" : next === taken.current ? "taken" : false);
       if (!next || next === taken.current) return;
@@ -258,7 +249,7 @@ function HotkeyRow({ binding, fallback, taken: taken_, label, detail, info, onPi
         </span>
         {refused && (
           <div className="basis-full">
-            <StatusDot tone="arc">{refused === "taken" ? "Dictate's other key is that one. Pick another." : "That key also types. Use a modifier, Caps Lock or F13 to F24."}</StatusDot>
+            <StatusDot tone="arc">{refused === "taken" ? "Flow opens with that key. Pick another." : "That key also types, or is more than one. Use one modifier or F13 to F24."}</StatusDot>
           </div>
         )}
       </ListRow>

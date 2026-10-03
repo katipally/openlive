@@ -60,7 +60,7 @@ export function FlowOnboarding({ onDone, config, save }: {
           </summary>
           <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-label text-muted-strong">
             <li>{config?.dictate.enabled
-              ? `Never listens to the keyboard beyond ${CONTROL} and Dictate's keys, ${[config.dictate.hotkey, config.dictate.commandHotkey].map((k) => hotkeyKeys(k, desktopPlatform).join(" ")).join(" and ")}.`
+              ? `Never listens to the keyboard beyond ${CONTROL} and Dictate's key, ${hotkeyKeys(config.talk.dictateKey, desktopPlatform).join(" ")}.`
               : `Never listens to the keyboard beyond ${CONTROL}, and Dictate's key once you turn Dictate on.`}</li>
             <li>Mic opens only on the gesture or Dictate&rsquo;s key. No wake word.</li>
             <li>No audio is kept.</li>

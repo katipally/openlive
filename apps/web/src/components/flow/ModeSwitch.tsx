@@ -27,7 +27,7 @@ const COPY = {
   },
   dictate: {
     tagline: "Voice typing into any text box.",
-    body: "Hold a key, talk, let go: your words are typed at the cursor. Runs on this machine. No AI, nothing spoken back, unless you turn on AI polish.",
+    body: "Tap a key twice and talk: your words are typed at the cursor. Runs on this machine. No AI, nothing spoken back, unless you turn on AI polish.",
   },
 } as const satisfies Record<AppMode, { tagline: string; body: string }>;
 
@@ -38,12 +38,12 @@ export const MODES = ([
 ]).map((m) => ({ ...m, ...COPY[m.id], title: `${m.label}: ${COPY[m.id].tagline}` }));
 export const modeCopy = (id: AppMode) => COPY[id];
 
-/** How to start `mode`, in this keyboard's key names. `hold` is Dictate's key, `on` whether Flow or Dictate is on already. */
-export function ModeStart({ mode, hold = [], on = false }: { mode: AppMode; hold?: readonly string[]; on?: boolean }) {
+/** How to start `mode`, in this keyboard's key names. `keys` is Dictate's key, `on` whether Flow or Dictate is on already. */
+export function ModeStart({ mode, keys = [], on = false }: { mode: AppMode; keys?: readonly string[]; on?: boolean }) {
   if (mode === "chat") return <>Press New, then talk.</>;
   if (mode === "flow") return <>{on ? "Tap" : "Turn it on, tap"} <Keycap className="text-label">{CONTROL}</Keycap> twice in any app. Tap twice again to close.</>;
   return (
-    <>{on ? "Click" : "Turn it on, click"} into a text box, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" />, talk, let go. Double-tap for hands-free.</>
+    <>{on ? "Click" : "Turn it on, click"} into a text box, tap <Keycaps keys={keys} label={keys.join(" ")} className="align-middle" /> twice and talk. Tap twice again to stop.</>
   );
 }
 /** The counter a switch to each mode counts, shared with the command palette. */

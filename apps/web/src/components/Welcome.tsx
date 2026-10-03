@@ -72,7 +72,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   useFocusTrap(root, open && !settingsOpen, () => (asking ? keepGoing() : setAsking(true)));
 
   if (!open || settingsOpen) return null;
-  const hold = config ? hotkeyKeys(config.dictate.hotkey, desktopPlatform) : [];
+  const dictateKeys = config ? hotkeyKeys(config.talk.dictateKey, desktopPlatform) : [];
 
   return (
     <div ref={root} role="dialog" aria-modal="true" aria-label="Welcome to OpenLive" data-covering="settings" className="fixed inset-0 z-settings flex flex-col bg-background text-left">
@@ -142,7 +142,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
               <Try label="Chat" onGo={() => finish("chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
               <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" on /> Say &ldquo;Summarize this page&rdquo;</Try>
               <Try label="Dictate" onGo={() => finish("dictate")}>
-                <ModeStart mode="dictate" hold={hold} on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
+                <ModeStart mode="dictate" keys={dictateKeys} on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
               </Try>
             </ListGroup>
           </>

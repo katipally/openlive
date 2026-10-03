@@ -22,7 +22,7 @@ import { desktopPlatform } from "@/lib/platform";
 import { createDictate, HISTORY_CHANNEL, readRewrite, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { DICTATE_BINDING, DICTATE_COMMAND_BINDING, FLOW_TRIGGER, flowBridge, valueOr, type Guarded } from "./bridge";
+import { DICTATE_BINDING, FLOW_BINDING, flowBridge, valueOr, type Guarded } from "./bridge";
 import { deriveFailure, forOrb, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
@@ -34,12 +34,10 @@ import type { FlowConfig } from "@openlive/flow-store";
 // socket and every decision; the orb is a display and command surface fed from
 // here. It runs hidden, so nothing in it may depend on being painted.
 
-const BINDING_ID = "flow";
 const BANDS_MS = 66;        // the orb, ~15 fps
-// Flow stays open until the gesture closes it. The "Stay open" setting is only
-// the safety net: a session nobody came back to, on a machine somebody walked
-// away from. This stands in until the settings have been read.
-const IDLE_RETIRE_MS = 5 * 60_000;
+// Flow closes on the gesture, or once nothing has been said for "Close after
+// silence". This stands in until the settings have been read.
+const IDLE_RETIRE_MS = 30_000;
 const IDLE_BANDS = [0, 0, 0, 0, 0];
 // A camera needs a moment between opening and having a frame to give.
 const CAMERA_TRIES = 20;
@@ -65,7 +63,7 @@ function base64(buf: ArrayBuffer): string {
 }
 
 interface FlowSettings {
-  idleWindowMs: number;
+  talk: FlowConfig["talk"];
   brain: FlowConfig["brain"];
   insertion: FlowConfig["insertion"];
   voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride">;
@@ -86,10 +84,8 @@ export function useFlowOwner(): void {
   const turnActive = useRef(false);
   const summoned = useRef(false);
   const disarmed = useRef(false);
-  /** Whether the addon currently holds a registration. */
+  /** Whether the hook was installed. Main registers the keys on it. */
   const armed = useRef(false);
-  /** The keys the addon holds for Dictate and its command mode, by binding id. */
-  const dictateKeys = useRef(new Map<string, string>());
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
@@ -183,11 +179,6 @@ export function useFlowOwner(): void {
       snap.current = { ...IDLE_FLOW, failure: snap.current.failure };
       publish();
       teardownMic();
-      // The gesture is a toggle and the addon holds which way it is thrown. Flow
-      // also closes for reasons the addon never sees — this button, the idle
-      // timer, sleep — so every close says so, or the next double-tap opens what
-      // is already open and the orb becomes uncloseable.
-      void api.closed();
     };
 
     /**
@@ -217,11 +208,13 @@ export function useFlowOwner(): void {
      *  fires on a session the person has genuinely walked away from. */
     const armIdleRetire = () => {
       stopIdleRetire();
+      const after = settings.current ? settings.current.talk.closeAfterSilenceMs : IDLE_RETIRE_MS;
+      if (after === null) return;
       idleTimer.current = setTimeout(() => {
         idleTimer.current = null;
         if (turnActive.current) return;
         dismiss("idle");
-      }, settings.current?.idleWindowMs ?? IDLE_RETIRE_MS);
+      }, after);
     };
 
     // ── health ────────────────────────────────────────────────────────────
@@ -254,31 +247,9 @@ export function useFlowOwner(): void {
       // `init` is what asks for Accessibility, and onboarding owns that prompt,
       // so Flow only installs the hook once the grant already exists.
       if (!granted) { armed.current = false; return; }
+      // Main puts the settings' keys on the hook as it starts.
       await api.init();
-      // Dropping the old registration first is what makes a rebind take effect:
-      // re-registering the same id on a new key would otherwise leave the old
-      // key live while settings claimed the new one.
-      await api.unregister(BINDING_ID);
-      await api.register(BINDING_ID, FLOW_TRIGGER);
       armed.current = true;
-      // A hook that was just started holds no Dictate key, whatever was registered before.
-      dictateKeys.current.clear();
-      await syncDictateKey();
-    };
-
-    /** Dictate's keys registered as its settings say: the ones picked while it is on, none while it is off. */
-    const syncDictateKey = async () => {
-      const own = armed.current && settings.current?.dictate.enabled ? settings.current.dictate : null;
-      for (const [id, want] of [[DICTATE_BINDING, own?.hotkey], [DICTATE_COMMAND_BINDING, own?.commandHotkey]] as const) {
-        const held = dictateKeys.current.get(id);
-        if (want === held) continue;
-        if (held) await api.unregister(id);
-        dictateKeys.current.delete(id);
-        if (!want) continue;
-        const r = await api.register(id, want, true);
-        if (r.ok) dictateKeys.current.set(id, want);
-        else log.error("flow", "dictate key:", r.error);
-      }
     };
 
     /** The settings the runtime actually runs on. */
@@ -293,7 +264,6 @@ export function useFlowOwner(): void {
         brainReady.current = body.brainReady;
         brain = { kind: body.brainKind, id: body.brainId };
         if (!armed.current) await arm();
-        else await syncDictateKey();
       } catch (e) { log.error("flow", "config:", e); }
     };
 
@@ -554,7 +524,7 @@ export function useFlowOwner(): void {
     const startDictateAfterTurn = () => {
       if (!dictateAfterTurn) return;
       dictateAfterTurn = false;
-      void dictate.setHandsFree(true, false);
+      void dictate.setHandsFree(true);
     };
 
     /** Typing at the cursor. None where the focused element is plainly not a
@@ -606,7 +576,6 @@ export function useFlowOwner(): void {
         if (summoned.current) return backToListening();
         api.dismiss("other");
       },
-      gestureOpen: (open) => void api.gestureOpen(DICTATE_BINDING, open),
       rewrite: async (ask, signal, onText) => {
         const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(ask), signal });
         if (r.ok && r.body) return readRewrite(r.body, (t) => { if (!signal.aborted) onText(t); });
@@ -631,8 +600,9 @@ export function useFlowOwner(): void {
         return {
           rules: own?.cleanup ?? { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
           lang: loadPipelineConfig().language,
-          keys: hotkeyKeys(own?.hotkey ?? "option_right", desktopPlatform),
-          commandKeys: hotkeyKeys(own?.commandHotkey ?? "shift+option_right", desktopPlatform),
+          keys: hotkeyKeys(settings.current?.talk.dictateKey ?? "option", desktopPlatform),
+          // No key opens command mode any more; the badge has none to show.
+          commandKeys: [],
           words: own?.words ?? NONE,
           snippets: own?.snippets ?? NONE,
           commands: new Set(commands ? (Object.keys(commands) as SpokenCommand[]).filter((c) => commands[c]) : []),
@@ -702,7 +672,7 @@ export function useFlowOwner(): void {
           dictateAfterTurn = on && turnActive.current;
           // Started now, it would take the very turn that asked for it.
           if (dictateAfterTurn) return reply("Dictation starts as soon as this reply ends: what the user says next is typed at their cursor.");
-          return reply(await dictate.setHandsFree(on, false));
+          return reply(await dictate.setHandsFree(on));
         }
         if (op === "flow_context") { const c = await api.context(); return reply(c.ok ? JSON.stringify(c.value) : ""); }
         if (op === "flow_device") {
@@ -829,25 +799,19 @@ export function useFlowOwner(): void {
 
     // ── wiring ────────────────────────────────────────────────────────────
     const tray = trayAsk();
+    // The double-taps carry no direction: open and closed are this renderer's
+    // to know. Opening one of Flow and Dictate closes the other. Push to talk
+    // arrives here only while one is open; using it inside them is still to come.
     const offEffect = api.onEffect((e) => {
-      if (e.bindingId === DICTATE_COMMAND_BINDING) {
-        if (e.kind === "hold_start") dictate.holdStart(true);
-        else if (e.kind === "hold_end") void dictate.holdEnd();
-        else if (e.kind === "hold_cancel") void dictate.holdCancel();
-        // A double tap means nothing here: its capture is dropped and the next press holds again.
-        else { void dictate.holdCancel(); void api.gestureOpen(DICTATE_COMMAND_BINDING, false); }
-        return;
-      }
+      if (e.kind !== "double_tap") return;
       if (e.bindingId === DICTATE_BINDING) {
-        if (e.kind === "hold_start") dictate.holdStart();
-        else if (e.kind === "hold_end") void dictate.holdEnd();
-        else if (e.kind === "hold_cancel") void dictate.holdCancel();
-        else void dictate.setHandsFree(e.kind === "start", true);
-        return;
+        // Flow open means Dictate is not: Flow's opening stopped it.
+        if (summoned.current) onClose("dictate_opened");
+        void dictate.toggle();
+      } else if (e.bindingId === FLOW_BINDING) {
+        if (summoned.current) onClose("gesture");
+        else void onOpen(tray.opener());
       }
-      const by = tray.opener();
-      if (e.kind === "start") void onOpen(by);
-      else if (e.kind === "stop") onClose("gesture");
     });
     const offSecure = api.onSecureInput(() => void refreshHealth());
     // Flow's off switch hides the orb from the main process, so the session
@@ -944,8 +908,6 @@ export function useFlowOwner(): void {
       stopAnswerWatchdog();
       turnActive.current = false;
       teardownMic();
-      void api.unregister(BINDING_ID);
-      for (const id of dictateKeys.current.keys()) void api.unregister(id);
       client.current?.close();
       client.current = null;
     };

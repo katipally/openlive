@@ -63,8 +63,6 @@ export interface DictatePorts {
   release(): void;
   /** Released MIC_WARM_MS ago and not taken back since: the microphone may close. */
   micIdle(): void;
-  /** Hands-free opened or closed other than by the key, so the key's next tap does the right thing. */
-  gestureOpen(open: boolean): void;
   /** One rewrite by Dictate's brain, its words handed to `onText` as they come.
    *  Resolves to the whole; rejects when it fails, or once `signal` aborts. */
   rewrite(ask: RewriteAsk, signal: AbortSignal, onText: (text: string) => void): Promise<string>;
@@ -202,15 +200,14 @@ export function createDictate(ports: DictatePorts) {
     return opening;
   };
 
-  const setHandsFree = async (on: boolean, byKey: boolean): Promise<string> => {
-    if (!byKey) ports.gestureOpen(on);
+  const setHandsFree = async (on: boolean): Promise<string> => {
     if (!on) {
       if (mode !== "handsFree") return "Dictation was already off.";
       finish(true);
       return "Dictation is off.";
     }
     if (mode === "handsFree") return "Dictation is already on.";
-    // The second tap of the double-tap was already capturing: that carries on.
+    // A hold in progress was already capturing: that carries on.
     if (mode === "hold") { mode = "handsFree"; commanding = false; set({ handsFree: true, command: false, keys: ports.settings().keys }); await ports.endHold(0); return "Dictation is on."; }
     return (await start("handsFree")) ? "Dictation is on. What the user says next is typed at their cursor." : NO_MIC;
   };
@@ -323,7 +320,7 @@ export function createDictate(ports: DictatePorts) {
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
     const obeyed = spoken ? await obey(spoken.command) : "";
     set({ phase: "idle", partial: "", polishing: false, inserted: out === "typed" && last ? countWords(last) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
-    if (spoken?.command === "stop") await setHandsFree(false, false);
+    if (spoken?.command === "stop") await setHandsFree(false);
   };
 
   const command = async (text: string, s: DictateSettings) => {
@@ -392,13 +389,12 @@ export function createDictate(ports: DictatePorts) {
       await run;
     },
     /** The orb's mic button. */
-    toggle: () => setHandsFree(mode !== "handsFree", false),
+    toggle: () => setHandsFree(mode !== "handsFree"),
     /** Flow was opened over it: Flow wins the microphone and Dictate stops. */
     yield() {
       tail = false;
       clearTimeout(micWarm);
       if (!mode && !d) return;
-      if (mode === "handsFree") ports.gestureOpen(false);
       // Left on, the engine would wait for a release that never comes, and Flow,
       // opened mid-hold, would never end a turn on its own.
       if (mode === "hold") ports.dropHold();

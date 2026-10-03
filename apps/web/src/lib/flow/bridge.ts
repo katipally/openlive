@@ -54,15 +54,12 @@ export interface FlowCapabilities {
   /** False while Flow's off switch (on Flow's home) is off: the hook is suspended on purpose. */
   armed: boolean;
 }
-/** Flow's one gesture: two quick taps of this key, alone, anywhere on the
- *  machine — once to open Flow and once to close it. Not configurable. One
- *  gesture that is always true beats a key nobody remembers rebinding, and the
- *  addon never swallows it, so Control keeps working as Control. */
-export const FLOW_TRIGGER = "ctrl";
-/** Dictate's binding id with the addon. */
+/** The binding ids main registers with the addon (apps/desktop/flow-input.cjs),
+ *  as effects name them. Flow's and Dictate's report a double tap; the
+ *  push-to-talk key reports a hold. */
+export const FLOW_BINDING = "flow";
 export const DICTATE_BINDING = "dictate";
-/** Command mode's: Dictate's key with Shift, by default. */
-export const DICTATE_COMMAND_BINDING = "dictate_command";
+export const PTT_BINDING = "ptt";
 
 export type FlowPermissionName = "accessibility" | "microphone" | "screen";
 /** Which screen asked for a permission, for the onboarding funnel. */
@@ -88,16 +85,11 @@ export interface FlowBridge {
   /** Flow's off switch, and a subscription to it. */
   setArmed(armed: boolean): void;
   onArmed(cb: (armed: boolean) => void): () => void;
-  /** Watch for the gesture, and with `hold` for the key being held. The key is never swallowed. */
-  register(id: string, binding: string, hold?: boolean): Promise<Guarded<void>>;
+  /** Watch `binding` in its role. Main registers the settings' keys itself, so nothing here needs to. */
+  register(id: string, binding: string, role: "toggle" | "hold"): Promise<Guarded<void>>;
   unregister(id: string): Promise<Guarded<void>>;
   suspend(): Promise<Guarded<void>>;
   resume(): Promise<Guarded<void>>;
-  /** Flow closed, and the gesture was not what closed it. Without this the
-   *  addon's toggle drifts out of step with what is on screen. */
-  closed(): Promise<Guarded<void>>;
-  /** The toggle under `id` was thrown another way: Dictate's hands-free from the mic button or by voice. */
-  gestureOpen(id: string, open: boolean): Promise<Guarded<void>>;
   insertBegin(method?: string, timing?: InsertionTiming): Promise<Guarded<number>>;
   insertPush(session: number, chunk: string): Promise<Guarded<void>>;
   insertEnd(session: number): Promise<Guarded<void>>;

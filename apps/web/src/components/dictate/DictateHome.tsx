@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, ChevronRight, Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
 import type { Dictation, FlowConfig } from "@openlive/flow-store";
-import { Button, Chip, Input, Keycaps, Textarea, Tooltip, groupLabel, linkClass, pill } from "@/components/ui";
+import { Button, Chip, Input, Textarea, Tooltip, groupLabel, linkClass, pill } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { ModeStart, SwitchHole, modeCopy } from "@/components/flow/ModeSwitch";
 import { PowerPill } from "@/components/flow/PowerPill";
@@ -49,7 +49,7 @@ export function DictateHome() {
 
   const own = config?.dictate;
   const on = !!own?.enabled;
-  const hold = own ? hotkeyKeys(own.hotkey, desktopPlatform) : [];
+  const keys = config ? hotkeyKeys(config.talk.dictateKey, desktopPlatform) : [];
   const flip = () => save({ dictate: { enabled: !on } });
   const firstRun = isDesktop && !!own && !onboarded;
 
@@ -69,11 +69,11 @@ export function DictateHome() {
               <p className="max-w-sm text-callout leading-relaxed text-muted-foreground">{modeCopy("dictate").tagline}</p>
             </div>
 
-            {firstRun ? <FirstRun on={on} flip={flip} hold={hold} caps={caps} refresh={refresh} /> : (
+            {firstRun ? <FirstRun on={on} flip={flip} keys={keys} caps={caps} refresh={refresh} /> : (
               <>
                 <PowerPill name="Dictate" on={on} onFlip={flip} disabled={!config} />
                 {on && <Status caps={caps} refresh={refresh} />}
-                {own && <HowTo own={own} hold={hold} />}
+                {own && <HowTo own={own} keys={keys} />}
               </>
             )}
             {!config && <QueryState loading={false} error={error || null} retrying={false} onRetry={refetch} what="read Dictate's settings" />}
@@ -116,7 +116,7 @@ function GrantPills({ missing, refresh }: { missing: FlowPermissionName[]; refre
   );
 }
 
-/** Whether a hold would work right now, and the fix right here when it would not. */
+/** Whether the key would work right now, and the fix right here when it would not. */
 function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () => void }) {
   if (!caps || caps.addonError) return null;
   const note = keyListenerNote(caps);
@@ -126,23 +126,17 @@ function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () 
   return <StatusDot tone="success">Ready</StatusDot>;
 }
 
-/** How to use it, with the person's own keys. */
-function HowTo({ own, hold }: { own: FlowConfig["dictate"]; hold: string[] }) {
-  const command = hotkeyKeys(own.commandHotkey, desktopPlatform);
+/** How to use it, with the person's own key. */
+function HowTo({ own, keys }: { own: FlowConfig["dictate"]; keys: string[] }) {
   return (
     <div className="flex max-w-full flex-col items-center gap-1.5">
-      <p className="max-w-[32rem] break-words text-label leading-relaxed text-muted-foreground"><ModeStart mode="dictate" hold={hold} on={own.enabled} /></p>
-      {own.enabled && (
-        <p className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-label text-faint">
-          Select text and hold <Keycaps keys={command} label={command.join(" ")} /> to change it by voice.
-        </p>
-      )}
+      <p className="max-w-[32rem] break-words text-label leading-relaxed text-muted-foreground"><ModeStart mode="dictate" keys={keys} on={own.enabled} /></p>
     </div>
   );
 }
 
 /** The first visit: what Dictate is and turning it on, then one try in a box right here. Skippable; Done or Skip ends it for good. */
-function FirstRun({ on, flip, hold, caps, refresh }: { on: boolean; flip: () => void; hold: string[]; caps: FlowCapabilities | null; refresh: () => void }) {
+function FirstRun({ on, flip, keys, caps, refresh }: { on: boolean; flip: () => void; keys: string[]; caps: FlowCapabilities | null; refresh: () => void }) {
   const [card, setCard] = useState<1 | 2>(1);
   const [tried, setTried] = useState("");
   // Welcome's access step asked for these already; the second card still shows any that are missing.
@@ -179,9 +173,9 @@ function FirstRun({ on, flip, hold, caps, refresh }: { on: boolean; flip: () => 
       ) : (
         <>
           {head("Try it here")}
-          <p className="break-words text-label leading-relaxed text-muted-strong"><ModeStart mode="dictate" hold={hold} on={on} /></p>
+          <p className="break-words text-label leading-relaxed text-muted-strong"><ModeStart mode="dictate" keys={keys} on={on} /></p>
           {missing.length > 0 && <div className="flex flex-col items-start"><GrantPills missing={missing} refresh={refresh} /></div>}
-          <Textarea rows={3} value={tried} onChange={(e) => setTried(e.target.value)} aria-label="Try Dictate here" placeholder="Click here, then hold the key and talk" />
+          <Textarea rows={3} value={tried} onChange={(e) => setTried(e.target.value)} aria-label="Try Dictate here" placeholder="Click here, then tap the key twice and talk" />
           {tried.trim() && <StatusDot tone="success">That is all there is to it. It works the same in any app.</StatusDot>}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => setCard(1)}><ArrowLeft aria-hidden /> Back</Button>

@@ -59,13 +59,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Typing at cursor", keywords: "how text goes in paste type it out typing insertion insert clipboard put back restore timing modifier dictate flow", tab: "general", anchor: "set-general-typing" },
   { label: "Put my clipboard back", keywords: "restore clipboard keep pasted text paste copy", tab: "general", anchor: "set-general-clipboard" },
   { label: "Dictate on or off", keywords: "dictation turn on off enable disable voice typing speech to text", tab: "dictate", anchor: "set-dictate-status", reveal: "set-dictate-basics", desktop: true },
-  { label: "Dictate hotkey", keywords: "hold to talk push to talk key right alt option altgr change shortcut hands-free double tap", tab: "dictate", anchor: "set-dictate-trigger", reveal: "set-dictate-basics", desktop: true },
+  { label: "Dictate hotkey", keywords: "open close key right alt left alt option altgr change shortcut hands-free double tap", tab: "dictate", anchor: "set-dictate-trigger", reveal: "set-dictate-basics", desktop: true },
   { label: "Dictation cleanup", keywords: "punctuation capitals fillers um uh backtrack scratch that actually correction lists numbers digits", tab: "dictate", anchor: "set-dictate-cleanup", reveal: "set-dictate-basics" },
   { label: "AI polish", keywords: "dictate rewrite polish grammar tone natural casual formal professional brain", tab: "dictate", anchor: "set-dictate-polish", reveal: "set-dictate-basics" },
   { label: "Who answers for AI polish and commands", keywords: "dictate brain agent model api key coding agent its own different override same as flow", tab: "dictate", anchor: "set-dictate-brain", reveal: "set-dictate-basics" },
   { label: "Dictionary", keywords: "dictate words names jargon spelling custom vocabulary terms", tab: "dictate", anchor: "set-dictate-dictionary", reveal: "set-dictate-words" },
   { label: "Snippets", keywords: "dictate text expansion shortcut phrase trigger template address signature", tab: "dictate", anchor: "set-dictate-snippets", reveal: "set-dictate-words" },
-  { label: "Command mode", keywords: "dictate edit selection selected text rewrite translate make formal shift hotkey instruction", tab: "dictate", anchor: "set-dictate-command", reveal: "set-dictate-commands", desktop: true },
   { label: "Spoken commands", keywords: "dictate press enter return new line paragraph undo that stop dictating voice commands", tab: "dictate", anchor: "set-dictate-spoken", reveal: "set-dictate-commands" },
   { label: "Dictate history", keywords: "dictations past transcripts recent keep retention days clear all delete", tab: "dictate", anchor: "set-dictate-history", reveal: "set-dictate-basics" },
 
@@ -110,7 +109,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Who answers in Flow", keywords: "brain agent model api key coding agent who thinks its own different override same as default", tab: "flow", anchor: "set-flow-brain" },
   { label: "Say replies out loud", keywords: "speak voice", tab: "flow", anchor: "set-flow-voice" },
   { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },
-  { label: "Stay open after the last reply", keywords: "idle timeout close", tab: "flow", anchor: "set-flow-voice" },
+  { label: "Close after silence", keywords: "idle timeout close stay open", tab: "flow", anchor: "set-flow-voice" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent computer use helper", tab: "flow", anchor: "set-flow-access" },
 
