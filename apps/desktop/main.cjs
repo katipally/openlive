@@ -922,17 +922,30 @@ function wireFlowIpc() {
   });
 }
 
-/** Flow's off switch, from Flow's home. One state, told to everyone who
- *  draws it, so the tray and the windows can never disagree. */
+/** Flow's off switch, from Flow's home or the tray. One state, told to everyone
+ *  who draws it, so the tray and the windows can never disagree, and kept in
+ *  Flow's settings through the same web route the windows use. */
 function setFlowArmed(next) {
   const was = flowInput.isArmed();
   const armed = flowInput.setArmed(next);
-  if (armed !== was) trackSetting("flow_armed", armed ? "on" : "off");
+  if (armed !== was) {
+    trackSetting("flow_armed", armed ? "on" : "off");
+    void fetch(`${WEB_URL}/api/flow/config`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: armed }) })
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
+      .catch((e) => console.error("[main] flow switch:", e));
+  }
   if (!armed) dismissFlow("disarmed");
   for (const win of [mainWin, ownerWin, flowWin]) {
     if (win && !win.isDestroyed()) win.webContents.send("openlive:flow-armed", armed);
   }
   refreshTray();
+}
+
+/** Flow's switch as it was left: on, unless Flow's settings say off. Read from
+ *  the file before the key listener starts, since the web route comes up later. */
+function savedFlowSwitch() {
+  try { return JSON.parse(fs.readFileSync(path.join(PATHS.flowHome, "flow", "config.json"), "utf8")).enabled !== false; }
+  catch { return true; }
 }
 
 // ── a call on the orb ────────────────────────────────────────────────────────
@@ -1003,7 +1016,7 @@ const TRAY_READINESS_POLL_MS = 3000;
 /** What the menu says depends on. Readiness comes from the same test the Flow window uses. */
 const trayState = () => ({
   readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
-  hook: flowInput.hookReadiness(), dictate,
+  hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate,
 });
 /** Dictate's switch and key from its settings, for the tray; null until first read. */
 let dictate = null;
@@ -1112,6 +1125,8 @@ function refreshTray() {
   tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(state, {
     open: fromTray("open", restoreMainWindow),
     startFlow: fromTray("new_flow", startFlowFromTray),
+    flowOn: fromTray("flow_on", () => setFlowArmed(true)),
+    flowOff: fromTray("flow_off", () => setFlowArmed(false)),
     dictateOn: fromTray("dictate_on", () => void setDictateFromTray(true)),
     dictateOff: fromTray("dictate_off", () => void setDictateFromTray(false)),
     allowAccess: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))),
@@ -1567,6 +1582,7 @@ async function boot() {
   wireResetIpc();
   wireCrashReports();
   wireFlowIpc();
+  flowInput.setArmed(savedFlowSwitch());
   // Hook effects drive Flow's cascade, which lives in the owner renderer.
   flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry,
     () => (mainWin && !mainWin.isDestroyed() && mainWin.isFocused() ? mainWin.webContents : null));

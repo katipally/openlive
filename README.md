@@ -158,7 +158,8 @@ you.
 
 - **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
   tray > **Start Flow**. Hover the orb for close and open-OpenLive buttons. The
-  switch on Flow's home turns it off and on.
+  switch on Flow's home, or in the tray, turns it off and on, and a restart
+  keeps it as you left it.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
   screen, move and close windows, run shell commands.

@@ -199,6 +199,12 @@ test("the frozen v7 fixture moves off the old 100 ms modifier hold and keeps the
   expect(cfg.voice.turnOverride).toBe(false);
 });
 
+test("Flow stays on for a file from before its switch was kept, and off once turned off", () => {
+  for (const old of [CONFIG_V1_FIXTURE, CONFIG_V6_FIXTURE, CONFIG_V7_FIXTURE, {}]) expect(parseFlowConfig(old).enabled).toBe(true);
+  expect(parseFlowConfig({ version: FLOW_CONFIG_VERSION, enabled: false }).enabled).toBe(false);
+  expect(parseFlowConfig({ enabled: "no" }).enabled).toBe(true);
+});
+
 test("a modifier hold someone chose survives the move, and a current file is not moved", () => {
   for (const ms of [0, 30, 99, 150]) expect(parseFlowConfig({ version: 7, insertion: { modifierHoldMs: ms } }).insertion.modifierHoldMs).toBe(ms);
   expect(parseFlowConfig({ version: 7 }).insertion.modifierHoldMs).toBe(50);

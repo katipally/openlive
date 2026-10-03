@@ -286,7 +286,7 @@
     },
     "tray_action": {
       "props": {
-        "action": { "k": "enum", "values": ["open", "new_flow", "dictate_on", "dictate_off", "allow_accessibility", "settings", "quit"] }
+        "action": { "k": "enum", "values": ["open", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "allow_accessibility", "settings", "quit"] }
       }
     },
     "remote_ollama_prompt": {

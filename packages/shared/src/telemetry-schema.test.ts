@@ -176,7 +176,7 @@ describe("telemetry types", () => {
     expectTypeOf<TelemetryEventName>().toMatchTypeOf<string>();
     expectTypeOf<"flow_session">().toMatchTypeOf<TelemetryEventName>();
     expectTypeOf<TelemetryEventProps<"tray_action">["action"]>().toEqualTypeOf<
-      "open" | "new_flow" | "dictate_on" | "dictate_off" | "allow_accessibility" | "settings" | "quit"
+      "open" | "new_flow" | "flow_on" | "flow_off" | "dictate_on" | "dictate_off" | "allow_accessibility" | "settings" | "quit"
     >();
     expectTypeOf<TelemetryEventProps<"flow_session">["turns"]>().toEqualTypeOf<number>();
     expectTypeOf<TelemetryEventProps<"flow_session">["t_see"]>().toEqualTypeOf<number | undefined>();

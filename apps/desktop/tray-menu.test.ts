@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 
 const { trayTemplate, statusLine, dictateLine, hotkeyLabel, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
 
-const act = { open: vi.fn(), startFlow: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
-const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", dictate: { on: false, binding: "option_right" } };
+const act = { open: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
+const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", armed: true, dictate: { on: false, binding: "option_right" } };
 const labels = (state: object) => trayTemplate(state, act).map((i: { label?: string; type?: string }) => i.label ?? i.type);
 
 describe("the tray's status line", () => {
@@ -58,8 +58,17 @@ describe("hotkeyLabel", () => {
 });
 
 describe("trayTemplate", () => {
-  it("is the minimal menu: both statuses, open, start, Dictate's switch, settings, quit", () => {
-    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Dictate on", "Settings…", "separator", "Quit OpenLive"]);
+  it("is the minimal menu: both statuses, open, start, both switches, settings, quit", () => {
+    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Flow off", "Turn Dictate on", "Settings…", "separator", "Quit OpenLive"]);
+  });
+
+  it("turns Flow on or off, and says so on its status line", () => {
+    const item = (state: object) => trayTemplate(state, act).find((i: { label?: string }) => /^Turn Flow/.test(i.label ?? ""));
+    expect(item(ready)).toMatchObject({ label: "Turn Flow off", click: act.flowOff });
+    const off = { ...ready, readiness: "off", armed: false };
+    expect(item(off)).toMatchObject({ label: "Turn Flow on", click: act.flowOn });
+    expect(item(off).enabled).not.toBe(false);
+    expect(labels(off).slice(0, 2)).toEqual(["Flow is off", "Dictate is off"]);
   });
 
   it("turns Dictate on or off, once its settings have been read", () => {

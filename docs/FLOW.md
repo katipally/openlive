@@ -34,7 +34,7 @@ say into the text box in front of you, with no AI and nothing spoken back.
 |---|---|
 | Double tap `Control` (`Ctrl` on Windows and Linux) | Opens Flow. The same gesture closes it. |
 | Tray / menu bar > **Start Flow** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
-| **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on or restart OpenLive. Settings > Flow says which it is and links here. |
+| **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on, here or from the tray, and stays off when OpenLive restarts. Settings > Flow says which it is and links here. |
 | Flow tab in the OpenLive window | Home for Flow: the switch, readiness, who answers, and your session history. |
 
 The tray (menu bar) menu is short:
@@ -45,6 +45,7 @@ The tray (menu bar) menu is short:
  ─────────────────────────────
  Open OpenLive
  Start Flow
+ Turn Flow off                        the switch on Flow's home
  Turn Dictate off                     the switch on Dictate's home
  Settings…                    ⌘,
  ─────────────────────────────

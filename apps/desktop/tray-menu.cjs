@@ -56,7 +56,7 @@ function dictateLine({ dictate, hook, platform }) {
   return [DICTATE[state], key].filter(Boolean).join("  ·  ");
 }
 
-/** `act` holds the click handlers: open, startFlow, dictateOn, dictateOff, allowAccess, settings, quit. */
+/** `act` holds the click handlers: open, startFlow, flowOn, flowOff, dictateOn, dictateOff, allowAccess, settings, quit. */
 function trayTemplate(state, act) {
   const dictateOn = !!state.dictate?.on;
   return [
@@ -72,7 +72,9 @@ function trayTemplate(state, act) {
     // Enabled only when a double tap would work; the status line says why not.
     // Electron cannot show a double tap as an accelerator, so the status line carries it.
     { label: "Start Flow", enabled: state.readiness === "ready", click: act.startFlow },
-    // Unknown until its settings are read, and then the same switch as Dictate's home.
+    // The same switches as Flow's and Dictate's homes.
+    { label: state.armed ? "Turn Flow off" : "Turn Flow on", click: state.armed ? act.flowOff : act.flowOn },
+    // Unknown until its settings are read.
     { label: dictateOn ? "Turn Dictate off" : "Turn Dictate on", enabled: !!state.dictate, click: dictateOn ? act.dictateOff : act.dictateOn },
     // The one state the menu can fix in place.
     ...(state.readiness === "access" || (dictateOn && state.hook === "access") ? [{ label: state.platform === "darwin" ? "Allow Accessibility…" : "Allow input access…", click: act.allowAccess }] : []),

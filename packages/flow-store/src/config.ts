@@ -63,6 +63,9 @@ export interface FlowConfig {
    *  on this machine. Nothing is asked per tool, per tier or per call. */
   consent: { granted: boolean; at: string };
   idleWindowMs: number;
+  /** The switch on Flow's home and in the tray. Off, a double tap does nothing,
+   *  across restarts too. Missing in a file from before it was kept: on. */
+  enabled: boolean;
   /** Talk instead of type: hold `hotkey` and the cleaned-up words go in at the
    *  cursor, with no brain. `hotkey` is in ol-input's binding grammar. Each
    *  cleanup rule runs on this machine. `brain` is the one AI polish and
@@ -96,6 +99,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   },
   consent: { granted: false, at: "" },
   idleWindowMs: 5 * 60_000,
+  enabled: true,
   dictate: {
     enabled: false,
     hotkey: "option_right",
@@ -233,6 +237,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       at: str(consent.at, d.consent.at),
     },
     idleWindowMs: num(o.idleWindowMs, d.idleWindowMs, 1),
+    enabled: bool(o.enabled, d.enabled),
     dictate: {
       ...dictate,
       enabled: bool(dictate.enabled, dd.enabled),

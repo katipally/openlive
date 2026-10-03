@@ -375,7 +375,7 @@ const events = {
     limit: { perDayPerKey: 3, dayKey: ["setting"] },
   },
   tray_action: {
-    props: { action: en(["open", "new_flow", "dictate_on", "dictate_off", "allow_accessibility", "settings", "quit"]) },
+    props: { action: en(["open", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "allow_accessibility", "settings", "quit"]) },
   },
   remote_ollama_prompt: {
     props: {
