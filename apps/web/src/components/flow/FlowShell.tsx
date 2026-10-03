@@ -8,6 +8,7 @@ import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { FLOW_ONBOARDED_DONE, flowOnboardingDue } from "@/lib/flow/onboarding";
 import { useOnboarding } from "@/lib/prefs";
+import { coverConcepts } from "@/components/SpotlightTour";
 import { FlowHome } from "./FlowHome";
 import { FlowOnboarding } from "./FlowOnboarding";
 import { SwitchHole } from "./ModeSwitch";
@@ -37,7 +38,8 @@ export function FlowShell() {
     return () => { window.removeEventListener("focus", refresh); offArmed?.(); };
   }, [refresh]);
 
-  const finishOnboarding = () => { markSeen(); setOnboarding(false); refresh(); };
+  // It showed how Flow opens, so Flow's tour right after it skips the switch.
+  const finishOnboarding = () => { markSeen(); coverConcepts("flowPower"); setOnboarding(false); refresh(); };
 
   if (onboarding === undefined) return <div className="h-dvh" />;
 

@@ -25,6 +25,7 @@ import { useUi } from "@/lib/uiStore";
 import { toast } from "@/lib/toast";
 import { usePendingDeletes } from "@/lib/deferredDelete";
 import { cn } from "@/lib/cn";
+import { SpotlightTour } from "@/components/SpotlightTour";
 
 // Dictate's half of the window, for using it: whether it is on and works, how
 // to start, and everything it typed. How it behaves is in Settings > Dictate,
@@ -53,6 +54,9 @@ export function DictateHome() {
   const key = config ? keyName(liveKeys(config.talk).dictate, desktopPlatform) : "the key";
   const flip = () => save({ dictate: { enabled: !on } });
   const firstRun = isDesktop && !!own && !onboarded;
+  const { editReady } = useFlowConfig();
+  // The tour points at a real row, so it waits for the first dictation.
+  const dictations = useQuery({ ...historyQuery, retry: 1, enabled: !!config }).data?.items.length ?? 0;
 
   return (
     <div className="flex h-dvh flex-col">
@@ -84,11 +88,18 @@ export function DictateHome() {
 
           {config && <History own={config.dictate} insertion={config.insertion} />}
 
-          <button type="button" onClick={() => openSettingsTab("dictate")} className={cn(linkClass, "inline-flex items-center gap-0.5 self-center text-label")}>
+          <button type="button" data-tour="dictate-settings" onClick={() => openSettingsTab("dictate")} className={cn(linkClass, "inline-flex items-center gap-0.5 self-center text-label")}>
             Settings <ChevronRight aria-hidden className="size-3.5" />
           </button>
         </div>
       </div>
+      <SpotlightTour id="dictate" active={isDesktop && onboarded && on && dictations > 0} steps={[
+        { target: "dictate-howto", title: "Change text by voice",
+          body: editReady ? "Select text first, then say how to change it, like \u201cmake it shorter\u201d." : "Select text first, then say how to change it. That needs Dictate's AI, set up in Settings." },
+        { target: "dictate-row-actions", title: "Put it back", body: "Copy it, or Insert again into the window it came from." },
+        { target: "dictate-history", title: "Kept on this machine", body: "Settings decides how long dictations are kept, or keeps none at all." },
+        { target: "dictate-settings", title: "Cleanup, polish and words", body: "Your dictionary, snippets and spoken commands live in Settings." },
+      ]} />
     </div>
   );
 }
@@ -131,7 +142,7 @@ function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () 
 function HowTo({ own }: { own: FlowConfig["dictate"] }) {
   const { editReady } = useFlowConfig();
   return (
-    <div className="flex max-w-full flex-col items-center gap-1.5">
+    <div data-tour="dictate-howto" className="flex max-w-full flex-col items-center gap-1.5">
       <p className="max-w-[32rem] break-words text-label leading-relaxed text-muted-foreground"><ModeStart mode="dictate" on={own.enabled} /></p>
       <p className="max-w-[32rem] break-words text-caption text-faint">
         {editReady ? "Select text first and say how to change it." : "Select text first to change it by voice, once Dictate's AI is set up in Settings."}
@@ -239,7 +250,7 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
   return (
     <section className="flex min-h-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-2">
-        <h2 className="min-w-0 flex-[1_1_8rem] truncate text-title-sm font-semibold">{q ? "Matches" : "History"}</h2>
+        <h2 data-tour="dictate-history" className="min-w-0 flex-[1_1_8rem] truncate text-title-sm font-semibold">{q ? "Matches" : "History"}</h2>
         {items.length > FILTER_AT && (
           <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search what you dictated"
             aria-label="Search what you dictated" className="min-w-[10rem] flex-[0_1_15rem]" />
@@ -250,10 +261,10 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
         <Empty>{own.history === "off" ? "History is off, so dictations are not kept." : "Nothing yet. What you dictate shows up here, kept on this machine."}</Empty>
       )}
       {q && items.length > 0 && !days.length && <Empty>Nothing matching &ldquo;{filter.trim()}&rdquo;.</Empty>}
-      {days.map(([day, list]) => (
+      {days.map(([day, list], i) => (
         <div key={day} className="flex flex-col">
           <h3 className={cn("px-3 pb-1.5 pt-5", groupLabel)}>{day}</h3>
-          {list.map((d) => <Row key={d.id} d={d} insertion={insertion} onDelete={() => deleteDictation(qc, d.id)} />)}
+          {list.map((d, j) => <Row key={d.id} d={d} first={i === 0 && j === 0} insertion={insertion} onDelete={() => deleteDictation(qc, d.id)} />)}
         </div>
       ))}
       {more && <Button variant="ghost" size="sm" className="mt-1 self-start" onClick={() => setLimit((n) => n + PAGE)}>Show more</Button>}
@@ -261,7 +272,7 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
   );
 }
 
-function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["insertion"]; onDelete: () => void }) {
+function Row({ d, first, insertion, onDelete }: { d: Dictation; first: boolean; insertion: FlowConfig["insertion"]; onDelete: () => void }) {
   const copy = () => void navigator.clipboard.writeText(d.final).then(() => toast("Copied", "info")).catch(() => toast("That could not be copied."));
   const words = countWords(d.final);
   // Back to the window it was said into, while that window is still open and has a text box in focus; else on the clipboard to paste.
@@ -292,7 +303,7 @@ function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["
           {d.copied && <span>Copied, nowhere to type</span>}
         </span>
       </span>
-      <span className="ml-auto flex shrink-0 opacity-60 transition group-hover:opacity-100 focus-within:opacity-100">
+      <span data-tour={first ? "dictate-row-actions" : undefined} className="ml-auto flex shrink-0 opacity-60 transition group-hover:opacity-100 focus-within:opacity-100">
         <Tooltip label="Copy"><Button variant="ghost" size="sm" icon onClick={copy} aria-label="Copy"><Copy /></Button></Tooltip>
         {flowBridge() && <Tooltip label="Insert again"><Button variant="ghost" size="sm" icon onClick={() => void again()} aria-label="Insert again"><CornerDownLeft /></Button></Tooltip>}
         <Tooltip label="Delete"><Button variant="ghost" size="sm" icon onClick={onDelete} aria-label="Delete"><Trash2 /></Button></Tooltip>

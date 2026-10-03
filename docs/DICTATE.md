@@ -66,6 +66,11 @@ the page to dictate into. Dictation into OpenLive's own window is typed by
 Electron itself, so the box works the same on every platform. **Done** or
 **Skip** ends it for good.
 
+After that, once History has a dictation in it, a short tour points at four
+things: changing a selection by voice, a row's **Copy** and **Insert again**,
+History, and the Settings link. Like every tour it shows once, its **Skip**
+asks first, and Settings > About > **Show me around again** plays it again.
+
 ## Starting and stopping
 
 ```

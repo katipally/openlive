@@ -9,7 +9,7 @@ import { APP_MODES, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistorySidebar } from "@/components/HistorySidebar";
-import { SpotlightTour } from "@/components/SpotlightTour";
+import { SpotlightTour, useTourGate } from "@/components/SpotlightTour";
 import { AgentSelect } from "@/components/live/AgentControls";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { Button, Tooltip } from "@/components/ui";
@@ -65,9 +65,8 @@ export default function Home() {
   // The first-run notice goes first: two overlays would contend for the same first look.
   const [noticePending, setNoticePending] = useState(false);
   const [welcomePending, setWelcomePending] = useState(false);
-  // Welcome already showed the modes and the agent picker, so the home tour right after it skips those.
-  const [welcomedNow, setWelcomedNow] = useState(false);
-  useEffect(() => { if (welcomePending) setWelcomedNow(true); }, [welcomePending]);
+  // Every tour, in any mode, waits for both.
+  useEffect(() => useTourGate.setState({ firstRun: noticePending || welcomePending }), [noticePending, welcomePending]);
   // The hero's "Talk to" is what the next new chat talks to: the default each
   // time the hero comes back, and whenever the default changes.
   const defaultAgent = useDefaultAgent();
@@ -198,12 +197,11 @@ export default function Home() {
               </a>
             </footer>
 
-            <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
-              ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
-              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." }],
+            <SpotlightTour id="home" active={!liveOpen} steps={[
+              { target: "mode", concept: "modes", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
+              { target: "talk-to", concept: "whoAnswers", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." },
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
-              { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },
             ]} />
           </motion.main>
         )}

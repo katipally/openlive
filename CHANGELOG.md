@@ -9,6 +9,16 @@ Releases before 0.1.9 predate this file — see the
 ## [0.3.0] - 2026-10-02
 
 ### Added
+- **Flow and Dictate have tours, and every tour keeps one rule.** Flow's home
+  points at its switch, who answers, the readiness chip and the history;
+  Dictate's, once History has a dictation, at changing text by voice, a row's
+  Copy and Insert again, History and Settings. A tour has at most four steps,
+  never runs over Welcome, the privacy notice, a first run or Settings, and
+  leaves out what a first run just showed: Welcome the modes and who answers,
+  Flow's setup how Flow opens. The home tour dropped its Settings step to fit.
+  **Skip**, the close button and Escape now ask before ending a tour for good;
+  a click outside ends it until next time. A tour's card wraps at narrow
+  widths and with long words, and stays still under Reduce Motion.
 - **Dictate.** Double-tap Option (Alt on Windows and Linux, either side) and
   talk; the cleaned-up words are typed where your cursor is, in any app, with
   no brain and nothing spoken back, and the same double tap closes it. The orb

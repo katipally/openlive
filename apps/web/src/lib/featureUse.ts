@@ -35,8 +35,12 @@ const STEPS = telemetrySchema.events.onboarding_step.props.step.values;
 
 export type TourExit = NonNullable<TelemetryEventProps<"onboarding_step">["tour_exit"]>;
 
-/** A spotlight tour ended: how, and on which step (1 is the first). A tour id outside the schema's five sends nothing. */
-export function tourClosed(id: string, exit: TourExit, reached: number): void {
+/** Every spotlight tour, one per surface. Each has its `tour_closed_<id>` step in the schema (featureUse.test.ts holds the line). */
+export const TOUR_IDS = ["home", "lobby", "call", "history", "settings", "flow", "dictate"] as const;
+export type TourId = (typeof TOUR_IDS)[number];
+
+/** A spotlight tour ended: how, and on which step (1 is the first). */
+export function tourClosed(id: TourId, exit: TourExit, reached: number): void {
   const step = STEPS.find((s) => s === `tour_closed_${id}`);
   if (step) telemetry.track("onboarding_step", { step, tour_exit: exit, tour_step: reached });
 }

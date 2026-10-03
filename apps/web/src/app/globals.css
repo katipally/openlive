@@ -581,6 +581,7 @@ html.look-switching::view-transition-new(root) { animation-name: look-in; }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 320ms var(--ease-out-quart); }
+@media (prefers-reduced-motion: reduce) { .animate-fade-up { animation: none; } }
 
 /* A list's first reveal: each row rises in --i steps after the one before.
    Callers set --i only on the first rows (lib/motion STAGGER_MAX), so a long

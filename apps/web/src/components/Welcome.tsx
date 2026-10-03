@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { TalkMode } from "@openlive/flow-store";
 import { Button, ListGroup, Radio } from "@/components/ui";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
-import { tourSeen } from "@/components/SpotlightTour";
+import { coverConcepts, tourSeen } from "@/components/SpotlightTour";
 import { MODES, ModeStart } from "@/components/flow/ModeSwitch";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
 import { AccessRows } from "@/components/flow/FlowSettings";
@@ -46,6 +46,8 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   // Read on open and polled on the access step, so a grant given there counts.
   const { caps } = useFlowCapabilities(open && step === 3);
   const passedAccess = useRef(false);
+  // The furthest step seen: the tours this launch drop what it showed.
+  const reached = useRef(1);
   const setMode = useUi((s) => s.setMode);
   const answers = useDefaultBrain();
   // Step 2 opens Settings, which steps in front until it is closed again.
@@ -60,13 +62,14 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
 
   const finish = (mode?: AppMode) => {
     markSeen();
+    coverConcepts(...(["modes", "whoAnswers"] as const).slice(0, reached.current));
     coverFlowAccess(passedAccess.current, allGranted(caps, !!config?.consent.granted));
     setOpen(false);
     if (mode) setMode(mode);
   };
   const next = () => {
     if (step === 3) passedAccess.current = true;
-    if (step < STEPS) setStep(step + 1); else finish();
+    if (step < STEPS) { setStep(step + 1); reached.current = Math.max(reached.current, step + 1); } else finish();
   };
   // Focus goes back to the dialog, not to wherever the gone question leaves it.
   const keepGoing = () => { setAsking(false); root.current?.focus(); };

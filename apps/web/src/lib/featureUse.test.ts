@@ -1,6 +1,6 @@
 import { telemetrySchema } from "@openlive/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { featureUsed, tourClosed, tourRun } from "./featureUse";
+import { featureUsed, tourClosed, tourRun, TOUR_IDS } from "./featureUse";
 import { CAPABILITY_TABS, SETTINGS_TABS } from "./settingsSearch";
 
 const install = () => {
@@ -59,7 +59,13 @@ describe("settings page counters", () => {
 });
 
 describe("tourClosed", () => {
-  it("maps the five tour ids to their step, says how each ended and where, and sends each once", () => {
+  it("has a step in the schema for every tour, and a tour for every step, so none closes unreported", () => {
+    const steps = telemetrySchema.events.onboarding_step.props.step.values.filter((s) => s.startsWith("tour_closed_"));
+    expect(new Set(steps)).toEqual(new Set(TOUR_IDS.map((id) => `tour_closed_${id}`)));
+    expect(steps).toHaveLength(TOUR_IDS.length);
+  });
+
+  it("maps the tour ids to their step, says how each ended and where, and sends each once", () => {
     const b = install();
     const ends = [["home", "done", 4], ["lobby", "skipped", 1], ["call", "left", 2], ["history", "done", 1], ["settings", "skipped", 3], ["home", "done", 1]] as const;
     for (const [id, exit, at] of ends) tourClosed(id, exit, at);
@@ -74,8 +80,8 @@ describe("tourClosed", () => {
 
   it("sends nothing for an id outside the schema", () => {
     const b = install();
-    tourClosed("secret-tour", "done", 1);
-    tourClosed("", "done", 1);
+    tourClosed("secret-tour" as never, "done", 1);
+    tourClosed("" as never, "done", 1);
     expect(b.track).not.toHaveBeenCalled();
   });
 });

@@ -509,7 +509,7 @@ Limit: once per install for each `step`.
 | --- | --- | --- | --- |
 | `step` | Which step. | one of the [onboarding steps](#onboarding-steps) | always |
 | `hours_since_first_open` | Hours since the install first ran, to 0.1. | number, 0 to 99999, rounded to 0.1 | sometimes |
-| `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button, Escape or a click outside, and `left` is the screen changing under it: the control it points at went away, or the whole screen closed. | `done`, `skipped`, `left` | sometimes |
+| `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside, which shows the tour again next time. | `done`, `skipped`, `left` | sometimes |
 | `tour_step` | On a `tour_closed_` step only: the tour step showing when it ended, counting from 1. | whole number, 1 to 9 | sometimes |
 
 ### `flow_consent_result`
@@ -790,6 +790,8 @@ The Values cells link here for the long lists.
 | `tour_closed_call` | The tour of the call screen was closed. |
 | `tour_closed_history` | The tour of History was closed. |
 | `tour_closed_settings` | The tour of Settings was closed. |
+| `tour_closed_flow` | The tour of Flow's home was closed. |
+| `tour_closed_dictate` | The tour of Dictate's home was closed. |
 | `first_settings_open` | Settings was opened for the first time. |
 | `first_settings_search` | Settings search was used for the first time. |
 | `first_palette_use` | The command palette was used for the first time. |

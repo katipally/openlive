@@ -1,35 +1,62 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { create } from "zustand";
 import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUi } from "@/lib/uiStore";
 import { useOnboarding } from "@/lib/prefs";
-import { tourClosed, tourRun, type TourExit } from "@/lib/featureUse";
+import { tourClosed, tourRun, type TourExit, type TourId } from "@/lib/featureUse";
 import { Button } from "@/components/ui";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 
 // Reusable first-visit SPOTLIGHT tour: dims the page with a cutout + accent ring
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
 // tooltip at it. Each surface mounts its own <SpotlightTour id steps/> — the
-// tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/× or a click elsewhere), and
-// follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
-// transitions) — no imperative animation against elements that may not exist,
+// tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/×, confirmed, for good; a click
+// elsewhere ends it until next time), and follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
+// transitions), no imperative animation against elements that may not exist,
 // which is what made the previous GSAP version spam "target not found".
-export interface TourStep { target: string; title: string; body: string }
+//
+// The rule every tour keeps: one per surface, at most MAX_TOUR_STEPS steps, each
+// on a real control; never over Welcome, the privacy notice, a mode's first run or
+// Settings; and a step whose concept a first run showed this launch is dropped.
+export interface TourStep {
+  target: string; title: string; body: string;
+  /** Dropped when a first run already showed it this launch. */
+  concept?: TourConcept;
+}
+export const MAX_TOUR_STEPS = 4;
+
+/** What a first run showed: Welcome the modes and who answers, Flow's setup its switch. */
+export type TourConcept = "modes" | "whoAnswers" | "flowPower";
+/** This launch only: the concepts first runs covered, and whether one of the app's
+ *  first-run screens (the privacy notice, Welcome) is up, which every tour waits out. */
+export const useTourGate = create<{ covered: ReadonlySet<TourConcept>; firstRun: boolean }>(() => ({ covered: new Set(), firstRun: false }));
+export const coverConcepts = (...c: TourConcept[]): void => useTourGate.setState((s) => ({ covered: new Set([...s.covered, ...c]) }));
 
 export const tourSeen = (id: string): boolean => useOnboarding.getState().tours.includes(id);
 const markSeen = (id: string) => { if (!tourSeen(id)) useOnboarding.setState((s) => ({ tours: [...s.tours, id] })); };
 /** Forgets every tour, so each plays again the next time its screen shows. */
 export function resetTours(): void { useOnboarding.setState({ tours: [] }); }
 
-export function SpotlightTour({ id, steps, active = true }: { id: string; steps: TourStep[]; active?: boolean }) {
+export function SpotlightTour({ id, steps, active = true }: { id: TourId; steps: TourStep[]; active?: boolean }) {
   const [show, setShow] = useState(false);
   // Settings covers every other surface, so only its own tour may run over it;
   // the rest wait and pick up again once it closes.
   const coveredBySettings = useUi((s) => s.settingsOpen) && id !== "settings";
-  const live = active && !coveredBySettings;
-  const run = useMemo(() => tourRun((exit, reached) => { markSeen(id); tourClosed(id, exit, reached); }), [id]);
+  const firstRun = useTourGate((s) => s.firstRun);
+  const covered = useTourGate((s) => s.covered);
+  const shown = steps.filter((s) => !s.concept || !covered.has(s.concept));
+  if (process.env.NODE_ENV !== "production" && steps.length > MAX_TOUR_STEPS) console.error(`The ${id} tour has ${steps.length} steps; a tour has at most ${MAX_TOUR_STEPS}.`);
+  const live = active && !coveredBySettings && !firstRun && shown.length > 0;
+  // A click outside ends the tour for now, not for good: only Done or a confirmed Skip is.
+  const forNow = useRef(false);
+  const run = useMemo(() => tourRun((exit, reached) => {
+    if (!forNow.current) markSeen(id);
+    forNow.current = false;
+    tourClosed(id, exit, reached);
+  }), [id]);
   // Defer the start slightly so the surface's own entrance animation finishes
   // and the anchors are where they'll stay.
   useEffect(() => {
@@ -40,15 +67,18 @@ export function SpotlightTour({ id, steps, active = true }: { id: string; steps:
   // The whole screen going away takes the tour with it, and that is an exit too.
   useEffect(() => () => run.end("left"), [run]);
   if (!show || !live) return null;
-  return <Tour steps={steps} run={run} onClose={(exit) => { run.end(exit); setShow(false); }} />;
+  return <Tour steps={shown} run={run} onClose={(exit, again) => { forNow.current = !!again; run.end(exit); setShow(false); }} />;
 }
 
 const CARD_MAX_W = 330;
 
 // Inner component mounts ONLY while the tour is live, so every hook and DOM
 // measurement runs against elements that actually exist.
-function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<typeof tourRun>; onClose: (exit: TourExit) => void }) {
+function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<typeof tourRun>; onClose: (exit: TourExit, again?: boolean) => void }) {
   const [step, setStep] = useState(0);
+  // Skip ends the tour for good, so it asks first, as Welcome's does.
+  const [asking, setAsking] = useState(false);
+  const nextRef = useRef<HTMLButtonElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [leaving, setLeaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -87,19 +117,22 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
   }, [target]);
 
   const close = useCallback((exit: TourExit) => { setLeaving(true); setTimeout(() => onCloseRef.current(exit), 180); }, []);
-  const skip = useCallback(() => close("skipped"), [close]);
+  const skip = useCallback(() => setAsking(true), []);
+  // Focus goes back to Next, not to wherever the gone question leaves it.
+  const keepGoing = () => { setAsking(false); requestAnimationFrame(() => nextRef.current?.focus()); };
 
   // The dim layer lets clicks through, so a click outside the card both ends the
   // tour and lands on what it hit. It ends at once, before the click arrives, so
   // the focus the tour hands back cannot steal it from whatever that click opens.
+  // Nothing was confirmed, so the tour shows again the next time.
   useEffect(() => {
-    const onDown = (e: PointerEvent) => { if (!cardRef.current?.contains(e.target as Node)) onCloseRef.current("skipped"); };
+    const onDown = (e: PointerEvent) => { if (!cardRef.current?.contains(e.target as Node)) onCloseRef.current("left", true); };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, []);
 
   // Active once measured: the tour renders nothing until its target has a rect.
-  useFocusTrap(rootRef, !!rect, skip);
+  useFocusTrap(rootRef, !!rect, () => (asking ? keepGoing() : skip()));
 
   // Measure the real card height so vertical clamping keeps EVERY row (incl. the
   // Done button) inside the viewport — a fixed estimate pushed it off-screen for
@@ -156,32 +189,47 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
     <div ref={rootRef} className={cn("pointer-events-none fixed inset-0 z-tour transition-opacity duration-fast", leaving ? "opacity-0" : "opacity-100 animate-fade-in")}
       role="dialog" aria-modal="true" aria-label="Feature tour">
       {/* the spotlight: one element whose giant shadow dims everything AROUND the target */}
-      <div className="absolute rounded-xl transition-all duration-base ease-standard"
+      <div className="absolute rounded-xl transition-all duration-base ease-standard motion-reduce:transition-none"
         style={{ ...hole, boxShadow: "0 0 0 200vmax var(--color-scrim)" }} />
-      <div className="pointer-events-none absolute rounded-xl ring-2 ring-accent/80 transition-all duration-base ease-standard" style={hole} />
+      <div className="pointer-events-none absolute rounded-xl ring-2 ring-accent/80 transition-all duration-base ease-standard motion-reduce:transition-none" style={hole} />
 
+      {/* The card remounts per step, so the announcement lives outside it. */}
+      <p className="sr-only" aria-live="polite">{asking ? "Skip this tour?" : `Step ${step + 1} of ${steps.length}: ${s.title}`}</p>
       <div ref={cardRef} key={step} className="pointer-events-auto absolute rounded-xl border border-hairline p-4 text-left surface-float shadow-pop animate-fade-up"
         style={{ left, top, width: CARD_W }}>
         {arrowOnCard && <div className={cn("absolute size-3 rotate-45 surface-float", arrowSide)} style={vertical ? { left: arrowPos - 6 } : { top: arrowPos - 6 }} />}
-        <div className="flex items-start justify-between gap-2">
-          <h2 className="text-callout font-semibold tracking-tight text-foreground">{s.title}</h2>
-          <Button variant="ghost" size="sm" icon onClick={skip} aria-label="Skip the tour" className="-mr-1 -mt-1"><X /></Button>
-        </div>
-        <p className="mt-1 text-label leading-relaxed text-muted-foreground">{s.body}</p>
-        <div className="mt-4 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {steps.map((_, i) => (
-              <button key={i} onClick={() => setStep(i)} aria-label={`Step ${i + 1}`}
-                className={cn("h-1.5 rounded-full transition-all", i === step ? "w-5 bg-accent" : "w-1.5 bg-foreground/15 hover:bg-foreground/30")} />
-            ))}
+        {asking ? (
+          <div role="group" aria-labelledby="tour-skip">
+            <h2 id="tour-skip" className="break-words text-callout font-semibold tracking-tight text-foreground">Skip this tour?</h2>
+            <p className="mt-1 break-words text-label leading-relaxed text-muted-foreground">It won&rsquo;t show again. Show me around again, in Settings &gt; About, plays every tour.</p>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-1.5">
+              <Button variant="ghost" size="sm" autoFocus onClick={keepGoing}>Keep going</Button>
+              <Button variant="secondary" size="sm" onClick={() => close("skipped")}>Skip tour</Button>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            {!last && steps.length > 1 && <Button variant="ghost" size="sm" onClick={skip}>Skip</Button>}
-            <Button variant="primary" size="sm" onClick={() => (last ? close("done") : setStep(step + 1))}>
-              {last ? "Done" : "Next"} {!last && <ArrowRight />}
-            </Button>
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="min-w-0 break-words text-callout font-semibold tracking-tight text-foreground">{s.title}</h2>
+              <Button variant="ghost" size="sm" icon onClick={skip} aria-label="Skip the tour" className="-mr-1 -mt-1"><X /></Button>
+            </div>
+            <p className="mt-1 break-words text-label leading-relaxed text-muted-foreground">{s.body}</p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div className="flex items-center gap-1.5">
+                {steps.map((_, i) => (
+                  <button key={i} type="button" onClick={() => setStep(i)} aria-label={`Step ${i + 1} of ${steps.length}`} aria-current={i === step ? "step" : undefined}
+                    className={cn("h-1.5 rounded-full transition-all motion-reduce:transition-none", i === step ? "w-5 bg-accent" : "w-1.5 bg-foreground/15 hover:bg-foreground/30")} />
+                ))}
+              </div>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                {!last && steps.length > 1 && <Button variant="ghost" size="sm" onClick={skip}>Skip</Button>}
+                <Button ref={nextRef} variant="primary" size="sm" onClick={() => (last ? close("done") : setStep(step + 1))}>
+                  {last ? "Done" : "Next"} {!last && <ArrowRight />}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

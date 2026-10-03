@@ -53,7 +53,7 @@ const WEB_STEPS = [
   "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped",
   "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted",
   "first_call_turn", "first_flow_turn",
-  "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings",
+  "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "tour_closed_flow", "tour_closed_dictate",
   "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume",
   "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message",
   "first_mode_switch", "first_shortcuts_sheet",

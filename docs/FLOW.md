@@ -37,6 +37,11 @@ say into the text box in front of you, with no AI and nothing spoken back.
 | **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on, here or from the tray, and stays off when OpenLive restarts. Settings > Flow says which it is and links here. |
 | Flow tab in the OpenLive window | Home for Flow: the switch, readiness, who answers, and your session history. |
 
+The first time Flow's home shows after setup, a tour of up to four steps
+points at the switch (left out when setup just covered how Flow opens), who
+answers, the readiness chip, and the history. It shows once; its **Skip** asks
+first, and Settings > About > **Show me around again** plays it again.
+
 The tray (menu bar) menu is short:
 
 ```

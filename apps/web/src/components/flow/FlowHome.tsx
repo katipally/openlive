@@ -24,6 +24,7 @@ import { ModeStart, modeCopy } from "./ModeSwitch";
 import { PowerPill } from "./PowerPill";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
 import { cn } from "@/lib/cn";
+import { SpotlightTour, type TourStep } from "@/components/SpotlightTour";
 import { AgentIcon } from "@/components/live/AgentIcon";
 import { staggerDelay, useMotionTokens } from "@/lib/motion";
 
@@ -78,6 +79,16 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
   // The one missing piece that has a fix right here: the chip becomes the ask.
   const needsAccess = !!caps?.armed && caps.permissions?.accessibility === false && !hookError;
   const all = deletable.length > 0 && deletable.every((s) => picked.has(s.id));
+  const hasPower = !!caps && !caps.addonError;
+  const hasStatus = needsAccess || (!!caps?.armed && !caps.addonError);
+  // Only the controls on screen right now get a step.
+  const tour: TourStep[] = [
+    ...hasPower ? [{ target: "flow-power", concept: "flowPower" as const, title: "Turn Flow on and off",
+      body: `Double-tap ${flowKey} in any app to open Flow. This switch, or the ${isMac ? "menu bar" : "tray"} icon, turns that key off.` }] : [],
+    { target: "flow-brain", title: "Who answers in Flow", body: "The default from Settings, or Flow's own. Tap it to change." },
+    ...hasStatus ? [{ target: "flow-status", title: "Ready means it hears you", body: "When something's missing, this chip turns into the fix." }] : [],
+    { target: "flow-history", title: "Everything you asked", body: "Search it, open a session to read it or carry on, and delete what you don't need. It stays on this machine." },
+  ];
 
   const toggle = (id: string) => setPicked((prev) => {
     const next = new Set(prev);
@@ -104,25 +115,27 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           <p className="text-callout leading-relaxed text-muted-foreground">{modeCopy("flow").tagline}</p>
           <p className="text-label leading-relaxed text-faint"><ModeStart mode="flow" on={caps?.armed !== false} /></p>
         </div>
-        {caps && !caps.addonError && <PowerPill name="Flow" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
+        {caps && !caps.addonError && <PowerPill name="Flow" tour="flow-power" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
           {needsAccess ? (
-            <ChipButton onClick={() => void flowBridge()?.request("accessibility", "flow_home")}
+            <ChipButton tour="flow-status" onClick={() => void flowBridge()?.request("accessibility", "flow_home")}
               tip={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${flowKey} in every app`}>
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
               <span className="min-w-0 truncate">{isMac ? "Allow Accessibility" : "Allow input access"}</span>
             </ChipButton>
           ) : caps?.armed && !caps.addonError && (
             <Tooltip label={hookError} className="flex min-w-0 max-w-full">
-              <Chip dot={armed ? "success" : hookError ? "danger" : "muted"}>
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span key={hookError ? "stopped" : armed ? "ready" : "waiting"} transition={fade}
-                    initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                    {hookError ? "Key listener stopped" : armed ? "Ready" : "Not ready yet"}
-                  </motion.span>
-                </AnimatePresence>
-              </Chip>
+              <span data-tour="flow-status" className="flex min-w-0 max-w-full">
+                <Chip dot={armed ? "success" : hookError ? "danger" : "muted"}>
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span key={hookError ? "stopped" : armed ? "ready" : "waiting"} transition={fade}
+                      initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                      {hookError ? "Key listener stopped" : armed ? "Ready" : "Not ready yet"}
+                    </motion.span>
+                  </AnimatePresence>
+                </Chip>
+              </span>
             </Tooltip>
           )}
           <ChipButton onClick={() => openSettingsTab("flow")} tip="Flow settings" className="aspect-square justify-center px-0">
@@ -134,7 +147,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
       </section>
 
       <section className="flex min-h-[16rem] flex-1 basis-0 flex-col gap-1">
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-2">
+        <div data-tour="flow-history" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-2">
           <div className="relative flex min-h-control-sm min-w-0 flex-[1_1_10rem] items-center">
             <AnimatePresence mode="popLayout" initial={false}>
             {selecting ? (
@@ -191,6 +204,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         </div>
       </section>
 
+      <SpotlightTour id="flow" active={!sessionId && !!caps} steps={tour} />
       <AnimatePresence>
         {sessionId && (
           <FlowSessionModal key={sessionId} id={sessionId} live={sessions.some((s) => s.id === sessionId && s.state === "active")} onClose={() => onOpen(null)} />
@@ -204,10 +218,10 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
 const CROSSFADE = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } } as const;
 
 /** Something on the status row you can press: the kit's pill. */
-function ChipButton({ onClick, tip, className, children }: { onClick: () => void; tip: string; className?: string; children: React.ReactNode }) {
+function ChipButton({ onClick, tip, tour, className, children }: { onClick: () => void; tip: string; tour?: string; className?: string; children: React.ReactNode }) {
   return (
     <Tooltip label={tip} className="min-w-0 max-w-full">
-      <button type="button" onClick={onClick} className={cn(pill, "min-w-0 max-w-full", className)}>
+      <button type="button" data-tour={tour} onClick={onClick} className={cn(pill, "min-w-0 max-w-full", className)}>
         {children}
       </button>
     </Tooltip>
@@ -239,7 +253,7 @@ function BrainChip({ config }: { config: ReturnType<typeof useFlowConfig>["confi
   const { settings } = useDefaultBrain();
   const line = useAnswerLine(config && settings ? flowBrain(config, settings) : null);
   return (
-    <ChipButton onClick={() => openSettingsTab("flow", { anchor: "set-flow-brain" })} tip="Who answers in Flow">
+    <ChipButton tour="flow-brain" onClick={() => openSettingsTab("flow", { anchor: "set-flow-brain" })} tip="Who answers in Flow">
       {line.agent ? <AgentIcon id={line.agent} /> : <OpenLiveOrb size={12} />}
       <span className="min-w-0 truncate">{line.ready === false ? `${line.name} \u00b7 ${line.detail}` : line.name}</span>
       {line.ready !== null && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotTone(line.ready ? "success" : "arc"))} />}
