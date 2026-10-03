@@ -132,7 +132,21 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
   }, []);
 
   // Active once measured: the tour renders nothing until its target has a rect.
-  useFocusTrap(rootRef, !!rect, () => (asking ? keepGoing() : skip()));
+  useFocusTrap(rootRef, !!rect);
+  // Escape is the tour's before anything under it: Settings' own trap would
+  // otherwise close Settings first, taking its tour along unasked.
+  const onEscape = useRef(() => {});
+  onEscape.current = () => (asking ? keepGoing() : skip());
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onEscape.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   // Measure the real card height so vertical clamping keeps EVERY row (incl. the
   // Done button) inside the viewport — a fixed estimate pushed it off-screen for

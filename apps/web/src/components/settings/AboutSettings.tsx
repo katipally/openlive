@@ -77,7 +77,7 @@ function ShowMeAround() {
   return (
     <Section id="set-about-tours" title="Getting started" desc="Welcome, each mode's first run, and the short tour each screen shows the first time.">
       <ListGroup>
-        <ListRow label="Show me around again" detail={asking ? "Welcome, Flow setup, Dictate's first run and every tour start over." : "Plays it all again, as for someone new"}>
+        <ListRow label="Show me around again" detail={asking ? "Start Welcome, setups and tours over?" : "Welcome, setups and tours, as for someone new"}>
           {asking ? (
             <span role="group" aria-label="Start the guidance over?" className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="ghost" size="sm" autoFocus onClick={() => setAsking(false)}>Cancel</Button>
