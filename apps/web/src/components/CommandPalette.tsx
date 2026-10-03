@@ -85,7 +85,7 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
     if (!inCall) out.push({ id: "new", label: "New chat", group: "Actions", icon: Plus, keywords: "conversation call talk openlive lobby start",
       run: () => { leaveSettings(); onNewChat(); } });
     // The switch is hidden while the lobby or a call is up; so is this.
-    if (!liveOpen) for (const m of MODES) if (m.id !== mode) out.push({ id: `mode-${m.id}`, label: `Switch to ${m.label}`, group: "Actions", icon: m.icon, keywords: "mode",
+    if (!liveOpen) for (const m of MODES) if (m.id !== mode) out.push({ id: `mode-${m.id}`, label: `Switch to ${m.label}`, group: "Actions", icon: m.icon, keywords: "mode", hint: m.tagline,
       run: () => { leaveSettings(); featureUsed(MODE_COUNTER[m.id]); ui.setMode(m.id); } });
     out.push({ id: "shortcuts", label: "Show shortcuts", group: "Actions", icon: Keyboard, keywords: "keyboard keys help", keys: ["?"],
       run: () => ui.setShortcutsOpen(true) });

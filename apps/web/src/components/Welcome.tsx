@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { Button, Keycap, Keycaps, ListGroup } from "@/components/ui";
+import { Button, ListGroup } from "@/components/ui";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { tourSeen } from "@/components/SpotlightTour";
-import { MODES } from "@/components/flow/ModeSwitch";
+import { MODES, ModeStart } from "@/components/flow/ModeSwitch";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
 import { AccessRows } from "@/components/flow/FlowSettings";
 import { useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
@@ -16,7 +16,7 @@ import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { afterWelcome, allGranted } from "@/lib/flow/onboarding";
 import { useOnboarding } from "@/lib/prefs";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { useUi, type AppMode } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 
@@ -26,11 +26,6 @@ import { cn } from "@/lib/cn";
 // onboarding for what only it needs.
 
 const STEPS = 4;
-const LINE: Record<AppMode, string> = {
-  chat: "A voice call with your AI, in this window.",
-  flow: "Talk to any app. It types, acts and answers out loud.",
-  dictate: "Type with your voice, in any text box.",
-};
 
 /** Owed to someone who has never been welcomed and never seen the home tour, which every earlier version showed. */
 const owed = (): boolean => !useOnboarding.getState().welcomed && !tourSeen("home");
@@ -96,8 +91,8 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
                 <li key={m.id} className="flex items-start gap-3">
                   <span className={tile}><m.icon aria-hidden /></span>
                   <span className="flex min-w-0 flex-col">
-                    <span className="text-body font-medium text-foreground">{m.label}</span>
-                    <span className="break-words text-label text-muted-foreground">{LINE[m.id]}</span>
+                    <span className="text-body font-medium text-foreground">{m.label} <span className="font-normal text-muted-strong">{m.tagline}</span></span>
+                    <span className="break-words text-label leading-relaxed text-muted-foreground">{m.body}</span>
                   </span>
                 </li>
               ))}
@@ -132,12 +127,10 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
               <p className="text-body text-muted-strong">One thing to say in each mode. Pick one to start there.</p>
             </div>
             <ListGroup>
-              <Try label="Chat" onGo={() => finish("chat")}>Press New, then say &ldquo;What can you do?&rdquo;</Try>
-              <Try label="Flow" onGo={() => finish("flow")}>
-                Tap <Keycap>{CONTROL}</Keycap> <Keycap>{CONTROL}</Keycap> in any app and say &ldquo;Summarize this page&rdquo;
-              </Try>
+              <Try label="Chat" onGo={() => finish("chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
+              <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" /> Say &ldquo;Summarize this page&rdquo;</Try>
               <Try label="Dictate" onGo={() => finish("dictate")}>
-                {config?.dictate.enabled ? "In any text box" : "Turn it on, then click into any text box"}, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" /> and say &ldquo;Running five minutes late&rdquo;
+                <ModeStart mode="dictate" hold={hold} on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
               </Try>
             </ListGroup>
           </>

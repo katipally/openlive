@@ -92,19 +92,21 @@ export function setAgentPrefs(agentId: string, patch: AgentPrefs): void {
 }
 export const agentPrefsOf = (agentId: string): AgentPrefs => useSessionPrefs.getState()[`agent:${agentId}`] ?? {};
 
-// ── onboarding: Welcome, Flow's first run (lib/flow/onboarding.ts) and the tours (SpotlightTour) ──
+// ── onboarding: Welcome, Flow's and Dictate's first runs (lib/flow/onboarding.ts, DictateHome) and the tours (SpotlightTour) ──
 
 export interface OnboardingPrefs {
   welcomed: boolean;
   /** Flow's first-run flag, see lib/flow/onboarding.ts; null before it starts. */
   flowOnboarded: string | null;
+  /** Dictate's first run on its home was finished or skipped. */
+  dictateOnboarded: boolean;
   /** Tour ids already played. */
   tours: string[];
 }
-export const useOnboarding = persisted<OnboardingPrefs>("onboarding", () => ({ welcomed: false, flowOnboarded: null, tours: [] }), {
-  partialize: (s) => ({ welcomed: s.welcomed, flowOnboarded: s.flowOnboarded, tours: s.tours }),
+export const useOnboarding = persisted<OnboardingPrefs>("onboarding", () => ({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] }), {
+  partialize: (s) => ({ welcomed: s.welcomed, flowOnboarded: s.flowOnboarded, dictateOnboarded: s.dictateOnboarded, tours: s.tours }),
   clean: (f) => only(f, (k, v) =>
-    k === "welcomed" ? (typeof v === "boolean" ? v : undefined)
+    k === "welcomed" || k === "dictateOnboarded" ? (typeof v === "boolean" ? v : undefined)
     : k === "flowOnboarded" ? str(v, 32)
     : k === "tours" ? strings(v, 200)
     : undefined) as Partial<OnboardingPrefs>,

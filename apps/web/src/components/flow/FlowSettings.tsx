@@ -17,7 +17,7 @@ import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PR
 import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
 import { LinkRow, useSettingsNav } from "@/components/settings/nav";
-import { MoreMenu, QueryState, StatusDot } from "@/components/settings/common";
+import { ModeOnLine, MoreMenu, QueryState, StatusDot } from "@/components/settings/common";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
 import { AddonCard } from "./AddonCard";
 
@@ -50,9 +50,6 @@ export function FlowSettings() {
   useEffect(() => onPipelineConfig(setPipeline), []);
   const { caps, refresh } = useFlowCapabilities();
   const keyNote = keyListenerNote(caps);
-  // Main owns the switch and does not echo it back to this page, so a flip shows at once.
-  const [armed, setArmed] = useState<boolean | null>(null);
-  const listening = armed ?? caps?.armed ?? true;
 
   if (!config) return <QueryState loading={loading} error={error || null} retrying={false} onRetry={refetch} what="read Flow's settings" />;
 
@@ -65,6 +62,7 @@ export function FlowSettings() {
 
   return (
     <div className="flex flex-col gap-7">
+      {caps && <ModeOnLine id="set-flow-status" mode="flow" on={caps.armed} />}
       <Section id="set-flow-trigger" title="Trigger" desc="How you start Flow, from any app.">
         {caps?.addonError
           ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
@@ -74,14 +72,6 @@ export function FlowSettings() {
                 <Keycaps keys={[CONTROL, CONTROL]} label={`${CONTROL} twice`} />
                 {keyNote && <div className="basis-full"><StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot></div>}
               </ListRow>
-              {caps && (
-                <div id="set-flow-listen">
-                  <Toggle label="Listen for the Flow hotkey" on={listening}
-                    detail={listening ? "On in every app" : "Off until you turn it on"}
-                    info={listening ? undefined : `Tapping ${CONTROL} twice does nothing until you turn this back on or restart OpenLive.`}
-                    onFlip={(on) => { setArmed(on); flowBridge()?.setArmed(on); }} />
-                </div>
-              )}
             </ListGroup>
           )}
       </Section>

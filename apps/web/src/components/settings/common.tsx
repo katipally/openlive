@@ -3,7 +3,8 @@
 import { useRef, type ReactNode } from "react";
 import { Loader2, Lock, MoreHorizontal, RotateCcw, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { Badge, Button, ConfirmButton, ListGroup, Tooltip, dotTone, menuItem, menuPanel, useMenu, type DotTone } from "@/components/ui";
+import { Badge, Button, ConfirmButton, ListGroup, Tooltip, dotTone, linkClass, menuItem, menuPanel, useMenu, type DotTone } from "@/components/ui";
+import { MODE_LABEL, useUi } from "@/lib/uiStore";
 
 // What every settings page shares: loading, failure, empty and no-match states,
 // the one-line description, a status as a dot and a word, the ⋯ menu, the
@@ -87,6 +88,20 @@ export function BuiltInBadge() {
 }
 
 /** Where something stands, as a dot and a word (Ready, Sign in needed). */
+/** Whether Flow or Dictate is on, as Settings says it: the switch is on the mode's home, one press away. */
+export function ModeOnLine({ id, mode, on }: { id: string; mode: "flow" | "dictate"; on: boolean }) {
+  const name = MODE_LABEL[mode];
+  // A call keeps Chat on screen, so there is no home to go to until it ends.
+  const inCall = useUi((s) => s.liveOpen);
+  const go = () => { useUi.getState().closeSettings(); useUi.getState().setMode(mode); };
+  return (
+    <p id={id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label">
+      <StatusDot tone={on ? "success" : "muted"}>{name} is {on ? "on" : "off"}.</StatusDot>
+      {!inCall && <button type="button" onClick={go} className={cn(linkClass, "text-caption")}>Turn it {on ? "off" : "on"} in {name}</button>}
+    </p>
+  );
+}
+
 export function StatusDot({ tone, children }: { tone: DotTone; children: ReactNode }) {
   return (
     <span className="flex min-w-0 items-center gap-2 text-caption text-muted-foreground">

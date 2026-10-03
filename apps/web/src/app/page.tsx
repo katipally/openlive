@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Settings2, MessageSquare, Plus } from "lucide-react";
 import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
 import { APP_MODES, useUi } from "@/lib/uiStore";
@@ -20,7 +21,7 @@ import { useLiveStore } from "@/lib/live/liveStore";
 import { useDefaultAgent } from "@/components/settings/WhoAnswers";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
-import { ModeSwitch, SwitchHole } from "@/components/flow/ModeSwitch";
+import { MODES, ModeStart, ModeSwitch, modeCopy, SwitchHole } from "@/components/flow/ModeSwitch";
 import { flowBridge } from "@/lib/flow/bridge";
 import { FlowShell } from "@/components/flow/FlowShell";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -91,6 +92,10 @@ export default function Home() {
       if (tab) useUi.getState().openSettingsTab(tab);
     });
   }, []);
+
+  // The tray turns Dictate on and off with this window out of the loop; main says so here.
+  const qc = useQueryClient();
+  useEffect(() => flowBridge()?.onSettingsChanged?.(() => void qc.invalidateQueries({ queryKey: ["flow-config"] })), [qc]);
 
   const heroRef = useRef<HTMLDivElement>(null);
 
@@ -165,6 +170,9 @@ export default function Home() {
                 <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
                   Ears, eyes, and a voice for your AI.
                 </p>
+                <p className="ol-hero-tag max-w-sm text-label leading-relaxed text-faint">
+                  {modeCopy("chat").tagline} <ModeStart mode="chat" />
+                </p>
               </div>
               <div className="ol-hero-cta flex flex-wrap items-center justify-center gap-3">
                 <Button variant="primary" size="lg" onClick={startNew} data-tour="new"><Plus /> New</Button>
@@ -191,7 +199,7 @@ export default function Home() {
             </footer>
 
             <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
-              ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
+              ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." }],
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },

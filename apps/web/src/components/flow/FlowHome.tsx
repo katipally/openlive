@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { ImageIcon, Loader2, MoreHorizontal, Search, Settings2 } from "lucide-react";
-import { Keycap, menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Checkbox, groupLabel, ConfirmButton, Badge, dotTone } from "@/components/ui";
+import { menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Checkbox, groupLabel, ConfirmButton, Badge, dotTone } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { flowBrain } from "@openlive/flow-store/shared";
@@ -19,6 +19,8 @@ import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
+import { ModeStart, modeCopy } from "./ModeSwitch";
+import { PowerPill } from "./PowerPill";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
 import { cn } from "@/lib/cn";
 import { AgentIcon } from "@/components/live/AgentIcon";
@@ -97,10 +99,10 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         <OpenLiveOrb size={84} pulse paused={settingsOpen} />
         <div className="space-y-2">
           <h1 className="text-display font-semibold tracking-tight">Flow</h1>
-          <p className="text-callout leading-relaxed text-muted-foreground">
-            Tap <Keycap className="text-label">{CONTROL}</Keycap> <Keycap className="text-label">{CONTROL}</Keycap> anywhere to talk.
-          </p>
+          <p className="text-callout leading-relaxed text-muted-foreground">{modeCopy("flow").tagline}</p>
+          <p className="text-label leading-relaxed text-faint"><ModeStart mode="flow" /></p>
         </div>
+        {caps && !caps.addonError && <PowerPill name="Flow" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
           {needsAccess ? (
@@ -109,13 +111,13 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
               <span className="min-w-0 truncate">{isMac ? "Allow Accessibility" : "Allow input access"}</span>
             </ChipButton>
-          ) : caps && !caps.addonError && (
+          ) : caps?.armed && !caps.addonError && (
             <Tooltip label={hookError} className="flex min-w-0 max-w-full">
               <Chip dot={armed ? "success" : hookError ? "danger" : "muted"}>
                 <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span key={hookError ? "stopped" : armed ? "ready" : "off"} transition={fade}
+                  <motion.span key={hookError ? "stopped" : armed ? "ready" : "waiting"} transition={fade}
                     initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                    {hookError ? "Key listener stopped" : armed ? "Ready" : "Off"}
+                    {hookError ? "Key listener stopped" : armed ? "Ready" : "Not ready yet"}
                   </motion.span>
                 </AnimatePresence>
               </Chip>

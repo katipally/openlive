@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Cpu, Languages, TextCursorInput } from "lucide-react";
 import type { DictateTone, FlowConfig } from "@openlive/flow-store";
 import { Button, Keycaps, ListGroup, ListRow, Segmented, Select, Switch } from "@/components/ui";
 import { desktopPlatform, isDesktop } from "@/lib/platform";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
-import { keyListenerNote } from "@/lib/flow/failure";
 import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
 import { POLISH_MS } from "@/lib/dictate/run";
 import { bindingOf, hotkeyKeys, mayBeAltGr } from "@/lib/dictate/hotkey";
@@ -17,21 +15,22 @@ import { dictateBrain, flowBrain } from "@openlive/flow-store/shared";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { Section } from "./Section";
 import { LinkRow, useSettingsNav } from "./nav";
-import { QueryState, StatusDot } from "./common";
+import { ModeOnLine, QueryState, StatusDot } from "./common";
 import { DictateWords } from "./DictateWords";
-import { DictateHistory, historyQuery } from "./DictateHistory";
+import { DictateHistory } from "./DictateHistory";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 
-// The Dictate tab, in four subtabs. Basics: its key, how it cleans up what
-// was said, AI polish and who answers it and commands. Words: the dictionary
-// and snippets. Commands: command mode and the spoken commands. History: what
-// was dictated. Typing, voice and the speech engine are shared with Flow and
-// Chat, so they are rows that go there.
+// The Dictate tab configures; Dictate's home is where it is switched on and
+// used, and where its history is. Three subtabs. Basics: its key, how it
+// cleans up what was said, AI polish and who answers it and commands, and how
+// long history is kept. Words: the dictionary and snippets. Commands: command
+// mode and the spoken commands. Typing, voice and the speech engine are shared
+// with Flow and Chat, so they are rows that go there.
 
 const DEFAULT_KEY = "option_right";
 const DEFAULT_COMMAND_KEY = "shift+option_right";
-type Pane = "basics" | "words" | "commands" | "history";
-export const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
+type Pane = "basics" | "words" | "commands";
+const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
 const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; detail: string; info?: string }[] = [
   { id: "enter", label: "“Press enter”", detail: "Presses Return" },
   { id: "newLine", label: "“New line”", detail: "Line break, no send", info: "Shift+Return, which breaks the line in chat boxes without sending. In a terminal it runs the line." },
@@ -55,7 +54,6 @@ const RULES: { id: keyof CleanupRules; label: string; detail: string; info: stri
 export function DictateSettings() {
   const { config, save, error, loading, refetch } = useFlowConfig();
   const [pane, setPane] = useState<Pane>("basics");
-  const history = useQuery({ ...historyQuery, retry: 1 }).data;
 
   if (!config) return <QueryState loading={loading} error={error || null} retrying={false} onRetry={refetch} what="read Dictate's settings" />;
 
@@ -63,18 +61,17 @@ export function DictateSettings() {
   const saveOwn = (patch: Partial<FlowConfig["dictate"]>) => save({ dictate: patch });
   return (
     <div className="flex flex-col gap-5">
+      <ModeOnLine id="set-dictate-status" mode="dictate" on={own.enabled} />
       <Segmented label="Dictate" anchor="set-dictate" value={pane} onChange={setPane} className="w-full"
         options={[
           { id: "basics", label: "Basics" },
           { id: "words", label: "Words", count: own.words.length },
           { id: "commands", label: "Commands" },
-          { id: "history", label: "History", count: history?.items.length },
         ]} />
       {error && <p className="text-label text-destructive-text">{error}</p>}
       {pane === "basics" && <Basics config={config} save={save} />}
       {pane === "words" && <DictateWords own={own} save={saveOwn} />}
       {pane === "commands" && <Commands config={config} save={save} />}
-      {pane === "history" && <DictateHistory own={own} insertion={config.insertion} save={saveOwn} />}
     </div>
   );
 }
@@ -89,7 +86,6 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
 
   const own = config.dictate;
   const saveRules = (patch: Partial<CleanupRules>) => save({ dictate: { cleanup: { ...own.cleanup, ...patch } } });
-  const keyNote = keyListenerNote(caps);
   const ins = config.insertion;
   const language = CURATED_LANGUAGES.find((l) => l.code === pipeline.language)?.name ?? pipeline.language;
   // The rules are English; elsewhere only punctuation applies (lib/dictate/cleanup.ts).
@@ -102,14 +98,8 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
           ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
           : (
             <ListGroup>
-              <div id="set-dictate-on">
-                <ListRow label="Dictate" detail={own.enabled ? "Listening for its key" : "Off until you turn it on"} asLabel>
-                  <Switch on={own.enabled} onFlip={() => save({ dictate: { enabled: !own.enabled } })} />
-                </ListRow>
-              </div>
               <HotkeyRow binding={own.hotkey} fallback={DEFAULT_KEY} taken={own.commandHotkey} onPick={(hotkey) => save({ dictate: { hotkey } })}
                 label="Hold to talk" detail="Release types it" info="Hold the key and talk. Letting go types what you said where your cursor is." />
-              {keyNote && <ListRow label={<StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot>} />}
               <ListRow label="Hands-free" detail="Double-tap, then tap to stop"
                 info="Or press the mic beside Flow's orb, or ask Flow to start dictation. Each pause types what you said." />
             </ListGroup>
@@ -153,6 +143,8 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
           <LinkRow icon={Cpu} label="Speech engine" detail="Speech to text" value={familyInfo("stt", pipeline.stt.family)?.name ?? pipeline.stt.family} onGo={() => go("engine")} />
         </ListGroup>
       </Section>
+
+      <DictateHistory own={own} save={(patch) => save({ dictate: patch })} />
     </div>
   );
 }

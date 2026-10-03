@@ -51,7 +51,7 @@ export interface FlowCapabilities {
   /** An installed app, where the fix is a reinstall rather than a build. */
   packaged: boolean;
   report: CapabilityReport | null;
-  /** False while Flow's off switch (Settings > Flow) is off: the hook is suspended on purpose. */
+  /** False while Flow's off switch (on Flow's home) is off: the hook is suspended on purpose. */
   armed: boolean;
 }
 /** Flow's one gesture: two quick taps of this key, alone, anywhere on the

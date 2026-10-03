@@ -95,7 +95,7 @@ function Groups() {
   const own = useFlowConfig().config?.dictate;
   // Dictate's keys are the person's own, and bound only while it is on.
   const hold = own ? hotkeyKeys(own.hotkey, desktopPlatform) : [];
-  const dictate: Group[] = isDesktop && own?.enabled ? [{ title: "Dictate, from any app", rows: [
+  const dictate: Group[] = isDesktop && own ? [{ title: "Dictate, from any app", note: own.enabled ? undefined : "Off now. Turn it on in Dictate.", rows: [
     { label: "Hold to talk, release to type", keys: hold },
     { label: "Hands-free, tap again to stop", keys: [...hold, ...hold] },
     { label: "Command mode, hold and say the change", keys: hotkeyKeys(own.commandHotkey, desktopPlatform) },

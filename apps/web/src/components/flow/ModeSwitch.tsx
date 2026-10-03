@@ -4,21 +4,48 @@ import { useLayoutEffect, useRef } from "react";
 import { Mic, MessageSquare, Waves } from "lucide-react";
 import { MODE_LABEL, useUi, type AppMode } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
-import { Segmented } from "@/components/ui";
+import { CONTROL } from "@/lib/platform";
+import { Keycap, Keycaps, Segmented } from "@/components/ui";
 
-// The app-level switch. Chat is the OpenLive you already know; Flow is the same
-// product with no window in the way; Dictate types what you say. Flow's gesture
+// The app-level switch, and what each mode is. Flow's gesture
 // and Dictate's key stay armed in every mode, so this only changes what the
 // window shows.
 //
 // It has exactly one home, top centre of the window in every mode, because a
 // control that moves when you use it is a control you have to find again.
 
-export const MODES = [
-  { id: "chat" as const, label: MODE_LABEL.chat, icon: MessageSquare, title: "Chat: talk in a call" },
-  { id: "flow" as const, label: MODE_LABEL.flow, icon: Waves, title: "Flow: talk from any app" },
-  { id: "dictate" as const, label: MODE_LABEL.dictate, icon: Mic, title: "Dictate: type with your voice" },
-];
+/** The one place each mode is described: the switch, Welcome, the homes, the
+ *  tour, Settings and the palette all read these. How to start each is ModeStart. */
+const COPY = {
+  chat: {
+    tagline: "A voice call with your AI.",
+    body: "Talk back and forth with your API model or a coding agent like Claude Code. Share screen or camera, interrupt any time, resume later.",
+  },
+  flow: {
+    tagline: "Ask your computer, from any app.",
+    body: "Your AI listens, answers out loud, and can act for you: open apps, click, type, run commands. Thinks with your API key or a coding agent.",
+  },
+  dictate: {
+    tagline: "Voice typing into any text box.",
+    body: "Hold a key, talk, let go: your words are typed at the cursor. Runs on this machine. No AI, nothing spoken back, unless you turn on AI polish.",
+  },
+} as const satisfies Record<AppMode, { tagline: string; body: string }>;
+
+export const MODES = ([
+  { id: "chat" as const, label: MODE_LABEL.chat, icon: MessageSquare },
+  { id: "flow" as const, label: MODE_LABEL.flow, icon: Waves },
+  { id: "dictate" as const, label: MODE_LABEL.dictate, icon: Mic },
+]).map((m) => ({ ...m, ...COPY[m.id], title: `${m.label}: ${COPY[m.id].tagline}` }));
+export const modeCopy = (id: AppMode) => COPY[id];
+
+/** How to start `mode`, in this keyboard's key names. `hold` is Dictate's key, `on` whether Dictate is on already. */
+export function ModeStart({ mode, hold = [], on = false }: { mode: AppMode; hold?: readonly string[]; on?: boolean }) {
+  if (mode === "chat") return <>Press New, then talk.</>;
+  if (mode === "flow") return <>Tap <Keycap className="text-label">{CONTROL}</Keycap> twice in any app. Tap twice again to close.</>;
+  return (
+    <>{on ? "Click" : "Turn it on, click"} into a text box, hold <Keycaps keys={hold} label={hold.join(" ")} className="align-middle" />, talk, let go. Double-tap for hands-free.</>
+  );
+}
 /** The counter a switch to each mode counts, shared with the command palette. */
 export const MODE_COUNTER = { chat: "n_mode_to_chat", flow: "n_mode_to_flow", dictate: "n_mode_to_dictate" } as const satisfies Record<AppMode, string>;
 // A narrow window keeps the icons and drops the words; the tooltips and the

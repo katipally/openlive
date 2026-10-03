@@ -58,7 +58,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "End Flow and calls when the screen locks", keywords: "lock locked sleep suspend keep going close hang up", tab: "general", anchor: "set-general-lock", desktop: true, os: ["darwin", "win32"] },
   { label: "Typing at cursor", keywords: "how text goes in paste type it out typing insertion insert clipboard put back restore timing modifier dictate flow", tab: "general", anchor: "set-general-typing" },
   { label: "Put my clipboard back", keywords: "restore clipboard keep pasted text paste copy", tab: "general", anchor: "set-general-clipboard" },
-  { label: "Dictate", keywords: "dictation turn on off talk instead of type voice typing speech to text", tab: "dictate", anchor: "set-dictate-on", reveal: "set-dictate-basics", desktop: true },
+  { label: "Dictate on or off", keywords: "dictation turn on off enable disable voice typing speech to text", tab: "dictate", anchor: "set-dictate-status", reveal: "set-dictate-basics", desktop: true },
   { label: "Dictate hotkey", keywords: "hold to talk push to talk key right alt option altgr change shortcut hands-free double tap", tab: "dictate", anchor: "set-dictate-trigger", reveal: "set-dictate-basics", desktop: true },
   { label: "Dictation cleanup", keywords: "punctuation capitals fillers um uh backtrack scratch that actually correction lists numbers digits", tab: "dictate", anchor: "set-dictate-cleanup", reveal: "set-dictate-basics" },
   { label: "AI polish", keywords: "dictate rewrite polish grammar tone natural casual formal professional brain", tab: "dictate", anchor: "set-dictate-polish", reveal: "set-dictate-basics" },
@@ -67,7 +67,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Snippets", keywords: "dictate text expansion shortcut phrase trigger template address signature", tab: "dictate", anchor: "set-dictate-snippets", reveal: "set-dictate-words" },
   { label: "Command mode", keywords: "dictate edit selection selected text rewrite translate make formal shift hotkey instruction", tab: "dictate", anchor: "set-dictate-command", reveal: "set-dictate-commands", desktop: true },
   { label: "Spoken commands", keywords: "dictate press enter return new line paragraph undo that stop dictating voice commands", tab: "dictate", anchor: "set-dictate-spoken", reveal: "set-dictate-commands" },
-  { label: "Dictate history", keywords: "dictations past transcripts recent copy insert again delete clear keep retention days", tab: "dictate", anchor: "set-dictate-history-list", reveal: "set-dictate-history" },
+  { label: "Dictate history", keywords: "dictations past transcripts recent keep retention days clear all delete", tab: "dictate", anchor: "set-dictate-history", reveal: "set-dictate-basics" },
 
   { label: "Who answers you", keywords: "default brain who thinks api key coding agent claude code codex cursor new chats flow dictate", tab: "models", anchor: "set-models-default" },
   { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
@@ -106,7 +106,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Push-to-talk", keywords: "hold to talk tap to toggle space walkie voice input call", tab: "chat", anchor: "set-chat-ptt" },
   { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },
 
-  { label: "Listen for the Flow hotkey", keywords: "armed disarm pause turn off on control ctrl double tap trigger gesture", tab: "flow", anchor: "set-flow-listen", desktop: true },
+  { label: "Flow on or off", keywords: "listen for the flow hotkey armed disarm pause turn off on enable disable control ctrl double tap trigger gesture", tab: "flow", anchor: "set-flow-status", desktop: true },
   { label: "Who answers in Flow", keywords: "brain agent model api key coding agent who thinks its own different override same as default", tab: "flow", anchor: "set-flow-brain" },
   { label: "Say replies out loud", keywords: "speak voice", tab: "flow", anchor: "set-flow-voice" },
   { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },
