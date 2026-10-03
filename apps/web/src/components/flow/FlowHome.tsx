@@ -100,7 +100,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         <div className="space-y-2">
           <h1 className="text-display font-semibold tracking-tight">Flow</h1>
           <p className="text-callout leading-relaxed text-muted-foreground">{modeCopy("flow").tagline}</p>
-          <p className="text-label leading-relaxed text-faint"><ModeStart mode="flow" /></p>
+          <p className="text-label leading-relaxed text-faint"><ModeStart mode="flow" on={caps?.armed !== false} /></p>
         </div>
         {caps && !caps.addonError && <PowerPill name="Flow" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
@@ -166,7 +166,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         {error && <Empty>Flow&rsquo;s history could not be read.</Empty>}
         {!error && isLoading && <Empty>Looking&hellip;</Empty>}
         {!error && !isLoading && !sessions.length && (
-          <Empty>{shown ? `Nothing matching \u201c${shown}\u201d.` : `Nothing yet. Tap ${CONTROL} twice and say something.`}</Empty>
+          <Empty>{shown ? `Nothing matching \u201c${shown}\u201d.` : `Nothing yet. ${caps?.armed === false ? "Turn Flow on, then tap" : "Tap"} ${CONTROL} twice and say something.`}</Empty>
         )}
         <AnimatePresence>
         {groups.flatMap((g) => [

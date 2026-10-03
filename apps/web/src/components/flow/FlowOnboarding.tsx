@@ -50,7 +50,7 @@ export function FlowOnboarding({ onDone, config, save }: {
           <OpenLiveOrb size={48} pulse />
           <h1 className="text-title-lg font-semibold tracking-tight">{modeCopy("flow").tagline}</h1>
           <p className="text-body leading-relaxed text-muted-strong">
-            {modeCopy("flow").body} <ModeStart mode="flow" /> It needs these first:
+            {modeCopy("flow").body} <ModeStart mode="flow" on /> It needs these first:
           </p>
         </div>
         <AccessRows config={config} save={save} askedFrom="onboarding" />

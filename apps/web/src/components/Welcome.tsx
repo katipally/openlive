@@ -128,7 +128,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
             </div>
             <ListGroup>
               <Try label="Chat" onGo={() => finish("chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
-              <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" /> Say &ldquo;Summarize this page&rdquo;</Try>
+              <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" on /> Say &ldquo;Summarize this page&rdquo;</Try>
               <Try label="Dictate" onGo={() => finish("dictate")}>
                 <ModeStart mode="dictate" hold={hold} on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
               </Try>
