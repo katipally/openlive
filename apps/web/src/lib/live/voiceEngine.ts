@@ -185,7 +185,7 @@ export class VoiceEngine {
   private partialAbort: AbortController | null = null; // the interim transcription in flight
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
-  private tape: Tape | null = null;               // a hold that began before the VAD ran: the whole of it, the words before it too
+  private tape: Tape | null = null;               // the hold in progress, from the microphone's first frame
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
   private gated = false;                          // push to talk: the VAD runs only while a hold is down (setGate)
   // Set by stop(). A transcription still running then must not start a turn in a
@@ -260,11 +260,21 @@ export class VoiceEngine {
   private ring = new FrameRing(PRE_SPEECH_FRAMES); // recent frames, sent when speech starts
   private uttEngine = "whisper";                  // the STT variant this utterance started on
   private ttsAbort: AbortController | null = null; // the sentence being synthesized, cut by barge-in
+  // The microphone, opened through `open` whenever the VAD listens and stopped
+  // whenever it pauses: push to talk holds it only while a hold is down.
+  private open: (() => Promise<MediaStream>) | null = null;
+  private stream: MediaStream | null = null;
   private micTrack: MediaStreamTrack | null = null;
+  // vad-web's start and pause race each other across the device's open, so each
+  // waits for the one before it.
+  private micOps: Promise<unknown> = Promise.resolve();
+  // The released hold's tape, still taking its last frames: the device it reads stops once it has them.
+  private tapeEnd: Promise<unknown> | undefined;
   private keepWarm: ReturnType<typeof setInterval> | undefined;
   // The voiceprint (voiceprint.ts) when the setting is on and the user is
   // enrolled: this call's mic, which keys the user's print there.
   private print: { mic: string; gate: boolean } | null = null;
+  private printFor: string | undefined;            // the mic syncVoiceprint last asked about
   private others = new OtherVoices(SAME_VOICE);
   private segment = 0;                             // counts segments, so a late verdict finds its own
   private dropped = 0;                             // segments up to this one were discarded
@@ -338,12 +348,11 @@ export class VoiceEngine {
     };
   }
 
-  /** `hold`: a push-to-talk hold begins with the microphone, so it is kept from now, not from when the VAD is up. */
-  async start(stream: MediaStream, hold = false) {
-    if (hold) { this.ptt = true; this.tape = tapeOf(stream); void tapeVad(loadPipelineConfig().vad.model).catch(() => {}); }
-    this.micTrack?.removeEventListener("ended", this.onMicEnded);
-    this.micTrack = stream.getAudioTracks()[0] ?? null;
-    this.micTrack?.addEventListener("ended", this.onMicEnded);
+  /** `open` opens the microphone, each time the VAD starts listening: once for
+   *  the session hands-free, at each press in push to talk. Rejects when the
+   *  microphone is wanted now and cannot be opened. */
+  async start(open: () => Promise<MediaStream>) {
+    this.open = open;
     this.player.resume();
     // VAD sensitivity + trailing silence come from the user's pipeline config;
     // baked into MicVAD at construction, so edits apply on the next start().
@@ -357,7 +366,10 @@ export class VoiceEngine {
       // no CDN dependency, versions track package.json.
       baseAssetPath: "/vad/",
       onnxWASMBasePath: "/vad/",
-      getStream: async () => stream,             // our stream: chosen device + AEC on
+      // The caller's device and constraints (AEC on), and every track stopped on pause.
+      getStream: () => this.acquire(),
+      resumeStream: () => this.acquire(),
+      pauseStream: async (s) => this.release(s),
       positiveSpeechThreshold: vadCfg.speechThreshold, // lower → picks up soft speech + faster barge-in
       negativeSpeechThreshold: Math.max(0.1, vadCfg.speechThreshold - 0.15),
       minSpeechMs: 250,
@@ -376,17 +388,13 @@ export class VoiceEngine {
     if (this.stopped) { void vad.destroy().catch(() => { /* */ }); return; }
     this.vad = vad;
     this.syncAsr();
-    void this.syncVoiceprint();
     warmNativeEngines();
     if (this.cueing()) void this.renderCues(voiceNow());
     clearInterval(this.keepWarm);
     this.keepWarm = setInterval(warmNativeEngines, KEEP_WARM_MS);
     // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
-    if ((!this.muted && !this.gated) || this.ptt) await vad.start();
+    if ((!this.muted && !this.gated) || this.ptt) await this.listen(true);
     if (this.stopped) return;
-    this.setupMicSpectrum(stream);
-    // What the hold caught while the VAD loaded is shown now, not at the next word.
-    if (this.tape) { this.uttEngine = activeSttEngine(); void this.maybePartial(); }
     // Only a segment the old VAD was hearing is gone; a reply keeps its phase.
     if (this.phase === "listening") this.setPhase("idle");
   }
@@ -395,11 +403,63 @@ export class VoiceEngine {
    *  enrolled on it; until then, and without the agent, speech is not checked. */
   private async syncVoiceprint() {
     const mode = loadPipelineConfig().voiceprint, mic = this.micTrack?.label ?? "";
+    this.printFor = mic;
     this.print = null;
     if (mode === "off") return;
     const s = await voiceprintStatus();
-    if (s?.installed && s.enrolled && !this.stopped && mic === (this.micTrack?.label ?? "")) this.print = { mic, gate: mode === "gate" };
+    if (s?.installed && s.enrolled && !this.stopped && mic === this.printFor) this.print = { mic, gate: mode === "gate" };
   }
+
+  /** The VAD's getStream: the microphone opened, and everything that reads it pointed at it. */
+  private async acquire(): Promise<MediaStream> {
+    const s = await this.open!();
+    this.stream = s;
+    this.micTrack = s.getAudioTracks()[0] ?? null;
+    this.micTrack?.addEventListener("ended", this.onMicEnded);
+    this.setupMicSpectrum(s);
+    if ((this.micTrack?.label ?? "") !== this.printFor) void this.syncVoiceprint();
+    return s;
+  }
+  /** The VAD's pauseStream: every track stopped, so the device and the system's
+   *  microphone indicator go off, after a released hold's tape has its last frames. */
+  private release(s: MediaStream) {
+    const after = this.tapeEnd;
+    this.tapeEnd = undefined;
+    const stop = () => s.getTracks().forEach((t) => t.stop());
+    if (after) void after.then(stop, stop);
+    else stop();
+    if (s !== this.stream) return;
+    this.micTrack?.removeEventListener("ended", this.onMicEnded);
+    this.stream = null;
+    this.micTrack = null;
+    try { this.micSrc?.disconnect(); } catch { /* */ }
+    this.micSrc = null;
+    this.micRms = 0;
+  }
+  /** Starts or pauses the VAD, and so opens or lets go of the microphone, once
+   *  every call before it is done. A hold is taped from the stream the start
+   *  leaves open, its first frame on. */
+  private listen(on: boolean): Promise<void> {
+    const op = this.micOps.then(async () => {
+      const vad = this.vad;
+      if (!vad) return;
+      if (!on) return vad.pause();
+      try { await vad.start(); }
+      catch (e) {
+        // vad-web marks itself listening before the device opens: paused, the next start opens it again.
+        await vad.pause().catch(() => { /* */ });
+        throw e;
+      }
+      if (this.ptt && !this.tape && this.micTrack) {
+        this.tape = tapeOf(new MediaStream([this.micTrack]));
+        void tapeVad(loadPipelineConfig().vad.model).catch(() => {});
+      }
+    });
+    this.micOps = op.catch(() => { /* reported by the caller */ });
+    return op;
+  }
+  /** A press that could not open the microphone: said the way a lost one is. */
+  private micFailed = (e: unknown) => { log.warn("live", "mic:", e); this.h.onMicLost?.(); };
   private gating() { return !!this.print?.gate && !this.ptt; }
   /** While an ask is open every sentence is its answer, never side talk, and
    *  push-to-talk is never judged. */
@@ -442,17 +502,19 @@ export class VoiceEngine {
     } catch { this.micAnalyser = null; /* spectrum is best-effort */ }
   }
 
-  /** Swap the mic mid-call (device change) — rebuild the VAD on the new stream
-   *  without touching the audio player, so a reply in progress keeps playing. */
-  async setStream(stream: MediaStream) {
+  /** Swap the mic mid-call (device change, or a lost one): rebuild the VAD on
+   *  whatever `open` opens now, without touching the audio player, so a reply in
+   *  progress keeps playing. */
+  async reopen() {
     this.clearHold();
     this.pending = null;
     this.streaming = false;
     this.segmentLost();
     this.ring.clear();
-    void this.vad?.destroy().catch(() => { /* */ });
+    const old = this.vad;
     this.vad = null;
-    await this.start(stream);
+    this.micOps = this.micOps.then(() => old?.destroy()).catch(() => { /* */ });
+    await this.start(this.open!);
   }
 
   // ── user speech ─────────────────────────────────────────────────────────
@@ -907,14 +969,15 @@ export class VoiceEngine {
   private clearHold() { if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; this.h.onHold(null); } }
 
   // ── push-to-talk ────────────────────────────────────────────────────────
-  /** Hold-to-talk pressed: barge in if the agent is mid-reply, unmute if needed,
-   *  and suspend all auto end-of-turn — release is the turn boundary. */
+  /** Hold-to-talk pressed: barge in if the agent is mid-reply, open the microphone
+   *  if a mute or the gate has it shut (shut again on release), tape the hold from
+   *  its first frame, and suspend all auto end-of-turn — release is the turn boundary. */
   beginPtt() {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
     if ((this.tentative || this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
-    if (this.muted || this.gated) void this.vad.start(); // lift a mute or the gate for the hold (restored on release)
+    this.listen(true).catch(this.micFailed);
   }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
@@ -925,24 +988,28 @@ export class VoiceEngine {
     if (!this.ptt) return "heard";
     const tape = this.tape?.stop(lateMs);
     this.tape = null;
+    // The tape has all of the hold: with the microphone shut between holds, it
+    // is let go as soon as the tape has its last frame, not after the VAD's tail.
+    const shut = !!tape && (this.gated || this.muted);
+    if (shut) this.shutMic(tape);
     // `now`: the release itself says the sentence is over, so the segment ends on
     // the next quiet frame instead of after the usual trailing silence.
-    if (now) this.vad?.setOptions({ redemptionMs: 0 });
+    else if (now) this.vad?.setOptions({ redemptionMs: 0 });
     // The user just stopped talking: the VAD ends the segment after redemptionMs of
     // silence, then onSpeechEnd (ptt branch) appends it to `pending`. Bounded wait.
     for (let i = 0; i < 40 && (this.phase === "listening" || this.finalizing); i++) await new Promise((r) => setTimeout(r, 50));
     // A long hold's last segment can take Whisper seconds more to transcribe, and
     // its words are the turn: let go before them, they arrive with no hold to join.
     for (let i = 0; i < 300 && this.finalizing; i++) await new Promise((r) => setTimeout(r, 50));
-    if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
+    if (now && !shut) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
     if (this.stopped) return "heard";
     this.ptt = false;
     const held = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
     this.pending = null;
-    if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute (or the gate)
+    if (this.muted) this.listen(false).catch(() => { /* */ }); // the hold is over — restore the mute (or the gate)
     else this.settleGate();
-    // The tape has the words said before the VAD was up, which `pending` lacks,
-    // from just before its first speech. Without its VAD, the old loudness rule.
+    // The tape has the words said before the VAD caught them, which `pending`
+    // lacks, from just before its first speech. Without its VAD, the old loudness rule.
     const taped = await tape;
     const from = taped ? await this.speechFrom(taped) : -1;
     const p = from === null ? (taped && (held || rmsOf(taped) >= this.gate()) ? taped : held) : from >= 0 ? taped!.subarray(from) : held;
@@ -992,8 +1059,18 @@ export class VoiceEngine {
     this.tape = null;
     this.pending = null;
     this.h.onPartial("");
-    if (this.muted) void this.vad?.pause();
-    else this.settleGate();
+    // Its segment in progress goes too, or the VAD would end it as a turn of its own.
+    if (this.muted || this.gated) this.shutMic();
+  }
+  /** The hold is over and the microphone shut between holds: the VAD stops at
+   *  once, its segment in progress dropped, and the device goes once `tape` has its last frames. */
+  private shutMic(tape?: Promise<unknown>) {
+    this.streaming = false;
+    this.segmentLost();
+    this.ring.clear();
+    if (this.phase === "listening") this.setPhase("idle");
+    this.tapeEnd = tape;
+    this.listen(false).catch(() => { /* */ });
   }
   pttActive() { return this.ptt; }
   /**
@@ -1006,21 +1083,14 @@ export class VoiceEngine {
   setGate(on: boolean) {
     this.gated = on;
     if (on) this.settleGate();
-    else if (!this.muted && !this.ptt) void this.vad?.start();
+    else if (!this.muted && !this.ptt) this.listen(true).catch(this.micFailed);
   }
   /** Closes the gate once nothing is being heard, held or transcribed. */
   private settleGate() {
     if (this.gated && !this.ptt && this.vad && !this.hearing && !this.pending && !this.finalizing && !this.deferred.length) {
-      void this.vad.pause();
+      this.listen(false).catch(() => { /* */ });
       if (this.phase === "listening") this.setPhase("idle");
     }
-  }
-  /** A hold begins on an engine already up: recorded from now, as a cold start's
-   *  is, so a word too short for the VAD is kept. */
-  tapeHold() {
-    if (this.tape || !this.micTrack || this.stopped) return;
-    this.tape = tapeOf(new MediaStream([this.micTrack]));
-    void tapeVad(loadPipelineConfig().vad.model).catch(() => {});
   }
 
   // ── agent reply → speech ───────────────────────────────────────────────
@@ -1348,8 +1418,8 @@ export class VoiceEngine {
   setMuted(muted: boolean) {
     this.muted = muted;
     if (!this.vad) return;
-    if (muted) { this.clearHold(); this.pending = null; this.streaming = false; this.segmentLost(); this.ring.clear(); this.micRms = 0; void this.vad.pause(); if (this.phase === "listening") this.setPhase("idle"); }
-    else if (!this.gated || this.ptt) void this.vad.start();
+    if (muted) { this.clearHold(); this.pending = null; this.streaming = false; this.segmentLost(); this.ring.clear(); this.micRms = 0; this.listen(false).catch(() => { /* */ }); if (this.phase === "listening") this.setPhase("idle"); }
+    else if (!this.gated || this.ptt) this.listen(true).catch(this.micFailed);
   }
 
   micLevel() { return this.micRms; }
@@ -1381,8 +1451,11 @@ export class VoiceEngine {
     this.asr?.close();
     this.asr = null;
     this.streaming = false;
-    void this.vad?.destroy().catch(() => { /* */ });
+    // After any open in flight: destroy pauses the VAD, which stops its stream.
+    const vad = this.vad;
     this.vad = null;
+    this.micOps = this.micOps.then(() => vad?.destroy()).catch(() => { /* */ })
+      .then(() => { this.stream?.getTracks().forEach((t) => t.stop()); this.stream = null; });
     try { this.micSrc?.disconnect(); } catch { /* */ }
     try { void this.specCtx?.close(); } catch { /* */ }
     this.micSrc = null; this.micAnalyser = null; this.micFreq = null; this.specCtx = null;

@@ -78,7 +78,6 @@ export function useFlowOwner(): void {
   const permission = useRef<PendingPermission | null>(null);
   const client = useRef<LiveClient | null>(null);
   const engine = useRef<VoiceEngine | null>(null);
-  const stream = useRef<MediaStream | null>(null);
   const starting = useRef<Promise<void> | null>(null);
   const settings = useRef<FlowSettings | null>(null);
   const brainReady = useRef(false);
@@ -264,14 +263,13 @@ export function useFlowOwner(): void {
     };
 
     // ── the cascade ───────────────────────────────────────────────────────
-    // The microphone is held only while Flow is open: Flow has no wake word and
-    // never listens while it is closed.
+    // The microphone is held only while Flow or Dictate is open, and in push to
+    // talk only while the key is down: Flow has no wake word and never listens
+    // while it is closed.
     const ensureEngine = async () => {
       if (engine.current) return;
       if (starting.current) return starting.current;
       starting.current = (async () => {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: MIC });
-        stream.current = mic;
         const eng = new VoiceEngine({
           onPhase: onEnginePhase,
           onPartial: (text) => dictate.partial(text),
@@ -299,13 +297,11 @@ export function useFlowOwner(): void {
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
         }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
         eng.setGate(talkMode() === "ptt");
-        try { await eng.start(mic); }
+        try { await eng.start(() => navigator.mediaDevices.getUserMedia({ audio: MIC })); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
           // opens a new mic rather than reusing this one.
           eng.stop();
-          mic.getTracks().forEach((t) => t.stop());
-          stream.current = null;
           throw e;
         }
         engine.current = eng;
@@ -313,16 +309,15 @@ export function useFlowOwner(): void {
       return starting.current;
     };
 
-    /** The mic went away mid-session: carry on with the default device, or say
-     *  why Flow cannot hear and close the dead one, so "Try again" reopens it. */
+    /** The mic went away mid-session, or a press could not open it: carry on
+     *  with the default device, or say why Flow cannot hear and close the dead
+     *  one, so "Try again" reopens it. */
     const recoverMic = async (eng: VoiceEngine) => {
       try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: MIC });
-        if (engine.current !== eng) { mic.getTracks().forEach((t) => t.stop()); return; }
-        const old = stream.current;
-        stream.current = mic;
-        await eng.setStream(mic);
-        old?.getTracks().forEach((t) => t.stop());
+        // Push to talk opens it only at the next press, so it is tried now and let go.
+        if (talkMode() === "ptt") (await navigator.mediaDevices.getUserMedia({ audio: MIC })).getTracks().forEach((t) => t.stop());
+        if (engine.current !== eng) return;
+        await eng.reopen();
       } catch (e) {
         log.error("flow", "mic lost:", e);
         if (engine.current !== eng) return;
@@ -345,8 +340,6 @@ export function useFlowOwner(): void {
       if (turnActive.current) return;
       try { engine.current?.stop(); } catch { /* */ }
       engine.current = null;
-      try { stream.current?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
-      stream.current = null;
     };
 
     const onEnginePhase = (p: EnginePhase) => {
@@ -440,7 +433,8 @@ export function useFlowOwner(): void {
     const decideVoice = async () => {
       const read = valueOr(await api.signals(), NO_SIGNALS) as QuietSignals;
       // The addon can only say the microphone is busy, not who is using it. Flow
-      // holds it for the whole session, so that is Flow: the answer reverts to
+      // may hold it (all session hands-free, around each hold in push to talk),
+      // so that may be Flow: the answer reverts to
       // "could not tell" rather than quieting Flow against itself.
       const signals: QuietSignals = { ...read, micBusy: engine.current ? null : read.micBusy };
       const rules = settings.current ? asRules(settings.current) : null;
@@ -561,8 +555,7 @@ export function useFlowOwner(): void {
         engine.current?.setGate(talkMode() === "ptt");
         return !!engine.current;
       },
-      // Recorded from the press, so the first syllable is kept while the VAD wakes.
-      beginHold: () => { engine.current?.tapeHold(); engine.current?.beginPtt(); },
+      beginHold: () => engine.current?.beginPtt(),
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? "heard",
       dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
@@ -625,8 +618,6 @@ export function useFlowOwner(): void {
           const e = engine.current;
           if (!e) return false;
           if (snap.current.aside) patch({ aside: "" });
-          // Recorded from the press, so the first syllable is kept while the VAD wakes.
-          e.tapeHold();
           e.beginPtt();
           return true;
         },

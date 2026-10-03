@@ -143,7 +143,6 @@ export function useLiveSession(chatId: string) {
   const player = useRef<AudioPlayer | null>(null);
   const camRef = useRef<CameraCapture | null>(null);
   const screenRef = useRef<CameraCapture | null>(null);
-  const micStream = useRef<MediaStream | null>(null);
   // Re-entrancy guards: a media toggle awaits getUserMedia/getDisplayMedia, and the
   // on/off decision reads store state that only flips AFTER the await — so two quick
   // taps both take the "on" branch and the first stream is orphaned (camera light
@@ -249,7 +248,6 @@ export function useLiveSession(chatId: string) {
     player.current = null;
     try { camRef.current?.stop(); } catch { /* */ }              // camera light off
     try { screenRef.current?.stop(); } catch { /* */ }             // stop screen share
-    if (micStream.current) { micStream.current.getTracks().forEach((t) => t.stop()); micStream.current = null; }
     if (assistantId.current) { chatStore.liveFinish(chatId, assistantId.current); assistantId.current = null; }
     // The on-device voice worker is left running on purpose — kept warm for the
     // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
@@ -531,14 +529,15 @@ export function useLiveSession(chatId: string) {
       if (!modelsMatchConfig()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
       if (tornDown.current) return;
 
-      // 2. Mic stream — chosen device + browser AEC (so the agent's own voice is
-      //    cancelled from the mic and can't self-trigger barge-in).
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-      const micId = useLiveStore.getState().micId;
-      if (micId) audio.deviceId = { exact: micId };
-      const stream = await navigator.mediaDevices.getUserMedia({ audio });
-      micStream.current = stream;
-      if (tornDown.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      // 2. Mic — the device chosen when the engine opens it (for the call
+      //    hands-free, for each hold in push to talk) + browser AEC (so the agent's
+      //    own voice is cancelled from the mic and can't self-trigger barge-in).
+      const openMic = () => {
+        const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        const micId = useLiveStore.getState().micId;
+        if (micId) audio.deviceId = { exact: micId };
+        return navigator.mediaDevices.getUserMedia({ audio });
+      };
 
       // 3. Voice engine.
       const eng = new VoiceEngine({
@@ -624,7 +623,7 @@ export function useLiveSession(chatId: string) {
       engine.current = eng;
       // How you talk is shared with Flow and Dictate: push to talk shuts the gate between holds.
       eng.setGate(useLiveStore.getState().talk.mode === "ptt");
-      await eng.start(stream);
+      await eng.start(openMic);
       if (tornDown.current) return;
 
       // 4. Socket — reuse the pre-call agent connection if the lobby already opened
@@ -814,15 +813,7 @@ export function useLiveSession(chatId: string) {
     const eng = engine.current;
     if (!useLiveStore.getState().active || !eng) return;
     try {
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-      if (id) audio.deviceId = { exact: id };
-      const stream = await navigator.mediaDevices.getUserMedia({ audio });
-      // Hung up while the device opened: teardown already released the call's mic.
-      if (engine.current !== eng) { stream.getTracks().forEach((t) => t.stop()); return; }
-      const old = micStream.current;
-      micStream.current = stream;
-      await eng.setStream(stream);
-      old?.getTracks().forEach((t) => t.stop()); // stop the previous mic only after the swap
+      await eng.reopen();
     } catch (e) {
       set({ error: (e as Error)?.name === "NotAllowedError" ? "Microphone access was turned off. Allow it, then pick the mic again." : "Couldn't switch microphone." });
     }
@@ -952,11 +943,10 @@ export function useLiveSession(chatId: string) {
     if (r?.last) engine.current?.dropReply();
   }, [chatId]);
   // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
-  // Recorded from the press, so the first syllable is kept while the gated VAD wakes.
+  // The microphone opens on the press and is taped from its first frame.
   const pttDown = useCallback(() => {
     const e = engine.current;
     if (!e || useLiveStore.getState().pttActive) return;
-    e.tapeHold();
     e.beginPtt();
     fact.current.ptt = true;
     set({ pttActive: true });

@@ -806,7 +806,7 @@ it("a hold given up drops its words and its tape, and the next sentence ends its
   expect(sent).toEqual([]);
 });
 
-it("a hold begun before the VAD was up is written down from its tape, words before the VAD included", async () => {
+it("a hold is written down from its tape, the words before the VAD caught them included", async () => {
   const sent: string[] = [];
   const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
   const cuts: number[] = [];
@@ -1139,37 +1139,44 @@ describe("push to talk's gate", () => {
   it("hears nothing between holds, opens for a hold, and closes again on release", async () => {
     const { eng, sent, vadCalls } = rigGate();
     eng.setGate(true);
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause"]);
     eng.beginPtt();
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause", "start"]);
     Object.assign(tts, { heard: "rename the file", at: [] });
     eng.onSpeechStart();
     await eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
     expect(sent).toEqual([]); // the release is the turn's one end
     await eng.endPtt(true);
+    await eng.micOps;
     expect(sent).toEqual(["rename the file"]);
     expect(vadCalls.at(-1)).toBe("pause");
   });
 
-  it("a hold given up closes it again too, and an accidental tap sends nothing", () => {
+  it("a hold given up closes it again too, and an accidental tap sends nothing", async () => {
     const { eng, sent, vadCalls } = rigGate();
     eng.setGate(true);
     eng.beginPtt();
     eng.dropPtt();
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause", "start", "pause"]);
     expect(sent).toEqual([]);
   });
 
-  it("is not Mute: unmuting leaves a gated mic shut, and lifting the gate leaves a muted one shut", () => {
+  it("is not Mute: unmuting leaves a gated mic shut, and lifting the gate leaves a muted one shut", async () => {
     const { eng, vadCalls } = rigGate();
     eng.setGate(true);
     eng.setMuted(true);
     eng.setMuted(false);
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause", "pause"]);
     eng.setMuted(true);
     eng.setGate(false);
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause", "pause", "pause"]);
     eng.setMuted(false);
+    await eng.micOps;
     expect(vadCalls.at(-1)).toBe("start");
   });
 
@@ -1180,15 +1187,17 @@ describe("push to talk's gate", () => {
     eng.setGate(true);
     expect(vadCalls).toEqual([]); // still hearing: the sentence goes on
     await eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+    await eng.micOps;
     tts.complete = false;
     expect(sent).toEqual(["what is on my calendar"]);
     expect(vadCalls).toEqual(["pause"]);
   });
 
-  it("lifted, listens hands-free again at once", () => {
+  it("lifted, listens hands-free again at once", async () => {
     const { eng, vadCalls } = rigGate();
     eng.setGate(true);
     eng.setGate(false);
+    await eng.micOps;
     expect(vadCalls).toEqual(["pause", "start"]);
   });
 
@@ -1199,5 +1208,136 @@ describe("push to talk's gate", () => {
     Object.assign(eng, { phase: "speaking", speakingStartAt: Date.now(), micRms: 0 });
     eng.onSpeechStart();
     expect(starts).toEqual([1]);
+  });
+});
+
+// The device as vad-web drives it: start opens it through getStream/resumeStream,
+// pause and destroy hand it to pauseStream. Each track remembers being stopped.
+describe("push to talk holds the microphone only while the key is down", () => {
+  class Ctx {
+    currentTime = 0; destination = {};
+    createScriptProcessor() { return { connect() {}, onaudioprocess: null }; }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    createAnalyser() { return { connect() {}, frequencyBinCount: 8 }; }
+    createGain() { return { connect() {}, gain: { value: 1 } }; }
+    async resume() {} async close() {}
+  }
+  vi.stubGlobal("AudioContext", Ctx);
+  vi.stubGlobal("MediaStream", class { constructor(public tracks: unknown[]) {} });
+  const rig = (open?: () => Promise<MediaStream>) => {
+    const opened: { stopped: boolean }[] = [];
+    let lost = 0;
+    const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText() {}, onMicLost: () => lost++ } as never, { ...playNow, playing: () => false } as never) as any;
+    let listening = false, stream: MediaStream | null = null;
+    const fake = {
+      async start() { if (listening) return; listening = true; stream = await eng.acquire(); },
+      async pause() { if (!listening) return; listening = false; await eng.release(stream); },
+      async destroy() { if (listening) await fake.pause(); },
+      setOptions() {},
+    };
+    eng.open = open ?? (async () => {
+      const t = { stopped: false, label: "mic", stop() { t.stopped = true; }, addEventListener() {}, removeEventListener() {} };
+      opened.push(t);
+      return { getTracks: () => [t], getAudioTracks: () => [t] } as unknown as MediaStream;
+    });
+    Object.assign(eng, { vad: fake });
+    eng.setGate(true);
+    const live = () => opened.filter((t) => !t.stopped).length;
+    return { eng, opened, live, lost: () => lost, listening: () => listening };
+  };
+  const settle = async (eng: any) => { for (let i = 0; i < 3; i++) { await eng.micOps; await new Promise((r) => setTimeout(r, 0)); } };
+
+  it("opens nothing with the session, opens on the press, tapes from it, and stops every track on release", async () => {
+    const { eng, opened, live } = rig();
+    await settle(eng);
+    expect(opened.length).toBe(0);
+    eng.beginPtt();
+    await settle(eng);
+    expect([opened.length, live()]).toEqual([1, 1]);
+    expect(eng.tape).not.toBeNull();
+    expect(await eng.endPtt(true)).toBe("silent");
+    await settle(eng);
+    expect([live(), eng.stream, eng.micTrack]).toEqual([0, null, null]);
+  });
+
+  it("a tap let go before the device opened leaves it closed", async () => {
+    const { eng, opened, live } = rig();
+    eng.beginPtt();
+    const end = eng.endPtt(true);
+    await settle(eng);
+    await end;
+    await settle(eng);
+    expect([opened.length, live()]).toEqual([1, 0]);
+  });
+
+  it("a press during the release opens the device again after the old one is let go", async () => {
+    const { eng, opened, live, listening } = rig();
+    eng.beginPtt();
+    await settle(eng);
+    const end = eng.endPtt(true);
+    eng.beginPtt();
+    await end;
+    await settle(eng);
+    expect([opened.length, opened[0]!.stopped, live(), listening()]).toEqual([2, true, 1, true]);
+    expect(eng.tape).not.toBeNull();
+    await eng.endPtt(true);
+    await settle(eng);
+    expect(live()).toBe(0);
+  });
+
+  it("hands-free in the middle of a hold keeps the microphone open for the session", async () => {
+    const { eng, live, listening } = rig();
+    eng.beginPtt();
+    await settle(eng);
+    const end = eng.endPtt(); // talk's modeChanged: the hold ends as a release, then the gate lifts
+    eng.setGate(false);
+    await end;
+    await settle(eng);
+    expect([live(), listening()]).toEqual([1, true]);
+  });
+
+  it("a session closed mid-hold, or while the press still opens the device, stops every track", async () => {
+    const a = rig();
+    a.eng.beginPtt();
+    await settle(a.eng);
+    a.eng.stop();
+    await settle(a.eng);
+    expect(a.live()).toBe(0);
+    let resolve!: (s: MediaStream) => void;
+    const t = { stopped: false, label: "mic", stop() { t.stopped = true; }, addEventListener() {}, removeEventListener() {} };
+    const b = rig(() => new Promise((r) => { resolve = r; }));
+    b.eng.beginPtt();
+    await new Promise((r) => setTimeout(r, 0));
+    b.eng.stop();
+    resolve({ getTracks: () => [t], getAudioTracks: () => [t] } as unknown as MediaStream);
+    await settle(b.eng);
+    expect(t.stopped).toBe(true);
+  });
+
+  it("sleep mid-hold drops it, its sentence included, and lets the device go", async () => {
+    const { eng, live } = rig();
+    eng.beginPtt();
+    await settle(eng);
+    eng.onSpeechStart();
+    eng.dropPtt();
+    await settle(eng);
+    expect([live(), eng.hearing, eng.ptt]).toEqual([0, false, false]);
+  });
+
+  it("a press that cannot open the device says so, and the next press tries again", async () => {
+    let fail = true;
+    const t = { stopped: false, label: "mic", stop() { t.stopped = true; }, addEventListener() {}, removeEventListener() {} };
+    const { eng, lost, listening } = rig(async () => { if (fail) throw new Error("NotAllowedError"); return { getTracks: () => [t], getAudioTracks: () => [t] } as unknown as MediaStream; });
+    eng.beginPtt();
+    await settle(eng);
+    expect([lost(), listening()]).toEqual([1, false]);
+    eng.dropPtt();
+    fail = false;
+    eng.beginPtt();
+    await settle(eng);
+    expect([listening(), t.stopped]).toEqual([true, false]);
+    eng.dropPtt();
+    await settle(eng);
+    expect(t.stopped).toBe(true);
   });
 });
