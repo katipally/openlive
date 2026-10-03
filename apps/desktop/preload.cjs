@@ -125,8 +125,6 @@ contextBridge.exposeInMainWorld("openlive", {
     // flow_settings, flow_home, other).
     request: (what, askedFrom) => ipcRenderer.invoke("openlive:flow-request", what, typeof askedFrom === "string" ? askedFrom : undefined),
     openSettings: (what) => ipcRenderer.invoke("openlive:flow-open-settings", what),
-    register: (id, binding, role) => ipcRenderer.invoke("openlive:flow-register", id, binding, role === "hold" ? "hold" : "toggle"),
-    unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
     suspend: () => ipcRenderer.invoke("openlive:flow-suspend"),
     resume: () => ipcRenderer.invoke("openlive:flow-resume"),
     trigger: (id, pressed) => ipcRenderer.invoke("openlive:flow-trigger", id, pressed),

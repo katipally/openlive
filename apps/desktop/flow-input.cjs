@@ -271,8 +271,6 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   ipcMain.handle("openlive:flow-request", guard(request));
   ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
-  ipcMain.handle("openlive:flow-register", guard((id, key, role) => { load().registerBinding(id, key, role); bindings.set(id, key); }));
-  ipcMain.handle("openlive:flow-unregister", guard((id) => { load().unregisterBinding(id); bindings.delete(id); }));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
   // Test-only: lets a page fire a gesture or a hold as the keys would. Released

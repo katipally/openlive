@@ -85,9 +85,6 @@ export interface FlowBridge {
   /** Flow's off switch, and a subscription to it. */
   setArmed(armed: boolean): void;
   onArmed(cb: (armed: boolean) => void): () => void;
-  /** Watch `binding` in its role. Main registers the settings' keys itself, so nothing here needs to. */
-  register(id: string, binding: string, role: "toggle" | "hold"): Promise<Guarded<void>>;
-  unregister(id: string): Promise<Guarded<void>>;
   suspend(): Promise<Guarded<void>>;
   resume(): Promise<Guarded<void>>;
   insertBegin(method?: string, timing?: InsertionTiming): Promise<Guarded<number>>;
