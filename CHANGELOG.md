@@ -67,6 +67,8 @@ Releases before 0.1.9 predate this file — see the
 - Settings search forgives one typo in a longer word ("memmory", "dicate")
   when nothing matches as typed.
 - The command palette says **Open sessions**, the drawer's own name.
+- The call setup's first tour fits your API key as well as a coding agent, and
+  Clear all asks **Delete it** when one dictation is kept.
 
 ## [0.3.0] - 2026-10-02
 
