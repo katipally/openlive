@@ -22,7 +22,9 @@ Releases before 0.1.9 predate this file — see the
   on Windows and Linux) while you talk. In push to talk the microphone is open
   only while the key is down: it opens on the press, the hold is recorded from
   its first sound, and every track stops on the release, so the system's
-  microphone indicator is off between holds. A call has a **Hold to talk**
+  microphone indicator is off between holds. While the microphone wakes, the
+  orb says **Getting ready**, and **Listening** once it hears, so you know when
+  to start talking. A call has a **Hold to talk**
   button too, which works where the key listener cannot (the web build, Linux
   without the `input` group).
 - **Your own keys.** Open Flow (double-tap Control), Open Dictate (double-tap

@@ -135,7 +135,9 @@ state uses.
 
 Right above the orb, in the mic button's place, a badge says how it is
 listening: **Hands-free**, **Hold** and the key while push to talk waits for
-it, **Listening** while you hold it, and **Editing selection** while what you
+it, **Getting ready** from the press until the microphone gives its first
+sound (150 to 300 ms while the device wakes), **Listening** from then on, so
+you know when to start, and **Editing selection** while what you
 say will rewrite a selection. Each has a stop square that closes Dictate. The mic, the badges and the line
 above them fade into one another rather than popping. Above the badge, one line:
 

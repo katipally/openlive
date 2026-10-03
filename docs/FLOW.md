@@ -114,7 +114,8 @@ transcript, not on the orb.
 Flow on the left, open OpenLive on the right, and above it the mic, which opens
 [Dictate](DICTATE.md). While Dictate is open, the mic becomes a badge, always
 shown, that says how it listens and closes it. In push to talk, a badge over
-the orb says which key to hold while Flow waits for it.
+the orb says which key to hold while Flow waits for it, **Getting ready** from
+the press until the microphone gives its first sound, then **Listening**.
 
 ![Hover controls](../assets/flow-orb-hover.png)
 

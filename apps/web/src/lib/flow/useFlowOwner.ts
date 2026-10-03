@@ -110,10 +110,11 @@ export function useFlowOwner(): void {
     // One mode for Flow and Dictate, read from the settings every time, so a
     // change made mid-session applies from the next utterance.
     const talkMode = (): TalkMode => settings.current?.talk.mode ?? "handsFree";
-    const publishTalk = (holding: boolean) => {
+    /** `live`: the hold's microphone gives sound (onHoldLive), kept while the same hold lasts. */
+    const publishTalk = (holding: boolean, live = holding && snap.current.talk.live) => {
       const keys = settings.current ? hotkeyKeys(settings.current.talk.pttKey, desktopPlatform) : [];
       const was = snap.current.talk;
-      if (was.mode !== talkMode() || was.holding !== holding || was.keys.join() !== keys.join()) patch({ talk: { mode: talkMode(), keys, holding } });
+      if (was.mode !== talkMode() || was.holding !== holding || was.live !== live || was.keys.join() !== keys.join()) patch({ talk: { mode: talkMode(), keys, holding, live } });
     };
 
     // What this open interval reports about itself, sent once as Flow closes.
@@ -292,6 +293,7 @@ export function useFlowOwner(): void {
           answersAsk: (text) => !!permission.current && !!classifyYesNo(text),
           onMicLost: () => void recoverMic(eng),
           onSpeechStart,
+          onHoldLive: () => { if (snap.current.talk.holding) publishTalk(true, true); },
         // Flow's own wait when its override is on, else the shared one the
         // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.

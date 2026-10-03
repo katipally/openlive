@@ -1154,6 +1154,25 @@ describe("push to talk's gate", () => {
     expect(vadCalls.at(-1)).toBe("pause");
   });
 
+  it("says a hold is live on its first frame with sound, once a hold, never on the silent frames of a waking device", async () => {
+    const live: number[] = [];
+    const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText() {}, onHoldLive: () => live.push(1) } as never, { ...playNow, playing: () => false } as never) as any;
+    Object.assign(eng, { vad: { start() {}, pause() {}, setOptions() {} } });
+    eng.onFrame(new Float32Array(512).fill(0.1), false); // no hold yet
+    eng.setGate(true);
+    eng.beginPtt();
+    eng.onFrame(new Float32Array(512), false);
+    eng.onFrame(new Float32Array(512), false);
+    expect(live).toEqual([]);
+    eng.onFrame(new Float32Array(512).fill(0.001), false);
+    eng.onFrame(new Float32Array(512).fill(0.1), true);
+    expect(live).toEqual([1]);
+    eng.dropPtt();
+    eng.beginPtt();
+    eng.onFrame(new Float32Array(512).fill(0.1), false);
+    expect(live).toEqual([1, 1]);
+  });
+
   it("a hold given up closes it again too, and an accidental tap sends nothing", async () => {
     const { eng, sent, vadCalls } = rigGate();
     eng.setGate(true);

@@ -135,12 +135,15 @@ export function FlowOrb() {
   // A badge leaving keeps its words while it fades.
   const ptt = s.talk.mode === "ptt";
   const waiting = ptt && !s.talk.holding;
+  // Held, the device still waking: words said now would be lost, so it does not say Listening yet.
+  const warming = ptt && s.talk.holding && !s.talk.live;
   const badge = !shown ? null
     : s.dictate ? "dictate"
     : !hovered && (ptt ? s.phase !== "error" : s.phase === "listening") ? "flow" : null;
   // A filled, breathing dot while it hears you; a ring while it waits for the key.
   const badgeWords = (): React.ReactNode => {
     if (s.dictate?.editing) return <><TextSelect aria-hidden className="size-3.5 shrink-0" /> Editing selection</>;
+    if (warming) return <><span aria-hidden className="size-1.5 shrink-0 rounded-full ring-1 ring-current motion-safe:animate-pulse" /> Getting ready</>;
     if (waiting) return (
       <>
         <span aria-hidden className="size-1.5 shrink-0 rounded-full ring-1 ring-current" />
@@ -335,7 +338,7 @@ export function FlowOrb() {
           words off the start, then the same words while they are worked on. */}
       {dictateUp && lastDictate.current && (
         <div ref={dictateRef} className="flex max-w-full shrink-0 justify-center">
-          <DictateStrip d={lastDictate.current} waiting={waiting ? "Ready" : ""} onUndo={() => cmd({ t: "dictateUndo" })} />
+          <DictateStrip d={lastDictate.current} waiting={waiting ? "Ready" : ""} warming={warming} onUndo={() => cmd({ t: "dictateUndo" })} />
         </div>
       )}
 
@@ -503,13 +506,13 @@ function useHeldProcessing(d: DictateSnapshot): DictateSnapshot {
 
 /** Dictate under the orb: what it hears, the words while they are worked on, then
  *  what landed. `waiting`: what to say between holds in push to talk; the
- *  badge above already names the key. */
-function DictateStrip({ d: live, waiting, onUndo }: { d: DictateSnapshot; waiting: string; onUndo: () => void }) {
+ *  badge above already names the key. `warming`: a hold's microphone still waking. */
+function DictateStrip({ d: live, waiting, warming, onUndo }: { d: DictateSnapshot; waiting: string; warming: boolean; onUndo: () => void }) {
   const d = useHeldProcessing(live);
   const working = d.phase === "processing";
   const landed = !working && !d.note && d.inserted > 0;
   const label = working && (d.polishing ? "Polishing" : d.editing ? "Editing" : !d.partial && "Cleaning up");
-  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (!d.ready ? "Getting ready" : d.phase === "idle" && waiting ? waiting : "Listening"));
+  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (!d.ready || warming ? "Getting ready" : d.phase === "idle" && waiting ? waiting : "Listening"));
   // Words still coming, or being worked on, drop their oldest off the start;
   // a status or a note is read whole, so it wraps instead.
   const flowing = said === d.partial;

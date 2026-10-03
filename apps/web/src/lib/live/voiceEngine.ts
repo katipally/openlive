@@ -55,6 +55,8 @@ export interface VoiceEngineHandlers {
   onSideTalk?: (text: string, speaker?: string, judged?: string) => void;
   /** The user started talking: a segment that is not the agent's own echo. */
   onSpeechStart?: () => void;
+  /** A push-to-talk hold's first frame with sound in it: the device is awake, words from here are heard. */
+  onHoldLive?: () => void;
 }
 
 /** How a push-to-talk hold ended: its words sent on, none heard, or heard and not written down. */
@@ -185,6 +187,7 @@ export class VoiceEngine {
   private partialAbort: AbortController | null = null; // the interim transcription in flight
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
+  private holdLive = false;                       // this hold has had a frame with sound (onHoldLive)
   private tape: Tape | null = null;               // the hold in progress, from the microphone's first frame
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
   private gated = false;                          // push to talk: the VAD runs only while a hold is down (setGate)
@@ -590,6 +593,8 @@ export class VoiceEngine {
     let sum = 0; for (let i = 0; i < frame.length; i++) sum += frame[i]! * frame[i]!;
     const rms = Math.sqrt(sum / frame.length);
     this.micRms += (rms - this.micRms) * 0.3;
+    // A device just opened gives silent frames while it wakes (150-300 ms here).
+    if (this.ptt && !this.holdLive && rms > 0) { this.holdLive = true; this.h.onHoldLive?.(); }
     // Learn the room's ambient noise floor WHILE IDLE (never during the user's own
     // speech), so the reject-gate rises in a loud room / around a TV and stops
     // background chatter tripping a turn — but stays at the fixed floor in a quiet
@@ -975,6 +980,7 @@ export class VoiceEngine {
   beginPtt() {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
+    this.holdLive = false;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
     if ((this.tentative || this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
     this.listen(true).catch(this.micFailed);

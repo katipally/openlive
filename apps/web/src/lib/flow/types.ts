@@ -69,6 +69,8 @@ export interface TalkSnapshot {
   keys: string[];
   /** The push-to-talk key is down. */
   holding: boolean;
+  /** The held key's microphone gives sound: until then the orb says Getting ready, and words are not heard yet. */
+  live: boolean;
 }
 
 /** Dictate on the orb: Flow's orb in Dictate's colours, with what it heard. */
@@ -93,5 +95,5 @@ export interface DictateSnapshot {
 
 export const IDLE_FLOW: FlowSnapshot = {
   phase: "idle", reply: "", detail: "", speaking: true, failure: null, aside: "", dictate: null,
-  talk: { mode: "handsFree", keys: [], holding: false },
+  talk: { mode: "handsFree", keys: [], holding: false, live: false },
 };
