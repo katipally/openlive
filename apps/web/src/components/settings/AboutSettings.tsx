@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bug, createLucideIcon, ExternalLink, FolderOpen, RotateCcw, Trash2 } from "lucide-react";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
-import { resetTours } from "@/components/SpotlightTour";
 import { bridge, isDesktop } from "@/lib/platform";
 import { REPO_URL } from "@/lib/repo";
 import { reportProblem } from "@/lib/reportProblem";
+import { resetOnboarding } from "@/lib/prefs";
 import { toast } from "@/lib/toast";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { useBrainId } from "@/lib/useBrainId";
@@ -41,15 +42,7 @@ export function AboutSettings() {
 
       <YourData />
 
-      <Section id="set-about-tours" title="Tours" desc="The short walkthroughs each screen shows the first time.">
-        <ListGroup>
-          <ListRow label="Show first-run tours again" detail="Each plays on its next open">
-            <Button size="sm" onClick={() => { resetTours(); toast("Tours reset. Each plays again the next time you open its screen.", "info"); }}>
-              <RotateCcw aria-hidden /> Replay tours
-            </Button>
-          </ListRow>
-        </ListGroup>
-      </Section>
+      <ShowMeAround />
 
       <Section id="set-about-links" title="Links" desc="Source, releases, and where to file an issue.">
         <ListGroup>
@@ -72,6 +65,32 @@ export function AboutSettings() {
 }
 
 const linkRow = "group flex min-h-row items-center gap-3 py-2 text-body text-foreground";
+
+/** Starts the guidance over: it all plays again, so it asks first. */
+function ShowMeAround() {
+  const [asking, setAsking] = useState(false);
+  const reset = () => {
+    resetOnboarding();
+    setAsking(false);
+    toast("Welcome opens when you close Settings, then each mode's setup and each tour plays again.", "info");
+  };
+  return (
+    <Section id="set-about-tours" title="Getting started" desc="Welcome, each mode's first run, and the short tour each screen shows the first time.">
+      <ListGroup>
+        <ListRow label="Show me around again" detail={asking ? "Welcome, Flow setup, Dictate's first run and every tour start over." : "Plays it all again, as for someone new"}>
+          {asking ? (
+            <span role="group" aria-label="Start the guidance over?" className="flex flex-wrap items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" autoFocus onClick={() => setAsking(false)}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={reset}>Start over</Button>
+            </span>
+          ) : (
+            <Button size="sm" onClick={() => setAsking(true)}><RotateCcw aria-hidden /> Show me around again</Button>
+          )}
+        </ListRow>
+      </ListGroup>
+    </Section>
+  );
+}
 
 /** Where everything OpenLive keeps lives, and the way to start over. */
 function YourData() {

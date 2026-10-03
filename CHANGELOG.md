@@ -331,6 +331,11 @@ Releases before 0.1.9 predate this file — see the
   push-to-talk on before, How you talk starts as Push to talk.
 
 ### Changed
+- **Show me around again.** Settings > About's **Replay tours** became **Show
+  me around again**, under Getting started: after a confirm, Welcome, Flow's
+  setup, Dictate's first run and every tour play again, as for someone new.
+  Welcome opens once Settings closes (and waits out a call); a mode's first run
+  shows the next time its home does.
 - **The app's remembered state lives in the OpenLive folder.** The voice
   pipeline, push-to-talk, per-chat agent and folder, per-agent model picks,
   recent folders, first-run and tour flags, and open sections moved from the

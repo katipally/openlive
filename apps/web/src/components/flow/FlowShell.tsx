@@ -27,7 +27,9 @@ export function FlowShell() {
   const { caps, refresh } = useFlowCapabilities();
   const { config, save } = useFlowConfig();
 
-  useEffect(() => setOnboarding(flowOnboardingDue(useOnboarding.getState().flowOnboarded)), []);
+  // Read again when it changes: Welcome can finish it, and Show me around again starts it over.
+  const flag = useOnboarding((s) => s.flowOnboarded);
+  useEffect(() => setOnboarding(flowOnboardingDue(flag)), [flag]);
 
   // Home's "Ready" is read here and handed down. Nothing announces a grant given
   // in System Settings, so coming back to the window re-reads it; Flow's off

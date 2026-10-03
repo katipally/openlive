@@ -101,7 +101,8 @@ export interface OnboardingPrefs {
   /** Tour ids already played. */
   tours: string[];
 }
-export const useOnboarding = persisted<OnboardingPrefs>("onboarding", () => ({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] }), {
+const NEVER_ONBOARDED = (): OnboardingPrefs => ({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] });
+export const useOnboarding = persisted<OnboardingPrefs>("onboarding", NEVER_ONBOARDED, {
   partialize: (s) => ({ welcomed: s.welcomed, flowOnboarded: s.flowOnboarded, dictateOnboarded: s.dictateOnboarded, tours: s.tours }),
   clean: (f) => only(f, (k, v) =>
     k === "welcomed" || k === "dictateOnboarded" ? (typeof v === "boolean" ? v : undefined)
@@ -109,3 +110,6 @@ export const useOnboarding = persisted<OnboardingPrefs>("onboarding", () => ({ w
     : k === "tours" ? strings(v, 200)
     : undefined) as Partial<OnboardingPrefs>,
 });
+
+/** Show me around again: Welcome, Flow's setup, Dictate's first run and every tour play again, as for someone new. */
+export function resetOnboarding(): void { useOnboarding.setState(NEVER_ONBOARDED()); }

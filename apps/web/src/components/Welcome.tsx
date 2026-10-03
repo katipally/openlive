@@ -56,8 +56,11 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   // Skipped, Welcome never comes back, so both ways out (Skip and Esc) ask first.
   const [asking, setAsking] = useState(false);
 
-  // Decided after mount, so the first frame is the home it covers.
-  useEffect(() => setOpen(owed()), []);
+  // Decided after mount, so the first frame is the home it covers; and again
+  // after Show me around again, in About, once no call is up.
+  const welcomed = useOnboarding((s) => s.welcomed);
+  const liveOpen = useUi((s) => s.liveOpen);
+  useEffect(() => { if (!liveOpen) setOpen(owed()); }, [welcomed, liveOpen]);
   useEffect(() => onPending(open), [open, onPending]);
 
   const finish = (mode?: AppMode) => {

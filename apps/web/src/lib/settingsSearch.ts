@@ -127,7 +127,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   { label: "Your data", keywords: "openlive folder data location path open reset erase delete start over local", tab: "about", anchor: "set-about-data" },
   { label: "Links", keywords: "github releases changelog issue", tab: "about", anchor: "set-about-links" },
-  { label: "Replay tours", keywords: "walkthrough onboarding tips help reset", tab: "about", anchor: "set-about-tours" },
+  { label: "Show me around again", keywords: "replay tours walkthrough welcome first run setup onboarding tips help reset", tab: "about", anchor: "set-about-tours" },
 ];
 
 /** Whether `a` becomes `b` with at most one letter added, dropped, changed or
