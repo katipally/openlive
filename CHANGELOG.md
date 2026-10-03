@@ -6,9 +6,24 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-02
+## [0.3.0] - 2026-10-03
 
 ### Added
+- **Capabilities: tools, skills and connectors.** Settings > Capabilities turns
+  each built-in tool group on or off, holds your skills (write one, or import
+  them from Claude Code, Codex, Gemini CLI and `~/.agents`), and adds MCP
+  connectors by URL or JSON, with sign-in where a server needs it, or imports
+  them from Claude Desktop, Claude Code, Codex, Cursor, Gemini CLI and VS Code.
+  Your API key's model and coding agents get the same set. With many
+  connectors, their tools load on demand, so the prompt stays small.
+- **Memory.** Settings > Memory lists the facts OpenLive keeps about you,
+  carried into every conversation whoever answers. Add, edit or forget any of
+  them, or clear all.
+- **OpenLive Computer Use on macOS.** Flow operates app windows through a
+  helper app that ships inside OpenLive, with its own Accessibility and Screen
+  Recording grants. It reads each window's controls, presses a button by name
+  rather than by aiming at pixels, and fills a field by setting its value.
+  Password managers are off limits to it.
 - **History, kept as long as you say, in every mode.** Chat and Flow get the
   History choice Dictate had: keep for a day, a week, a month, forever, or not
   past the end of each, plus **Clear all**, in Settings > Chat and Settings >
