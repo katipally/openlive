@@ -36,7 +36,7 @@ describe("fromLocalStorage", () => {
     expect(patch).toEqual({
       ui: { mode: "flow", capabilitiesTab: "skills", sessionsFilter: "openlive", transcriptOpen: false, transcriptWidth: 420 },
       disclosure: { "adv:voice": true },
-      voice: { pipeline: { language: "fr" }, inputMode: "toggle", pttEnabled: true },
+      voice: { pipeline: { language: "fr" }, pttEnabled: true },
       sessions: {
         "chat:c1": { bind: "claude", cwd: "/code/app" },
         "chat:c2": { resume: "sess-9" },

@@ -14,19 +14,17 @@ const only = (fields: Fields, pick: (k: string, v: unknown) => unknown): Fields 
   return out;
 };
 
-// ── voice: the pipeline (lib/live/pipelineConfig.ts) and push-to-talk (lib/live/usePtt.ts) ──
+// ── voice: the pipeline (lib/live/pipelineConfig.ts) and Chat's old push-to-talk switch (lib/flow/useFlowConfig.ts settles the talk mode from it) ──
 
 export interface VoicePrefs {
   /** The saved pipeline config as written; mergePipelineConfig checks it on every read. */
   pipeline: Fields | null;
-  inputMode: "hold" | "toggle";
   pttEnabled: boolean;
 }
-export const useVoicePrefs = persisted<VoicePrefs>("voice", () => ({ pipeline: null, inputMode: "hold", pttEnabled: false }), {
-  partialize: (s) => ({ pipeline: s.pipeline, inputMode: s.inputMode, pttEnabled: s.pttEnabled }),
+export const useVoicePrefs = persisted<VoicePrefs>("voice", () => ({ pipeline: null, pttEnabled: false }), {
+  partialize: (s) => ({ pipeline: s.pipeline, pttEnabled: s.pttEnabled }),
   clean: (f) => only(f, (k, v) =>
     k === "pipeline" ? (isObj(v) ? v : undefined)
-    : k === "inputMode" ? (v === "toggle" || v === "hold" ? v : undefined)
     : k === "pttEnabled" ? (typeof v === "boolean" ? v : undefined)
     : undefined) as Partial<VoicePrefs>,
 });

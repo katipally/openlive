@@ -1379,7 +1379,7 @@ models' cache and its flag (see ui.json below).
   |---|---|---|
   | `ui` | `lib/uiStore.ts` | `mode`, `capabilitiesTab`, `openChat` (the chat open in the main window), `settings` (the Settings tab open), `sessionsFilter`, `transcriptOpen`, `transcriptWidth` |
   | `disclosure` | `lib/disclosure.ts` | one boolean per remembered fold |
-  | `voice` | `lib/prefs.ts` (read by `pipelineConfig.ts`, `usePtt.ts`) | `pipeline`, `inputMode`, `pttEnabled` |
+  | `voice` | `lib/prefs.ts` (read by `pipelineConfig.ts`, `useFlowConfig.ts`) | `pipeline`, `pttEnabled` (the talk mode's one-time migration) |
   | `sessions` | `lib/prefs.ts` (read by `useLiveSession.ts`) | `chat:<id>` `{ bind, cwd, resume }`, `agent:<id>` `{ meta, model, mode, opts }`, `recentFolders` |
   | `onboarding` | `lib/prefs.ts` | `welcomed`, `flowOnboarded`, `tours` |
 

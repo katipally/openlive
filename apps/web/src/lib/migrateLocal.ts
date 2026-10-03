@@ -25,7 +25,8 @@ const EXACT: Record<string, Read> = {
   "ol-transcript-open": (v) => ["ui", "transcriptOpen", v !== "0"],
   "ol-transcript-w": (v) => { const n = Number(v); return n >= 280 && n <= 640 ? ["ui", "transcriptWidth", n] : null; },
   "openlive-pipeline-v1": (v) => { const p = json(v); return isObj(p) ? ["voice", "pipeline", p] : null; },
-  "openlive-voice-input": (v) => (v === "toggle" || v === "hold" ? ["voice", "inputMode", v] : null),
+  // Chat's hold or toggle push to talk, gone with the one talk mode: only removed.
+  "openlive-voice-input": () => null,
   "openlive-ptt-enabled": (v) => ["voice", "pttEnabled", v === "1"],
   "openlive-recent-folders": (v) => {
     const p = json(v);
