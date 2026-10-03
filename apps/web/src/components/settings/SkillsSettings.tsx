@@ -91,7 +91,7 @@ export function SkillsSettings() {
         </>}>No skills of your own yet. Write one, or import yours from other tools.</EmptyState>
       )}
       {data && data.problems.length > 0 && <Problems problems={data.problems} />}
-      {data && <p className="text-caption text-muted-foreground">Every brain loads a skill when a task calls for it. Type /name in a call to load one yourself.</p>}
+      {data && <p className="text-caption text-muted-foreground">Your API key&rsquo;s model and coding agents alike load a skill when a task calls for it. Type /name in a call to load one yourself.</p>}
     </div>
   );
 }

@@ -30,7 +30,7 @@ dictateRoutes.post("/rewrite", bodyLimit({ maxSize: DICTATE_BODY_MAX, onError: (
       try { line({ text: await rewrite(parsed.data as RewriteAsk, ac.signal, (delta) => line({ delta })) }); }
       catch (e) {
         log.warn("dictate", "rewrite:", e);
-        line({ error: e instanceof Error ? e.message : "the brain did not answer" });
+        line({ error: e instanceof Error ? e.message : "no answer came back" });
       }
       try { out.close(); } catch { /* the reader hung up */ }
     },

@@ -99,13 +99,14 @@ The core, the ears / mouth / eyes:
   model's eyes.
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.
 - **Your assistant, your way.** Custom instructions in Settings → General apply to
-  every brain, built-in or agent. Speaking speed and spoken progress narration live
+  whoever answers, your API key's model or a coding agent. Speaking speed and spoken progress narration live
   there too.
 
 The integrations that serve it:
 
 - **Voice-drive your coding agent.** Pick Claude Code / Codex / Cursor / OpenCode /
-  Hermes / Gemini CLI / GitHub Copilot / Kiro / Pi per conversation, pick its project folder, and talk. Model, mode
+  Hermes / Gemini CLI / GitHub Copilot / Kiro / Pi per conversation (new chats start
+  with the default from Settings > Models > Who answers you), pick its project folder, and talk. Model, mode
   (ask / accept edits / bypass), and the agent's other options switch mid-call, all
   reported by the agent itself over ACP.
 - **Sessions are the agent's own.** A call with Claude Code lands in
@@ -136,8 +137,9 @@ Flow, the assistant for the whole machine:
 - **Acts on your machine.** Types at your cursor, opens apps and links, clicks,
   scrolls, reads the screen (screenshots and OCR), manages windows, and runs shell
   commands, checking the screen after every step.
-- **Any brain.** API mode on the provider set in Settings, from MiniMax, OpenAI or
-  Anthropic to a local Ollama, or a coding agent over ACP with the same tools.
+- **Your API key or your coding agent.** Any provider set in Settings, from
+  MiniMax, OpenAI or Anthropic to a local Ollama, or a coding agent over ACP with
+  the same tools.
 - **You stay in control.** One consent question before it first acts, a caption
   with Stop the whole time it acts, and a failure card with the fix when
   something goes wrong.
@@ -157,9 +159,11 @@ Flow is the voice assistant that lives over your dock, not in a window.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
   screen, move and close windows, run shell commands.
-- **Brains.** API mode uses the provider, model, and vision model from Settings >
-  Models (MiniMax, OpenAI, Anthropic, Ollama at any address, and the rest). Or pick
-  a coding agent such as Claude Code, driven over ACP with the same tools. A model
+- **Who answers.** The default from Settings > Models > **Who answers you**, the
+  same one new chats start with, or Flow's own from Settings > Flow. **Your API
+  key** uses the provider, model, and vision model from Settings > Models
+  (MiniMax, OpenAI, Anthropic, Ollama at any address, and the rest). **A coding
+  agent** such as Claude Code is driven over ACP with the same tools. A model
   that cannot see gets the vision model's description of each screenshot.
 - **Orb states.** Listening (teal), thinking (violet), acting (magenta, with a
   caption strip), speaking (blue), error (dark red, with a card).

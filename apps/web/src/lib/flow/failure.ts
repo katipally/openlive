@@ -61,8 +61,8 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
   if (!h.brainReady) {
     return {
       code: "no_provider",
-      title: "No brain is configured yet",
-      detail: "Flow needs a provider key, or a coding agent to think with. Nothing was sent anywhere.",
+      title: "Nothing is set to answer yet",
+      detail: "Flow needs your API key, or a coding agent to answer. Nothing was sent anywhere.",
       actionLabel: "Choose one",
       settings: "flow",
     };
@@ -117,7 +117,7 @@ export function turnFailure(message: string, agent = false, code?: ErrorClass): 
   const m = message;
   switch (code ?? classFromText(m)) {
     case "no_key":
-      return { code: "brain_setup", title: "API mode has no key yet", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
+      return { code: "brain_setup", title: "Your API key is missing", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
     case "auth":
       return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
     case "model_not_found":
@@ -133,7 +133,7 @@ export function turnFailure(message: string, agent = false, code?: ErrorClass): 
       if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "I could not reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
       return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
     default:
-      return { code: "turn_failed", title: "That turn failed", detail: said(m) || "The brain stopped without saying why." };
+      return { code: "turn_failed", title: "That turn failed", detail: said(m) || "It stopped without saying why." };
   }
 }
 

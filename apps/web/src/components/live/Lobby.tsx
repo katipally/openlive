@@ -226,7 +226,7 @@ export function Lobby(props: LobbyProps) {
 
           {/* project folder — front and center (it gates Start for a coding agent) */}
           <div className="text-left" data-tour="folder">
-            <WorkspaceField cwd={boundCwd} name={boundAgent ? agentLabel(boundAgent) : "API mode"} required={!!boundAgent} />
+            <WorkspaceField cwd={boundCwd} name={agentLabel(boundAgent)} required={!!boundAgent} />
           </div>
 
           <div className="flex flex-col items-center gap-3 pt-3 text-center">

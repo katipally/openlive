@@ -1,7 +1,7 @@
 # Dictate
 
 Dictate is talking instead of typing, in any app. Hold a key, say it, let go,
-and the cleaned-up words are typed where your cursor is. No brain hears plain
+and the cleaned-up words are typed where your cursor is. No model or agent hears plain
 dictation and nothing is spoken back: the speech engine writes down what you
 said, rules on this machine tidy it, and ol-input types it. It works the same on
 macOS, Windows and Linux.
@@ -121,7 +121,7 @@ what was said, with no network.
 
 ## AI polish
 
-Off by default. On, the cleaned-up words go to Dictate's brain, which rewrites
+Off by default. On, the cleaned-up words go to whoever answers for Dictate, which rewrites
 them in the tone picked (Natural, Casual or Formal) and gives back text only.
 
 ```
@@ -140,8 +140,8 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
                                  rewrite in full
 ```
 
-- The brain is Flow's unless **Use a different one for Dictate** picks
-  another, an API model or a coding agent. An API model is offered no tools; a
+- Who answers is the same as Flow unless **Who answers for AI polish and
+  commands** is set to **Its own**: your API key or a coding agent. An API model is offered no tools; a
   coding agent is started with none of OpenLive's, none of its own where its
   launch can turn them off (Claude Code, Codex, Gemini CLI, OpenCode; Copilot
   loses shell, writes and the web), and every permission it asks for is
@@ -246,13 +246,13 @@ Settings > Dictate, in four subtabs:
     layouts use it as AltGr and offers Right Ctrl, Caps Lock and F13.
   - **Cleanup**: the five rules, with a live example of what they do.
   - **AI polish**: on or off, and its tone.
-  - **Brain**: off, AI polish and commands think as Flow does. Plain dictation
-    never uses it.
+  - **Who answers**: **Same as Flow**, or **Its own**, for AI polish and
+    command mode alike. Plain dictation never uses it.
   - **Shared settings**: links to Typing at cursor (General), Voice and Speech
     engine.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
   **Show all**) and snippets.
-- **Commands**: command mode's key, the brain again, and the spoken commands.
+- **Commands**: command mode's key and the spoken commands.
 - **History**: how long to keep dictations, and the list.
 
 Typing at cursor is shared with Flow, in Settings > General: paste or type it

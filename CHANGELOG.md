@@ -6,6 +6,19 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Changed
+- **One "Who answers you" choice, set once.** Your API key or a coding agent
+  you already use, picked in Settings > Models (and in Welcome), is the
+  default that new chats, Flow and Dictate's AI polish start with. A coding
+  agent shows only when it is set up, with its sign-in and version; the rest
+  sit on one "Not set up" line that goes to Agents, and its model and effort
+  fold under Advanced. Flow can be **Same as default** or have **Its own**,
+  and Dictate's AI polish and commands **Same as Flow** or **Its own**, asked
+  once, under AI polish. Chat's "Talk to" lists the same two groups, Flow's
+  home shows who answers and whether it is ready, and the same words are used
+  everywhere. Until you pick otherwise, everything answers as it did.
+- Flow's first run is only its access step: who answers is the default now.
+
 ### Fixed
 - **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
   longer misses being told it is shown when it comes up for Dictate, which hid
@@ -16,9 +29,9 @@ Releases before 0.1.9 predate this file — see the
   including what was said while it started.
 - **Talk right after letting go of Dictate's key can no longer open a Flow
   turn.** Dictate keeps the microphone until the words are typed.
-- **Flow's brain picked during Flow's setup is the one Flow uses.** Picking a
-  coding agent there now takes effect, and the picker shows the brain Flow
-  really runs on.
+- **Opening Flow in the middle of a Dictate hold no longer leaves Flow waiting
+  for the key.** The hold is dropped, so Flow ends each turn on its own.
+- **AI polish that stopped partway offers Undo only when its words landed.**
 - Settings > Dictate gives AI polish's real wait (25 seconds) before it types
   the cleaned-up words instead.
 

@@ -127,7 +127,7 @@ describe("turnFailure", () => {
   it("reads the wire code before the words, so a reworded message cannot change the card", () => {
     expect(turnFailure("The provider said something new", false, "auth")).toMatchObject({ code: "brain_setup", settings: "models" });
     expect(turnFailure("The provider said something new", true, "auth").settings).toBe("agents");
-    expect(turnFailure("The provider said something new", false, "no_key").title).toBe("API mode has no key yet");
+    expect(turnFailure("The provider said something new", false, "no_key").title).toBe("Your API key is missing");
     expect(turnFailure("x", false, "model_not_found")).toMatchObject({ code: "brain_setup", settings: "models" });
     expect(turnFailure("x", true, "no_model").settings).toBe("flow");
     expect(turnFailure("x", false, "quota").title).toContain("credit");

@@ -32,7 +32,7 @@ export function brainLine(header: FlowSessionDetail["header"] | undefined): stri
   const b = raw as { kind?: string; id?: string; model?: string; effort?: string };
   const name = b.kind === "acp"
     ? (isAgentId(b.id ?? "") ? AGENT_REGISTRY[b.id as keyof typeof AGENT_REGISTRY].label : b.id || "A coding agent")
-    : "API mode";
+    : "Your API key";
   return [name, b.model, b.effort && `${b.effort} effort`].filter(Boolean).join(" · ");
 }
 

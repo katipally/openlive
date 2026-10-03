@@ -66,7 +66,7 @@ export function MemorySettings() {
             </div>
             {meter.tone !== "ok" && (
               <OneLine className={cn("text-caption", tone)}
-                text={meter.tone === "full" ? `Full. ${meter.unused} saved past it, so no brain sees them.` : "Nearly full. Notes past it are saved, but no brain sees them."} />
+                text={meter.tone === "full" ? `Full. ${meter.unused} saved past it, so no conversation sees them.` : "Nearly full. Notes past it are saved, but no conversation sees them."} />
             )}
           </div>
           <AddNote notes={all} full={all.length >= data.max} onSaved={put} />
@@ -85,7 +85,7 @@ export function MemorySettings() {
         <section aria-label="Past the budget" className="flex flex-col gap-2">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <h3 className={groupLabel}>Past the budget</h3>
-            <span className="text-caption text-muted-foreground">Saved, but no brain sees these.</span>
+            <span className="text-caption text-muted-foreground">Saved, but no conversation sees these.</span>
           </div>
           <ListGroup className="opacity-60">{past.map((n) => <NoteRow key={n.id} n={n} all={all} put={put} />)}</ListGroup>
         </section>

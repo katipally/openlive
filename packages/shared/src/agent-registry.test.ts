@@ -131,6 +131,6 @@ test("helpers: isAgentId / agentLabel", () => {
   assert.ok(isAgentId("codex"));
   assert.ok(!isAgentId("emacs"));
   assert.equal(agentLabel("claude-code"), "Claude Code");
-  assert.equal(agentLabel(null), "API mode");
-  assert.equal(agentLabel("nope"), "API mode");
+  assert.equal(agentLabel(null), "Your API key");
+  assert.equal(agentLabel("nope"), "Your API key");
 });

@@ -132,11 +132,14 @@ These are the same tools a call has: Chat and Flow draw on one tool registry,
 and a call in the desktop app can reach the machine too. Flow takes its one
 permission up front; a call asks before each action that changes something.
 
-**Brains.** Settings > Flow > Brain:
+**Who answers.** Flow follows the default, set once in Settings > Models >
+**Who answers you** (and in Welcome), which new chats and Dictate's AI polish
+start with too. Settings > Flow > **Who answers in Flow** can give Flow its own
+instead (**Same as default** or **Its own**):
 
-- **API mode (BYOK).** The provider, model, effort, vision model and Ollama
-  address you set in Settings > Models, shared with Chat. Any provider OpenLive
-  supports, including MiniMax, OpenAI, Anthropic, Google, Groq and Ollama.
+- **Your API key.** The provider, model, effort, vision model and Ollama
+  address you set in Settings > Models. Any provider OpenLive supports,
+  including MiniMax, OpenAI, Anthropic, Google, Groq and Ollama.
 - **A coding agent** (Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi, whichever are
   installed), driven over ACP. You can pin its model and effort, or leave the
   agent's defaults. It starts in Flow's own folder, `workspace/` in the
@@ -187,11 +190,11 @@ is one, a single button that fixes it.
 | Flow's key listener stopped | The global key hook died or could not start. On Linux (X11 or Wayland) that usually means no read access to `/dev/input` | **Try again** restarts it. On Linux, first add yourself to the `input` group (`sudo usermod -aG input $USER`) and sign back in |
 | I can hear you, but I cannot type for you | No Accessibility (macOS) or input access | **Open settings**, then allow OpenLive |
 | A password field has the keyboard | Secure input is on | Leave the password field |
-| No brain is configured yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
+| Nothing is set to answer yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
 | You are offline | No network | **Try again** |
 | The voice models are not downloaded yet | First run | **Download** |
 | I could not open the microphone | Another app holds it | **Try again** |
-| API mode has no key yet / The key or sign-in was refused | Missing or refused key or sign-in | **Open settings** (Models, or Agents for a coding agent) |
+| Your API key is missing / The key or sign-in was refused | Missing or refused key or sign-in | **Open settings** (Models, or Agents for a coding agent) |
 | That model is not available | Unknown model | **Open settings** |
 | I could not reach the model | Provider or Ollama unreachable | **Open settings** when the address is the problem |
 | Out of credit / The provider is busy right now | Billing or rate limit | Wait, or top up |
@@ -202,13 +205,13 @@ Every card also has **Close Flow**.
 
 ## Settings
 
-Settings > Flow ("Trigger, brain, access"):
+Settings > Flow ("Trigger, who answers"):
 
 | Section | Setting | Options |
 |---|---|---|
 | Trigger | Hotkey | The double tap, shown as keycaps, with a note when the key listener stopped |
 | | Listen for the Flow hotkey | On / off. Off ignores the double tap until it is back on or OpenLive restarts |
-| Brain | Who does the thinking | API mode, or an installed coding agent (model and effort) |
+| Who answers | Who answers in Flow | Same as default, or Its own: your API key, or an installed coding agent (model and effort under Advanced) |
 | Voice | Say replies out loud | On / off |
 | | Wait before answering | Patient, Even, Quick |
 | | Stay open after the last reply | 90 sec, 5 min, 30 min |
@@ -216,8 +219,8 @@ Settings > Flow ("Trigger, brain, access"):
 | Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status as a dot and a word, the button to grant or withdraw, and the system settings page under ⋯ |
 | Typing at cursor | Paste or type, clipboard | Goes to Settings > General > Typing at cursor, shared with Dictate |
 
-API mode's provider, model, vision model and Ollama address live in Settings >
-Models and are shared with Chat.
+Your API key's provider, model, vision model and Ollama address, and the
+default for who answers, live in Settings > Models and are shared with Chat.
 
 ![Settings > Flow](../assets/flow-settings.png)
 
@@ -399,6 +402,13 @@ process, two hidden or floating renderers, and the agent service.
 - **flow-ws** (`services/agent/src/live/flow-ws.ts`). Flow's side of `/live`: a
   separate connection with the same schemas and permission protocol as Chat. One
   rolling session, persisted through `packages/flow-store`.
+- **Who answers** (`packages/flow-store/src/shared.ts`). `defaultBrain` reads
+  the default from settings.json (`defaultAgent`, `defaultAgentModel`,
+  `defaultAgentEffort`; unset is the API key), `flowBrain` gives Flow's own
+  while `brain.override` is on and the default otherwise, and `dictateBrain`
+  gives Dictate's own or Flow's. flow-ws, Dictate's rewrite, `/api/flow/config`
+  and every screen resolve through them; a new chat records the default as its
+  bind when it is made, so a later change of default never moves it.
 - **Loop and brains** (`services/agent/src/flow/`). `runFlow` runs turns until the
   model stops calling tools, Stop or barge-in aborts, or an error ends it; there
   is no step budget. `LocalBrain` streams from `packages/harness` providers;
