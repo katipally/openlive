@@ -28,6 +28,30 @@ export const pttKeyOk = (key: unknown, platform: string): key is string =>
 export const toggleKeyOk = (key: unknown, platform: string): key is string =>
   typeof key === "string" && (/^(ctrl|option|shift|command)$/.test(key) || pttKeyOk(key, platform));
 
+const MODIFIER = /^(ctrl|option|shift|command)(?:_(left|right))?$/;
+
+/** `toggle` as the hook watches it while `hold` is the push-to-talk key: it
+ *  gives up the side push to talk holds ("ctrl" beside "ctrl_right" is
+ *  "ctrl_left"), and is null when push to talk takes all of it. ol-input's
+ *  `narrowToggle`, for the one-key bindings these validators allow. */
+export function narrowToggle(toggle: string, hold: string): string | null {
+  if (toggle === hold) return null;
+  const t = MODIFIER.exec(toggle);
+  const h = MODIFIER.exec(hold);
+  if (!t || !h || t[1] !== h[1]) return toggle;
+  if (!h[2]) return null;
+  if (t[2]) return t[2] === h[2] ? null : toggle;
+  return `${t[1]}_${h[2] === "left" ? "right" : "left"}`;
+}
+
+/** Whether two double-tap keys share a physical key ("ctrl" and "ctrl_left" do). */
+export function sameKey(a: string, b: string): boolean {
+  if (a === b) return true;
+  const x = MODIFIER.exec(a);
+  const y = MODIFIER.exec(b);
+  return !!x && !!y && x[1] === y[1] && (!x[2] || !y[2] || x[2] === y[2]);
+}
+
 const API_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
 
 /** The settings.json keys (packages/db) that say who answers by default: a

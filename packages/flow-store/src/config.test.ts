@@ -6,7 +6,7 @@ import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
 import { CONFIG_V7_FIXTURE } from "./config.v7.fixture";
 import { CONFIG_V8_FIXTURE } from "./config.v8.fixture";
-import { defaultBrain, defaultBrainSettings, defaultPttKey, dictateBrain, flowBrain, flowTurn, pttKeyOk, toggleKeyOk } from "./shared";
+import { defaultBrain, defaultBrainSettings, defaultPttKey, dictateBrain, flowBrain, flowTurn, narrowToggle, pttKeyOk, sameKey, toggleKeyOk } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -341,4 +341,19 @@ test("the toggle keys take a modifier group or one side of it, and a bad one fal
   const cfg = parseFlowConfig({ talk: { flowKey: "ctrl+c", dictateKey: "option_left" } });
   expect(cfg.talk.flowKey).toBe("ctrl");
   expect(cfg.talk.dictateKey).toBe("option_left");
+});
+
+// The same table as ol-input's binding.rs, for the one-key bindings the pickers make.
+test("a toggle gives up the side push to talk holds, as the hook narrows it", () => {
+  const cases: [string, string, string | null][] = [
+    ["ctrl", "ctrl_right", "ctrl_left"], ["ctrl", "ctrl_left", "ctrl_right"], ["option", "option_right", "option_left"],
+    ["ctrl_right", "ctrl_right", null], ["ctrl", "ctrl", null], ["ctrl", "fn", "ctrl"], ["option", "ctrl_right", "option"],
+    ["fn", "fn", null], ["f19", "f18", "f19"], ["f18", "f18", null], ["ctrl", "f18", "ctrl"], ["ctrl_left", "ctrl_right", "ctrl_left"],
+  ];
+  for (const [toggle, hold, want] of cases) expect(narrowToggle(toggle, hold), `${toggle} beside ${hold}`).toBe(want);
+});
+
+test("two double-tap keys clash when they share a physical key", () => {
+  for (const [a, b] of [["ctrl", "ctrl"], ["ctrl", "ctrl_left"], ["option_right", "option"], ["f19", "f19"]]) expect(sameKey(a!, b!)).toBe(true);
+  for (const [a, b] of [["ctrl", "option"], ["ctrl_left", "ctrl_right"], ["f19", "f20"], ["fn", "ctrl"]]) expect(sameKey(a!, b!)).toBe(false);
 });
