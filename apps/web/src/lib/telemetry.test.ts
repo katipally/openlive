@@ -73,9 +73,9 @@ describe("telemetry wrapper", () => {
   });
 
   it("does not spend a once-only key while no shell is there to take it", () => {
-    telemetry.track("onboarding_step", { step: "first_ptt_on" });
+    telemetry.track("onboarding_step", { step: "first_mode_switch" });
     const fake = install();
-    telemetry.track("onboarding_step", { step: "first_ptt_on" });
+    telemetry.track("onboarding_step", { step: "first_mode_switch" });
     expect(fake.track).toHaveBeenCalledOnce();
   });
 });

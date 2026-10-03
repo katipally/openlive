@@ -802,6 +802,5 @@ The Values cells link here for the long lists.
 | `first_camera_on` | The camera was turned on in a call for the first time. |
 | `first_screen_share` | Screen sharing was turned on in a call for the first time. |
 | `first_typed_message` | A message was typed in a call for the first time. |
-| `first_ptt_on` | Push to talk was switched on for the first time. |
 | `first_mode_switch` | You switched between Chat, Flow and Dictate for the first time. |
 | `first_shortcuts_sheet` | The keyboard shortcuts sheet was opened for the first time. |

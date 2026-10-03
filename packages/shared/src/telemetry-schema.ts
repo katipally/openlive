@@ -56,7 +56,7 @@ const WEB_STEPS = [
   "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings",
   "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume",
   "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message",
-  "first_ptt_on", "first_mode_switch", "first_shortcuts_sheet",
+  "first_mode_switch", "first_shortcuts_sheet",
 ] as const;
 const MAIN_STEPS = [
   "flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok",
