@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, v2-pipeline-agents]
+    branches: [main]
   pull_request:
+
+# A newer push to the same branch or PR makes the run still going moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -26,6 +31,44 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  # macOS is built the way the release builds it, minus signing: one universal
+  # app, with the packaged web and agent servers booted by the afterPack smoke.
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      # The universal addon and helper need both Apple targets.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Test computer-use helper
+        run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
+
+      - name: Pack web + agent + native
+        run: |
+          pnpm --filter @openlive/desktop pack:web
+          pnpm --filter @openlive/desktop pack:agent
+          pnpm --filter @openlive/desktop pack:native
+
+      - name: Build macOS app (unsigned)
+        run: pnpm --filter @openlive/desktop exec electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
   # Windows parity is code-level (no hardware QA): prove the repo installs,
   # typechecks, tests, and produces an unsigned Windows build on windows-latest.

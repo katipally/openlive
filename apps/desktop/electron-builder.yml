@@ -171,6 +171,9 @@ linux:
     - target: AppImage
       arch: [x64]
   category: AudioVideo
+  # Otherwise it comes from the package name, @openlive/desktop, which
+  # electron-builder 26 refuses as a file name.
+  executableName: openlive
   artifactName: ${productName}-${version}-linux.${ext}
   icon: build/icons
   # The computer-use helper, beside the app's resources, as on Windows. Inside
