@@ -75,7 +75,7 @@ export function HowYouTalk() {
 
 /** Why the keys cannot work here, and what does work meanwhile. "" while they can. */
 function listenerNote(caps: ReturnType<typeof useFlowCapabilities>["caps"]): string {
-  const note = keyListenerNote(caps);
+  const note = keyListenerNote(caps, "shared");
   if (!note) return "";
   const linux = caps?.hookError && desktopPlatform === "linux"
     ? " On Linux the keys need the input group: run sudo usermod -aG input $USER, then sign out and back in." : "";

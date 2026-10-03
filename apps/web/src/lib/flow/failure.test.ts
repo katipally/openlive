@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, forOrb, keyListenerNote, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
+import { addonProblem, deriveFailure, forOrb, keyListenerNote, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
@@ -172,15 +172,34 @@ describe("turnFailure", () => {
 
 describe("keyListenerNote", () => {
   it("is empty while the double tap can work", () => {
-    expect(keyListenerNote(null)).toBe("");
-    expect(keyListenerNote({ hookError: null, wayland: false })).toBe("");
+    expect(keyListenerNote(null, "flow")).toBe("");
+    expect(keyListenerNote({ hookError: null, wayland: false }, "dictate")).toBe("");
   });
   it("passes on why the listener stopped before anything about the session", () => {
     const denied = "permission denied opening 3 device node(s) under /dev/input";
-    expect(keyListenerNote({ hookError: denied, wayland: true })).toContain(denied);
+    expect(keyListenerNote({ hookError: denied, wayland: true }, "flow")).toContain(denied);
   });
   it("names the Wayland limit", () => {
-    expect(keyListenerNote({ hookError: null, wayland: true })).toMatch(/Wayland/);
+    expect(keyListenerNote({ hookError: null, wayland: true }, "flow")).toMatch(/Wayland/);
+  });
+  it("names the mode whose screen it is on, and neither on a shared one", () => {
+    const stopped = { hookError: "it died", wayland: false };
+    expect(keyListenerNote(stopped, "flow")).toMatch(/^Flow's key listener/);
+    expect(keyListenerNote(stopped, "dictate")).toMatch(/^Dictate's key listener/);
+    expect(keyListenerNote(stopped, "shared")).toMatch(/^OpenLive's key listener/);
+    expect(keyListenerNote({ hookError: null, wayland: true }, "dictate")).not.toMatch(/Flow/);
+  });
+});
+
+describe("addonProblem", () => {
+  it("never names Flow on Dictate's screens", () => {
+    for (const packaged of [true, false]) {
+      const { title, detail } = addonProblem(packaged, "dictate");
+      expect(`${title} ${detail}`).not.toMatch(/Flow/);
+      expect(title).toMatch(/^Dictate/);
+      expect(addonProblem(packaged, "flow").title).toMatch(/^Flow/);
+      expect(addonProblem(packaged, "shared").title).toMatch(/^OpenLive/);
+    }
   });
 });
 

@@ -93,7 +93,7 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
     <div className="flex flex-col gap-7">
       <Section id="set-dictate-trigger" title="Trigger" desc="How you start and stop. Set in General.">
         {caps?.addonError
-          ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
+          ? <AddonCard error={caps.addonError} packaged={caps.packaged} user="dictate" onRetry={refresh} />
           : (
             <ListGroup>
               <LinkRow icon={Keyboard} label="Open and close" detail="Double-tap in any app, or the mic by Flow's orb" shared={false} onGo={() => go("general", "set-general-dictate-key")}

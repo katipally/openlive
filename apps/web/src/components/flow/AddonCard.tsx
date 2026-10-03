@@ -3,14 +3,14 @@
 import { KeyboardOff } from "lucide-react";
 import { Button, Advanced } from "@/components/ui";
 import { flowBridge } from "@/lib/flow/bridge";
-import { addonProblem } from "@/lib/flow/failure";
+import { addonProblem, type KeyUser } from "@/lib/flow/failure";
 
-// The ol-input addon did not load, so Flow cannot hear the double tap. Said in
-// words with the one fix, on Flow home and in Flow settings alike; the loader's
+// The ol-input addon did not load, so the double tap goes unheard. Said in words
+// with the one fix, on each home and in each mode's settings alike; the loader's
 // own message (paths and all) waits behind a disclosure for whoever needs it.
 
-export function AddonCard({ error, packaged, onRetry }: { error: string; packaged: boolean; onRetry: () => void }) {
-  const { title, detail } = addonProblem(packaged);
+export function AddonCard({ error, packaged, user, onRetry }: { error: string; packaged: boolean; user: KeyUser; onRetry: () => void }) {
+  const { title, detail } = addonProblem(packaged, user);
   // The addon loads on demand, so a build is picked up without a restart. The
   // settings nudge is what makes the Flow runtime arm its key listener again.
   const retry = () => { flowBridge()?.settingsChanged?.(); onRetry(); };

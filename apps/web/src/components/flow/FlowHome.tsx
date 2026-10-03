@@ -130,7 +130,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           </ChipButton>
         </div>
         {hookError && <p className="max-w-full break-words text-caption text-destructive-text">{hookError}</p>}
-        {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={onRetry} />}
+        {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} user="flow" onRetry={onRetry} />}
       </section>
 
       <section className="flex min-h-[16rem] flex-1 basis-0 flex-col gap-1">

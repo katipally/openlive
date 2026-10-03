@@ -44,7 +44,7 @@ export function FlowSettings() {
   const [pipeline, setPipeline] = useState(() => loadPipelineConfig());
   useEffect(() => onPipelineConfig(setPipeline), []);
   const { caps, refresh } = useFlowCapabilities();
-  const keyNote = keyListenerNote(caps);
+  const keyNote = keyListenerNote(caps, "flow");
 
   if (!config) return <QueryState loading={loading} error={error || null} retrying={false} onRetry={refetch} what="read Flow's settings" />;
 
@@ -61,7 +61,7 @@ export function FlowSettings() {
       {caps && <ModeOnLine id="set-flow-status" mode="flow" on={caps.armed} />}
       <Section id="set-flow-trigger" title="Trigger" desc="How you open Flow, from any app. Set in General.">
         {caps?.addonError
-          ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
+          ? <AddonCard error={caps.addonError} packaged={caps.packaged} user="flow" onRetry={refresh} />
           : (
             <ListGroup>
               <LinkRow icon={Keyboard} label="Open and close" detail="Double-tap in any app" shared={false} onGo={() => go("general", "set-general-flow-key")}

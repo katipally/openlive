@@ -40,7 +40,7 @@ const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes th
  * grant, and both beat anything Flow could still half-do.
  */
 export function deriveFailure(h: FlowHealth): FlowFailure | null {
-  if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged), actionLabel: "Try again" };
+  if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged, "flow"), actionLabel: "Try again" };
   if (h.hookError) {
     // Linux reads keys from /dev/input on X11 and Wayland alike, which takes the input group.
     const detail = h.platform === "linux" ? `${h.hookError.replace(/[.!?]?$/, ".")} ${LINUX_INPUT_FIX}` : h.hookError;
@@ -156,18 +156,25 @@ export function turnFailure(message: string, agent = false, code?: ErrorClass): 
   }
 }
 
-/** Flow's words for an ol-input addon that did not load, shared by the orb,
- *  Flow home and Flow settings. The raw loader error stays behind a disclosure. */
-export function addonProblem(packaged: boolean): { title: string; detail: string } {
+/** Who the key listener and keyboard helper are named for: one mode on its own
+ *  home and settings, both on a screen they share. */
+export type KeyUser = "flow" | "dictate" | "shared";
+const KEY_USER = { flow: "Flow", dictate: "Dictate", shared: "OpenLive" } as const;
+
+/** The words for an ol-input addon that did not load, shared by the orb, the
+ *  homes and settings. The raw loader error stays behind a disclosure. */
+export function addonProblem(packaged: boolean, user: KeyUser): { title: string; detail: string } {
+  const name = KEY_USER[user];
+  const needs = user === "shared" ? "Flow and Dictate need" : `${name} needs`;
   return packaged
-    ? { title: "Flow can't hear the keyboard", detail: "A part of OpenLive that Flow needs did not load. Reinstalling OpenLive puts it back." }
-    : { title: "Flow's keyboard helper isn't built", detail: "Run pnpm native:build in the repo, then try again. No restart needed." };
+    ? { title: `${name} can't hear the keyboard`, detail: `A part of OpenLive that ${needs} did not load. Reinstalling OpenLive puts it back.` }
+    : { title: `${name}'s keyboard helper isn't built`, detail: "Run pnpm native:build in the repo, then try again. No restart needed." };
 }
 
-/** What Flow settings says about the key listener when the double tap cannot
- *  work here, in the same words the orb uses. "" while it can. */
-export function keyListenerNote(c: { hookError: string | null; wayland: boolean } | null): string {
-  if (c?.hookError) return `Flow's key listener stopped: ${c.hookError}`;
-  if (c?.wayland) return "On Wayland the double tap reaches Flow only when OpenLive can read /dev/input, which takes the input group. Chat and calls in the OpenLive window work either way.";
+/** What settings and the homes say about the key listener when the double tap
+ *  cannot work here, in the same words the orb uses. "" while it can. */
+export function keyListenerNote(c: { hookError: string | null; wayland: boolean } | null, user: KeyUser): string {
+  if (c?.hookError) return `${KEY_USER[user]}'s key listener stopped: ${c.hookError}`;
+  if (c?.wayland) return `On Wayland the double tap reaches ${user === "shared" ? "Flow and Dictate" : KEY_USER[user]} only when OpenLive can read /dev/input, which takes the input group. Chat and calls in the OpenLive window work either way.`;
   return "";
 }

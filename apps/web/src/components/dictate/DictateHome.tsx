@@ -78,7 +78,7 @@ export function DictateHome() {
             )}
             {!config && <QueryState loading={false} error={error || null} retrying={false} onRetry={refetch} what="read Dictate's settings" />}
             {config && error && <p role="alert" className="max-w-full break-words text-label text-destructive-text">{error}</p>}
-            {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />}
+            {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} user="dictate" onRetry={refresh} />}
           </section>
 
           {config && <History own={config.dictate} insertion={config.insertion} />}
@@ -119,7 +119,7 @@ function GrantPills({ missing, refresh }: { missing: FlowPermissionName[]; refre
 /** Whether the key would work right now, and the fix right here when it would not. */
 function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () => void }) {
   if (!caps || caps.addonError) return null;
-  const note = keyListenerNote(caps);
+  const note = keyListenerNote(caps, "dictate");
   const missing = missingGrants(caps);
   if (missing.length) return <GrantPills missing={missing} refresh={refresh} />;
   if (note) return <StatusDot tone={caps.hookError ? "danger" : "arc"}>{note}</StatusDot>;
