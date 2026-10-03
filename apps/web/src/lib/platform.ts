@@ -23,8 +23,6 @@ export const isMac = desktopPlatform
 export const MOD = isMac ? "⌘" : "Ctrl";
 /** The native menu's Settings shortcut, for the Settings buttons' tooltips; none on the web. */
 export const SETTINGS_KEYS = isDesktop ? (isMac ? "⌘," : "Ctrl+,") : undefined;
-/** Flow's summon key, named the way that keyboard prints it. */
-export const CONTROL = isMac ? "Control" : "Ctrl";
 export const isNonMacDesktop = isDesktop && !!desktopPlatform && desktopPlatform !== "darwin";
 
 /** Last path segment for display ("/a/b/c" → "c"); tolerant of trailing slashes
