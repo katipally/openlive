@@ -461,6 +461,11 @@ pub fn selected_text() -> Option<String> {
     }
 }
 
+/// UI Automation is the accessibility API's own answer already.
+pub fn accessible_selection() -> Option<String> {
+    selected_text()
+}
+
 fn is_elevated(pid: u32) -> Option<bool> {
     use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
     use windows::Win32::System::Threading::OpenProcessToken;

@@ -77,6 +77,13 @@ pub fn open_url(url: &str) -> Result<(), String> {
 
 /// The focused element's selected text. `None` means the platform or the app
 /// could not tell us, which is not the same as an empty selection.
+/// The focused element's selection as the accessibility API reports it, ""
+/// for none. `None` where it cannot be read that way: no copy, and on Linux
+/// no PRIMARY.
+pub fn accessible_selection() -> Option<String> {
+    platform::accessible_selection()
+}
+
 pub fn selection() -> Option<String> {
     let text = platform::selected_text()?;
     if text.is_empty() {

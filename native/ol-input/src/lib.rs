@@ -679,6 +679,29 @@ pub fn selected_text() -> Option<String> {
 }
 
 /// Asking the focused app can wait on it, so it runs off the main thread.
+pub struct SelectionTask;
+
+impl napi::Task for SelectionTask {
+    type Output = Option<String>;
+    type JsValue = Option<String>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(window::accessible_selection())
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// The selection in the app in front, read only through the accessibility
+/// API: "" for none, null where it cannot be read that way. Never copies.
+#[napi]
+pub fn accessible_selection() -> AsyncTask<SelectionTask> {
+    AsyncTask::new(SelectionTask)
+}
+
+/// Asking the focused app can wait on it, so it runs off the main thread.
 pub struct FocusTask;
 
 impl napi::Task for FocusTask {

@@ -97,6 +97,10 @@ export interface FlowBridge {
   keys(keys: string[], times?: number): Promise<Guarded<void>>;
   /** The selection in the app in front, by sending the copy chord; null when nothing was copied. */
   copySelection(timing?: InsertionTiming): Promise<Guarded<string | null>>;
+  /** The selection in the app in front through the accessibility API alone
+   *  (OpenLive's own page directly): "" for none, null where it cannot be read
+   *  that way, as on Wayland. Never copies. */
+  accessibleSelection(): Promise<Guarded<string | null>>;
   /** Whether the focused element takes typed text; null when the platform or the app will not say. */
   focusEditable(): Promise<Guarded<boolean | null>>;
   context(): Promise<Guarded<FlowContextWire>>;

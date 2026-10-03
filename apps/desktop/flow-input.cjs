@@ -50,6 +50,12 @@ let ownSession = 2 ** 30; // above any session id the addon hands out
 // What Dictate types into in OpenLive's own window: a text field that takes input, or an editable element.
 const OWN_EDITABLE = `(() => { const e = document.activeElement; return !!e && (e.isContentEditable || ((e.tagName === "TEXTAREA"
   || (e.tagName === "INPUT" && /^(text|search|email|url|tel|password|number)$/.test(e.type))) && !e.disabled && !e.readOnly)); })()`;
+// The selection inside that text box, as Dictate's edits read it: OpenLive's
+// own page, read directly rather than through the OS. Never a password's.
+const OWN_SELECTION = `(() => { const e = document.activeElement; if (!e || e.disabled || e.readOnly) return "";
+  if (e.isContentEditable) return String(getSelection() ?? "");
+  const box = e.tagName === "TEXTAREA" || (e.tagName === "INPUT" && /^(text|search|email|url|tel|number)$/.test(e.type));
+  return box && e.selectionStart != null ? e.value.slice(e.selectionStart, e.selectionEnd ?? e.selectionStart) : ""; })()`;
 let telemetry = null;
 
 function load() {
@@ -294,6 +300,11 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   // Dictate's spoken commands and command mode: a key chord, and the selection read by copying it.
   ipcMain.handle("openlive:flow-keys", guard((keys, times) => load().keypress((Array.isArray(keys) ? keys : []).map(String), Number.isInteger(times) ? times : undefined)));
   ipcMain.handle("openlive:flow-copy-selection", guard((timing) => load().copySelection(insertionTiming(timing))));
+  // Dictate's edit by voice: the selection through the accessibility API only, never a copy.
+  ipcMain.handle("openlive:flow-accessible-selection", guard(() => {
+    const own = ownField();
+    return own ? own.executeJavaScript(OWN_SELECTION, true) : load().accessibleSelection();
+  }));
   ipcMain.handle("openlive:flow-focus-editable", guard(() => {
     const own = ownField();
     return own ? own.executeJavaScript(OWN_EDITABLE, true) : load().focusEditable();

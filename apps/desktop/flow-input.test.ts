@@ -14,7 +14,7 @@ function load(ownField?: () => unknown, { packaged = false } = {}) {
     narrowToggle: vi.fn((toggle: string, hold: string) => (toggle === "ctrl" && hold === "ctrl_right" ? "ctrl_left" : toggle)),
     initializeInjector: vi.fn(), initializeHook: vi.fn(), hookError: vi.fn(() => null), permissionStatus: vi.fn(() => ({})),
     secureInputStatus: vi.fn(() => ({ changed: false })), shutdown: vi.fn(),
-    focusEditable: vi.fn(async () => null), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
+    focusEditable: vi.fn(async () => null), accessibleSelection: vi.fn(async () => "the old line"), copySelection: vi.fn(async () => "copied"), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
   };
   stub(require.resolve("electron"), {
     app: { isPackaged: packaged, on: vi.fn() },
@@ -189,6 +189,30 @@ describe("typing into OpenLive's own window", () => {
     expect(editable(input({ type: "checkbox" }))).toBe(false);
     expect(editable({ tagName: "BUTTON" })).toBe(false);
     expect(editable(null)).toBe(false);
+  });
+
+  it("reads the selection to edit from the page itself, never a password's, and never by copying", async () => {
+    const wc = own();
+    const { addon, call } = load(() => wc);
+    await call("openlive:flow-accessible-selection");
+    const [script] = wc.executeJavaScript.mock.calls[0] as unknown as [string];
+    const selected = (activeElement: unknown, page = "") => new Function("document", "getSelection", `return ${script}`)({ activeElement }, () => page) as string;
+    const box = (o: object) => ({ tagName: "INPUT", type: "text", value: "send it friday", selectionStart: 8, selectionEnd: 14, ...o });
+    expect(selected(box({}))).toBe("friday");
+    expect(selected({ ...box({}), tagName: "TEXTAREA" })).toBe("friday");
+    expect(selected(box({ selectionStart: 3, selectionEnd: 3 }))).toBe("");
+    expect(selected(box({ type: "password" }))).toBe("");
+    expect(selected(box({ readOnly: true }))).toBe("");
+    expect(selected({ isContentEditable: true }, "a paragraph")).toBe("a paragraph");
+    expect(selected(null)).toBe("");
+    expect(addon.accessibleSelection).not.toHaveBeenCalled();
+    expect(addon.copySelection).not.toHaveBeenCalled();
+  });
+
+  it("asks the addon's accessibility read for every other app, never its copy", async () => {
+    const { addon, call } = load(() => null);
+    expect(await call("openlive:flow-accessible-selection")).toEqual({ ok: true, value: "the old line" });
+    expect(addon.copySelection).not.toHaveBeenCalled();
   });
 
   it("leaves every other app to the addon", async () => {

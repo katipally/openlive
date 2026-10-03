@@ -137,6 +137,7 @@ contextBridge.exposeInMainWorld("openlive", {
     keys: (keys, times) => ipcRenderer.invoke("openlive:flow-keys", keys, times),
     copySelection: (timing) => ipcRenderer.invoke("openlive:flow-copy-selection", timing),
     focusEditable: () => ipcRenderer.invoke("openlive:flow-focus-editable"),
+    accessibleSelection: () => ipcRenderer.invoke("openlive:flow-accessible-selection"),
     secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),
     hookError: () => ipcRenderer.invoke("openlive:flow-hook-error"),
     // What the user is looking at, whether this is a moment to speak out loud, and

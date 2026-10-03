@@ -599,6 +599,11 @@ pub fn selected_text() -> Option<String> {
     text
 }
 
+/// AXSelectedText is the accessibility API's own answer already.
+pub fn accessible_selection() -> Option<String> {
+    selected_text()
+}
+
 pub fn focus_editable() -> Option<bool> {
     let focused = ax_focused()?;
     let role_key = cfstring("AXRole");

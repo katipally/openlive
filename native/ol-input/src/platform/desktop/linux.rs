@@ -372,10 +372,52 @@ for app in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count
 /// D-Bus timeouts, so the answer is given up on well before then.
 const ATSPI_WAIT: Duration = Duration::from_millis(800);
 
+/// The selection in the focused accessible of the active window, from its
+/// AT-SPI Text interface: "=" and the text, "=" alone for none. Prints nothing
+/// where it cannot tell.
+const ATSPI_SELECTION: &str = r#"
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+S = Atspi.StateType
+M = Atspi.CollectionMatchType.ALL
+desktop = Atspi.get_desktop(0)
+for app in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count())):
+    for win in (app.get_child_at_index(j) for j in range(app.get_child_count() if app else 0)):
+        if win and win.get_state_set().contains(S.ACTIVE):
+            rule = Atspi.MatchRule.new(Atspi.StateSet.new([S.FOCUSED]), M, {}, M, [], M, [], M, False)
+            found = win.get_collection_iface().get_matches(rule, Atspi.CollectionSortOrder.CANONICAL, 1, True)
+            text = found[0].get_text_iface() if found else None
+            if text:
+                ranges = (text.get_selection(k) for k in range(text.get_n_selections()))
+                sys.stdout.write("=" + "".join(text.get_text(r.start_offset, r.end_offset) for r in ranges))
+            raise SystemExit
+"#;
+
+/// Accessibility's own selection, never PRIMARY: PRIMARY outlives the
+/// selection that set it, which would turn a sentence into an edit of text
+/// nobody has selected any more. A Wayland session gets none: the active
+/// window there is the compositor's to know, not AT-SPI's.
+pub fn accessible_selection() -> Option<String> {
+    if is_wayland() {
+        return None;
+    }
+    atspi(ATSPI_SELECTION)?.strip_prefix('=').map(str::to_owned)
+}
+
 pub fn focus_editable() -> Option<bool> {
+    let out = atspi(ATSPI_FOCUS)?;
+    let (role, editable) = out.trim().split_once('\t')?;
+    crate::focus::atspi(role, editable == "1")
+}
+
+/// What `script` prints, run by the system python3, or None when it cannot
+/// run or does not finish within ATSPI_WAIT.
+fn atspi(script: &str) -> Option<String> {
     which("python3")?;
     let mut child = Command::new("python3")
-        .args(["-c", ATSPI_FOCUS])
+        .args(["-c", script])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -392,8 +434,7 @@ pub fn focus_editable() -> Option<bool> {
     }
     let mut out = String::new();
     child.stdout.take()?.read_to_string(&mut out).ok()?;
-    let (role, editable) = out.trim().split_once('\t')?;
-    crate::focus::atspi(role, editable == "1")
+    Some(out)
 }
 
 pub fn guard_injection() -> Result<(), String> {
