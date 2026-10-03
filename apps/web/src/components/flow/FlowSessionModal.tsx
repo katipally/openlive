@@ -5,7 +5,7 @@ import { AnimatePresence, MotionConfig, motion, useIsPresent } from "motion/reac
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Pencil, Play, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { Button, ConfirmButton, SidePanelHeader, Swap, Tooltip, sidePanel } from "@/components/ui";
+import { Button, SidePanelHeader, Swap, Tooltip, sidePanel } from "@/components/ui";
 import { flowBridge } from "@/lib/flow/bridge";
 import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration, stamp } from "@/lib/flow/format";
@@ -104,7 +104,10 @@ export function FlowSessionModal({ id, live, onClose }: { id: string; live: bool
 
         <footer className="flex shrink-0 flex-wrap items-center gap-2 px-5 py-3">
           <Tooltip label={live && RUNNING_TIP}>
-            <ConfirmButton onConfirm={remove} disabled={live || !data} label="Delete" confirm="Delete session?" />
+            <Button variant="ghost" size="sm" className="text-destructive-text enabled:hover:bg-destructive/10 enabled:hover:text-destructive-text aria-disabled:enabled:hover:bg-transparent"
+              onClick={() => { if (!live && data) remove(); }} aria-disabled={live || !data || undefined}>
+              Delete
+            </Button>
           </Tooltip>
           <span role="status" className="min-w-0 flex-1 break-words text-caption text-destructive-text">{failed}</span>
           <Button variant="secondary" size="sm" onClick={copy} disabled={!timeline.items.length} aria-label={copied ? "Copied" : "Copy transcript"}>
