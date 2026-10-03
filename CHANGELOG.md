@@ -6,82 +6,6 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
-### Changed
-- **One "Who answers you" choice, set once.** Your API key or a coding agent
-  you already use, picked in Settings > Models (and in Welcome), is the
-  default that new chats, Flow and Dictate's AI polish start with. A coding
-  agent shows only when it is set up, with its sign-in and version; the rest
-  sit on one "Not set up" line that goes to Agents, and its model and effort
-  fold under Advanced. Flow can be **Same as default** or have **Its own**,
-  and Dictate's AI polish and commands **Same as Flow** or **Its own**, asked
-  once, under AI polish. Chat's "Talk to" lists the same two groups, Flow's
-  home shows who answers and whether it is ready, and the same words are used
-  everywhere. Until you pick otherwise, everything answers as it did.
-- Flow's first run is only its access step: who answers is the default now.
-- **Each mode's home is where you use it, Settings is where you set it up,
-  and nothing is in both.** Dictate's home has the on/off switch, whether it
-  is ready (with the fix when something is missing), how to start in your own
-  keys, and your whole history: search, copy, insert again, delete, and
-  **Show more** for a long one. Settings > Dictate keeps the keys, cleanup,
-  AI polish and its tone, who answers it, words, commands, and how long
-  history is kept with **Clear all**, under one line that says whether
-  Dictate is on and links to its home. Flow's on/off moved from Settings >
-  Flow to Flow's home the same way.
-- **One description of each mode, everywhere.** Chat is a voice call with
-  your AI; Flow is asking your computer, from any app, which can act for you;
-  Dictate is voice typing into any text box, with no AI unless you turn on AI
-  polish. The mode switch, Welcome, the homes, the first tour, Settings and the
-  command palette all say the same thing, with your own keys.
-- **Dictate's first visit** walks you through it on its home: what it is and
-  turning it on, then a box right there to try it in. Skippable.
-- **The tray turns Dictate on and off**, under a line that says how it stands
-  and its key, and the window follows at once.
-- **Flow's switch stays as you left it.** Turned off on Flow's home or from
-  the tray, Flow stays off when OpenLive restarts; the tray now has **Turn Flow
-  on** and **Turn Flow off** next to Dictate's.
-
-### Fixed
-- **Dictating into OpenLive's own text boxes types there,** on every platform:
-  Electron takes the words directly instead of system key events. With no
-  text box in focus there, or a disabled or read-only one, the words are
-  copied instead with "Copied instead", and **Insert again** from Dictate's
-  history does the same, instead of typing into nothing.
-- **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
-  longer misses being told it is shown when it comes up for Dictate, which hid
-  the words and the Undo button. The microphone stays open, muted, for 30
-  seconds after a dictation, so the next hold is captioned from its first word;
-  then it closes, and turning Dictate off or opening Flow closes it at once.
-  The first hold after a while is captioned as soon as the engine is up,
-  including what was said while it started.
-- **Talk right after letting go of Dictate's key can no longer open a Flow
-  turn.** Dictate keeps the microphone until the words are typed.
-- **Opening Flow in the middle of a Dictate hold no longer leaves Flow waiting
-  for the key.** The hold is dropped, so Flow ends each turn on its own.
-- **AI polish that stopped partway offers Undo only when its words landed.**
-- Agents show a coding agent's version as its number alone, without a stray
-  period (GitHub Copilot) or its own name repeated (Claude Code).
-- **The menus say OpenLive** (Hide OpenLive, Quit, About) when run from a
-  checkout too, instead of the package's name. No settings or data move.
-- Settings > Dictate gives AI polish's real wait (25 seconds) before it types
-  the cleaned-up words instead.
-- **A dictation shows in Dictate's history as it lands**, including one into
-  the Try it here box, instead of only after the window loses and regains focus.
-- Flow's home says to turn Flow on first while it is off, the way Dictate's does.
-- Settings search forgives one typo in a longer word ("memmory", "dicate")
-  when nothing matches as typed.
-- The command palette says **Open sessions**, the drawer's own name.
-- The call setup's first tour fits your API key as well as a coding agent, and
-  Clear all asks **Delete it** when one dictation is kept.
-- **A Dictate hold with no words in it types nothing.** Room sound alone no
-  longer comes out as "Thanks!" or "The End", typed or copied over your
-  clipboard: the recording is checked for speech first, and the orb says **No
-  words heard.** A single short word still goes in, and the start of a hold
-  is cut to just before you speak.
-- **Esc no longer ends Welcome for good.** Esc and Skip ask **Skip setup?**
-  first, with **Keep going** to stay.
-- The sessions drawer opens under the traffic lights on macOS instead of
-  beneath them.
-
 ## [0.3.0] - 2026-10-02
 
 ### Added
@@ -430,6 +354,38 @@ Releases before 0.1.9 predate this file — see the
 - **Voice detection runs Silero v6.2.** It makes fewer mistakes on noisy
   rooms, soft or unusual voices and phone-quality mics, at the same speed.
   Settings → Voice → VAD can switch back to v5.
+- **One "Who answers you" choice, set once.** Your API key or a coding agent
+  you already use, picked in Settings > Models (and in Welcome), is the
+  default that new chats, Flow and Dictate's AI polish start with. A coding
+  agent shows only when it is set up, with its sign-in and version; the rest
+  sit on one "Not set up" line that goes to Agents, and its model and effort
+  fold under Advanced. Flow can be **Same as default** or have **Its own**,
+  and Dictate's AI polish and commands **Same as Flow** or **Its own**, asked
+  once, under AI polish. Chat's "Talk to" lists the same two groups, Flow's
+  home shows who answers and whether it is ready, and the same words are used
+  everywhere. Until you pick otherwise, everything answers as it did.
+- Flow's first run is only its access step: who answers is the default now.
+- **Each mode's home is where you use it, Settings is where you set it up,
+  and nothing is in both.** Dictate's home has the on/off switch, whether it
+  is ready (with the fix when something is missing), how to start in your own
+  keys, and your whole history: search, copy, insert again, delete, and
+  **Show more** for a long one. Settings > Dictate keeps the keys, cleanup,
+  AI polish and its tone, who answers it, words, commands, and how long
+  history is kept with **Clear all**, under one line that says whether
+  Dictate is on and links to its home. Flow's on/off moved from Settings >
+  Flow to Flow's home the same way.
+- **One description of each mode, everywhere.** Chat is a voice call with
+  your AI; Flow is asking your computer, from any app, which can act for you;
+  Dictate is voice typing into any text box, with no AI unless you turn on AI
+  polish. The mode switch, Welcome, the homes, the first tour, Settings and the
+  command palette all say the same thing, with your own keys.
+- **Dictate's first visit** walks you through it on its home: what it is and
+  turning it on, then a box right there to try it in. Skippable.
+- **The tray turns Dictate on and off**, under a line that says how it stands
+  and its key, and the window follows at once.
+- **Flow's switch stays as you left it.** Turned off on Flow's home or from
+  the tray, Flow stays off when OpenLive restarts; the tray now has **Turn Flow
+  on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
 - **The home tour after Welcome skips what Welcome just showed.** Right after
@@ -746,6 +702,46 @@ Releases before 0.1.9 predate this file — see the
 - **A web lookup's "Still searching for…" was saved as part of the answer.**
   It is spoken while the lookup runs and no longer lands in the reply.
 - **Settings → Models showed a 1M context as "1.048576M".**
+- **Dictating into OpenLive's own text boxes types there,** on every platform:
+  Electron takes the words directly instead of system key events. With no
+  text box in focus there, or a disabled or read-only one, the words are
+  copied instead with "Copied instead", and **Insert again** from Dictate's
+  history does the same, instead of typing into nothing.
+- **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
+  longer misses being told it is shown when it comes up for Dictate, which hid
+  the words and the Undo button. The microphone stays open, muted, for 30
+  seconds after a dictation, so the next hold is captioned from its first word;
+  then it closes, and turning Dictate off or opening Flow closes it at once.
+  The first hold after a while is captioned as soon as the engine is up,
+  including what was said while it started.
+- **Talk right after letting go of Dictate's key can no longer open a Flow
+  turn.** Dictate keeps the microphone until the words are typed.
+- **Opening Flow in the middle of a Dictate hold no longer leaves Flow waiting
+  for the key.** The hold is dropped, so Flow ends each turn on its own.
+- **AI polish that stopped partway offers Undo only when its words landed.**
+- Agents show a coding agent's version as its number alone, without a stray
+  period (GitHub Copilot) or its own name repeated (Claude Code).
+- **The menus say OpenLive** (Hide OpenLive, Quit, About) when run from a
+  checkout too, instead of the package's name. No settings or data move.
+- Settings > Dictate gives AI polish's real wait (25 seconds) before it types
+  the cleaned-up words instead.
+- **A dictation shows in Dictate's history as it lands**, including one into
+  the Try it here box, instead of only after the window loses and regains focus.
+- Flow's home says to turn Flow on first while it is off, the way Dictate's does.
+- Settings search forgives one typo in a longer word ("memmory", "dicate")
+  when nothing matches as typed.
+- The command palette says **Open sessions**, the drawer's own name.
+- The call setup's first tour fits your API key as well as a coding agent, and
+  Clear all asks **Delete it** when one dictation is kept.
+- **A Dictate hold with no words in it types nothing.** Room sound alone no
+  longer comes out as "Thanks!" or "The End", typed or copied over your
+  clipboard: the recording is checked for speech first, and the orb says **No
+  words heard.** A single short word still goes in, and the start of a hold
+  is cut to just before you speak.
+- **Esc no longer ends Welcome for good.** Esc and Skip ask **Skip setup?**
+  first, with **Keep going** to stay.
+- The sessions drawer opens under the traffic lights on macOS instead of
+  beneath them.
 
 ## [0.2.7] - 2026-08-27
 
