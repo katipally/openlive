@@ -8,7 +8,8 @@ import { useLiveSession } from "@/lib/live/useLiveSession";
 import type { CallEndedBy } from "@/lib/live/callFact";
 import { usePtt } from "@/lib/live/usePtt";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
-import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { keysListen, useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { keyName } from "@/lib/dictate/hotkey";
 import { desktopPlatform } from "@/lib/platform";
 import { useUi } from "@/lib/uiStore";
 import { api } from "@/lib/api";
@@ -39,14 +40,17 @@ export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => voi
   const openSettings = useUi((s) => s.openSettings);
 
   // How you talk is Flow's setting, shared by Flow, Dictate and calls. The key's
-  // name is shown only where the key is listened to: not in the web build.
+  // name is shown only where the key is listened to: not in the web build, and
+  // not while the key listener is stopped or never allowed (Linux without the
+  // input group), where the Hold to talk button is the way.
   const talk = useFlowConfig().config?.talk;
   const mode = talk?.mode ?? "handsFree";
   const pttKey = talk?.pttKey ?? "";
+  const listening = keysListen(useFlowCapabilities().caps);
   useEffect(() => {
-    const keys = pttKey && openliveBridge()?.onPtt ? hotkeyKeys(pttKey, desktopPlatform) : [];
+    const keys = pttKey && listening && openliveBridge()?.onPtt ? [keyName(pttKey, desktopPlatform)] : [];
     useLiveStore.setState({ talk: { mode, keys } });
-  }, [mode, pttKey]);
+  }, [mode, pttKey, listening]);
   // The global push-to-talk key, and Enter to send a held pause now.
   usePtt(active, { pttDown, pttUp, pttCancel, sendNow });
 

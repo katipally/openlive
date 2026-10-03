@@ -201,7 +201,7 @@ export default function Home() {
             <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
               ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
               { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." }],
-              { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
+              { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
               { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },
             ]} />

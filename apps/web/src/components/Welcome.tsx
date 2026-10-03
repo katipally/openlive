@@ -2,26 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { Button, ListGroup } from "@/components/ui";
+import type { TalkMode } from "@openlive/flow-store";
+import { Button, ListGroup, Radio } from "@/components/ui";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { tourSeen } from "@/components/SpotlightTour";
 import { MODES, ModeStart } from "@/components/flow/ModeSwitch";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
 import { AccessRows } from "@/components/flow/FlowSettings";
 import { useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
-import { tile } from "@/components/settings/common";
+import { card, grid2, tile } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { afterWelcome, allGranted } from "@/lib/flow/onboarding";
 import { useOnboarding } from "@/lib/prefs";
-import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { keyName } from "@/lib/dictate/hotkey";
+import { desktopPlatform, isDesktop, isMac, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
 import { useUi, type AppMode } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 
 // The first run of the whole app, once, for someone new: what the three modes
-// are, who answers you, what the machine has to allow, and one
+// are, who answers you, what the machine has to allow, how you talk, and one
 // thing to try in each mode. Skippable at every step. Flow keeps its own
 // onboarding for what only it needs.
 
@@ -72,7 +73,6 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   useFocusTrap(root, open && !settingsOpen, () => (asking ? keepGoing() : setAsking(true)));
 
   if (!open || settingsOpen) return null;
-  const dictateKeys = config ? hotkeyKeys(config.talk.dictateKey, desktopPlatform) : [];
 
   return (
     <div ref={root} role="dialog" aria-modal="true" aria-label="Welcome to OpenLive" data-covering="settings" className="fixed inset-0 z-settings flex flex-col bg-background text-left">
@@ -135,14 +135,19 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
         {step === 4 && (
           <>
             <div className="flex flex-col gap-1.5">
-              <h1 className="text-title-lg font-semibold tracking-tight">Try it</h1>
+              <h1 className="text-title-lg font-semibold tracking-tight">How you talk</h1>
+              <p className="text-body text-muted-strong">The same in Flow, Dictate and calls. Change it any time in Settings{isDesktop ? `, or from the ${isMac ? "menu bar" : "tray"} icon` : ""}.</p>
+            </div>
+            <TalkChoice value={config?.talk.mode ?? "handsFree"} pttKey={config?.talk.pttKey} onPick={(mode) => save({ talk: { mode } })} />
+            <div className="flex flex-col gap-1.5">
+              <h2 className="text-title-sm font-semibold">Try it</h2>
               <p className="text-body text-muted-strong">One thing to say in each mode. Pick one to start there.</p>
             </div>
             <ListGroup>
               <Try label="Chat" onGo={() => finish("chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
               <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" on /> Say &ldquo;Summarize this page&rdquo;</Try>
               <Try label="Dictate" onGo={() => finish("dictate")}>
-                <ModeStart mode="dictate" keys={dictateKeys} on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
+                <ModeStart mode="dictate" on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
               </Try>
             </ListGroup>
           </>
@@ -161,6 +166,29 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
           </Button>
         </div>
       </FlowCanvas>
+    </div>
+  );
+}
+
+/** Hands-free or push to talk, as two cards that are one radio group. */
+function TalkChoice({ value, pttKey, onPick }: { value: TalkMode; pttKey?: string; onPick: (mode: TalkMode) => void }) {
+  const hold = isDesktop && pttKey ? `Hold ${keyName(pttKey, desktopPlatform)}` : "Hold the Hold to talk button";
+  const options: { id: TalkMode; label: string; detail: string }[] = [
+    { id: "handsFree", label: "Hands-free", detail: "Just talk. A pause ends what you said." },
+    { id: "ptt", label: "Push to talk", detail: `${hold} while you talk. Nothing is heard in between.` },
+  ];
+  return (
+    <div role="radiogroup" aria-label="How you talk" className={grid2}>
+      {options.map((o) => (
+        <label key={o.id} className={cn(card, "cursor-pointer flex-row items-start gap-3 p-4 ring-1 transition",
+          value === o.id ? "ring-accent" : "ring-transparent hover:ring-border")}>
+          <Radio name="welcome-talk" value={o.id} checked={value === o.id} onChange={() => onPick(o.id)} className="mt-0.5" />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-body font-medium text-foreground">{o.label}</span>
+            <span className="break-words text-label leading-relaxed text-muted-foreground">{o.detail}</span>
+          </span>
+        </label>
+      ))}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Loader2, Maximize2, Mic, MicOff, PhoneOff, Square, Undo2, X } from "lucide-react";
+import { AlertTriangle, Check, Info, Loader2, Maximize2, Mic, MicOff, PhoneOff, Square, TextSelect, Undo2, X } from "lucide-react";
 import { gsap, useGSAP, DUR, EASE, prefersReduced } from "@/lib/gsap";
 import { openliveBridge, type CallOrbState, type PanelCmd, type PanelPacket, type PanelStateSnapshot } from "@/lib/live/panelBridge";
 import { flowBridge } from "@/lib/flow/bridge";
@@ -10,7 +10,7 @@ import type { PendingPermission } from "@/lib/live/liveStore";
 import { Orb } from "@/components/live/Orb";
 import { pauseWaveOrbs, WAVE_ORB_RADIUS, type WaveOrbState } from "@/lib/waveOrb";
 import { cn } from "@/lib/cn";
-import { Keycaps, Tooltip } from "@/components/ui";
+import { Keycap, Tooltip } from "@/components/ui";
 import { isMac } from "@/lib/platform";
 
 // Flow's orb, in its own always-on-top window over the dock. It is voice, so it
@@ -138,10 +138,16 @@ export function FlowOrb() {
   const badge = !shown ? null
     : s.dictate ? "dictate"
     : !hovered && (ptt ? s.phase !== "error" : s.phase === "listening") ? "flow" : null;
+  // A filled, breathing dot while it hears you; a ring while it waits for the key.
   const badgeWords = (): React.ReactNode => {
-    if (s.dictate?.editing) return "Editing selection";
-    if (waiting) return <>Hold <Keycaps keys={s.talk.keys} label={s.talk.keys.join(" ")} /> to talk</>;
-    return s.dictate && !ptt ? "Hands-free" : "Listening";
+    if (s.dictate?.editing) return <><TextSelect aria-hidden className="size-3.5 shrink-0" /> Editing selection</>;
+    if (waiting) return (
+      <>
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full ring-1 ring-current" />
+        Hold {s.talk.keys.map((k) => <Keycap key={k} className="px-1 py-0 text-micro">{k}</Keycap>)} to talk
+      </>
+    );
+    return <><span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current motion-safe:animate-pulse" /> {s.dictate && !ptt ? "Hands-free" : "Listening"}</>;
   };
   const lastBadge = useRef<{ kind: "flow" | "dictate"; words: React.ReactNode } | null>(null);
   if (badge) lastBadge.current = { kind: badge, words: badgeWords() };
@@ -329,7 +335,7 @@ export function FlowOrb() {
           words off the start, then the same words while they are worked on. */}
       {dictateUp && lastDictate.current && (
         <div ref={dictateRef} className="flex max-w-full shrink-0 justify-center">
-          <DictateStrip d={lastDictate.current} waiting={waiting ? `Hold ${s.talk.keys.join(" ")} to talk` : ""} onUndo={() => cmd({ t: "dictateUndo" })} />
+          <DictateStrip d={lastDictate.current} waiting={waiting ? "Ready" : ""} onUndo={() => cmd({ t: "dictateUndo" })} />
         </div>
       )}
 
@@ -372,7 +378,6 @@ export function FlowOrb() {
         <button type="button" data-hit={badge === "dictate" || undefined} tabIndex={badge === "dictate" ? 0 : -1} aria-hidden={badge !== "dictate"}
           onClick={() => cmd({ t: "dictateToggle" })} aria-label="Stop dictating"
           className={cn(BADGE, "gap-2 pr-2.5 hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]", badge === "dictate" ? BADGE_ON : BADGE_OFF)}>
-          <span className="size-1.5 rounded-full bg-current" aria-hidden />
           {badgeShows("dictate")} <Square className="size-2.5 fill-current" aria-hidden />
         </button>
       </div>
@@ -497,7 +502,8 @@ function useHeldProcessing(d: DictateSnapshot): DictateSnapshot {
 }
 
 /** Dictate under the orb: what it hears, the words while they are worked on, then
- *  what landed. `waiting`: what to say between holds in push to talk. */
+ *  what landed. `waiting`: what to say between holds in push to talk; the
+ *  badge above already names the key. */
 function DictateStrip({ d: live, waiting, onUndo }: { d: DictateSnapshot; waiting: string; onUndo: () => void }) {
   const d = useHeldProcessing(live);
   const working = d.phase === "processing";
@@ -528,7 +534,8 @@ function DictateStrip({ d: live, waiting, onUndo }: { d: DictateSnapshot; waitin
       className={cn("flex min-h-10 max-w-[min(24rem,100%)] shrink-0 overflow-hidden rounded-[20px] py-1.5 pl-4", d.undo ? "pr-1.5" : "pr-4", PANEL)}>
       <div ref={bodyRef} className="flex min-w-0 flex-1 items-center gap-2.5">
         {working ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-strong motion-reduce:animate-none" aria-hidden />
-          : landed && <Check className="size-3.5 shrink-0 text-muted-strong" aria-hidden />}
+          : landed ? <Check className="size-3.5 shrink-0 text-muted-strong" aria-hidden />
+          : d.note && <Info className="size-3.5 shrink-0 text-muted-strong" aria-hidden />}
         {flowing
           ? (
             <span className="flex min-w-0 flex-1 justify-end overflow-hidden whitespace-nowrap py-1">

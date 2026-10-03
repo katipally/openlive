@@ -5,9 +5,9 @@ import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useUi } from "@/lib/uiStore";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { CONTROL, desktopPlatform, isDesktop, isMac, MOD } from "@/lib/platform";
+import { desktopPlatform, isDesktop, isMac, MOD } from "@/lib/platform";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
-import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { hotkeyKeys, liveKeys } from "@/lib/dictate/hotkey";
 import { Keycap, Button, Tooltip, groupLabel, SidePanelHeader, sidePanel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useMotionTokens } from "@/lib/motion";
@@ -16,8 +16,8 @@ type Row = { label: string; keys: string[] };
 type Group = { title: string; note?: string; rows: Row[] };
 
 // Only what is really bound. Settings and ⌘Q are native menu accelerators and
-// Flow's gesture lives in the desktop shell, so the browser build leaves them out.
-// Dictate's group goes between these and the call's, from the person's own keys.
+// the talk keys live in the desktop shell, so the browser build leaves them out.
+// Flow's, Dictate's and push to talk's groups come from the person's own keys.
 const APP_GROUPS: Group[] = [
   { title: "Anywhere in OpenLive", rows: [
     { label: "Command palette", keys: [MOD, "K"] },
@@ -25,9 +25,6 @@ const APP_GROUPS: Group[] = [
     { label: "Keyboard shortcuts", keys: ["?"] },
     ...(isDesktop ? [{ label: `Close to ${isMac ? "menu bar" : "tray"}`, keys: [MOD, "Q"] }] : []),
   ] },
-  ...(isDesktop ? [{ title: "Flow, from any app", rows: [
-    { label: "Talk, then again to close", keys: [CONTROL, CONTROL] },
-  ] }] : []),
 ];
 const CALL_GROUPS: Group[] = [
   { title: "In a call", rows: [
@@ -86,21 +83,26 @@ export function ShortcutsSheet() {
   );
 }
 
-/** Mounted only while the sheet is open, so Dictate's keys are read then and not on every page load. */
+/** Mounted only while the sheet is open, so the talk keys are read then and not on every page load. */
 function Groups() {
   const config = useFlowConfig().config;
-  const own = config?.dictate;
-  // Dictate's key is the person's own, and bound only while it is on.
-  const keys = config ? hotkeyKeys(config.talk.dictateKey, desktopPlatform) : [];
-  const dictate: Group[] = isDesktop && own ? [{ title: "Dictate, from any app", note: own.enabled ? undefined : "Off now. Turn it on in Dictate.", rows: [
-    { label: "Start and stop dictating", keys: [...keys, ...keys] },
-  ] }] : [];
+  // The keys as the hook watches them: in push to talk, a double-tap key gives up push to talk's side.
+  const live = config && liveKeys(config.talk);
+  const caps = (k: string) => hotkeyKeys(k, desktopPlatform);
+  const twice = (k: string) => [...caps(k), ...caps(k)];
+  const anyApp: Group[] = isDesktop && live && config ? [
+    { title: "Flow, from any app", rows: [{ label: "Double-tap to open, again to close", keys: twice(live.flow) }] },
+    // Dictate's key is bound only while it is on.
+    { title: "Dictate, from any app", note: config.dictate.enabled ? undefined : "Off now. Turn it on in Dictate.", rows: [
+      { label: "Double-tap to start, again to stop", keys: twice(live.dictate) },
+    ] },
+  ] : [];
   // Push to talk's key works in Flow, Dictate and a call alike, wherever the key listener runs.
-  const talking: Group = { title: "Talking", note: config?.talk.mode === "ptt" ? undefined : "Hold to talk works once How you talk is Push to talk.", rows: [
-    ...(isDesktop && config ? [{ label: "Hold to talk", keys: hotkeyKeys(config.talk.pttKey, desktopPlatform) }] : []),
-    { label: "Send a held thought now", keys: ["Enter"] },
+  const talking: Group = { title: "Talking", note: config?.talk.mode === "ptt" ? undefined : "Holding a key to talk needs How you talk set to Push to talk, in Settings > General.", rows: [
+    ...(isDesktop && live ? [{ label: "Hold to talk", keys: caps(live.ptt) }] : []),
+    { label: "Send a held thought now, in a call", keys: ["Enter"] },
   ] };
-  return [...APP_GROUPS, ...dictate, ...CALL_GROUPS, talking].map((g) => (
+  return [...APP_GROUPS, ...anyApp, ...CALL_GROUPS, talking].map((g) => (
     <section key={g.title} className="min-w-0">
       <h3 className={groupLabel}>{g.title}</h3>
       {g.note && <p className="mt-0.5 text-caption text-faint">{g.note}</p>}
@@ -108,7 +110,7 @@ function Groups() {
         {g.rows.map((r) => (
           <div key={r.label} className="flex items-center justify-between gap-3 text-label">
             <dt className="min-w-0 break-words text-muted-strong">{r.label}</dt>
-            <dd className="flex shrink-0 items-center gap-1">{r.keys.map((k, i) => <Keycap key={i}>{k}</Keycap>)}</dd>
+            <dd className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1">{r.keys.map((k, i) => <Keycap key={i}>{k}</Keycap>)}</dd>
           </div>
         ))}
       </dl>

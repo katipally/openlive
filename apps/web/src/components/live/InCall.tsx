@@ -237,7 +237,7 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
   // connecting (both blue shimmer), push-to-talk while held, what to hold while
   // push to talk waits for it, otherwise the phase label.
   const holdLabel = talk.keys.length ? `Hold ${talk.keys.join(" ")} to talk` : "Hold to talk";
-  const statusLabel = pttActive ? "Push-to-talk: release to send" : toolStatus ? `${toolStatus}…` : warming ? "Warming up…"
+  const statusLabel = pttActive ? "Listening, release to send" : toolStatus ? `${toolStatus}…` : warming ? "Warming up…"
     : talk.mode === "ptt" && phase === "idle" ? holdLabel : PHASE_LABEL[phase];
   const statusBusy = !!toolStatus || warming;
 
@@ -259,13 +259,14 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
  *  web build, or Linux without the input group. */
 function HoldToTalk({ down, up }: { down: () => void; up: () => void }) {
   const held = useLiveStore((s) => s.pttActive);
+  const key = useLiveStore((s) => s.talk.keys.join(" "));
   // Only a hold this button began is this button's to end: a release of the
   // global key is not.
   const mine = useRef(false);
   const press = () => { if (mine.current) return; mine.current = true; down(); };
   const release = () => { if (!mine.current) return; mine.current = false; up(); };
   return (
-    <Tooltip label="Hold to talk">
+    <Tooltip label={key ? `Hold to talk, or hold ${key}` : "Hold to talk"}>
       <Button variant="ghost" icon size="lg" aria-label="Hold to talk" aria-pressed={held}
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); press(); }}
         onPointerUp={release} onPointerCancel={release} onBlur={release}

@@ -14,7 +14,8 @@ import {
 } from "@/lib/flow/sessions";
 import { flowBridge, type FlowCapabilities } from "@/lib/flow/bridge";
 import { usePendingDeletes } from "@/lib/deferredDelete";
-import { CONTROL, isMac } from "@/lib/platform";
+import { desktopPlatform, isMac } from "@/lib/platform";
+import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
@@ -71,6 +72,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
   const deletable = useMemo(() => sessions.filter((s) => s.state !== "active"), [sessions]);
   const groups = useMemo(() => byDay(sessions), [sessions]);
 
+  const flowKey = config ? keyName(liveKeys(config.talk).flow, desktopPlatform) : "its key";
   const hookError = caps?.hookError;
   const armed = !!caps?.armed && !!caps.permissions?.accessibility && !hookError;
   // The one missing piece that has a fix right here: the chip becomes the ask.
@@ -107,7 +109,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           <BrainChip config={config} />
           {needsAccess ? (
             <ChipButton onClick={() => void flowBridge()?.request("accessibility", "flow_home")}
-              tip={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${CONTROL} ${CONTROL} in every app`}>
+              tip={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${flowKey} in every app`}>
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
               <span className="min-w-0 truncate">{isMac ? "Allow Accessibility" : "Allow input access"}</span>
             </ChipButton>
@@ -166,7 +168,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         {error && <Empty>Flow&rsquo;s history could not be read.</Empty>}
         {!error && isLoading && <Empty>Looking&hellip;</Empty>}
         {!error && !isLoading && !sessions.length && (
-          <Empty>{shown ? `Nothing matching \u201c${shown}\u201d.` : `Nothing yet. ${caps?.armed === false ? "Turn Flow on, then tap" : "Tap"} ${CONTROL} twice and say something.`}</Empty>
+          <Empty>{shown ? `Nothing matching \u201c${shown}\u201d.` : `Nothing yet. ${caps?.armed === false ? "Turn Flow on, then double-tap" : "Double-tap"} ${flowKey} and say something.`}</Empty>
         )}
         <AnimatePresence>
         {groups.flatMap((g) => [

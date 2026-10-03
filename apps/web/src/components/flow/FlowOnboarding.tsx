@@ -4,8 +4,8 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
-import { CONTROL, desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
-import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { desktopPlatform, isDesktop, isMacDesktop, isNonMacDesktop } from "@/lib/platform";
+import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { Button, linkClass } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
@@ -18,6 +18,15 @@ import { ModeStart, SwitchHole, modeCopy } from "./ModeSwitch";
 // The first run, and only Flow's: what it needs from the machine. Who answers
 // is the default, picked in Welcome and Settings > Models. Everything finer
 // lives in Settings. Flow asks for anything skipped the first time it needs it.
+
+/** The only keys the key listener acts on, with this person's own. */
+function listensTo(config: FlowConfig | null): string {
+  if (!config) return "Never listens to the keyboard beyond the keys that open Flow and Dictate, and push to talk's.";
+  const k = liveKeys(config.talk);
+  const name = (b: string) => keyName(b, desktopPlatform);
+  const keys = [`${name(k.flow)} for Flow`, ...(config.dictate.enabled ? [`${name(k.dictate)} for Dictate`] : []), ...(config.talk.mode === "ptt" ? [`${name(k.ptt)} to talk`] : [])];
+  return `Never listens to the keyboard beyond ${keys.length > 1 ? `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}` : keys[0]}.`;
+}
 
 export function FlowOnboarding({ onDone, config, save }: {
   onDone: () => void;
@@ -59,10 +68,8 @@ export function FlowOnboarding({ onDone, config, save }: {
             What OpenLive never does
           </summary>
           <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-label text-muted-strong">
-            <li>{config?.dictate.enabled
-              ? `Never listens to the keyboard beyond ${CONTROL} and Dictate's key, ${hotkeyKeys(config.talk.dictateKey, desktopPlatform).join(" ")}.`
-              : `Never listens to the keyboard beyond ${CONTROL}, and Dictate's key once you turn Dictate on.`}</li>
-            <li>Mic opens only on the gesture or Dictate&rsquo;s key. No wake word.</li>
+            <li>{listensTo(config)}</li>
+            <li>Mic opens only while Flow or Dictate is open. No wake word.</li>
             <li>No audio is kept.</li>
             <li>Nothing leaves this machine except what your API key&rsquo;s model or coding agent needs to answer.</li>
           </ul>

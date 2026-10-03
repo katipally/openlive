@@ -24,6 +24,12 @@ export interface CapabilityState {
   refresh: () => void;
 }
 
+/** Whether the global key listener is running, so a talk key would be heard:
+ *  false with no addon, a failed or stopped hook (Linux without the input
+ *  group), or no Accessibility grant. */
+export const keysListen = (caps: FlowCapabilities | null): boolean =>
+  !!caps && !caps.addonError && !caps.hookError && !!caps.permissions?.accessibility;
+
 export function useFlowCapabilities(poll = false): CapabilityState {
   const [caps, setCaps] = useState<FlowCapabilities | null>(null);
   const [error, setError] = useState("");

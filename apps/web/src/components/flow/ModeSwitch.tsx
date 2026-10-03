@@ -4,12 +4,15 @@ import { useLayoutEffect, useRef } from "react";
 import { Mic, MessageSquare, Waves } from "lucide-react";
 import { MODE_LABEL, useUi, type AppMode } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
-import { CONTROL } from "@/lib/platform";
-import { Keycap, Keycaps, Segmented } from "@/components/ui";
+import { defaultPttKey } from "@openlive/flow-store/shared";
+import { desktopPlatform, isDesktop } from "@/lib/platform";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { keysListen, useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { hotkeyKeys, keyName, liveKeys, silenceLabel, type Talk } from "@/lib/dictate/hotkey";
+import { Keycaps, Segmented } from "@/components/ui";
 
-// The app-level switch, and what each mode is. Flow's gesture
-// and Dictate's key stay armed in every mode, so this only changes what the
-// window shows.
+// The app-level switch, and what each mode is. Flow's and Dictate's keys stay
+// armed in every mode, so this only changes what the window shows.
 //
 // It has exactly one home, top centre of the window in every mode, because a
 // control that moves when you use it is a control you have to find again.
@@ -27,7 +30,7 @@ const COPY = {
   },
   dictate: {
     tagline: "Voice typing into any text box.",
-    body: "Tap a key twice and talk: your words are typed at the cursor. Runs on this machine. No AI, nothing spoken back, unless you turn on AI polish.",
+    body: "Double-tap a key and talk: your words are typed at the cursor. Runs on this machine. No AI, nothing spoken back, unless you turn on AI polish or edit a selection by voice.",
   },
 } as const satisfies Record<AppMode, { tagline: string; body: string }>;
 
@@ -38,12 +41,29 @@ export const MODES = ([
 ]).map((m) => ({ ...m, ...COPY[m.id], title: `${m.label}: ${COPY[m.id].tagline}` }));
 export const modeCopy = (id: AppMode) => COPY[id];
 
-/** How to start `mode`, in this keyboard's key names. `keys` is Dictate's key, `on` whether Flow or Dictate is on already. */
-export function ModeStart({ mode, keys = [], on = false }: { mode: AppMode; keys?: readonly string[]; on?: boolean }) {
-  if (mode === "chat") return <>Press New, then talk.</>;
-  if (mode === "flow") return <>{on ? "Tap" : "Turn it on, tap"} <Keycap className="text-label">{CONTROL}</Keycap> twice in any app. Tap twice again to close.</>;
+/** Until Flow's settings are read: the default keys. */
+const DEFAULT_TALK: Talk = { mode: "handsFree", pttKey: defaultPttKey(desktopPlatform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: 30_000 };
+
+/** How to start and close `mode`, with this person's keys and how they talk.
+ *  `on`: whether Flow or Dictate is on already. */
+export function ModeStart({ mode, on = false }: { mode: AppMode; on?: boolean }) {
+  const talk = useFlowConfig().config?.talk ?? DEFAULT_TALK;
+  const { caps } = useFlowCapabilities();
+  const keys = liveKeys(talk);
+  const cap = (k: string) => <Keycaps keys={hotkeyKeys(k, desktopPlatform)} label={keyName(k, desktopPlatform)} className="align-middle" />;
+  const ptt = talk.mode === "ptt";
+  const silence = talk.closeAfterSilenceMs;
+  const quiet = silence === null ? "" : ` It also closes after ${silenceLabel(silence)} of silence.`;
+  if (mode === "chat") {
+    if (!ptt) return <>Press New, then just talk.</>;
+    // Only a key that would be heard is named; without one, the call's own button is the way.
+    return isDesktop && keysListen(caps) ? <>Press New, then hold {cap(keys.ptt)} to talk.</> : <>Press New, then hold the Hold to talk button while you talk.</>;
+  }
+  if (mode === "flow") {
+    return <>{on ? "Double-tap" : "Turn it on, double-tap"} {cap(keys.flow)} in any app, then {ptt ? <>hold {cap(keys.ptt)} to talk</> : "just talk"}. Double-tap again to close.{quiet}</>;
+  }
   return (
-    <>{on ? "Click" : "Turn it on, click"} into a text box, tap <Keycaps keys={keys} label={keys.join(" ")} className="align-middle" /> twice and talk. Tap twice again to stop.</>
+    <>{on ? "Click" : "Turn it on, click"} into a text box, double-tap {cap(keys.dictate)} and {ptt ? <>hold {cap(keys.ptt)} while you talk</> : "talk"}. Double-tap again to stop.{quiet}</>
   );
 }
 /** The counter a switch to each mode counts, shared with the command palette. */
