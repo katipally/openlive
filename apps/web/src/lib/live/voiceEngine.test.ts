@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@ricky0123/vad-web", () => ({ MicVAD: class {} }));
 // A streaming engine: the sentence's audio in two chunks, a tick apart.
@@ -1124,4 +1124,80 @@ it("deferred segments are judged on their own voiced time", async () => {
   await vi.waitFor(() => expect(vp.asked).toEqual([10 * 32, 25 * 32]));
   eng.clearHold();
   tts.gate = Promise.resolve();
+});
+
+describe("push to talk's gate", () => {
+  const rigGate = () => {
+    const sent: string[] = [];
+    const vadCalls: string[] = [];
+    const starts: number[] = [];
+    const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t), onSpeechStart: () => starts.push(1) } as never, { ...playNow, playing: () => false } as never) as any;
+    Object.assign(eng, { micRms: 1, vad: { start: () => vadCalls.push("start"), pause: () => vadCalls.push("pause"), setOptions() {} } });
+    return { eng, sent, vadCalls, starts };
+  };
+
+  it("hears nothing between holds, opens for a hold, and closes again on release", async () => {
+    const { eng, sent, vadCalls } = rigGate();
+    eng.setGate(true);
+    expect(vadCalls).toEqual(["pause"]);
+    eng.beginPtt();
+    expect(vadCalls).toEqual(["pause", "start"]);
+    Object.assign(tts, { heard: "rename the file", at: [] });
+    eng.onSpeechStart();
+    await eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+    expect(sent).toEqual([]); // the release is the turn's one end
+    await eng.endPtt(true);
+    expect(sent).toEqual(["rename the file"]);
+    expect(vadCalls.at(-1)).toBe("pause");
+  });
+
+  it("a hold given up closes it again too, and an accidental tap sends nothing", () => {
+    const { eng, sent, vadCalls } = rigGate();
+    eng.setGate(true);
+    eng.beginPtt();
+    eng.dropPtt();
+    expect(vadCalls).toEqual(["pause", "start", "pause"]);
+    expect(sent).toEqual([]);
+  });
+
+  it("is not Mute: unmuting leaves a gated mic shut, and lifting the gate leaves a muted one shut", () => {
+    const { eng, vadCalls } = rigGate();
+    eng.setGate(true);
+    eng.setMuted(true);
+    eng.setMuted(false);
+    expect(vadCalls).toEqual(["pause", "pause"]);
+    eng.setMuted(true);
+    eng.setGate(false);
+    expect(vadCalls).toEqual(["pause", "pause", "pause"]);
+    eng.setMuted(false);
+    expect(vadCalls.at(-1)).toBe("start");
+  });
+
+  it("switched on mid-sentence, lets that sentence finish and closes after it", async () => {
+    const { eng, sent, vadCalls } = rigGate();
+    Object.assign(tts, { heard: "what is on my calendar", at: [], complete: true });
+    eng.onSpeechStart();
+    eng.setGate(true);
+    expect(vadCalls).toEqual([]); // still hearing: the sentence goes on
+    await eng.onSpeechEnd(new Float32Array(16000).fill(0.1));
+    tts.complete = false;
+    expect(sent).toEqual(["what is on my calendar"]);
+    expect(vadCalls).toEqual(["pause"]);
+  });
+
+  it("lifted, listens hands-free again at once", () => {
+    const { eng, vadCalls } = rigGate();
+    eng.setGate(true);
+    eng.setGate(false);
+    expect(vadCalls).toEqual(["pause", "start"]);
+  });
+
+  it("tells the surface when the user starts talking, never for the agent's echo", () => {
+    const { eng, starts } = rigGate();
+    eng.onSpeechStart();
+    expect(starts).toEqual([1]);
+    Object.assign(eng, { phase: "speaking", speakingStartAt: Date.now(), micRms: 0 });
+    eng.onSpeechStart();
+    expect(starts).toEqual([1]);
+  });
 });

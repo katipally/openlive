@@ -53,6 +53,8 @@ export interface VoiceEngineHandlers {
    *  dropped, not sent. The surface can show it, and send it on a tap
    *  (sendAside). `judged`: as onUserText's. */
   onSideTalk?: (text: string, speaker?: string, judged?: string) => void;
+  /** The user started talking: a segment that is not the agent's own echo. */
+  onSpeechStart?: () => void;
 }
 
 /** How a push-to-talk hold ended: its words sent on, none heard, or heard and not written down. */
@@ -185,6 +187,7 @@ export class VoiceEngine {
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
   private tape: Tape | null = null;               // a hold that began before the VAD ran: the whole of it, the words before it too
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
+  private gated = false;                          // push to talk: the VAD runs only while a hold is down (setGate)
   // Set by stop(). A transcription still running then must not start a turn in a
   // call that has already ended.
   private stopped = false;
@@ -367,7 +370,7 @@ export class VoiceEngine {
       onSpeechStart: () => this.onSpeechStart(),
       onSpeechEnd: (audio) => { void this.onSpeechEnd(audio, this.endStream(audio)); },
       onFrameProcessed: (p, frame) => this.onFrame(frame, p.isSpeech >= vadCfg.speechThreshold),
-      onVADMisfire: () => { this.streaming = false; this.segmentLost(); if (this.phase === "listening") this.setPhase("idle"); },
+      onVADMisfire: () => { this.streaming = false; this.segmentLost(); if (this.phase === "listening") this.setPhase("idle"); this.settleGate(); },
     });
     // Stopped while the VAD loaded (a mic swap racing hang-up): nothing may keep listening.
     if (this.stopped) { void vad.destroy().catch(() => { /* */ }); return; }
@@ -379,7 +382,7 @@ export class VoiceEngine {
     clearInterval(this.keepWarm);
     this.keepWarm = setInterval(warmNativeEngines, KEEP_WARM_MS);
     // A device swap rebuilds the VAD through here, and a muted mic must stay muted.
-    if (!this.muted || this.ptt) await vad.start();
+    if ((!this.muted && !this.gated) || this.ptt) await vad.start();
     if (this.stopped) return;
     this.setupMicSpectrum(stream);
     // What the hold caught while the VAD loaded is shown now, not at the next word.
@@ -501,6 +504,7 @@ export class VoiceEngine {
       return;
     }
     this.hear(barge);
+    this.h.onSpeechStart?.();
   }
 
   /** A segment of the user's to gather: its words, captions and phase. */
@@ -701,7 +705,7 @@ export class VoiceEngine {
     if (this.tentative && (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate())) { this.resumeReply(); return; }
     // Reject blips and near-silence up front (ambient noise that tripped the VAD) —
     // but during push-to-talk a blip must not throw away what's already held.
-    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { if (!this.ptt) { this.pending = null; this.h.onPartial(""); } if (this.phase === "listening") this.setPhase("idle"); return; }
+    if (combined.length < MIN_UTTER_SAMPLES || rmsOf(audio) < this.gate()) { if (!this.ptt) { this.pending = null; this.h.onPartial(""); } if (this.phase === "listening") this.setPhase("idle"); this.settleGate(); return; }
     this.finalizing = true;
     const perf0 = performance.now();
     try {
@@ -825,6 +829,7 @@ export class VoiceEngine {
       this.pending = null; this.h.onPartial(""); this.setPhase("idle");
     } finally {
       this.finalizing = false;
+      this.settleGate();
       // Speech that arrived mid-finalize: merge it and process as a continuation
       // (onSpeechEnd folds in `pending`, so a mid-thought hold still coalesces).
       if (this.deferred.length) {
@@ -855,6 +860,7 @@ export class VoiceEngine {
     const p = this.pending; const cached: Heard = { text: this.pendingText.trim(), at: this.pendingAt }, speaker = this.pendingSpeaker, judged = this.pendingJudged;
     this.pending = null; this.pendingText = "";
     this.clearHold();
+    this.settleGate();
     if (!p) return;
     if (this.pendingSide && cached.text) { this.h.onPartial(""); this.h.onSideTalk?.(cached.text, speaker, judged); return; }
     const commit = (h: Heard) => {
@@ -908,7 +914,7 @@ export class VoiceEngine {
     this.ptt = true;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
     if ((this.tentative || this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
-    if (this.muted) void this.vad.start(); // lift a mute for the hold (restored on release)
+    if (this.muted || this.gated) void this.vad.start(); // lift a mute or the gate for the hold (restored on release)
   }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
@@ -931,9 +937,10 @@ export class VoiceEngine {
     if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
     if (this.stopped) return "heard";
     this.ptt = false;
-    if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
     const held = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
     this.pending = null;
+    if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute (or the gate)
+    else this.settleGate();
     // The tape has the words said before the VAD was up, which `pending` lacks,
     // from just before its first speech. Without its VAD, the old loudness rule.
     const taped = await tape;
@@ -986,8 +993,28 @@ export class VoiceEngine {
     this.pending = null;
     this.h.onPartial("");
     if (this.muted) void this.vad?.pause();
+    else this.settleGate();
   }
   pttActive() { return this.ptt; }
+  /**
+   * Push to talk, separate from Mute: on, the VAD hears nothing between holds,
+   * so no turn starts without the key and talk between holds barges into
+   * nothing. A hold lifts it (beginPtt) and its end puts it back. Turned on
+   * mid-sentence it waits for that sentence: the switch takes effect from the
+   * next utterance. Unmuting never opens a gated mic.
+   */
+  setGate(on: boolean) {
+    this.gated = on;
+    if (on) this.settleGate();
+    else if (!this.muted && !this.ptt) void this.vad?.start();
+  }
+  /** Closes the gate once nothing is being heard, held or transcribed. */
+  private settleGate() {
+    if (this.gated && !this.ptt && this.vad && !this.hearing && !this.pending && !this.finalizing && !this.deferred.length) {
+      void this.vad.pause();
+      if (this.phase === "listening") this.setPhase("idle");
+    }
+  }
   /** A hold begins on an engine already up: recorded from now, as a cold start's
    *  is, so a word too short for the VAD is kept. */
   tapeHold() {
@@ -1322,7 +1349,7 @@ export class VoiceEngine {
     this.muted = muted;
     if (!this.vad) return;
     if (muted) { this.clearHold(); this.pending = null; this.streaming = false; this.segmentLost(); this.ring.clear(); this.micRms = 0; void this.vad.pause(); if (this.phase === "listening") this.setPhase("idle"); }
-    else void this.vad.start();
+    else if (!this.gated || this.ptt) void this.vad.start();
   }
 
   micLevel() { return this.micRms; }
