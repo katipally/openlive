@@ -49,9 +49,20 @@ describe("settings search", () => {
   });
 
   it("finds who answers by the words the screens use, every place it is set ahead of the rest", () => {
-    expect(new Set(find("who answers").slice(0, 3))).toEqual(new Set(["Who answers you", "Who answers for AI polish and commands", "Who answers in Flow"]));
+    expect(new Set(find("who answers").slice(0, 3))).toEqual(new Set(["Who answers you", "Who answers for AI polish and edits", "Who answers in Flow"]));
     for (const q of ["coding agent", "api key"]) expect(find(q)).toContain("Who answers you");
     expect(find("brain")).toEqual(expect.arrayContaining(["Who answers you", "Who answers in Flow"]));
+  });
+
+  it("finds how you talk and its three keys under General, by the words people use", () => {
+    for (const q of ["push to talk", "hands-free", "ptt"]) expect(find(q)[0]).toBe("How you talk");
+    expect(find("fn")).toContain("Push to talk key");
+    expect(find("double tap")).toEqual(expect.arrayContaining(["Open Flow key", "Open Dictate key"]));
+    expect(find("idle")).toContain("Close after silence");
+    expect(find("command mode")).toContain("Edit by voice");
+    const rows = SETTINGS_INDEX.filter((e) => ["How you talk", "Close after silence", "Open Flow key", "Open Dictate key", "Push to talk key"].includes(e.label));
+    expect(rows.map((e) => e.tab)).toEqual(["general", "general", "general", "general", "general"]);
+    expect(find("push to talk", false)).toEqual(["How you talk"]);
   });
 
   it("needs every term, in any order", () => {
@@ -61,7 +72,7 @@ describe("settings search", () => {
 
   it("forgives one typo in a longer word, only when nothing matches as typed", () => {
     expect(find("memmory")).toContain("Memory");
-    expect(find("dicate hotkey")).toContain("Dictate hotkey");
+    expect(find("dicate hotkey")).toContain("Open Dictate key");
     expect(find("pirvacy")[0]).toBe(find("privacy")[0]);
     expect(find("xyzw")).toEqual([]);
   });

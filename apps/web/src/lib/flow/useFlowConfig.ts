@@ -19,6 +19,8 @@ export interface FlowConfigReply {
   /** Which brain Flow runs on, as closed ids: `api` with a provider id, or `acp` with an agent id. */
   brainKind: "api" | "acp";
   brainId: string;
+  /** Dictate's brain is set up, so a selection can be edited by voice. */
+  editReady: boolean;
 }
 
 /** A partial edit. Sections merge, so a screen sends only what it owns. */
@@ -81,6 +83,7 @@ export function useFlowConfig() {
   return {
     config: query.data?.config ?? null,
     brainReady: query.data?.brainReady ?? false,
+    editReady: query.data?.editReady ?? false,
     loading: query.isLoading,
     error: query.error ? String((query.error as Error).message) : mutation.error ? String((mutation.error as Error).message) : "",
     saving: mutation.isPending,

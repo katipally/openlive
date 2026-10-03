@@ -72,8 +72,12 @@ export interface FlowBridge {
   /** Shows the system prompt, even after an earlier refusal. macOS never calls
    *  back, so the caller polls. */
   request(what: FlowPermissionName, askedFrom?: PermissionAskedFrom): Promise<Guarded<boolean | string>>;
-  /** Opens the system settings page for `what`. False where there is none. */
-  openSettings(what: FlowPermissionName): Promise<Guarded<boolean>>;
+  /** Opens the system settings page for `what`: a grant's, or macOS's Keyboard
+   *  page for the Fn (Globe) key's action. False where there is none. */
+  openSettings(what: FlowPermissionName | "keyboard"): Promise<Guarded<boolean>>;
+  /** What macOS does on a press of Fn: 0 is Do Nothing. Null where it cannot be
+   *  read or there is no Fn. Absent on a build from before it was asked. */
+  fnUsage?(): Promise<Guarded<number | null>>;
   /** Continue an archived session on the next trigger. Routed to the owner renderer. */
   resumeSession(sessionId: string): void;
   onResumeSession(cb: (sessionId: string) => void): () => void;

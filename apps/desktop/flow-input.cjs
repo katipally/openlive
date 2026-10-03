@@ -19,7 +19,11 @@ const SECURE_INPUT_POLL_MS = 1000;
 const TCC_SERVICES = { accessibility: ["Accessibility", "PostEvent"], microphone: ["Microphone"], screen: ["ScreenCapture"] };
 const PRIVACY = "x-apple.systempreferences:com.apple.preference.security?Privacy_";
 const SETTINGS_PANES = {
-  darwin: { accessibility: `${PRIVACY}Accessibility`, microphone: `${PRIVACY}Microphone`, screen: `${PRIVACY}ScreenCapture` },
+  darwin: {
+    accessibility: `${PRIVACY}Accessibility`, microphone: `${PRIVACY}Microphone`, screen: `${PRIVACY}ScreenCapture`,
+    // Where "Press 🌐 key to" lives, for a push-to-talk Fn (Ventura and later).
+    keyboard: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension",
+  },
   win32: { microphone: "ms-settings:privacy-microphone" },
 };
 
@@ -250,6 +254,20 @@ function insertionTiming(t) {
   };
 }
 
+/** What macOS does on a press of Fn (Globe), read, never written: 0 Do Nothing,
+ *  1 Change Input Source, 2 Emoji & Symbols, 3 Start Dictation. Null where it
+ *  cannot be read, which on a Mac never set by hand means the system default,
+ *  something other than Do Nothing. Fn held to talk runs that action too. */
+function fnUsage() {
+  if (process.platform !== "darwin") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile("/usr/bin/defaults", ["read", "com.apple.HIToolbox", "AppleFnUsageType"], (e, out) => {
+      const n = e ? NaN : Number.parseInt(String(out).trim(), 10);
+      resolve(Number.isInteger(n) ? n : null);
+    });
+  });
+}
+
 function teardown() {
   if (secureTimer) { clearInterval(secureTimer); secureTimer = null; }
   if (!addon) return;
@@ -310,6 +328,7 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
   ipcMain.handle("openlive:flow-hook-error", guard(() => hookFailure()));
+  ipcMain.handle("openlive:flow-fn-usage", guard(fnUsage));
 
   // will-quit, not before-quit: ⌘Q only closes to the menu bar now, and that
   // cancelled quit still fires before-quit, which left Flow with no key listener.

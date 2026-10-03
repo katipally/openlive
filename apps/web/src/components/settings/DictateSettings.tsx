@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Cpu, Languages, TextCursorInput } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Cpu, Keyboard, Languages, TextCursorInput } from "lucide-react";
 import type { DictateTone, FlowConfig } from "@openlive/flow-store";
-import { Button, Keycaps, ListGroup, ListRow, Segmented, Select, Switch } from "@/components/ui";
-import { desktopPlatform, isDesktop } from "@/lib/platform";
+import { Keycaps, ListGroup, ListRow, Segmented, Select, Switch } from "@/components/ui";
+import { desktopPlatform } from "@/lib/platform";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
 import { POLISH_MS } from "@/lib/dictate/run";
-import { bindingOf, hotkeyKeys, mayBeAltGr } from "@/lib/dictate/hotkey";
+import { hotkeyKeys, keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { CURATED_LANGUAGES, familyInfo, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
-import { dictateBrain, flowBrain, toggleKeyOk } from "@openlive/flow-store/shared";
+import { dictateBrain, flowBrain } from "@openlive/flow-store/shared";
 import { AddonCard } from "@/components/flow/AddonCard";
+import { TalkLinks } from "@/components/flow/FlowSettings";
 import { Section } from "./Section";
 import { LinkRow, useSettingsNav } from "./nav";
 import { ModeOnLine, QueryState, StatusDot } from "./common";
@@ -21,13 +22,12 @@ import { DictateHistory } from "./DictateHistory";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 
 // The Dictate tab configures; Dictate's home is where it is switched on and
-// used, and where its history is. Three subtabs. Basics: its key, how it
-// cleans up what was said, AI polish and who answers it and commands, and how
-// long history is kept. Words: the dictionary and snippets. Commands: command
-// mode and the spoken commands. Typing, voice and the speech engine are shared
-// with Flow and Chat, so they are rows that go there.
+// used, and where its history is. Three subtabs. Basics: how it opens, how it
+// cleans up what was said, AI polish and who answers it and edits by voice, and
+// how long history is kept. Words: the dictionary and snippets. Commands: edit
+// by voice and the spoken commands. Its key, how you talk, typing, voice and the
+// speech engine are shared with Flow and Chat, so they are rows that go there.
 
-const DEFAULT_KEY = "option";
 type Pane = "basics" | "words" | "commands";
 const TONES: { id: DictateTone; label: string }[] = [{ id: "natural", label: "Natural" }, { id: "casual", label: "Casual" }, { id: "formal", label: "Formal" }];
 const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; detail: string; info?: string }[] = [
@@ -36,10 +36,8 @@ const SPOKEN: { id: keyof FlowConfig["dictate"]["commands"]; label: string; deta
   { id: "newParagraph", label: "“New paragraph”", detail: "Two line breaks" },
   { id: "undo", label: "“Undo that”", detail: "Removes the last insert",
     info: "Said on its own. One Backspace per character Dictate typed last, so it only works while the cursor is still at the end of it. It never presses Ctrl+Z, which suspends a program in a terminal." },
-  { id: "stop", label: "“Stop dictating”", detail: "Ends hands-free" },
+  { id: "stop", label: "“Stop dictating”", detail: "Closes Dictate" },
 ];
-/** Keys that are never AltGr, for a layout where Right Alt is. */
-const ALTERNATIVES = ["option_left", "f13"];
 const EXAMPLE = "um so send twenty five copies to uh Priya, actually Maya, by friday";
 
 const RULES: { id: keyof CleanupRules; label: string; detail: string; info: string }[] = [
@@ -89,17 +87,18 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
   const language = CURATED_LANGUAGES.find((l) => l.code === pipeline.language)?.name ?? pipeline.language;
   // The rules are English; elsewhere only punctuation applies (lib/dictate/cleanup.ts).
   const english = pipeline.language === "en";
+  const key = liveKeys(config.talk).dictate;
 
   return (
     <div className="flex flex-col gap-7">
-      <Section id="set-dictate-trigger" title="Trigger" desc="How you start and stop.">
+      <Section id="set-dictate-trigger" title="Trigger" desc="How you start and stop. Set in General.">
         {caps?.addonError
           ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
           : (
             <ListGroup>
-              <HotkeyRow binding={config.talk.dictateKey} fallback={DEFAULT_KEY} taken={config.talk.flowKey} onPick={(dictateKey) => save({ talk: { dictateKey } })}
-                label="Open and close" detail="Tap twice, again to stop"
-                info="Tap the key twice in any app, or press the mic beside Flow's orb, or ask Flow to start dictation. Each pause types what you said." />
+              <LinkRow icon={Keyboard} label="Open and close" detail="Double-tap in any app, or the mic by Flow's orb" shared={false} onGo={() => go("general", "set-general-dictate-key")}
+                value={<Keycaps keys={hotkeyKeys(key, desktopPlatform)} label={`Double-tap ${keyName(key, desktopPlatform)}`} />} />
+              <TalkLinks talk={config.talk} />
             </ListGroup>
           )}
       </Section>
@@ -147,19 +146,19 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
   );
 }
 
-/** Who answers AI polish and command mode. Shown once, under AI polish: command mode uses the same. */
+/** Who answers AI polish and edits by voice. Shown once, under AI polish: an edit uses the same. */
 function BrainSection({ config, save }: { config: FlowConfig; save: Save }) {
   const own = config.dictate;
   const { settings } = useDefaultBrain();
   const go = useSettingsNav();
   const flows = flowBrain(config, settings ?? {});
-  const label = "Who answers for AI polish and commands";
+  const label = "Who answers for AI polish and edits";
   return (
-    <Section id="set-dictate-brain" title="Who answers" desc="For AI polish and command mode. Plain dictation never uses one.">
+    <Section id="set-dictate-brain" title="Who answers" desc="For AI polish and edit by voice. Plain dictation never uses one.">
       <div className="flex flex-col gap-3">
         <ListGroup>
           <ListRow label={label} detail={own.brain.override ? "Only in Dictate. Flow is unchanged." : undefined}
-            info="AI polish and command mode send the words, as text only, to the one picked here. Plain dictation stays on this machine.">
+            info="AI polish and edit by voice send the words, and a selection to edit, as text only, to the one picked here. Plain dictation stays on this machine.">
             <Select aria-label={label} value={own.brain.override ? "own" : "flow"}
               onChange={(e) => save({ dictate: { brain: e.target.value === "own" ? { ...flows, override: true } : { ...own.brain, override: false } } })}>
               <option value="flow">Same as Flow</option>
@@ -179,8 +178,21 @@ function BrainSection({ config, save }: { config: FlowConfig; save: Save }) {
 
 function Commands({ config, save }: { config: FlowConfig; save: Save }) {
   const own = config.dictate;
+  const go = useSettingsNav();
+  const { editReady } = useFlowConfig();
+  const { settings } = useDefaultBrain();
   return (
     <div className="flex flex-col gap-7">
+      <Section id="set-dictate-edit" title="Edit by voice" desc="Select text, then talk.">
+        <ListGroup>
+          <ListRow label={<StatusDot tone={editReady ? "success" : "arc"}>{editReady ? "Ready" : "Needs Dictate's AI"}</StatusDot>}
+            detail={editReady ? "Say the change, like “make this formal”" : "Until then, what you say is typed over the selection"}
+            info="Select text in any app, open Dictate and say what to change, like “make this formal” or “translate to Spanish”. The orb shows Editing selection, and the selection is rewritten in place. It is read through the system's accessibility API only, never copied, so apps that do not share their selection that way, and Wayland, get your words typed instead." />
+          <LinkRow label="Who answers" value={<AnswerSummary brain={settings ? dictateBrain(config, settings) : null} />}
+            onGo={() => go("dictate", "set-dictate-brain", "set-dictate-basics")} />
+        </ListGroup>
+      </Section>
+
       <Section id="set-dictate-spoken" title="Spoken commands" desc={loadPipelineConfig().language === "en" ? "Said alone, or after a pause." : "Said in English only, alone or after a pause."}>
         <ListGroup>
           {SPOKEN.map((c) => (
@@ -191,77 +203,6 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
         </ListGroup>
       </Section>
     </div>
-  );
-}
-
-/** The key, and a picker that takes the next keys pressed together. */
-function HotkeyRow({ binding, fallback, taken: taken_, label, detail, info, onPick }: {
-  binding: string; fallback: string; /** Flow's key, which this one may not be. */ taken: string;
-  label: string; detail: string; info: string; onPick: (binding: string) => void;
-}) {
-  const [picking, setPicking] = useState(false);
-  const [refused, setRefused] = useState<"types" | "taken" | false>(false);
-  // A save re-renders this row mid-pick, and the keys held so far must survive it.
-  const pick = useRef(onPick);
-  pick.current = onPick;
-  const taken = useRef(taken_);
-  taken.current = taken_;
-
-  useEffect(() => {
-    if (!picking) return;
-    const held = new Set<string>();
-    const seen = new Set<string>();
-    const down = (e: KeyboardEvent) => {
-      e.preventDefault();
-      if (e.code === "Escape") return setPicking(false);
-      held.add(e.code);
-      seen.add(e.code);
-    };
-    // Taken once every key of the combination is up again.
-    const up = (e: KeyboardEvent) => {
-      e.preventDefault();
-      held.delete(e.code);
-      if (held.size || !seen.size) return;
-      const keys = bindingOf(seen);
-      const next = keys && toggleKeyOk(keys, desktopPlatform) ? keys : null;
-      seen.clear();
-      setRefused(!next ? "types" : next === taken.current ? "taken" : false);
-      if (!next || next === taken.current) return;
-      setPicking(false);
-      pick.current(next);
-    };
-    window.addEventListener("keydown", down, true);
-    window.addEventListener("keyup", up, true);
-    return () => { window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); };
-  }, [picking]);
-
-  const keys = hotkeyKeys(binding, desktopPlatform);
-  return (
-    <>
-      <ListRow label={label} detail={picking ? "Press a key or combo, Esc cancels" : detail} info={info}>
-        {/* One unit, so a narrow row moves the key and its buttons down together. */}
-        <span className="flex flex-wrap items-center gap-2">
-          {picking
-            ? <Button size="sm" onClick={() => setPicking(false)}>Cancel</Button>
-            : <Keycaps keys={keys} label={keys.join(" ")} />}
-          {!picking && isDesktop && <Button size="sm" onClick={() => { setRefused(false); setPicking(true); }}>Change</Button>}
-          {!picking && binding !== fallback && fallback !== taken_ && <Button size="sm" variant="ghost" onClick={() => onPick(fallback)}>Reset</Button>}
-        </span>
-        {refused && (
-          <div className="basis-full">
-            <StatusDot tone="arc">{refused === "taken" ? "Flow opens with that key. Pick another." : "That key also types, or is more than one. Use one modifier or F13 to F24."}</StatusDot>
-          </div>
-        )}
-      </ListRow>
-      {mayBeAltGr(binding, desktopPlatform) && (
-        <ListRow label={<StatusDot tone="arc">Right Alt may be AltGr here</StatusDot>}
-          info="On some Windows and Linux layouts Right Alt is AltGr and types characters. If yours is one, pick a key that never types.">
-          {ALTERNATIVES.filter((k) => k !== taken_).map((k) => (
-            <Button key={k} size="sm" onClick={() => onPick(k)}>{hotkeyKeys(k, desktopPlatform).join(" ")}</Button>
-          ))}
-        </ListRow>
-      )}
-    </>
   );
 }
 

@@ -15,6 +15,7 @@ import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
 import { OneLine, QueryState } from "./common";
+import { HowYouTalk } from "./HowYouTalk";
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -168,6 +169,10 @@ export function GeneralSettings() {
           </ListGroup>
         </Section>
       )}
+
+      <Section id="set-general-talk" title="How you talk" desc="Flow, Dictate and calls, alike.">
+        <HowYouTalk />
+      </Section>
 
       <Section id="set-general-typing" title="Typing at cursor" desc="How Flow and Dictate put text in other apps.">
         <TypingAtCursor />

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { FlowConfig } from "@openlive/flow-store";
-import { TextCursorInput } from "lucide-react";
+import { Keyboard, TextCursorInput } from "lucide-react";
 import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
-import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
+import { desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { Keycaps, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented, type DotTone } from "@/components/ui";
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
@@ -13,6 +13,7 @@ import { useWindowShown } from "@/lib/windowShown";
 import { effectiveWait } from "@/lib/flow/wait";
 import { dndNote } from "@/lib/flow/quiet";
 import { keyListenerNote } from "@/lib/flow/failure";
+import { hotkeyKeys, keyName, liveKeys, silenceLabel, type Talk } from "@/lib/dictate/hotkey";
 import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS, type PipelineConfig } from "@/lib/live/pipelineConfig";
 import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
@@ -26,12 +27,6 @@ import { AddonCard } from "./AddonCard";
 // writes straight through to the store, and what comes back from the write is
 // what the screen then shows: the parse is the authority, so a clamped value is
 // visible rather than silently different from what was clicked.
-
-const SILENCE_CHOICES = [
-  { ms: 30_000, label: "30 sec" },
-  { ms: 90_000, label: "90 sec" },
-  { ms: 300_000, label: "5 min" },
-];
 
 const presetName = (v: Parameters<typeof turnPresetOf>[0]) => TURN_PRESETS.find((p) => p.id === turnPresetOf(v))?.name ?? "Custom";
 
@@ -59,20 +54,20 @@ export function FlowSettings() {
   const shared = effectiveWait("chat", pipeline, null);
   const own = config.voice.turn;
   const ownPace = turnPresetOf(own);
-  const silence = config.talk.closeAfterSilenceMs;
+  const keys = liveKeys(config.talk);
 
   return (
     <div className="flex flex-col gap-7">
       {caps && <ModeOnLine id="set-flow-status" mode="flow" on={caps.armed} />}
-      <Section id="set-flow-trigger" title="Trigger" desc="How you start Flow, from any app.">
+      <Section id="set-flow-trigger" title="Trigger" desc="How you open Flow, from any app. Set in General.">
         {caps?.addonError
           ? <AddonCard error={caps.addonError} packaged={caps.packaged} onRetry={refresh} />
           : (
             <ListGroup>
-              <ListRow label="Hotkey" detail="Tap twice anywhere" info={`Tap ${CONTROL} twice in any app to talk. Again to close.`}>
-                <Keycaps keys={[CONTROL, CONTROL]} label={`${CONTROL} twice`} />
-                {keyNote && <div className="basis-full"><StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot></div>}
-              </ListRow>
+              <LinkRow icon={Keyboard} label="Open and close" detail="Double-tap in any app" shared={false} onGo={() => go("general", "set-general-flow-key")}
+                value={<Keycaps keys={hotkeyKeys(keys.flow, desktopPlatform)} label={`Double-tap ${keyName(keys.flow, desktopPlatform)}`} />} />
+              <TalkLinks talk={config.talk} />
+              {keyNote && <div className="py-2"><StatusDot tone={caps?.hookError ? "danger" : "arc"}>{keyNote}</StatusDot></div>}
             </ListGroup>
           )}
       </Section>
@@ -113,17 +108,6 @@ export function FlowSettings() {
               {ownPace === "custom" && <p className="text-caption text-faint">Custom: Flow keeps timings from an earlier version. Pick one to replace them.</p>}
             </div>
           )}
-          <ListRow label="Close after silence">
-            <Select aria-label="Close after silence"
-              value={silence === null ? "never" : SILENCE_CHOICES.some((c) => c.ms === silence) ? String(silence) : "custom"}
-              onChange={(e) => e.target.value !== "custom" && save({ talk: { closeAfterSilenceMs: e.target.value === "never" ? null : Number(e.target.value) } })}>
-              {silence !== null && !SILENCE_CHOICES.some((c) => c.ms === silence) && (
-                <option value="custom">{Math.round(silence / 1000)} sec</option>
-              )}
-              {SILENCE_CHOICES.map((c) => <option key={c.ms} value={c.ms}>{c.label}</option>)}
-              <option value="never">Never</option>
-            </Select>
-          </ListRow>
         </ListGroup>
       </Section>
 
@@ -154,6 +138,20 @@ export function FlowSettings() {
         <SharedLink onGo={() => go("engine")}>Speech engine</SharedLink>. Change them once, every mode follows.
       </p>
     </div>
+  );
+}
+
+/** How you talk and Close after silence, set in General for Flow and Dictate alike. Shared with Dictate's settings. */
+export function TalkLinks({ talk }: { talk: Talk }) {
+  const go = useSettingsNav();
+  const silence = talk.closeAfterSilenceMs;
+  return (
+    <>
+      <LinkRow label="How you talk" onGo={() => go("general", "set-general-talk")}
+        value={talk.mode === "ptt" ? `Push to talk, hold ${keyName(talk.pttKey, desktopPlatform)}` : "Hands-free"} />
+      <LinkRow label="Close after silence" onGo={() => go("general", "set-general-silence")}
+        value={silence === null ? "Never" : silenceLabel(silence)} />
+    </>
   );
 }
 
