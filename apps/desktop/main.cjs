@@ -19,6 +19,7 @@ const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
 const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
 const { trayTemplate } = require("./tray-menu.cjs");
+const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
@@ -818,6 +819,9 @@ function summonFlow(_e, mode) {
     telemetry.markActiveDay("flow");
     telemetry.reportOnboardingStep("first_flow_summon");
   }
+  // Dictate opening is Flow closing: the owner dismissed it first, and the orb
+  // it is still hiding comes straight back for Dictate.
+  if (mode === "dictate") closeFlowCount();
   flowEndedBy = "other";
   flowSummoned = true;
   refreshTray();
@@ -882,10 +886,10 @@ async function expandFlow(to) {
 }
 
 /** The tray's "Start Flow": the gesture itself, fired from here, so the
- *  owner renderer opens Flow exactly as a double tap would. The addon's trigger
- *  is a toggle, so an open Flow is not sent it: the owner starts the fresh
- *  session there instead, and leaves a turn that is still running alone. */
-const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
+ *  owner renderer opens Flow exactly as a double tap would. The gesture is a
+ *  toggle, so an open Flow is not sent it: the owner starts the fresh session
+ *  there instead, and leaves a turn that is still running alone. */
+const { FLOW_BINDING, PTT_BINDING } = flowInput;
 function startFlowFromTray() {
   const tell = (wasOpen) => {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session", wasOpen);
@@ -922,6 +926,18 @@ function wireFlowIpc() {
   });
 }
 
+/** Every hook effect. The double-taps go to the owner renderer, which knows
+ *  whether Flow and Dictate are open. A push-to-talk hold goes to the orb while
+ *  Flow or Dictate is up, else to a live call in the main window, else nowhere. */
+const pttTo = pttRouter();
+function routeEffect(effect) {
+  const to = effect.bindingId === PTT_BINDING
+    ? pttTo(effect.kind, { orbUp: flowSummoned, callLive: !!callState })
+    : "owner";
+  if (to === "owner" && ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-effect", effect);
+  else if (to === "main" && mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:ptt", effect.kind);
+}
+
 /** Flow's off switch, from Flow's home or the tray. One state, told to everyone
  *  who draws it, so the tray and the windows can never disagree, and kept in
  *  Flow's settings through the same web route the windows use. */
@@ -941,11 +957,11 @@ function setFlowArmed(next) {
   refreshTray();
 }
 
-/** Flow's switch as it was left: on, unless Flow's settings say off. Read from
- *  the file before the key listener starts, since the web route comes up later. */
-function savedFlowSwitch() {
-  try { return JSON.parse(fs.readFileSync(path.join(PATHS.flowHome, "flow", "config.json"), "utf8")).enabled !== false; }
-  catch { return true; }
+/** Flow's settings as the file has them, read before the key listener starts,
+ *  since the web route comes up later. Null when there is no file yet. */
+function savedFlowConfig() {
+  try { return JSON.parse(fs.readFileSync(path.join(PATHS.flowHome, "flow", "config.json"), "utf8")); }
+  catch { return null; }
 }
 
 // ── a call on the orb ────────────────────────────────────────────────────────
@@ -1016,28 +1032,31 @@ const TRAY_READINESS_POLL_MS = 3000;
 /** What the menu says depends on. Readiness comes from the same test the Flow window uses. */
 const trayState = () => ({
   readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
-  hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate,
+  hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate: dictate && { ...dictate, binding: flowInput.binding(flowInput.DICTATE_BINDING) },
 });
-/** Dictate's switch and key from its settings, for the tray; null until first read. */
+/** Dictate's switch from its settings, for the tray; null until first read. */
 let dictate = null;
 
-/** Reads Dictate's settings, or writes `patch` into them, through the same web
- *  route the windows use, so the file has one writer and one parse. */
+/** Reads Flow's settings, or writes `patch` into Dictate's, through the same web
+ *  route the windows use, so the file has one writer and one parse. The hook's
+ *  keys and the tray follow what comes back. */
 async function syncDictate(patch) {
   try {
     const r = await fetch(`${WEB_URL}/api/flow/config`, patch
       ? { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ dictate: patch }) }
       : { cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const own = (await r.json()).config.dictate;
-    dictate = { on: !!own.enabled, binding: own.hotkey };
+    const { config } = await r.json();
+    // The keys follow the settings at once: a rebind or a talk mode switch needs no restart.
+    flowInput.setBindings(talkBindings(config, process.platform));
+    dictate = { on: !!config.dictate.enabled };
     refreshTray();
     return true;
   } catch (e) { console.error("[main] dictate settings:", e); return false; }
 }
 
-/** The tray's Dictate switch. The owner renderer re-registers its key and the
- *  main window re-reads what its home and Settings show. */
+/** The tray's Dictate switch. Its key follows in `syncDictate`, and both
+ *  windows re-read what their homes and Settings show. */
 async function setDictateFromTray(on) {
   if (!(await syncDictate({ enabled: on }))) return;
   for (const win of [ownerWin, mainWin]) {
@@ -1582,9 +1601,11 @@ async function boot() {
   wireResetIpc();
   wireCrashReports();
   wireFlowIpc();
-  flowInput.setArmed(savedFlowSwitch());
-  // Hook effects drive Flow's cascade, which lives in the owner renderer.
-  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry,
+  const saved = savedFlowConfig();
+  flowInput.setArmed(saved?.enabled !== false);
+  flowInput.setBindings(talkBindings(saved, process.platform));
+  // Hook effects drive Flow's and Dictate's cascade, in the owner renderer, and a call's push to talk.
+  flowInput.install(routeEffect, () => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry,
     () => (mainWin && !mainWin.isDestroyed() && mainWin.isFocused() ? mainWin.webContents : null));
   // Open at login by default, once, for the installed app only (never the dev
   // binary). After that the person's choice in Settings stands. Run from a DMG or

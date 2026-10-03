@@ -30,9 +30,20 @@ let hooked = false;
 let startError = null;
 let secureTimer = null;
 let armed = true; // Flow's on/off switch, on its home; Flow's binding alone is muted to match, so Dictate's keeps working
-const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
-const bindings = new Map(); // id -> the binding the renderer registered, for the tray to show
-let target = () => null; // the webContents that receives effects
+const FLOW_BINDING = "flow";
+const DICTATE_BINDING = "dictate";
+const PTT_BINDING = "ptt";
+const ROLES = { [FLOW_BINDING]: "toggle", [DICTATE_BINDING]: "toggle", [PTT_BINDING]: "hold" };
+// Packaged QA only, set by hand in the environment: F19, F20 and F18 stand in
+// for Flow's, Dictate's and the push-to-talk keys, so a QA run can synthesize
+// them without touching Control or Option, which a dev build running beside it
+// also listens to. It also lets a page fire the external trigger.
+const QA_KEYS = process.env.OPENLIVE_QA_KEYS === "1";
+const QA = { [FLOW_BINDING]: "f19", [DICTATE_BINDING]: "f20", [PTT_BINDING]: "f18" };
+let wanted = {}; // id -> the binding the settings ask for, null for none
+const bindings = new Map(); // id -> the binding registered with the hook
+let route = () => {}; // where each hook effect goes, main's to decide
+let target = () => null; // the webContents that receives the secure-input status
 let ownField = () => null; // OpenLive's own window's webContents while it has the keyboard, else null
 const ownSessions = new Map(); // insertion session -> the own window it types into
 let ownSession = 2 ** 30; // above any session id the addon hands out
@@ -89,7 +100,7 @@ function initialize() {
   // is, so it has to be dropped before a retry can start a live one.
   if (hooked && api.hookError()) { api.shutdown(); hooked = false; }
   if (!hooked) {
-    try { api.initializeHook((effect) => send("openlive:flow-effect", effect)); }
+    try { api.initializeHook((effect) => route(effect)); }
     catch (e) {
       startError = String(e && e.message ? e.message : e);
       telemetry.reportOnboardingStep("flow_hook_failed");
@@ -99,6 +110,9 @@ function initialize() {
     hooked = true;
     telemetry.reportOnboardingStep("flow_hook_started");
     if (!armed) api.suspendHook(FLOW_BINDING);
+    // A hook that just started holds no binding, whatever was registered on the last one.
+    bindings.clear();
+    syncBindings();
   }
   startSecureInputPoll();
   return api.permissionStatus();
@@ -117,8 +131,36 @@ function setArmed(next) {
 
 const isArmed = () => armed;
 
-/** The binding registered under `id` (ol-input's grammar, e.g. "ctrl"), or null. */
-const binding = (id) => bindings.get(id) ?? null;
+/** The keys the settings ask for, `{ flow, dictate, ptt }`, each a binding in
+ *  ol-input's grammar or null for none. Registered at once while the hook runs,
+ *  and the moment it starts otherwise, so a rebind needs no restart. */
+function setBindings(next) {
+  wanted = Object.fromEntries(Object.keys(ROLES).map((id) => [id, next?.[id] ? (QA_KEYS ? QA[id] : String(next[id])) : null]));
+  if (hooked) syncBindings();
+}
+
+/** Registers what changed. A failure leaves that binding off and is logged: one
+ *  bad key in a hand-edited file must not cost the other two. */
+function syncBindings() {
+  const api = load();
+  for (const [id, role] of Object.entries(ROLES)) {
+    const want = wanted[id] ?? null;
+    if ((bindings.get(id) ?? null) === want) continue;
+    try {
+      if (bindings.has(id)) { api.unregisterBinding(id); bindings.delete(id); }
+      if (want) { api.registerBinding(id, want, role); bindings.set(id, want); }
+    } catch (e) { console.error(`[flow-input] ${id} key:`, e); }
+  }
+}
+
+/** The binding the hook watches under `id` (ol-input's grammar, e.g. "ctrl"), or
+ *  null. A toggle is narrowed away from the push-to-talk key, as the hook does. */
+function binding(id) {
+  const key = bindings.get(id);
+  const ptt = bindings.get(PTT_BINDING);
+  if (!key || !ptt || ROLES[id] !== "toggle") return key ?? null;
+  try { return load().narrowToggle(key, ptt); } catch { return key; }
+}
 
 /** The one meaning of "Ready", shared with the Flow window: armed, granted, and
  *  a key listener that is still alive. "stopped" when that listener died,
@@ -209,9 +251,11 @@ function teardown() {
   hooked = false;
 }
 
-// `getTarget` returns the webContents that should receive hook effects;
-// `getOwnField`, OpenLive's own window's while it has the keyboard.
-function install(getTarget, telemetryClient, getOwnField = () => null) {
+// `routeEffect` takes each hook effect; `getTarget` returns the webContents
+// that hears the secure-input status; `getOwnField`, OpenLive's own window's
+// while it has the keyboard.
+function install(routeEffect, getTarget, telemetryClient, getOwnField = () => null) {
+  route = routeEffect;
   target = getTarget;
   telemetry = telemetryClient;
   ownField = getOwnField;
@@ -221,15 +265,14 @@ function install(getTarget, telemetryClient, getOwnField = () => null) {
   ipcMain.handle("openlive:flow-request", guard(request));
   ipcMain.handle("openlive:flow-open-settings", guard((what) => openSettings(what)));
 
-  ipcMain.handle("openlive:flow-register", guard((id, key, hold) => { load().registerBinding(id, key, hold === true); bindings.set(id, key); }));
+  ipcMain.handle("openlive:flow-register", guard((id, key, role) => { load().registerBinding(id, key, role); bindings.set(id, key); }));
   ipcMain.handle("openlive:flow-unregister", guard((id) => { load().unregisterBinding(id); bindings.delete(id); }));
   ipcMain.handle("openlive:flow-suspend", guard(() => load().suspendHook()));
   ipcMain.handle("openlive:flow-resume", guard(() => load().resumeHook()));
-  // Test-only: lets a page open Flow as a double Ctrl would. Released builds
-  // leave it unregistered so no page script can turn the mic on.
-  if (!app.isPackaged) ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
-  ipcMain.handle("openlive:flow-closed", guard(() => load().notifyClosed()));
-  ipcMain.handle("openlive:flow-gesture-open", guard((id, open) => load().notifyOpen(String(id), open === true)));
+  // Test-only: lets a page fire a gesture or a hold as the keys would. Released
+  // builds leave it unregistered so no page script can turn the mic on, unless
+  // QA set OPENLIVE_QA_KEYS by hand.
+  if (!app.isPackaged || QA_KEYS) ipcMain.handle("openlive:flow-trigger", guard((id, pressed) => load().triggerExternal(id, pressed)));
 
   ipcMain.handle("openlive:flow-insert", guard((text, method, timing) => load().insertText(text, method, insertionTiming(timing))));
   // OpenLive's own window takes Dictate's words from Electron itself: no system
@@ -264,4 +307,4 @@ function install(getTarget, telemetryClient, getOwnField = () => null) {
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, hookReadiness, request, hookFailure, insertionTiming };
+module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, readiness, hookReadiness, request, hookFailure, insertionTiming };

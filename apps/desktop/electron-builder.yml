@@ -31,6 +31,7 @@ files:
   - orb-pointer.cjs
   - orb-show.cjs
   - tray-menu.cjs
+  - talk.cjs
   - flow-cursor.cjs
   - flow-cursor-preload.cjs
   - flow-cursor.html

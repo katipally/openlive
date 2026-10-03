@@ -35,7 +35,7 @@ function keyNames(binding, platform) {
   return keys.join(platform === "darwin" ? "" : "+");
 }
 
-/** Flow's gesture: two quick taps of the registered binding. Empty while nothing is registered. */
+/** Flow's or Dictate's gesture: two quick taps of the registered binding. Empty while nothing is registered. */
 function hotkeyLabel(binding, platform) {
   return binding ? `Double-tap ${keyNames(binding, platform)}` : "";
 }
@@ -47,12 +47,12 @@ function statusLine({ readiness, open, binding, platform }) {
   return [STATUS[state] ?? STATUS.off, hotkey].filter(Boolean).join("  ·  ");
 }
 
-/** Dictate's line. `dictate` is { on, binding } from its settings, null until read;
+/** Dictate's line. `dictate` is { on, binding }, its switch and the key the hook watches, null until read;
  *  `hook` is the key listener's own state, which Flow's off switch does not touch. */
 function dictateLine({ dictate, hook, platform }) {
   if (!dictate?.on) return DICTATE.off;
   const state = hook === "ready" ? "on" : hook === "access" ? "access" : "stopped";
-  const key = state === "on" && dictate.binding ? `Hold ${keyNames(dictate.binding, platform)}` : "";
+  const key = state === "on" ? hotkeyLabel(dictate.binding, platform) : "";
   return [DICTATE[state], key].filter(Boolean).join("  ·  ");
 }
 

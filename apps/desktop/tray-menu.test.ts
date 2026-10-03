@@ -25,11 +25,13 @@ describe("the tray's status line", () => {
 });
 
 describe("the tray's Dictate line", () => {
-  it("says whether Dictate is on, and its key while a hold would work", () => {
+  it("says whether Dictate is on, and its gesture while it would work", () => {
     expect(dictateLine(ready)).toBe("Dictate is off");
-    const on = { ...ready, dictate: { on: true, binding: "option_right" } };
-    expect(dictateLine(on)).toBe("Dictate is on  ·  Hold Right ⌥");
-    expect(dictateLine({ ...on, platform: "win32" })).toBe("Dictate is on  ·  Hold Right Alt");
+    const on = { ...ready, dictate: { on: true, binding: "option" } };
+    expect(dictateLine(on)).toBe("Dictate is on  ·  Double-tap ⌥");
+    expect(dictateLine({ ...on, platform: "win32" })).toBe("Dictate is on  ·  Double-tap Alt");
+    expect(dictateLine({ ...on, dictate: { on: true, binding: "option_left" }, platform: "linux" })).toBe("Dictate is on  ·  Double-tap Left Alt");
+    expect(dictateLine({ ...on, dictate: { on: true, binding: null } })).toBe("Dictate is on");
     expect(dictateLine({ ...on, hook: "access" })).toBe("Dictate needs permission");
     expect(dictateLine({ ...on, hook: "stopped" })).toBe("Dictate stopped listening");
     expect(dictateLine({ ...on, hook: "off" })).toBe("Dictate stopped listening");
@@ -38,7 +40,7 @@ describe("the tray's Dictate line", () => {
   });
 
   it("follows Dictate's own switch, not Flow's", () => {
-    expect(dictateLine({ ...ready, readiness: "off", dictate: { on: true, binding: "f13" } })).toBe("Dictate is on  ·  Hold F13");
+    expect(dictateLine({ ...ready, readiness: "off", dictate: { on: true, binding: "f20" } })).toBe("Dictate is on  ·  Double-tap F20");
   });
 });
 

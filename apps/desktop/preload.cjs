@@ -111,7 +111,10 @@ contextBridge.exposeInMainWorld("openlive", {
   callState: (s) => ipcRenderer.send("openlive:call-state", s),
   onCallOrb: (cb) => { ipcRenderer.removeAllListeners("openlive:call-orb"); ipcRenderer.on("openlive:call-orb", (_e, s) => cb(s)); },
   callCmd: (c) => ipcRenderer.send("openlive:call-cmd", c),
-  // Flow's native input addon (global hold-to-talk hook + text insertion).
+  // The global push-to-talk key, for a live call while Flow and Dictate are
+  // closed: "hold_start", "hold_end" or "hold_cancel".
+  onPtt: (cb) => listen("openlive:ptt", (kind) => cb(String(kind))),
+  // Flow's native input addon (global key hook + text insertion).
   // Every call resolves to { ok, value } or { ok: false, error } — a failure
   // in Rust is a value here, never a throw. `init` is what asks for
   // Accessibility, so only onboarding may call it.
@@ -122,13 +125,11 @@ contextBridge.exposeInMainWorld("openlive", {
     // flow_settings, flow_home, other).
     request: (what, askedFrom) => ipcRenderer.invoke("openlive:flow-request", what, typeof askedFrom === "string" ? askedFrom : undefined),
     openSettings: (what) => ipcRenderer.invoke("openlive:flow-open-settings", what),
-    register: (id, binding, hold) => ipcRenderer.invoke("openlive:flow-register", id, binding, hold === true),
+    register: (id, binding, role) => ipcRenderer.invoke("openlive:flow-register", id, binding, role === "hold" ? "hold" : "toggle"),
     unregister: (id) => ipcRenderer.invoke("openlive:flow-unregister", id),
     suspend: () => ipcRenderer.invoke("openlive:flow-suspend"),
     resume: () => ipcRenderer.invoke("openlive:flow-resume"),
     trigger: (id, pressed) => ipcRenderer.invoke("openlive:flow-trigger", id, pressed),
-    closed: () => ipcRenderer.invoke("openlive:flow-closed"),
-    gestureOpen: (id, open) => ipcRenderer.invoke("openlive:flow-gesture-open", id, !!open),
     insert: (text, method, timing) => ipcRenderer.invoke("openlive:flow-insert", text, method, timing),
     insertBegin: (method, timing) => ipcRenderer.invoke("openlive:flow-insert-begin", method, timing),
     insertPush: (session, chunk) => ipcRenderer.invoke("openlive:flow-insert-push", session, chunk),
@@ -179,8 +180,8 @@ contextBridge.exposeInMainWorld("openlive", {
     // so the owner starts the session itself; closed, main fires the gesture and
     // this only says the tray was the one that did.
     onNewSession: (cb) => listen("openlive:flow-new-session", (wasOpen) => cb(!!wasOpen)),
-    // Flow's settings were written. The owner renderer holds the registration and
-    // the auto-quiet rules, so it has to be told or every change needs a relaunch.
+    // Flow's settings were written. Main re-registers the keys and the owner
+    // renderer re-reads the rest, or every change would need a relaunch.
     // The main window is told too when the tray turned Dictate on or off.
     settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),
     onSettingsChanged: (cb) => listen("openlive:flow-settings-changed", () => cb()),

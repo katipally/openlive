@@ -92,6 +92,13 @@ settings.json and connectors.json as they were).
   `OPENLIVE_SKILLS_DIR=~/.openlive/skills`. The same goes for Flow's history:
   `OPENLIVE_FLOW_HOME=~/.openlive` shares the installed app's.
 - `pnpm test` runs on a throwaway home (`vitest.config.ts`), never on `data/`.
+- `OPENLIVE_QA_KEYS=1`, for testing a packaged build by hand or by script only:
+  Flow opens on a double tap of F19, Dictate on F20, and push to talk holds F18,
+  whatever the settings say, and a page may fire `openlive:flow-trigger`. Any other
+  OpenLive running on the same machine (a `pnpm desktop:dev` build, say) listens to
+  Control and Option too, so synthesizing those would drive it as well; F18 to F20
+  reach only the build under test. Never set it in a shell profile: it overrides
+  every key you picked.
 
 The UI's design system is one kit, `apps/web/src/components/ui` (import it from
 `@/components/ui`), on the tokens in `apps/web/src/app/globals.css` and

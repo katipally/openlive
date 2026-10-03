@@ -1,22 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
 /** flow-input.cjs against stand-ins for electron and for the ol-input addon. */
-function load(ownField?: () => unknown) {
+function load(ownField?: () => unknown, { packaged = false } = {}) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const stub = (path: string, exports: unknown) => {
     require.cache[path] = { id: path, filename: path, loaded: true, children: [], paths: [], path: "", exports } as unknown as NodeJS.Module;
   };
   const addon = {
-    registerBinding: vi.fn(), suspendHook: vi.fn(), resumeHook: vi.fn(), notifyOpen: vi.fn(),
+    registerBinding: vi.fn(), unregisterBinding: vi.fn(), suspendHook: vi.fn(), resumeHook: vi.fn(), triggerExternal: vi.fn(),
+    narrowToggle: vi.fn((toggle: string, hold: string) => (toggle === "ctrl" && hold === "ctrl_right" ? "ctrl_left" : toggle)),
     initializeInjector: vi.fn(), initializeHook: vi.fn(), hookError: vi.fn(() => null), permissionStatus: vi.fn(() => ({})),
     secureInputStatus: vi.fn(() => ({ changed: false })), shutdown: vi.fn(),
     focusEditable: vi.fn(async () => null), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
   };
   stub(require.resolve("electron"), {
-    app: { isPackaged: false, on: vi.fn() },
+    app: { isPackaged: packaged, on: vi.fn() },
     ipcMain: { handle: (name: string, fn: (...args: unknown[]) => unknown) => handlers.set(name, fn) },
     shell: {},
   });
@@ -24,9 +25,10 @@ function load(ownField?: () => unknown) {
   const mod = require.resolve("./flow-input.cjs");
   delete require.cache[mod];
   const flowInput = require(mod);
-  flowInput.install(() => null, { reportOnboardingStep: vi.fn() }, ownField);
+  const effects: unknown[] = [];
+  flowInput.install((e: unknown) => effects.push(e), () => null, { reportOnboardingStep: vi.fn() }, ownField);
   const call = (name: string, ...args: unknown[]) => handlers.get(name)!({}, ...args);
-  return { flowInput, addon, call };
+  return { flowInput, addon, call, handlers, effects };
 }
 
 describe("typing at cursor's settings on their way to the addon", () => {
@@ -40,14 +42,97 @@ describe("typing at cursor's settings on their way to the addon", () => {
   });
 });
 
-describe("Dictate's key", () => {
-  it("is registered for holding, and Flow's only for its double-tap", async () => {
-    const { addon, call } = load();
-    await call("openlive:flow-register", "dictate", "option_right", true);
-    await call("openlive:flow-register", "flow", "ctrl");
-    expect(addon.registerBinding.mock.calls).toEqual([["dictate", "option_right", true], ["flow", "ctrl", false]]);
+describe("the keys the settings ask for", () => {
+  const KEYS = { flow: "ctrl", dictate: "option", ptt: "ctrl_right" };
+
+  it("wait for the hook, then go on it with their roles", async () => {
+    const { flowInput, addon, call } = load();
+    flowInput.setBindings(KEYS);
+    expect(addon.registerBinding).not.toHaveBeenCalled();
+    await call("openlive:flow-init");
+    expect(addon.registerBinding.mock.calls).toEqual([["flow", "ctrl", "toggle"], ["dictate", "option", "toggle"], ["ptt", "ctrl_right", "hold"]]);
   });
 
+  it("change live, touching only what changed", async () => {
+    const { flowInput, addon, call } = load();
+    await call("openlive:flow-init");
+    flowInput.setBindings(KEYS);
+    addon.registerBinding.mockClear();
+    flowInput.setBindings({ ...KEYS, ptt: null, dictate: "option_left" });
+    expect(addon.unregisterBinding.mock.calls).toEqual([["dictate"], ["ptt"]]);
+    expect(addon.registerBinding.mock.calls).toEqual([["dictate", "option_left", "toggle"]]);
+  });
+
+  it("are what the tray shows, with Flow's narrowed away from the push-to-talk key", async () => {
+    const { flowInput, call } = load();
+    await call("openlive:flow-init");
+    flowInput.setBindings(KEYS);
+    expect(flowInput.binding("flow")).toBe("ctrl_left");
+    expect(flowInput.binding("ptt")).toBe("ctrl_right");
+    flowInput.setBindings({ ...KEYS, ptt: null });
+    expect(flowInput.binding("flow")).toBe("ctrl");
+    expect(flowInput.binding("ptt")).toBeNull();
+  });
+
+  it("leave the other two working when one will not register", async () => {
+    const { flowInput, addon, call } = load();
+    addon.registerBinding.mockImplementation((id: string) => { if (id === "dictate") throw new Error("unknown key"); });
+    await call("openlive:flow-init");
+    flowInput.setBindings(KEYS);
+    expect(flowInput.binding("flow")).toBe("ctrl_left");
+    expect(flowInput.binding("dictate")).toBeNull();
+  });
+
+  it("go back on a hook that was started again", async () => {
+    const { flowInput, addon, call } = load();
+    flowInput.setBindings(KEYS);
+    await call("openlive:flow-init");
+    addon.hookError.mockReturnValue("died" as unknown as null);
+    addon.registerBinding.mockClear();
+    await call("openlive:flow-init");
+    expect(addon.registerBinding).toHaveBeenCalledTimes(3);
+  });
+
+  it("send every effect to the router main gave", async () => {
+    const { addon, call, effects } = load();
+    await call("openlive:flow-init");
+    const onEffect = addon.initializeHook.mock.calls[0]![0] as (e: unknown) => void;
+    onEffect({ kind: "double_tap", bindingId: "flow" });
+    expect(effects).toEqual([{ kind: "double_tap", bindingId: "flow" }]);
+  });
+});
+
+describe("the QA keys", () => {
+  afterEach(() => { delete process.env.OPENLIVE_QA_KEYS; });
+
+  it("stand in F19, F20 and F18 for every key, and leave a key that is off off", async () => {
+    process.env.OPENLIVE_QA_KEYS = "1";
+    const { flowInput, addon, call } = load();
+    await call("openlive:flow-init");
+    flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: "fn" });
+    expect(addon.registerBinding.mock.calls).toEqual([["flow", "f19", "toggle"], ["dictate", "f20", "toggle"], ["ptt", "f18", "hold"]]);
+    flowInput.setBindings({ flow: "ctrl", dictate: null, ptt: null });
+    expect(flowInput.binding("dictate")).toBeNull();
+  });
+
+  it("open the external trigger in a packaged build", () => {
+    process.env.OPENLIVE_QA_KEYS = "1";
+    expect(load(undefined, { packaged: true }).handlers.has("openlive:flow-trigger")).toBe(true);
+  });
+
+  it("are off unless set to exactly 1, and a packaged build has no trigger then", async () => {
+    for (const v of [undefined, "", "0", "true", "yes"]) {
+      if (v === undefined) delete process.env.OPENLIVE_QA_KEYS; else process.env.OPENLIVE_QA_KEYS = v;
+      const { flowInput, addon, call } = load();
+      await call("openlive:flow-init");
+      flowInput.setBindings({ flow: "ctrl", dictate: null, ptt: null });
+      expect(addon.registerBinding.mock.calls).toEqual([["flow", "ctrl", "toggle"]]);
+      expect(load(undefined, { packaged: true }).handlers.has("openlive:flow-trigger")).toBe(false);
+    }
+  });
+});
+
+describe("Dictate's key", () => {
   it("keeps working when Flow's own hotkey is switched off", async () => {
     const { flowInput, addon, call } = load();
     await call("openlive:flow-init");
@@ -56,12 +141,6 @@ describe("Dictate's key", () => {
     flowInput.teardown();
     expect(addon.suspendHook.mock.calls).toEqual([["flow"]]);
     expect(addon.resumeHook.mock.calls).toEqual([["flow"]]);
-  });
-
-  it("hears that hands-free was opened from the orb", async () => {
-    const { addon, call } = load();
-    await call("openlive:flow-gesture-open", "dictate", true);
-    expect(addon.notifyOpen).toHaveBeenCalledWith("dictate", true);
   });
 });
 
