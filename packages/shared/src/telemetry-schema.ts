@@ -50,7 +50,7 @@ const FEEDBACK_REASONS = ["wrong_answer", "too_slow", "misheard_me", "didnt_do_i
 const VERSION = "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$";
 
 const WEB_STEPS = [
-  "flow_onboarding_shown", "flow_onboarding_step2", "flow_onboarding_done", "flow_onboarding_skipped",
+  "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped",
   "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted",
   "first_call_turn", "first_flow_turn",
   "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings",

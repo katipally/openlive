@@ -776,7 +776,6 @@ The Values cells link here for the long lists.
 | `first_call_reply` | A call turn ended in an answer for the first time. |
 | `activated` | The first turn in Flow or in a call that ended in an answer, whichever came first. |
 | `flow_onboarding_shown` | Flow's first-run guide was shown. |
-| `flow_onboarding_step2` | The guide moved on to its second step. |
 | `flow_onboarding_done` | The guide was finished. |
 | `flow_onboarding_skipped` | The guide was skipped. |
 | `first_provider_key_saved` | A model provider key was saved for the first time. |
