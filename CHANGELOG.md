@@ -419,6 +419,9 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **A deleted dictation can come back.** Delete on Dictate's home used to
+  remove it at once with no way back. Now the row hides and a toast offers
+  **Undo** for a few seconds first, as a chat and a Flow session do.
 - **Nothing else downloads a model without asking either.** A voice or
   language switched mid-call, and Whisper standing in for a native engine,
   used to fetch its weights on the next sentence or utterance. Now the call

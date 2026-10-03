@@ -53,7 +53,9 @@ behaves is in Settings > Dictate, and nothing is in both places.
 - **History**: every dictation kept, newest first by day, with a search once
   there are more than 8, **Copy**, **Insert again** (back into the window it
   came from while that window is open and a text box there has the cursor,
-  else on the clipboard) and **Delete**.
+  else on the clipboard) and **Delete**, which hides the row at once and
+  offers **Undo** on a toast for a few seconds before it really deletes, as
+  Chat and Flow do. **Clear all** in Settings > Dictate asks to confirm instead.
   The first 100 show, and **Show more** adds 100 at a time, so a long history
   opens and searches quickly.
 

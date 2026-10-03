@@ -9,7 +9,7 @@ import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { ModeStart, SwitchHole, modeCopy } from "@/components/flow/ModeSwitch";
 import { PowerPill } from "@/components/flow/PowerPill";
 import { AddonCard } from "@/components/flow/AddonCard";
-import { dropDictations, historyQuery } from "@/components/settings/DictateHistory";
+import { deleteDictation, historyQuery, pendingDictationKey } from "@/lib/dictate/history";
 import { FILTER_AT, QueryState, StatusDot } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
@@ -23,6 +23,7 @@ import { desktopPlatform, isDesktop, isMac, isMacDesktop } from "@/lib/platform"
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
 import { toast } from "@/lib/toast";
+import { usePendingDeletes } from "@/lib/deferredDelete";
 import { cn } from "@/lib/cn";
 
 // Dictate's half of the window, for using it: whether it is on and works, how
@@ -203,7 +204,9 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
     return () => ch.close();
   }, [qc]);
   const [filter, setFilter] = useState("");
-  const items = useMemo(() => data?.items ?? [], [data]);
+  // A delete waiting out its Undo toast is hidden at once.
+  const pending = usePendingDeletes((s) => s.keys);
+  const items = useMemo(() => (data?.items ?? []).filter((d) => !pending.has(pendingDictationKey(d.id))), [data, pending]);
   // Lower-cased once per list, not once per keystroke.
   const hay = useMemo(() => items.map((d) => `${d.final} ${d.app ?? ""}`.toLowerCase()), [items]);
   const q = filter.trim().toLowerCase();
@@ -241,7 +244,7 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
       {days.map(([day, list]) => (
         <div key={day} className="flex flex-col">
           <h3 className={cn("px-3 pb-1.5 pt-5", groupLabel)}>{day}</h3>
-          {list.map((d) => <Row key={d.id} d={d} insertion={insertion} onDelete={() => void dropDictations(qc, d.id)} />)}
+          {list.map((d) => <Row key={d.id} d={d} insertion={insertion} onDelete={() => deleteDictation(qc, d.id)} />)}
         </div>
       ))}
       {more && <Button variant="ghost" size="sm" className="mt-1 self-start" onClick={() => setLimit((n) => n + PAGE)}>Show more</Button>}
