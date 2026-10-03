@@ -59,6 +59,13 @@ describe("settings search", () => {
     expect(find("whisper kokoro")).toEqual([]);
   });
 
+  it("forgives one typo in a longer word, only when nothing matches as typed", () => {
+    expect(find("memmory")).toContain("Memory");
+    expect(find("dicate hotkey")).toContain("Dictate hotkey");
+    expect(find("pirvacy")[0]).toBe(find("privacy")[0]);
+    expect(find("xyzw")).toEqual([]);
+  });
+
   it("matches the tab name too", () => {
     expect(find("about")).toContain("Links");
   });

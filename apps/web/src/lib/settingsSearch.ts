@@ -128,21 +128,40 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Replay tours", keywords: "walkthrough onboarding tips help reset", tab: "about", anchor: "set-about-tours" },
 ];
 
+/** Whether `a` becomes `b` with at most one letter added, dropped, changed or
+ *  two neighbours swapped ("memmory", "dicate", "pirvacy"). O(length). */
+function oneEditAway(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  if (i === a.length && i === b.length) return true;
+  const rest = (x: number, y: number) => a.slice(x) === b.slice(y);
+  return rest(i + 1, i + 1) || rest(i + 1, i) || rest(i, i + 1) || (a[i] === b[i + 1] && a[i + 1] === b[i] && rest(i + 2, i + 2));
+}
+
 /** Every whitespace-separated term must appear in the label, keywords or tab
  *  name. Label hits sort ahead of keyword-only hits; each bucket keeps index
- *  order. One pass over the index: O(n · terms) per query. */
+ *  order. When nothing matches, a term of four letters or more also matches a
+ *  word one typo away. One pass over the index, two at most: O(n · terms · words). */
 export function searchSettings(query: string, tabLabel: (t: SettingsTabId) => string, desktop: boolean, index = SETTINGS_INDEX, os = ""): SettingsEntry[] {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return [];
-  const strong: SettingsEntry[] = [];
-  const weak: SettingsEntry[] = [];
-  for (const e of index) {
-    if (e.desktop && !desktop) continue;
-    if (e.os && os && !e.os.includes(os)) continue;
-    const label = e.label.toLowerCase();
-    const hay = `${label} ${e.keywords ?? ""} ${tabLabel(e.tab)}`.toLowerCase();
-    if (!terms.every((t) => hay.includes(t))) continue;
-    (terms.some((t) => label.includes(t)) ? strong : weak).push(e);
-  }
-  return strong.concat(weak);
+  const pass = (typos: boolean) => {
+    const strong: SettingsEntry[] = [];
+    const weak: SettingsEntry[] = [];
+    for (const e of index) {
+      if (e.desktop && !desktop) continue;
+      if (e.os && os && !e.os.includes(os)) continue;
+      const label = e.label.toLowerCase();
+      const hay = `${label} ${e.keywords ?? ""} ${tabLabel(e.tab)}`.toLowerCase();
+      const words = typos ? hay.split(/[^\p{L}\p{N}]+/u) : [];
+      const has = (t: string, text: string, ws: string[]) => text.includes(t) || (t.length >= 4 && ws.some((w) => oneEditAway(t, w)));
+      if (!terms.every((t) => has(t, hay, words))) continue;
+      const labelWords = typos ? label.split(/[^\p{L}\p{N}]+/u) : [];
+      (terms.some((t) => has(t, label, labelWords)) ? strong : weak).push(e);
+    }
+    return strong.concat(weak);
+  };
+  const exact = pass(false);
+  return exact.length ? exact : pass(true);
 }
