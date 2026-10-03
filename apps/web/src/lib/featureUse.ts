@@ -35,6 +35,10 @@ const STEPS = telemetrySchema.events.onboarding_step.props.step.values;
 
 export type TourExit = NonNullable<TelemetryEventProps<"onboarding_step">["tour_exit"]>;
 
+/** Only Done or a confirmed Skip settles a tour for good. One left (a click
+ *  outside, its screen going away) plays again the next time its screen shows. */
+export const tourSettled = (exit: TourExit): boolean => exit !== "left";
+
 /** Every spotlight tour, one per surface. Each has its `tour_closed_<id>` step in the schema (featureUse.test.ts holds the line). */
 export const TOUR_IDS = ["home", "lobby", "call", "history", "settings", "flow", "dictate"] as const;
 export type TourId = (typeof TOUR_IDS)[number];

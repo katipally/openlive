@@ -484,6 +484,10 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **A tour you didn't finish comes back.** A tour counted as seen when its
+  screen went away under it, from a mode switch or the app moving on by
+  itself. Now only Done or a confirmed Skip does; otherwise it plays again
+  the next time its screen shows, as after a click outside.
 - **The tray says whose the orb is.** With Dictate's download offer on the
   orb, the tray read **Flow is open**. Now it reads **Dictate is open**, as
   it does while Dictate listens, and Flow's line says Flow is ready.

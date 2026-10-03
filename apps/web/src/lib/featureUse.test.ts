@@ -1,6 +1,6 @@
 import { telemetrySchema } from "@openlive/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { featureUsed, tourClosed, tourRun, TOUR_IDS } from "./featureUse";
+import { featureUsed, tourClosed, tourRun, tourSettled, TOUR_IDS } from "./featureUse";
 import { CAPABILITY_TABS, SETTINGS_TABS } from "./settingsSearch";
 
 const install = () => {
@@ -121,5 +121,13 @@ describe("tourRun", () => {
     run.begin();
     run.end("left");
     expect(report).toHaveBeenCalledWith("left", 2);
+  });
+});
+
+describe("tourSettled", () => {
+  it("counts a tour seen only on Done or a confirmed Skip, never when it was left", () => {
+    expect(tourSettled("done")).toBe(true);
+    expect(tourSettled("skipped")).toBe(true);
+    expect(tourSettled("left")).toBe(false);
   });
 });

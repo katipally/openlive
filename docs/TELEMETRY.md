@@ -540,7 +540,7 @@ Limit: once per install for each `step`.
 | --- | --- | --- | --- |
 | `step` | Which step. | one of the [onboarding steps](#onboarding-steps) | always |
 | `hours_since_first_open` | Hours since the install first ran, to 0.1. | number, 0 to 99999, rounded to 0.1 | sometimes |
-| `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside, which shows the tour again next time. | `done`, `skipped`, `left` | sometimes |
+| `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside. A tour that was left shows again the next time its screen does; only `done` and `skipped` count it as seen. | `done`, `skipped`, `left` | sometimes |
 | `tour_step` | On a `tour_closed_` step: the tour step showing when it ended, counting from 1. On `welcome_done` and `welcome_skipped`: the furthest of Welcome's steps reached. | whole number, 1 to 9 | sometimes |
 
 ### `flow_consent_result`

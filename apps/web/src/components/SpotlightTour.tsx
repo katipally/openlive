@@ -6,7 +6,7 @@ import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUi } from "@/lib/uiStore";
 import { useOnboarding } from "@/lib/prefs";
-import { tourClosed, tourRun, type TourExit, type TourId } from "@/lib/featureUse";
+import { tourClosed, tourRun, tourSettled, type TourExit, type TourId } from "@/lib/featureUse";
 import { Button } from "@/components/ui";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 
@@ -14,7 +14,7 @@ import { useFocusTrap } from "@/lib/useFocusTrap";
 // around the ACTUAL control (found by [data-tour="…"]) and points an arrowed
 // tooltip at it. Each surface mounts its own <SpotlightTour id steps/> — the
 // tour runs ONCE per id (remembered in ui.json), is fully skippable (Skip/Escape/×, confirmed, for good; a click
-// elsewhere ends it until next time), and follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
+// elsewhere or its screen going away ends it until next time), and follows the target on resize. Pure CSS motion (fade/slide keyframes + hole
 // transitions), no imperative animation against elements that may not exist,
 // which is what made the previous GSAP version spam "target not found".
 //
@@ -48,11 +48,8 @@ export function SpotlightTour({ id, steps, active = true }: { id: TourId; steps:
   const shown = steps.filter((s) => !s.concept || !covered.has(s.concept));
   if (process.env.NODE_ENV !== "production" && steps.length > MAX_TOUR_STEPS) console.error(`The ${id} tour has ${steps.length} steps; a tour has at most ${MAX_TOUR_STEPS}.`);
   const live = active && !coveredBySettings && !firstRun && shown.length > 0;
-  // A click outside ends the tour for now, not for good: only Done or a confirmed Skip is.
-  const forNow = useRef(false);
   const run = useMemo(() => tourRun((exit, reached) => {
-    if (!forNow.current) markSeen(id);
-    forNow.current = false;
+    if (tourSettled(exit)) markSeen(id);
     tourClosed(id, exit, reached);
   }), [id]);
   // Defer the start slightly so the surface's own entrance animation finishes
@@ -62,17 +59,17 @@ export function SpotlightTour({ id, steps, active = true }: { id: TourId; steps:
     const t = setTimeout(() => { run.begin(); setShow(true); }, 650);
     return () => clearTimeout(t);
   }, [id, live, run]);
-  // The whole screen going away takes the tour with it, and that is an exit too.
+  // The whole screen going away takes the tour with it: an exit, but not for good.
   useEffect(() => () => run.end("left"), [run]);
   if (!show || !live) return null;
-  return <Tour steps={shown} run={run} onClose={(exit, again) => { forNow.current = !!again; run.end(exit); setShow(false); }} />;
+  return <Tour steps={shown} run={run} onClose={(exit) => { run.end(exit); setShow(false); }} />;
 }
 
 const CARD_MAX_W = 330;
 
 // Inner component mounts ONLY while the tour is live, so every hook and DOM
 // measurement runs against elements that actually exist.
-function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<typeof tourRun>; onClose: (exit: TourExit, again?: boolean) => void }) {
+function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<typeof tourRun>; onClose: (exit: TourExit) => void }) {
   const [step, setStep] = useState(0);
   // Skip ends the tour for good, so it asks first, as Welcome's does.
   const [asking, setAsking] = useState(false);
@@ -124,7 +121,7 @@ function Tour({ steps, run, onClose }: { steps: TourStep[]; run: ReturnType<type
   // the focus the tour hands back cannot steal it from whatever that click opens.
   // Nothing was confirmed, so the tour shows again the next time.
   useEffect(() => {
-    const onDown = (e: PointerEvent) => { if (!cardRef.current?.contains(e.target as Node)) onCloseRef.current("left", true); };
+    const onDown = (e: PointerEvent) => { if (!cardRef.current?.contains(e.target as Node)) onCloseRef.current("left"); };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, []);
