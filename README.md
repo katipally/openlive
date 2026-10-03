@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="OpenLive" width="88" height="88" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.gif" />
+  <img src="assets/logo-light.gif" alt="OpenLive" width="96" height="96" />
+</picture>
 
 # OpenLive
 
