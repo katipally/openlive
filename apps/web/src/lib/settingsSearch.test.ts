@@ -45,7 +45,7 @@ describe("settings search", () => {
   });
 
   it("a Dictate row opens its subtab first", () => {
-    for (const e of SETTINGS_INDEX.filter((x) => x.tab === "dictate")) expect(e.reveal).toMatch(/^set-dictate-(basics|words|commands|history)$/);
+    for (const e of SETTINGS_INDEX.filter((x) => x.tab === "dictate")) expect(e.reveal).toMatch(/^set-dictate-(basics|words|commands)$/);
   });
 
   it("finds who answers by the words the screens use, every place it is set ahead of the rest", () => {
