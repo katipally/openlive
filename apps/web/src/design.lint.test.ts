@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // The design system's guard rail (docs/DESIGN.md). Every value comes from the
@@ -89,7 +89,7 @@ function lint(): Hit[] {
 
   const hits: Hit[] = [];
   for (const abs of files(SRC)) {
-    const file = relative(SRC, abs);
+    const file = relative(SRC, abs).split(sep).join("/");
     // The kit itself is held to the same values; only it may wrap the native controls.
     const kit = file.startsWith(UI);
     const s = blankComments(readFileSync(abs, "utf8"));

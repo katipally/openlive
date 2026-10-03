@@ -15,7 +15,7 @@ import { afterAll, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-cut-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
-const { getSetting, listMessages, setSetting } = await import("@openlive/db");
+const { closeDbForTests, getSetting, listMessages, setSetting } = await import("@openlive/db");
 const { cancelledText, sentAside } = await import("../turn.ts");
 
 // A local OpenAI Responses stub, reached as the keyless Ollama provider.
@@ -44,7 +44,9 @@ await setSetting("disabledToolGroups", "reminders");
 afterAll(() => {
   server.close();
   delete process.env.OPENLIVE_HOME;
-  rmSync(dir, { recursive: true, force: true });
+  closeDbForTests();
+  // The stub agent's taskkill lands after close, and Windows will not remove a live process's working folder.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 function connect(chatId: string) {

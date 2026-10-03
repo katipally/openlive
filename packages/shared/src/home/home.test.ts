@@ -220,7 +220,8 @@ describe("moving into the home", () => {
     expect(tree(join(userData, "data"))).toEqual(["MIGRATED.txt", "keep-me.txt"]);
   });
 
-  it("moves the Linux portal token out of XDG state with the installed app's files", () => {
+  // XDG_STATE_HOME counts only as an absolute POSIX path, which no Windows temp folder is.
+  it.skipIf(!posix)("moves the Linux portal token out of XDG state with the installed app's files", () => {
     const fakeHome = temp();
     const xdg = join(fakeHome, "xdg-state");
     put(join(xdg, "openlive", "computer-use", "portal-token"), "remote-desktop abc\n");

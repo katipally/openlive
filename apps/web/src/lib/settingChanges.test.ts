@@ -82,17 +82,19 @@ describe("flowChanges", () => {
   });
 
   it("reports each toggle that flipped, by name", () => {
+    // Linux defaults to typing, so the flip goes to whichever method isn't the default.
+    const method = DEFAULT_FLOW_CONFIG.insertion.method === "type" ? "paste" : "type";
     const out = flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => {
       c.voice.speakReplies = false;
       c.voice.autoQuiet.systemDnd = false;
       c.consent.granted = true;
-      c.insertion.method = "type";
+      c.insertion.method = method;
     }));
     expect(out).toEqual(expect.arrayContaining([
       { setting: "flow_speak_replies", value: "off" },
       { setting: "flow_quiet_dnd", value: "off" },
       { setting: "flow_consent", value: "on" },
-      { setting: "flow_insertion", value: "type" },
+      { setting: "flow_insertion", value: method },
     ]));
     expect(out).toHaveLength(4);
   });

@@ -12,10 +12,11 @@ import { afterAll, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-bind-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
-const { listChats } = await import("@openlive/db");
+const { closeDbForTests, listChats } = await import("@openlive/db");
 
 afterAll(() => {
   delete process.env.OPENLIVE_HOME;
+  closeDbForTests();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -31,7 +32,8 @@ test("binds the setup screen's folder for API mode on a new chat", async () => {
   await started;
 
   const echo = ws.sent.filter((m) => m.t === "bound_state").at(-1);
-  expect(echo).toMatchObject({ agentId: null, cwd: realpathSync(workspace) });
-  expect(listChats().find((c) => c.id === "api-chat")?.cwd).toBe(realpathSync(workspace));
+  // .native, as agentCwd resolves it: it also expands Windows short names like RUNNER~1.
+  expect(echo).toMatchObject({ agentId: null, cwd: realpathSync.native(workspace) });
+  expect(listChats().find((c) => c.id === "api-chat")?.cwd).toBe(realpathSync.native(workspace));
   ws.emit("close");
 });

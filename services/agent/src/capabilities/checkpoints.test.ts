@@ -13,7 +13,8 @@ const { dispatch, ToolSet } = await import("./dispatch.js");
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const ws = realpathSync(mkdtempSync(path.join(dir, "ws-")));
+// .native, as the file tools resolve it: it also expands Windows short names like RUNNER~1.
+const ws = realpathSync.native(mkdtempSync(path.join(dir, "ws-")));
 const tool = (n: string): Tool => [...FILE_TOOLS, ...EDIT_TOOLS].find((t) => t.name === n)!;
 const ctx = { signal: new AbortController().signal, context: null, callId: "c", workspace: () => ws };
 const run = async (n: string, args: Record<string, unknown>) => {
@@ -147,7 +148,7 @@ describe("through dispatch", () => {
 
 describe("Flow's fence", () => {
   // Flow: relative paths start in its own folder, the tools reach all of home, and edits are kept against home.
-  const home = realpathSync(mkdtempSync(path.join(dir, "home-")));
+  const home = realpathSync.native(mkdtempSync(path.join(dir, "home-")));
   const own = path.join(home, ".openlive", "workspace");
   const flow = { signal: new AbortController().signal, context: null, callId: "c", workspace: () => own, fence: () => home };
   const go = async (n: string, args: Record<string, unknown>) => { const t = tool(n); await t.precheck?.(args, flow); return t.execute(args, flow); };

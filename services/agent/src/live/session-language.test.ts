@@ -14,7 +14,7 @@ import { liveClientMsgSchema, withReplyLanguage } from "@openlive/shared";
 const dir = mkdtempSync(join(tmpdir(), "ol-lang-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession, stripInjectedContext } = await import("./session.ts");
-const { setSetting } = await import("@openlive/db");
+const { closeDbForTests, setSetting } = await import("@openlive/db");
 const { buildLivePrompt } = await import("../prompt.ts");
 
 // A local OpenAI Responses stub, reached as the keyless Ollama provider; it keeps each request's system prompt.
@@ -37,6 +37,7 @@ await setSetting("ollamaBaseUrl", `http://127.0.0.1:${(server.address() as Addre
 afterAll(() => {
   server.close();
   delete process.env.OPENLIVE_HOME;
+  closeDbForTests();
   rmSync(dir, { recursive: true, force: true });
 });
 

@@ -15,12 +15,14 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-call-mcp-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
-const { listMessages, setSetting, updateMemory } = await import("@openlive/db");
+const { closeDbForTests, listMessages, setSetting, updateMemory } = await import("@openlive/db");
 const { readNotes } = await import("../memory/notes.ts");
 
 afterAll(() => {
   delete process.env.OPENLIVE_HOME;
-  rmSync(dir, { recursive: true, force: true });
+  closeDbForTests();
+  // The stub agent's taskkill lands after close, and Windows will not remove a live process's working folder.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 // What the call reports to main, read the way main's validator would.

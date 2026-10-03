@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "ol-call-telemetry-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
-const { setSetting } = await import("@openlive/db");
+const { closeDbForTests, setSetting } = await import("@openlive/db");
 const { limits } = await import("../telemetry/limits.ts");
 const { validateEvent, validateFact } = createRequire(import.meta.url)("../../../../apps/desktop/telemetry/validate.cjs");
 
@@ -42,6 +42,7 @@ afterEach(() => { delete (process as unknown as { parentPort?: unknown }).parent
 afterAll(() => {
   model.close();
   delete process.env.OPENLIVE_HOME;
+  closeDbForTests();
   rmSync(dir, { recursive: true, force: true });
 });
 
