@@ -58,8 +58,14 @@ export function hasWebGPU(): boolean {
 export function modelsReady(): boolean { return ready; }
 // Whether the warm worker matches the CURRENT pipeline config. An STT-engine,
 // Whisper-size or TTS-engine change makes this false while `ready` stays true: callers use this to
-// reload the right weights instead of silently keeping the old ones.
-export function modelsMatchConfig(): boolean { return ready && loadedTag === readyTag(); }
+// reload the right weights instead of silently keeping the old ones. Without
+// `voice` (Dictate, a Flow that never speaks), a worker that also holds one serves.
+export function modelsMatchConfig(voice = true): boolean {
+  if (!ready || !loadedTag) return false;
+  if (voice) return loadedTag === readyTag();
+  const [tier, stt] = readyTag(false).split(":"), held = loadedTag.split(":");
+  return held[0] === tier && held[1] === stt;
+}
 
 // Persistent "weights are already in the Cache API" flag, keyed to the device
 // tier (webgpu/wasm download DIFFERENT files). The in-memory `ready` flag resets
@@ -69,19 +75,19 @@ export function modelsMatchConfig(): boolean { return ready && loadedTag === rea
 const READY_KEY = "openlive-models-ready-v1";
 const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
-const readyTag = () => { const c = loadPipelineConfig(); return workerTag(c, deviceTier(), !!onAgent(c.tts.variant)); };
+const readyTag = (voice = true) => { const c = loadPipelineConfig(); return workerTag(c, deviceTier(), !voice || !!onAgent(c.tts.variant)); };
 // Every config that finished loading, space-separated (a pre-list value is one tag),
 // so a later switch counts whatever parts of it are already in the cache.
 const loadedTags = () => (localStorage.getItem(READY_KEY) ?? "").split(" ").filter(Boolean);
-export function modelsCached(): boolean {
+export function modelsCached(voice = true): boolean {
   // Must be config-AWARE: `ready` alone is true whenever ANY size/engine is loaded,
   // which made the Pipeline UI claim every OTHER Whisper size / TTS engine was
   // "Downloaded" after the first load — so its download button never appeared and
   // the new weights only ever pulled silently on the next call. Gate on the loaded
   // config matching the current one instead.
-  if (modelsMatchConfig()) return true;
+  if (modelsMatchConfig(voice)) return true;
   try {
-    if (tagCached(readyTag(), loadedTags())) return true;
+    if (tagCached(readyTag(voice), loadedTags())) return true;
     // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy
     // weights are in the browser cache — count it as cached so we don't re-prompt.
     const old = localStorage.getItem(OLD_READY_KEY);
@@ -110,7 +116,7 @@ export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Pr
   return removed;
 }
 
-let loading: { p: Promise<void>; consented: boolean } | null = null;
+let loading: { p: Promise<void>; consented: boolean; voice: boolean } | null = null;
 
 /** What asked for the load, for the download's report. Joining an in-flight load adds nothing. */
 export type ModelsTrigger = TelemetryEventProps<"voice_models_result">["trigger"];
@@ -126,41 +132,44 @@ const workerVoice = (engine: string | null | undefined) => (engine === "superton
 // nothing here until it fails.
 const browserTts = (cfg: ReturnType<typeof loadPipelineConfig>): string | null =>
   isNativeVariant(cfg.tts.variant) || onAgent(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
-const neededWeights = () => { const cfg = loadPipelineConfig(); return weightFiles(cfg, deviceTier(), browserTts(cfg)); };
+const neededWeights = (voice: boolean) => { const cfg = loadPipelineConfig(); return weightFiles(cfg, deviceTier(), voice ? browserTts(cfg) : null); };
 
-/** What the current pipeline would download before it can run: nothing once
- *  every weight is in the browser cache. Asks the hub for sizes, never for weights. */
-export async function voiceDownloadPlan(): Promise<DownloadPlan> {
+/** What the current pipeline would download before it can run, the browser
+ *  voice only for a `voice` use: nothing once every weight is in the browser
+ *  cache. Asks the hub for sizes, never for weights. */
+export async function voiceDownloadPlan(voice = true): Promise<DownloadPlan> {
   await agentCopy(loadPipelineConfig().tts.variant);
-  return downloadPlan(neededWeights());
+  return downloadPlan(neededWeights(voice));
 }
 
 /**
  * Loads the worker, downloading what is missing only when `consented`: the
  * person was told what and how big, and said yes. Any other load whose weights
  * are not all cached rejects with ModelsNotDownloaded instead of fetching.
+ * Without `voice` no browser voice loads: a later tts call loads its own.
  */
-export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start", consented = false): Promise<void> {
+export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start", consented = false, voice = true): Promise<void> {
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise,
-  // except a consented one behind a load that may refuse: it runs after.
-  if (loading && (loading.consented || !consented)) return loading.p;
+  // except a consented one behind a load that may refuse, or one needing the
+  // voice behind a load without it: it runs after.
+  if (loading && (loading.consented || !consented) && (loading.voice || !voice)) return loading.p;
   const prior = loading?.p.catch(() => {}) ?? Promise.resolve();
   // Which voice the agent runs decides what the worker loads, so it is read first.
-  const p: Promise<void> = prior.then(() => agentCopy(loadPipelineConfig().tts.variant)).then(() => loadWorker(onProgress, trigger, consented))
+  const p: Promise<void> = prior.then(() => agentCopy(loadPipelineConfig().tts.variant)).then(() => loadWorker(onProgress, trigger, consented, voice))
     .finally(() => { if (loading?.p === p) loading = null; }); // free the guard so a post-reset reload can re-run
-  loading = { p, consented };
+  loading = { p, consented, voice };
   return p;
 }
 
-async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean): Promise<void> {
-  if (modelsMatchConfig()) return;
-  const needed = neededWeights();
+async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean, needsVoice: boolean): Promise<void> {
+  if (modelsMatchConfig(needsVoice)) return;
+  const needed = neededWeights(needsVoice);
   if (consented) agreeTo(needed);
   const missing = await unagreed(needed, agreed);
   if (missing.length) throw new ModelsNotDownloaded(missing);
   // A load whose weights are all in the browser cache is a warm-up, not a download: it reports only if it fails.
-  const download = !modelsCached();
+  const download = !modelsCached(needsVoice);
   const startedAt = Date.now();
   let bytes = 0;
   // A warm worker loaded with a DIFFERENT config (the user changed Whisper size /
@@ -185,7 +194,7 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
     });
   };
   const cfg = loadPipelineConfig();
-  const voice = browserTts(cfg);
+  const voice = needsVoice ? browserTts(cfg) : null;
   return new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
     const tw = new Worker(new URL("./turn.worker.ts", import.meta.url), { type: "module" });
@@ -220,9 +229,9 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
           if (e.target === tw) turnAvailable = !!m.turn;
           else { whisperLoaded = m.whisper; if (voice) voicesLoaded.add(workerVoice(voice)); }
           if (--waiting) break;
-          ready = true; loadedTag = readyTag();
+          ready = true; loadedTag = readyTag(needsVoice);
           warmNativeEngines();
-          try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag()])].join(" ")); } catch { /* private mode */ }
+          try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag(needsVoice)])].join(" ")); } catch { /* private mode */ }
           resolve();
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
@@ -266,7 +275,8 @@ async function call<T>(msg: any, transfer?: Transferable[], timeoutMs?: number):
   // A native engine that fails before the worker ever loaded (Flow with native
   // engines opens no worker) falls back here: load it now, so the same utterance
   // or sentence still goes through instead of being dropped.
-  if (!worker) await loadModels(() => {});
+  // Without the voice: a tts call loads its own below.
+  if (!worker) await loadModels(() => {}, "call_start", false, false);
   const id = ++seq;
   const ms = timeoutMs ?? (msg.type === "tts" || (msg.type === "stt" && msg.model !== whisperLoaded) ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS);
   return new Promise<T>((resolve, reject) => {

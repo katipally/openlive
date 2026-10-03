@@ -61,7 +61,7 @@ export function useChatReadiness(): ChatReadiness {
     : agent && row?.credState === "login_required" ? "agent_signin"
     : !agent && !choice.loading && !choice.usable ? "key" : null;
   // The size is asked of the hub only when the download is what the chip would say.
-  const { data: plan } = useQuery({ queryKey: ["voice-download-plan"], queryFn: voiceDownloadPlan, enabled: !cached && !first, staleTime: 60_000 });
+  const { data: plan } = useQuery({ queryKey: ["voice-download-plan"], queryFn: () => voiceDownloadPlan(), enabled: !cached && !first, staleTime: 60_000 });
   const gap: ChatGap | null = first
     ?? (!cached && (!plan || plan.missing.length > 0) ? "models"
     : micRefused ? "mic" : null);

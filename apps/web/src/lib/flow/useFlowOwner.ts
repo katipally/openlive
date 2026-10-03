@@ -221,10 +221,12 @@ export function useFlowOwner(): void {
     // The offer for a download the session needs (models.ts DownloadAsk), kept
     // up under health until it is answered.
     let askCard: FlowFailure | null = null;
+    // Flow loads a browser voice only to speak its replies; Dictate never does.
+    const speaks = () => settings.current?.voice.speakReplies ?? true;
     const refreshHealth = async () => {
       await loadSettings();
       const c = valueOr(await api.capabilities(), null);
-      const plan = await voiceDownloadPlan();
+      const plan = await voiceDownloadPlan(speaks());
       weightsMissing = plan.missing.length > 0;
       const failure = deriveFailure({
         platform: c?.platform ?? "",
@@ -399,7 +401,7 @@ export function useFlowOwner(): void {
       // progress; the utterance is captured either way and transcribed when the
       // worker is ready, so nothing said here is lost. A session already hearing
       // keeps its worker: a reload would fail the transcription in flight.
-      if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
+      if (!modelsMatchConfig(speaks()) && modelsCached(speaks()) && !engine.current) void warm(speaks());
       await decideVoice();
       await health;
       if (ticket !== openTicket) return;
@@ -529,8 +531,8 @@ export function useFlowOwner(): void {
     // A cold start compiles the weights that are already on disk. Nothing is
     // shown for it: the utterance is captured either way and transcribed once
     // the worker is ready, so the wait is invisible rather than reported.
-    const warm = async () => {
-      try { await loadModels(() => {}, "flow_open"); }
+    const warm = async (voice: boolean) => {
+      try { await loadModels(() => {}, "flow_open", false, voice); }
       catch (e) { log.debug("flow", "warm:", e); }
     };
 
@@ -555,7 +557,7 @@ export function useFlowOwner(): void {
       }
       patch({ failure: modelsDownloading(0, 0) });
       try {
-        await loadModels((p) => patch({ failure: modelsDownloading(p.loaded, p.total) }), "flow_open", true);
+        await loadModels((p) => patch({ failure: modelsDownloading(p.loaded, p.total) }), "flow_open", true, afterModels === "flow" && speaks());
         weightsMissing = false;
         patch({ failure: null });
         if (afterModels === "dictate") { afterModels = "flow"; dismiss(); void talk.toggleDictate(); }
@@ -577,7 +579,7 @@ export function useFlowOwner(): void {
         raise(askCard, "health");
         return true;
       }
-      const plan = await voiceDownloadPlan();
+      const plan = await voiceDownloadPlan(false);
       if (!plan.missing.length) return false;
       afterModels = "dictate";
       const failure: FlowFailure = { ...modelsOffer(planModels(plan), plan.bytes), dictate: true };
@@ -640,8 +642,8 @@ export function useFlowOwner(): void {
     const dictate = createDictate({
       // The session holds the microphone from open to close, whichever way it listens.
       listen: async () => {
-        if (!modelsMatchConfig() && !engine.current && await offerModels()) return "";
-        if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
+        if (!modelsMatchConfig(false) && !engine.current && await offerModels()) return "";
+        if (!modelsMatchConfig(false) && modelsCached(false) && !engine.current) void warm(false);
         await ensureEngine();
         engine.current?.setMuted(false);
         engine.current?.setGate(talkMode() === "ptt");

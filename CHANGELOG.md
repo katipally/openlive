@@ -484,6 +484,11 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **Each mode's download offer names only what it uses.** Dictate's offer
+  counted the voice it never speaks with, about 625 MB in all. Now Dictate
+  asks for speech recognition and turn-taking, Flow adds the voice only when
+  it speaks its replies, and Chat asks for the full set, each with its own
+  size.
 - **"Using Whisper" only when it is.** A native speech engine that could not
   run said Whisper took over even when Whisper was not downloaded. Now it says
   Whisper can stand in once it is downloaded, and the session asks to download

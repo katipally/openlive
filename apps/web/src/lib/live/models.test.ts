@@ -444,6 +444,31 @@ describe("download consent", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toContain("https://huggingface.co/api/models/pipecat-ai/smart-turn-v3/tree/main");
   });
 
+  it("plans and loads no browser voice for a use that never speaks, and joins no such load for one that does", async () => {
+    empty();
+    const fetch = vi.fn(async (url: string) => Response.json(url.includes("Kokoro")
+      ? [{ path: "onnx/model_quantized.onnx", size: 92_361_116 }]
+      : url.includes("smart-turn") ? [{ path: "smart-turn-v3.2-cpu.onnx", size: 8_679_182 }]
+      : [{ path: "onnx/encoder_model_quantized.onnx", size: 23_201_320 }, { path: "onnx/decoder_model_merged_quantized.onnx", size: 53_692_803 }]));
+    vi.stubGlobal("fetch", fetch);
+    const quiet = await models.voiceDownloadPlan(false);
+    expect(quiet.missing.map((f) => f.key)).toEqual(["stt", "stt", "turn"]);
+    expect(quiet.bytes).toBe(23_201_320 + 53_692_803 + 8_679_182);
+    expect((await models.voiceDownloadPlan()).missing.map((f) => f.key)).toEqual(["stt", "stt", "tts", "turn"]);
+
+    const dictate = models.loadModels(() => {}, "flow_open", true, false);
+    const call = models.loadModels(() => {}, "lobby_button", true);
+    expect(call).not.toBe(dictate);
+    await dictate;
+    expect(posted.find((m) => m.type === "load" && "ttsEngine" in m)).toMatchObject({ ttsEngine: null, ttsNative: true });
+    expect(models.modelsMatchConfig(false)).toBe(true);
+    await call;
+    expect(posted.filter((m) => m.type === "load" && "ttsEngine" in m).at(-1)).toMatchObject({ ttsEngine: "kokoro" });
+    expect(models.modelsMatchConfig()).toBe(true);
+    // A worker holding the voice serves a use without one as it is.
+    expect(models.modelsMatchConfig(false)).toBe(true);
+  });
+
   it("still plans, with no size, when the hub cannot be reached", async () => {
     empty();
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
