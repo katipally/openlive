@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, ChevronRight, Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
 import type { Dictation, FlowConfig } from "@openlive/flow-store";
@@ -143,6 +143,15 @@ function HowTo({ own }: { own: FlowConfig["dictate"] }) {
 /** The first visit: what Dictate is and turning it on, then one try in a box right here. Skippable; Done or Skip ends it for good. */
 function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: () => void; keyWords: string; caps: FlowCapabilities | null; refresh: () => void }) {
   const [card, setCard] = useState<1 | 2>(1);
+  // The button pressed goes with the card it was on, so focus moves to the next card's heading.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const turned = useRef(false);
+  const turn = (to: 1 | 2) => { turned.current = true; setCard(to); };
+  useEffect(() => {
+    if (!turned.current) return;
+    turned.current = false;
+    heading.current?.focus();
+  }, [card]);
   const [tried, setTried] = useState("");
   // Welcome's access step asked for these already; the second card still shows any that are missing.
   const welcomeAsked = useOnboarding((s) => !flowOnboardingDue(s.flowOnboarded));
@@ -150,7 +159,7 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
   const missing = missingGrants(caps);
   const head = (title: string) => (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-      <h2 className="text-title-sm font-semibold text-foreground">{title}</h2>
+      <h2 ref={heading} tabIndex={-1} className="text-title-sm font-semibold text-foreground">{title}</h2>
       <span className="text-caption tabular-nums text-muted-foreground">{card} of 2</span>
     </div>
   );
@@ -171,7 +180,7 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
             <Button variant="ghost" onClick={done}>Skip</Button>
             <span className="flex-1" />
             <Tooltip label={!on && "Turn it on first"}>
-              <Button variant="primary" disabled={!on} onClick={() => setCard(2)}>Continue <ArrowRight aria-hidden /></Button>
+              <Button variant="primary" disabled={!on} onClick={() => turn(2)}>Continue <ArrowRight aria-hidden /></Button>
             </Tooltip>
           </div>
         </>
@@ -183,7 +192,7 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
           <Textarea rows={3} value={tried} onChange={(e) => setTried(e.target.value)} aria-label="Try Dictate here" placeholder={`Click here, then double-tap ${keyWords} and talk`} />
           {tried.trim() && <StatusDot tone="success">That is all there is to it. It works the same in any app.</StatusDot>}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" onClick={() => setCard(1)}><ArrowLeft aria-hidden /> Back</Button>
+            <Button variant="ghost" onClick={() => turn(1)}><ArrowLeft aria-hidden /> Back</Button>
             <span className="flex-1" />
             <Button variant="primary" onClick={done}>Done</Button>
           </div>

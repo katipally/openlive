@@ -419,6 +419,9 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **Dictate's first-run cards keep your place on the keyboard.** Continue and
+  Back move focus to the next card's heading instead of dropping it to the
+  page, so a screen reader reads the new card and Tab goes on from there.
 - **A deleted dictation can come back.** Delete on Dictate's home used to
   remove it at once with no way back. Now the row hides and a toast offers
   **Undo** for a few seconds first, as a chat and a Flow session do.
