@@ -179,7 +179,7 @@ function FirstRun({ on, flip, hold, caps, refresh }: { on: boolean; flip: () => 
         <>
           {head("Try it here")}
           <p className="break-words text-label leading-relaxed text-muted-strong"><ModeStart mode="dictate" hold={hold} on={on} /></p>
-          <div className="flex flex-col items-start"><GrantPills missing={missing} refresh={refresh} /></div>
+          {missing.length > 0 && <div className="flex flex-col items-start"><GrantPills missing={missing} refresh={refresh} /></div>}
           <Textarea rows={3} value={tried} onChange={(e) => setTried(e.target.value)} aria-label="Try Dictate here" placeholder="Click here, then hold the key and talk" />
           {tried.trim() && <StatusDot tone="success">That is all there is to it. It works the same in any app.</StatusDot>}
           <div className="flex flex-wrap items-center gap-2">
