@@ -46,6 +46,9 @@ const FAILURE_CODES = [
 const QUIET_REASONS = ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"] as const;
 const LINUX_SESSIONS = ["x11", "wayland", "n/a"] as const;
 const ON_OFF = ["on", "off"] as const;
+const HISTORY_KEEPS = ["off", "day", "week", "month", "forever"] as const;
+/** The key groups Flow and Dictate double-tap by name; any one side or spare key is "other". */
+const TOGGLE_KEYS = ["ctrl", "option", "shift", "command", "fn", "other"] as const;
 const FEEDBACK_REASONS = ["wrong_answer", "too_slow", "misheard_me", "didnt_do_it", "other"] as const;
 const VERSION = "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$";
 
@@ -57,6 +60,8 @@ const WEB_STEPS = [
   "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume",
   "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message",
   "first_mode_switch", "first_shortcuts_sheet",
+  "welcome_shown", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate",
+  "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation",
 ] as const;
 const MAIN_STEPS = [
   "flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok",
@@ -100,6 +105,16 @@ const SETTINGS = {
   close_after_silence: { values: ["30s", "90s", "5m", "never", "custom"] },
   talk_mode: { values: ["hands_free", "ptt"] },
   ptt_key: { values: ["fn", "ctrl_right", "other"] },
+  dictate_enabled: { values: ON_OFF },
+  dictate_polish: { values: ON_OFF },
+  dictate_tone: { values: ["natural", "casual", "formal"] },
+  dictate_own_brain: { values: ON_OFF },
+  dictate_brain: { values: ["api", "acp"], subject: "agent" },
+  flow_key: { values: TOGGLE_KEYS },
+  dictate_key: { values: TOGGLE_KEYS },
+  chat_history_keep: { values: HISTORY_KEEPS },
+  flow_history_keep: { values: HISTORY_KEEPS },
+  dictate_history_keep: { values: HISTORY_KEEPS },
 } as const;
 type SettingName = keyof typeof SETTINGS;
 type SettingValue = (typeof SETTINGS)[SettingName]["values"][number];
@@ -109,7 +124,8 @@ const SETTING_VALUES = [...new Set(Object.values(SETTINGS).flatMap((s) => s.valu
 const COUNTER_KEYS = [
   "n_settings_open", "n_settings_search", "n_palette_open", "n_palette_run", "n_shortcuts_sheet",
   "n_history_open", "n_history_search", "n_history_resume", "n_history_resume_cli_session", "n_flow_history_open",
-  "n_flow_history_search", "n_flow_carry_on", "n_mode_to_flow", "n_mode_to_chat", "n_mode_to_dictate", "n_lobby_open", "n_camera_on",
+  "n_flow_history_search", "n_flow_carry_on", "n_chat_history_clear", "n_flow_history_clear", "n_dictate_history_clear",
+  "n_dictate_history_search", "n_dictate_history_copy", "n_dictate_insert_again", "n_mode_to_flow", "n_mode_to_chat", "n_mode_to_dictate", "n_lobby_open", "n_camera_on",
   "n_screen_on", "n_typed_msg", "n_not_for_you", "n_send_aside", "n_call_shortcut",
   "n_settings_tab_general", "n_settings_tab_models", "n_settings_tab_voice", "n_settings_tab_engine",
   "n_settings_tab_agents", "n_settings_tab_capabilities", "n_settings_tab_tools", "n_settings_tab_connectors", "n_settings_tab_skills", "n_settings_tab_memory", "n_settings_tab_chat", "n_settings_tab_flow", "n_settings_tab_dictate", "n_settings_tab_privacy", "n_settings_tab_about",
@@ -144,6 +160,7 @@ const EXIT_CODE = int(999, { min: -1 });
 
 const brain = { brain_kind: opt(BRAIN_KIND), brain_id: opt(BRAIN_ID) };
 const flowEndedBy = en(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"]);
+const dictateEndedBy = en(["gesture", "idle", "stop_command", "flow_opened", "sleep_or_lock", "turned_off", "tool", "no_mic", "other"]);
 const callEndedBy = en(["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"]);
 const speech = {
   stt_ms_p50: opt(MS), tts_ms_p50: opt(MS), v2v_ms_p50: opt(MS), v2v_turns: opt(COUNT),
@@ -262,6 +279,28 @@ const events = {
       ...speech,
     },
   },
+  dictate_session: {
+    props: {
+      duration_s: SECONDS,
+      ended_by: dictateEndedBy,
+      dictations: COUNT,
+      words: en(["0", "1_10", "11_50", "51_200", "201_plus"]),
+      copied: opt(COUNT),
+      failed: opt(COUNT),
+      polished: opt(COUNT),
+      edits: opt(COUNT),
+      commands: opt(COUNT),
+      snippets: opt(COUNT),
+      talk_mode: opt(en(["hands_free", "ptt"])),
+      lang: opt(en(LANGUAGES)),
+    },
+  },
+  dictate_failure: {
+    props: {
+      code: en(["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long"]),
+    },
+    limit: { dedupeMs: 600000, dedupeKey: ["code"] },
+  },
   brain_error: {
     props: {
       surface: en(["flow", "call"]),
@@ -375,7 +414,7 @@ const events = {
     limit: { perDayPerKey: 3, dayKey: ["setting"] },
   },
   tray_action: {
-    props: { action: en(["open", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "talk_hands_free", "talk_ptt", "allow_accessibility", "settings", "quit"]) },
+    props: { action: en(["open", "new_call", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "talk_hands_free", "talk_ptt", "allow_accessibility", "settings", "quit"]) },
   },
   remote_ollama_prompt: {
     props: {

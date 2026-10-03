@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // what Settings says to keep, so the file stays bounded without a timer.
 
 const keep = () => readFlowConfig().dictate.history;
-const failed = (e: unknown) => NextResponse.json({ error: e instanceof Error ? e.message : "Dictate's history could not be read." }, { status: 500 });
+const failed = (e: unknown) => NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't read Dictate's history." }, { status: 500 });
 
 export function GET() {
   try { return NextResponse.json({ items: readDictations(keep()), keep: keep() }); }

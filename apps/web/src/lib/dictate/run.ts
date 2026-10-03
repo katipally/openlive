@@ -3,6 +3,7 @@ import { applyDictionary, snippetFor, spokenCommand, type Snippet, type SpokenCo
 import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
 import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
+import { MIC_COPY } from "../live/micCopy";
 
 // Dictate inside Flow's owner renderer: a session, opened and closed by its
 // gesture, in which each finished utterance (a pause hands-free, a release in
@@ -40,6 +41,21 @@ export interface Typing {
   end(): Promise<boolean>;
 }
 
+/** Why a session closed, for its report. */
+export type DictateEnd = "gesture" | "idle" | "stop_command" | "flow_opened" | "sleep_or_lock" | "turned_off" | "tool" | "no_mic" | "other";
+/** A note on the orb that says something went wrong, by kind, never by content. */
+export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long";
+/** One session in numbers, for its report: what happened, never what was said. */
+export interface DictateReport {
+  ms: number; ended: DictateEnd; dictations: number; words: number; copied: number; failed: number;
+  polished: number; edits: number; commands: number; snippets: number;
+}
+
+/** How many words a session typed, as its report buckets it. */
+export function wordsBucket(n: number): "0" | "1_10" | "11_50" | "51_200" | "201_plus" {
+  return n <= 0 ? "0" : n <= 10 ? "1_10" : n <= 50 ? "11_50" : n <= 200 ? "51_200" : "201_plus";
+}
+
 export interface DictatePorts {
   /** Opens the microphone if it is not open. False when it could not be; "" when
    *  it was not, because the owner put something else on the orb instead. */
@@ -73,6 +89,10 @@ export interface DictatePorts {
   keys(keys: string[], times?: number): Promise<boolean>;
   /** Into History, where Settings keeps it. */
   record(d: { raw: string; cleaned: string; final: string; command?: boolean; copied?: boolean }): void;
+  /** A session closed: its numbers. Only for one that opened. */
+  report?(r: DictateReport): void;
+  /** A failure the orb just said. */
+  failure?(code: DictateFailure): void;
   settings(): DictateSettings;
 }
 
@@ -81,20 +101,20 @@ export const DONE_MS = 1600;
 /** How long the orb offers Undo after an insertion, and stays up for it. */
 export const UNDO_MS = 5000;
 
-const NO_MIC = "I could not open the microphone.";
-const ASKED = "Dictation did not open: the orb is asking the user to download the voice models first.";
-const NOT_WRITTEN = "Your words could not be written down.";
+const NO_MIC = `${MIC_COPY.noOpen}.`;
+const ASKED = "Dictation didn't open: the orb is asking the user to download the voice models first.";
+const NOT_WRITTEN = "Couldn't write your words down.";
 export const NO_SPEECH = "No words heard.";
 export const COPIED = "No text box in focus. Copied instead.";
 /** Flow's owner window records each dictation; this tells the main window to read the list again. */
 export const HISTORY_CHANNEL = "openlive-dictate-history";
-const FAILED = "That could not be typed or copied.";
-const POLISH_LATE = "AI polish did not answer. Typed it as cleaned up.";
+const FAILED = "Couldn't type or copy that.";
+const POLISH_LATE = "AI polish didn't answer. Typed it as cleaned up.";
 const POLISH_CUT = "AI polish stopped partway.";
 const ON_CLIPBOARD = " All of it is on the clipboard.";
 const COMMAND_FAILED = "No answer came back, so nothing changed.";
-const NOTHING_TO_UNDO = "Nothing of mine to take back.";
-const KEYS_FAILED = "That key could not be pressed.";
+const NOTHING_TO_UNDO = "Nothing to take back.";
+const KEYS_FAILED = "Couldn't press that key.";
 const TOO_LONG = "Selection too long to edit.";
 /** A selection the words would have edited, with no brain to edit it. */
 export const NO_EDIT_BRAIN = "Typed over the selection. Set up Dictate's AI to edit it by voice instead.";
@@ -152,10 +172,17 @@ export function createDictate(ports: DictatePorts) {
   // Utterances are cleaned up and typed one after another, so a slow polish
   // never lets the next one land first.
   let work: Promise<unknown> = Promise.resolve();
+  // This session's numbers, for its report; null before one opened.
+  let tally: (Omit<DictateReport, "ms" | "ended"> & { at: number }) | null = null;
+  const count = (k: keyof Omit<DictateReport, "ms" | "ended">, n = 1) => { if (tally) tally[k] += n; };
+  const NOTES: [string, DictateFailure][] = [[NO_MIC, "no_mic"], [NOT_WRITTEN, "not_written"], [FAILED, "insert_failed"], [POLISH_LATE, "polish_late"],
+    [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"]];
 
   const set = (patch: Partial<DictateSnapshot>) => {
     // Gone from the orb: work still landing after a close does not bring it back.
     if (!open && !d) return;
+    const failed = patch.note && (patch.note.startsWith(POLISH_CUT) ? "polish_cut" : NOTES.find(([n]) => n === patch.note)?.[1]);
+    if (failed) ports.failure?.(failed);
     d = { phase: "idle", editing: false, partial: "", polishing: false, inserted: 0, note: "", undo: false, ready: true, ...d, ...patch };
     if (patch.undo) { clearTimeout(offer); offer = setTimeout(() => { if (d?.undo) set({ undo: false }); }, UNDO_MS); }
     ports.show(d);
@@ -164,9 +191,14 @@ export function createDictate(ports: DictatePorts) {
   /** Closed. `linger`: what it last said stays up a moment first, for a
    *  session that could not start. Otherwise the person closed it, so the orb
    *  goes back straight away and the microphone with it. */
-  const close = (lingers = false) => {
+  const close = (why: DictateEnd, lingers = false) => {
     // Left on, the engine would wait for a release that never comes.
     if (holding) ports.dropHold();
+    if (open && tally) {
+      const { at, ...n } = tally;
+      ports.report?.({ ...n, ms: Date.now() - at, ended: why });
+    }
+    tally = null;
     open = false;
     holding = false;
     began = null;
@@ -184,12 +216,13 @@ export function createDictate(ports: DictatePorts) {
     typed = 0;
     began = null;
     d = null;
+    tally = { at: Date.now(), dictations: 0, words: 0, copied: 0, failed: 0, polished: 0, edits: 0, commands: 0, snippets: 0 };
     set({ ready: ports.ready() });
     opening = ports.listen().then((heard) => {
       const ok = heard === true;
       asked = heard === "";
       if (!open) return ok;
-      if (!ok) { set({ note: asked ? "" : NO_MIC }); close(true); }
+      if (!ok) { set({ note: asked ? "" : NO_MIC }); close(asked ? "other" : "no_mic", true); }
       else if (!d?.ready) set({ ready: true });
       return ok;
     });
@@ -197,10 +230,10 @@ export function createDictate(ports: DictatePorts) {
   };
 
   /** Opens or closes the session; what the tool that asked for it is told. */
-  const setOpen = async (on: boolean): Promise<string> => {
+  const setOpen = async (on: boolean, why: DictateEnd = "gesture"): Promise<string> => {
     if (!on) {
       if (!open) return "Dictation was already off.";
-      close();
+      close(why);
       return "Dictation is off.";
     }
     if (open) return "Dictation is already on.";
@@ -324,9 +357,17 @@ export function createDictate(ports: DictatePorts) {
     if (final && !snippet && s.polish.enabled) ({ final, out, note } = await polish(clean, s.polish.tone));
     else if (final) out = await put(final);
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
+    if (out) {
+      count(out === "failed" ? "failed" : "dictations");
+      if (out !== "failed") count("words", countWords(final));
+      if (out === "copied") count("copied");
+      if (snippet) count("snippets");
+      else if (s.polish.enabled && !note) count("polished");
+    }
+    if (spoken) count("commands");
     const obeyed = spoken ? await obey(spoken.command) : "";
     set({ phase: "idle", partial: "", polishing: false, editing: false, inserted: out === "typed" && last ? countWords(last) : 0, note: (out && insertedNote(out)) || note || obeyed, undo: last !== null });
-    if (spoken?.command === "stop") close();
+    if (spoken?.command === "stop") close("stop_command");
   };
 
   /** What was said, as an instruction for `selection`, typed over it. */
@@ -338,10 +379,18 @@ export function createDictate(ports: DictatePorts) {
     if (selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", partial: "", editing: false, note: TOO_LONG }); return; }
     let result: string;
     try { result = await think(ask, COMMAND_MS); }
-    catch (e) { set({ phase: "idle", partial: "", editing: false, note: (e instanceof Error && e.message) || COMMAND_FAILED }); return; }
+    catch (e) {
+      // The brain's own words, when it has some, are the note; either way it is one kind of failure.
+      ports.failure?.("command_failed");
+      count("failed");
+      set({ phase: "idle", partial: "", editing: false, note: (e instanceof Error && e.message) || COMMAND_FAILED });
+      return;
+    }
     // An edit is its own text, not the next words of a sentence: no space before it.
     const out = landed(await insert(result), result);
     if (out !== "failed") ports.record({ raw: text, cleaned: instruction, final: result, command: true, copied: out === "copied" });
+    count(out === "failed" ? "failed" : "edits");
+    if (out === "copied") count("copied");
     set({ phase: "idle", partial: "", editing: false, inserted: out === "typed" ? countWords(result) : 0, note: insertedNote(out), undo: last !== null });
   };
 
@@ -410,11 +459,11 @@ export function createDictate(ports: DictatePorts) {
       work = run.catch(() => {});
       await run;
     },
-    /** Flow was opened, or the machine is going to sleep: Dictate stops now. */
-    yield() {
+    /** Flow was opened, Dictate turned off, or the machine is going to sleep: Dictate stops now. */
+    yield(why: DictateEnd = "other") {
       // Flow, opened mid-hold, ends its own turns: the hold is dropped as Dictate closes.
       if (!open && !d) return;
-      if (open) close();
+      if (open) close(why);
       else giveBack();
     },
     /** What the engine is hearing so far. */

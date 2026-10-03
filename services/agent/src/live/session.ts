@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
 import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, toolSummary, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
-import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext } from "@openlive/db";
+import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext, deleteChatsBefore } from "@openlive/db";
+import { historyKeep, KEEP_MS } from "@openlive/flow-store/shared";
 import type { Message } from "@openlive/harness";
 import type { Approve, Emit, Session, Tool } from "../capabilities/types.js";
 import { registry } from "../capabilities/registry.js";
@@ -182,6 +183,10 @@ export class LiveSession {
     // Persist the chat row + rehydrate recent history (so a reconnect mid-call
     // doesn't make the agent forget what was already said).
     if (this.chatId) {
+      // Older chats go to what Settings > Chat keeps as a call starts, as well as
+      // when History is read, so Keep nothing holds without History ever opening.
+      const keep = historyKeep(getSetting("chatHistory"));
+      if (keep !== "forever") await deleteChatsBefore(new Date(Date.now() - KEEP_MS[keep]).toISOString(), this.chatId).catch((e) => log.warn("live", "prune chats:", e));
       await createChat(this.chatId);
       const prior = this.rehydrate();
       if (prior.length) this.runner.seed(prior);

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 
 const { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
 
-const act = { open: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), talkHandsFree: vi.fn(), talkPtt: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
+const act = { open: vi.fn(), newCall: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), talkHandsFree: vi.fn(), talkPtt: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
 const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", armed: true, dictate: { on: false, binding: "option_right" } };
 const labels = (state: object) => trayTemplate(state, act).map((i: { label?: string; type?: string }) => i.label ?? i.type);
 
@@ -61,7 +61,7 @@ describe("hotkeyLabel", () => {
 
 describe("trayTemplate", () => {
   it("is the minimal menu: both statuses, open, start, both switches, settings, quit", () => {
-    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Flow off", "Turn Dictate on", "How you talk", "Settings…", "separator", "Quit OpenLive"]);
+    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "New call", "Start Flow", "Turn Flow off", "Turn Dictate on", "How you talk", "Settings…", "separator", "Quit OpenLive"]);
   });
 
   it("turns Flow on or off, and says so on its status line", () => {
@@ -124,7 +124,7 @@ describe("trayTemplate", () => {
 
   it("runs the action each item names", () => {
     const items = trayTemplate(ready, act);
-    for (const [label, fn] of [["Open OpenLive", act.open], ["Start Flow", act.startFlow], ["Settings…", act.settings], ["Quit OpenLive", act.quit]] as const) {
+    for (const [label, fn] of [["Open OpenLive", act.open], ["New call", act.newCall], ["Start Flow", act.startFlow], ["Settings…", act.settings], ["Quit OpenLive", act.quit]] as const) {
       expect(items.find((i: { label?: string }) => i.label === label).click).toBe(fn);
     }
   });

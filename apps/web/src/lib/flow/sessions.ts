@@ -35,7 +35,7 @@ export interface FlowSessionDetail {
 
 const json = async <T>(url: string): Promise<T> => {
   const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error(r.status === 404 ? "That session is gone." : "Flow's history could not be read.");
+  if (!r.ok) throw new Error(r.status === 404 ? "That session is gone." : "Couldn't read Flow's history.");
   return r.json() as Promise<T>;
 };
 
@@ -51,6 +51,19 @@ export function useFlowSessionPages(query: string, first: number, page: number) 
     getNextPageParam: (last, pages, offset) => (last.length < (offset ? page : first) ? undefined : offset + last.length),
     placeholderData: (prev) => prev,
   });
+}
+
+/** How many sessions are kept, for Settings > Flow's History. */
+export const useFlowSessionCount = () => useQuery({
+  queryKey: ["flow-sessions", "total"],
+  queryFn: () => json<{ total?: number }>("/api/flow/sessions?limit=1").then((r) => r.total ?? 0),
+});
+
+/** Clear all: every session but a running one. False when that failed. */
+export async function clearFlowSessions(qc: QueryClient): Promise<boolean> {
+  const ok = await fetch("/api/flow/sessions", { method: "DELETE" }).then((r) => r.ok, () => false);
+  await refreshFlowSessions(qc);
+  return ok;
 }
 
 export function useFlowSession(id: string | null) {
@@ -79,7 +92,7 @@ export function deleteWithUndo(ids: string[], qc: QueryClient) {
     const ok = await Promise.all(ids.map(deleteFlowSession));
     await refreshFlowSessions(qc);
     return !ok.includes(false);
-  }, ids.length === 1 ? "It could not be deleted." : "Some could not be deleted.");
+  }, ids.length === 1 ? "Couldn't delete that session. It's back in the list." : "Some couldn't be deleted. They're back in the list.");
 }
 
 export const renameFlowSession = (id: string, title: string) =>

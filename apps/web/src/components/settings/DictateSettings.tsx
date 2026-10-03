@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cpu, Keyboard, Languages, TextCursorInput } from "lucide-react";
+import { Keyboard } from "lucide-react";
 import type { DictateTone, FlowConfig } from "@openlive/flow-store";
 import { Keycaps, ListGroup, ListRow, Segmented, Select, Switch } from "@/components/ui";
 import { desktopPlatform } from "@/lib/platform";
@@ -10,7 +10,7 @@ import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
 import { POLISH_MS } from "@/lib/dictate/run";
 import { hotkeyKeys, keyName, liveKeys } from "@/lib/dictate/hotkey";
-import { CURATED_LANGUAGES, familyInfo, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
+import { CURATED_LANGUAGES, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
 import { dictateBrain, flowBrain } from "@openlive/flow-store/shared";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { TalkLinks } from "@/components/flow/FlowSettings";
@@ -19,12 +19,14 @@ import { LinkRow, useSettingsNav } from "./nav";
 import { ModeOnLine, QueryState, StatusDot } from "./common";
 import { DictateWords } from "./DictateWords";
 import { DictateHistory } from "./DictateHistory";
+import { SharedSettings } from "./SharedSettings";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 
 // The Dictate tab configures; Dictate's home is where it is switched on and
-// used, and where its history is. Three subtabs. Basics: how it opens, how it
-// cleans up what was said, AI polish and who answers it and edits by voice, and
-// how long history is kept. Words: the dictionary and snippets. Commands: edit
+// used, and where its history is. Three subtabs. Basics, in the skeleton every
+// mode's tab shares: how it opens, who answers AI polish and edits by voice,
+// the shared settings, how it cleans up what was said, AI polish, and how long
+// history is kept. Words: the dictionary and snippets. Commands: edit
 // by voice and the spoken commands. Its key, how you talk, typing, voice and the
 // speech engine are shared with Flow and Chat, so they are rows that go there.
 
@@ -83,7 +85,6 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
 
   const own = config.dictate;
   const saveRules = (patch: Partial<CleanupRules>) => save({ dictate: { cleanup: { ...own.cleanup, ...patch } } });
-  const ins = config.insertion;
   const language = CURATED_LANGUAGES.find((l) => l.code === pipeline.language)?.name ?? pipeline.language;
   // The rules are English; elsewhere only punctuation applies (lib/dictate/cleanup.ts).
   const english = pipeline.language === "en";
@@ -103,6 +104,9 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
           )}
       </Section>
 
+      <BrainSection config={config} save={save} />
+      <SharedSettings id="set-dictate-shared" insertion={config.insertion} speaks={false} />
+
       <Section id="set-dictate-cleanup" title="Cleanup" desc="On this machine, instantly.">
         <div className="flex flex-col gap-3">
           <ListGroup>
@@ -119,7 +123,7 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
       <Section id="set-dictate-polish" title="AI polish" desc="Rewrites with your API key or a coding agent. Slower, leaves this machine.">
         <ListGroup>
           <ListRow label="AI polish" detail={own.polish.enabled ? "After cleanup" : "Off"} asLabel
-            info={`After the cleanup rules, the one that answers below rewrites what you said in the tone you pick. If it has not answered in ${POLISH_MS / 1000} seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.`}>
+            info={`After the cleanup rules, whoever answers for Dictate rewrites what you said in the tone you pick. If it hasn't answered in ${POLISH_MS / 1000} seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.`}>
             <Switch on={own.polish.enabled} onFlip={() => save({ dictate: { polish: { ...own.polish, enabled: !own.polish.enabled } } })} />
           </ListRow>
           {own.polish.enabled && (
@@ -130,23 +134,12 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
         </ListGroup>
       </Section>
 
-      <BrainSection config={config} save={save} />
-
-      <Section id="set-dictate-shared" title="Shared settings" desc="Set once, used everywhere.">
-        <ListGroup>
-          <LinkRow icon={TextCursorInput} label="Typing at cursor" shared={false} onGo={() => go("general", "set-general-typing")}
-            value={`${ins.method === "paste" ? "Paste" : "Type it out"}${ins.method === "paste" && ins.restoreClipboard ? ", clipboard put back" : ""}`} />
-          <LinkRow icon={Languages} label="Voice" detail="Language" value={language} onGo={() => go("voice", "set-voice-language")} />
-          <LinkRow icon={Cpu} label="Speech engine" detail="Speech to text" value={familyInfo("stt", pipeline.stt.family)?.name ?? pipeline.stt.family} onGo={() => go("engine")} />
-        </ListGroup>
-      </Section>
-
       <DictateHistory own={own} save={(patch) => save({ dictate: patch })} />
     </div>
   );
 }
 
-/** Who answers AI polish and edits by voice. Shown once, under AI polish: an edit uses the same. */
+/** Who answers AI polish and edits by voice. Shown once, in the place every mode puts it: an edit uses the same. */
 function BrainSection({ config, save }: { config: FlowConfig; save: Save }) {
   const own = config.dictate;
   const { settings } = useDefaultBrain();
@@ -187,7 +180,7 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
         <ListGroup>
           <ListRow label={<StatusDot tone={editReady ? "success" : "arc"}>{editReady ? "Ready" : "Needs Dictate's AI"}</StatusDot>}
             detail={editReady ? "Say the change, like “make this formal”" : "Until then, what you say is typed over the selection"}
-            info="Select text in any app, open Dictate and say what to change, like “make this formal” or “translate to Spanish”. The orb shows Editing selection, and the selection is rewritten in place. It is read through the system's accessibility API only, never copied, so apps that do not share their selection that way, and Wayland, get your words typed instead." />
+            info="Select text in any app, open Dictate and say what to change, like “make this formal” or “translate to Spanish”. The orb shows Editing selection, and the selection is rewritten in place. It is read through the system's accessibility API only, never copied, so apps that don't share their selection that way, and Wayland, get your words typed instead." />
           <LinkRow label="Who answers" value={<AnswerSummary brain={settings ? dictateBrain(config, settings) : null} />}
             onGo={() => go("dictate", "set-dictate-brain", "set-dictate-basics")} />
         </ListGroup>

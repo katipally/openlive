@@ -49,7 +49,7 @@ describe("settings search", () => {
   });
 
   it("finds who answers by the words the screens use, every place it is set ahead of the rest", () => {
-    expect(new Set(find("who answers").slice(0, 3))).toEqual(new Set(["Who answers you", "Who answers for AI polish and edits", "Who answers in Flow"]));
+    expect(new Set(find("who answers").slice(0, 4))).toEqual(new Set(["Who answers you", "Who answers for AI polish and edits", "Who answers in Chat", "Who answers in Flow"]));
     for (const q of ["coding agent", "api key"]) expect(find(q)).toContain("Who answers you");
     expect(find("brain")).toEqual(expect.arrayContaining(["Who answers you", "Who answers in Flow"]));
   });
@@ -111,8 +111,10 @@ describe("settings search", () => {
     expect(find("wait")).toEqual(["Wait before answering", "Flow's own wait"]);
   });
 
-  it("files call-only rows under Chat and the engine under Speech engine", () => {
-    expect(SETTINGS_INDEX.find((e) => e.anchor === "set-chat-narrate")!.tab).toBe("chat");
+  it("files Chat's own rows under Chat, narration under Voice, and the engine under Speech engine", () => {
+    // Calls and Flow narrate the same way, so it is set once, in Voice.
+    expect(SETTINGS_INDEX.find((e) => e.label === "Narrate agent progress")!.tab).toBe("voice");
+    for (const a of ["set-chat-status", "set-chat-brain", "set-chat-history", "set-chat-shared"]) expect(SETTINGS_INDEX.find((e) => e.anchor === a)!.tab).toBe("chat");
     // How a call listens is How you talk, under General, no longer Chat's own.
     expect(SETTINGS_INDEX.some((e) => e.anchor === "set-chat-ptt")).toBe(false);
     expect(SETTINGS_INDEX.find((e) => e.label === "Speech-to-text")!.tab).toBe("engine");

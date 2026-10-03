@@ -177,7 +177,7 @@ function Editor({ s, workspace, onSaved, onClose }: { s: SkillWire; workspace: s
             spellCheck={false} className="font-mono text-label" />
         </label>
       )}
-      {!own && <p className="text-caption text-muted-foreground">{builtIn ? "Built into OpenLive. Turn it off if you do not want it." : "Read from the project folder. Edit it there."}</p>}
+      {!own && <p className="text-caption text-muted-foreground">{builtIn ? "Built into OpenLive. Turn it off if you don't want it." : "Read from the project folder. Edit it there."}</p>}
       {problem && <p role="alert" className="break-words text-label text-destructive">{problem}</p>}
       <span className="flex flex-wrap gap-1.5">
         {own && <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy || text == null}>{busy && <Loader2 className="animate-spin" />} Save</Button>}
@@ -235,7 +235,7 @@ function NewPanel({ taken, onDone, onCancel }: { taken: string[]; onDone: () => 
 function Problems({ problems }: { problems: SkillListWire["problems"] }) {
   return (
     <section className="mt-2 flex flex-col gap-1.5">
-      <h3 className={groupLabel}>{problems.length === 1 ? "A folder that did not load" : `${problems.length} folders that did not load`}</h3>
+      <h3 className={groupLabel}>{problems.length === 1 ? "A folder that didn't load" : `${problems.length} folders that didn't load`}</h3>
       <div className="flex flex-col divide-y divide-border rounded-lg border border-border px-3">
         {problems.map((p) => (
           <div key={p.dir} className="flex min-w-0 flex-col gap-0.5 py-2">

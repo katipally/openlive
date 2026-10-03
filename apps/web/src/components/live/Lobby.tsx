@@ -183,7 +183,7 @@ export function Lobby(props: LobbyProps) {
     const names = [...planModels(plan), ...engineRows.map((e) => e.name)];
     const size = aboutSize(plan.bytes === null ? null : plan.bytes + engineRows.reduce((a, e) => a + e.bytes, 0));
     const what = listed(names);
-    return `${what[0]!.toUpperCase()}${what.slice(1)} ${names.length > 1 ? "models" : "model"}, downloaded once${size ? `: ${size}` : ". The size could not be read just now"}.`;
+    return `${what[0]!.toUpperCase()}${what.slice(1)} ${names.length > 1 ? "models" : "model"}, downloaded once${size ? `: ${size}` : ". The size couldn't be read just now"}.`;
   };
   const cta = step === "downloading" ? (
     <div className="flex flex-col items-center gap-2">
@@ -252,7 +252,7 @@ export function Lobby(props: LobbyProps) {
         <div className={cn("app-drag absolute right-0 top-0 z-0 h-12", isMacDesktop ? "left-traffic-lights" : "left-4")} />
         <div className="ol-lobby-stage relative m-auto flex min-h-full w-full max-w-[35rem] flex-col justify-center gap-5 px-6 pb-10 pt-14">
           <div className="flex min-w-0 items-center gap-2.5">
-            <Tooltip label="Sessions"><Button variant="ghost" icon onClick={() => useUi.getState().setHistoryOpen(true)} aria-label="Sessions"><PanelLeft /></Button></Tooltip>
+            <Tooltip label="History"><Button variant="ghost" icon onClick={() => useUi.getState().setHistoryOpen(true)} aria-label="History"><PanelLeft /></Button></Tooltip>
             <h1 className="min-w-0 break-words text-title-lg font-semibold tracking-tight">Talk with OpenLive</h1>
           </div>
           {cpu && (
@@ -294,7 +294,7 @@ export function Lobby(props: LobbyProps) {
           </div>
         </SidePanelHeader>
         <div className="openlive-scroll flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto px-5 pb-6 pt-1 @max-3xl/lobby:overflow-visible">
-          <Section title="Talk to">
+          <Section title="Who answers">
             <AgentQuickPick />
           </Section>
           {boundAgent ? <AgentSetup agent={boundAgent} /> : <ModelQuickPick onOpenSettings={openSettings} />}

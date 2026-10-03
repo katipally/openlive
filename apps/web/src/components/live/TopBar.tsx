@@ -105,8 +105,8 @@ export function TopBar() {
       isNonMacDesktop ? "pr-window-controls" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
       <div className="flex min-w-0 items-center gap-1">
-        <Tooltip label="Sessions" keys="H" className={noDrag}>
-          <Button variant="ghost" icon size="sm" onClick={toggleHistory} aria-label="Toggle sessions">
+        <Tooltip label="History" keys="H" className={noDrag}>
+          <Button variant="ghost" icon size="sm" onClick={toggleHistory} aria-label="Toggle history">
             <PanelLeft />
           </Button>
         </Tooltip>

@@ -2,7 +2,7 @@ import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync } from 
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ensureDir, flowDir } from "./paths";
-import type { DictateKeep } from "./config";
+import { KEEP_MS, type HistoryKeep } from "./shared";
 
 // Dictate's history: what was said and what was typed, kept on this machine
 // for as long as Settings > Dictate says and never sent anywhere. One JSONL
@@ -32,15 +32,13 @@ export interface Dictation {
 /** Newest kept, oldest dropped first. With TEXT_MAX, under ~25 MB at worst. */
 export const DICTATION_CAP = 1000;
 const TEXT_MAX = 4000;
-const DAY = 86_400_000;
-export const KEEP_MS: Record<DictateKeep, number> = { off: 0, day: DAY, week: 7 * DAY, month: 30 * DAY, forever: Infinity };
 
 export const dictationsPath = (): string => join(flowDir(), "dictations.jsonl");
 
 const cut = (s: unknown) => (typeof s === "string" ? s.slice(0, TEXT_MAX) : "");
 
 /** Kept as given unless `keep` is off. Returns the stored dictation, or null when none is kept. */
-export function addDictation(d: Omit<Dictation, "id" | "at">, keep: DictateKeep, at = Date.now()): Dictation | null {
+export function addDictation(d: Omit<Dictation, "id" | "at">, keep: HistoryKeep, at = Date.now()): Dictation | null {
   if (keep === "off") return null;
   const entry: Dictation = {
     id: randomUUID(), at, raw: cut(d.raw), cleaned: cut(d.cleaned), final: cut(d.final),
@@ -61,7 +59,7 @@ export function clearDictations(): void {
 }
 
 /** What `keep` still keeps, newest first. O(lines): one pass to fold, one to prune. */
-export function readDictations(keep: DictateKeep, now = Date.now()): Dictation[] {
+export function readDictations(keep: HistoryKeep, now = Date.now()): Dictation[] {
   let raw = "";
   try { raw = readFileSync(dictationsPath(), "utf8"); } catch { return []; }
   const byId = new Map<string, Dictation>();

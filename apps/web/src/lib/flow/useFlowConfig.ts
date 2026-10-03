@@ -33,7 +33,7 @@ let settling = false;
 
 const read = async (): Promise<FlowConfigReply> => {
   const r = await fetch("/api/flow/config", { cache: "no-store" });
-  if (!r.ok) throw new Error("Flow settings could not be read.");
+  if (!r.ok) throw new Error("Couldn't read Flow's settings.");
   return r.json() as Promise<FlowConfigReply>;
 };
 
@@ -45,7 +45,7 @@ export function useFlowConfig() {
       const r = await fetch(settle ? "/api/flow/config?settle=1" : "/api/flow/config", {
         method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch),
       });
-      if (!r.ok) throw new Error("That setting could not be saved.");
+      if (!r.ok) throw new Error("Couldn't save that setting.");
       return r.json() as Promise<FlowConfigReply>;
     },
     // The server's parse is the authority: it clamps, defaults and refuses, so

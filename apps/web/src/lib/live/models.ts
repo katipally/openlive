@@ -383,11 +383,26 @@ export function activeSttEngine(): string {
   return e === sttFallback ? "whisper" : e;
 }
 
+/** Asks to download Whisper checkpoint `model`, which a session cannot run on until it is here. */
+const askWhisper = (model: string, lang: LanguageCode, files: WeightFile[]) => askFor({
+  key: "stt", engine: model, lang, files, name: `speech recognition for ${languageName(lang)}`,
+  meanwhile: whisperLoaded ? "Until then, it keeps listening with the model it has." : "Until then, what you say can't be heard.",
+});
+
 export function nativeSttFailed(engine: string, err: unknown, lasting = failureIsLasting(err)) {
-  (notDownloaded(err) ? log.warn : log.error)("stt", `${engine} failed, using Whisper:`, err);
+  (notDownloaded(err) ? log.warn : log.error)("stt", `${engine} failed, Whisper stands in:`, err);
   if (!lasting || sttFallback === engine) return;
   sttFallback = engine;
-  toast(`${familyName(engine)} ${notDownloaded(err) ? "isn't downloaded" : "unavailable"}, using Whisper. Check Settings > Speech engine.`);
+  const why = `${familyName(engine)} ${notDownloaded(err) ? "isn't downloaded" : "isn't available"}`;
+  // Whisper stands in only once it is here: until then the toast says so, and the
+  // session's own download offer asks, with the size, before anything is fetched.
+  const { stt: s, language: lang } = loadPipelineConfig();
+  const model = whisperCheckpoint(s.whisperSize, lang, deviceTier());
+  void (model === whisperLoaded ? Promise.resolve([]) : unagreed(whisperWeights(model, deviceTier()), agreed)).then((missing) => {
+    if (!missing.length) return toast(`${why}, using Whisper. Check Settings > Speech engine.`);
+    toast(`${why}. Whisper can stand in once it's downloaded.`);
+    askWhisper(model, lang, missing);
+  }, () => toast(`${why}. Check Settings > Speech engine.`));
 }
 
 // Call start, model load, every Flow open and a running call's keep-warm tick
@@ -569,8 +584,7 @@ export async function stt(audio: Float32Array, signal?: AbortSignal, strict = fa
   if (model !== whisperLoaded) {
     const missing = await unagreed(whisperWeights(model, deviceTier()), agreed);
     if (missing.length) {
-      if (!strict) askFor({ key: "stt", engine: model, lang, files: missing, name: `speech recognition for ${languageName(lang)}`,
-        meanwhile: whisperLoaded ? "Until then, it keeps listening with the model it has." : "Until then, what you say can't be heard." });
+      if (!strict) askWhisper(model, lang, missing);
       if (strict || !whisperLoaded) throw new ModelsNotDownloaded(missing);
       model = whisperLoaded;
     }

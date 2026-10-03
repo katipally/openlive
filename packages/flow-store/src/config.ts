@@ -1,7 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import lockfile from "proper-lockfile";
 import { configPath, ensureDir, flowDir } from "./paths";
-import { DICTATE_LIMITS, defaultPttKey, pttKeyOk, toggleKeyOk } from "./shared";
+import { DICTATE_LIMITS, HISTORY_KEEPS as KEEPS, defaultPttKey, pttKeyOk, toggleKeyOk, type HistoryKeep } from "./shared";
 
 // One versioned schema for everything Flow can be configured with. Two rules it
 // must never break: every field has a default, and an unknown or missing key
@@ -13,13 +13,11 @@ export const FLOW_CONFIG_VERSION = 9;
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
 export type DictateTone = "natural" | "casual" | "formal";
-export type DictateKeep = "off" | "day" | "week" | "month" | "forever";
 export type TalkMode = "handsFree" | "ptt";
 
 const INSERTION_METHODS = ["paste", "type"] as const;
 const BRAIN_KINDS = ["api", "acp"] as const;
 const TONES = ["natural", "casual", "formal"] as const;
-const KEEPS = ["off", "day", "week", "month", "forever"] as const;
 const TALK_MODES = ["handsFree", "ptt"] as const;
 /** The choices "Close after silence" offers, besides never. */
 export const SILENCE_CHOICES_MS = [30_000, 90_000, 300_000] as const;
@@ -100,8 +98,11 @@ export interface FlowConfig {
     commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
     words: string[];
     snippets: { trigger: string; text: string }[];
-    history: DictateKeep;
+    history: HistoryKeep;
   };
+  /** How long Flow's sessions, and the screenshots they took, are kept. A
+   *  running one never goes. Missing in a file from before it was kept: forever. */
+  history: HistoryKeep;
 }
 
 export const DEFAULT_FLOW_CONFIG: FlowConfig = {
@@ -127,6 +128,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     snippets: [],
     history: "month",
   },
+  history: "forever",
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -314,6 +316,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         .filter((x) => x.trigger && x.text).slice(0, DICTATE_LIMITS.snippets),
       history: one(dictate.history, KEEPS, dd.history),
     },
+    history: one(o.history, KEEPS, d.history),
   };
 }
 

@@ -64,7 +64,7 @@ export function PrivacySettings() {
   if (!s.active) {
     return (
       <div className="flex flex-col gap-7">
-        <Notice tone="info"><ShieldCheck aria-hidden /> This build does not send usage data, so there is nothing to turn on or off.</Notice>
+        <Notice tone="info"><ShieldCheck aria-hidden /> This build doesn&apos;t send usage data, so there is nothing to turn on or off.</Notice>
         {report}
       </div>
     );

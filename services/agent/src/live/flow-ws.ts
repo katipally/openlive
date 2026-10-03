@@ -4,7 +4,7 @@ import path from "node:path";
 import type { WebSocket } from "ws";
 import { toolSummary, type FlowContentWire, type LanguageCode, type LiveServerMsg, type ToolCallState } from "@openlive/shared";
 import { classifyError, flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
-import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type DefaultBrainSettings, type FlowConfig } from "@openlive/flow-store";
+import { FlowSession as FlowStoreSession, flowBrain, keepSessions, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type DefaultBrainSettings, type FlowConfig } from "@openlive/flow-store";
 import { getAllSettings } from "@openlive/db";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
@@ -29,6 +29,8 @@ import type { Brain, Msg } from "../flow/types.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
 import { hearReminders, liveSockets, type ReminderMsg } from "../reminders/fire.js";
+import { narrationEnabled, wrapEmitWithNarration } from "./narrator.js";
+import type { Emit } from "../capabilities/types.js";
 
 // Flow's half of the /live socket. It is a SEPARATE connection from chat's: the
 // Flow runtime lives in its own renderer, and a WebSocket cannot be shared across
@@ -204,6 +206,10 @@ export class FlowLiveSession {
   private closed = false;
   private closedRoll: ReturnType<typeof setTimeout> | undefined;
   private ac: AbortController | null = null;
+  /** This turn's spoken progress, as a call's: a coding agent working in silence
+   *  gets a short status line said now and then. Null for an API brain, or with
+   *  Narrate agent progress off. The orb says it only while it speaks at all. */
+  private narrate: Emit | null = null;
   private turnActive = false;
   /** The coding agent's ids for its calls to Flow's tools: this turn's, and every
    *  stopped turn's, whose calls are refused should they land late. */
@@ -397,6 +403,10 @@ export class FlowLiveSession {
     const cfg = readFlowConfig();
     this.consented = cfg.consent.granted;
     this.ident = flowIdent(cfg);
+    const turn = this.replyTurn;
+    this.narrate = this.ident.brain_kind === "acp" && narrationEnabled(getAllSettings().narrateProgress)
+      ? wrapEmitWithNarration((e) => { if (e.type === "say") this.send({ t: "flow", event: { type: "say", text: e.text }, turn }); }, ac.signal)
+      : null;
     this.approve = this.freshApprove();
     this.refreshTools();
     const timer = new TurnTimer();
@@ -418,7 +428,7 @@ export class FlowLiveSession {
         },
       })) {
         this.send({ t: "flow", event, turn: this.replyTurn });
-        if (event.type === "text_delta") timer.firstText();
+        if (event.type === "text_delta") { timer.firstText(); void this.narrate?.({ type: "text_delta", text: event.delta }); }
         else if (event.type === "error" && !event.aborted) reportTurnError("flow", this.ident, event);
         else if (event.type === "done") finished = event.reason !== "error" && event.reason !== "aborted";
         const stopped = ac.signal.aborted;
@@ -441,6 +451,7 @@ export class FlowLiveSession {
       if (finished) reportReply("flow");
       this.turnActive = false;
       this.ac = null;
+      this.narrate = null;
       // An ask left hanging by a cancelled turn must be settled, or the client's
       // chip stays up and swallows the user's next sentence as a yes/no.
       this.cancelPendingPermissions();
@@ -626,6 +637,8 @@ export class FlowLiveSession {
   private session(): Promise<FlowStoreSession> {
     if (this.store) return Promise.resolve(this.store);
     if (!this.opening) {
+      // Older sessions go to what Settings > Flow keeps as a new one opens, so Keep nothing holds without the home ever reading them.
+      try { keepSessions(); } catch (e) { log.warn("flow", "prune sessions:", e); }
       const cfg = readFlowConfig();
       this.opening = FlowStoreSession.open({
         // A session lives as long as Flow stays open on silence; never closing, it never rolls on its own.
@@ -689,6 +702,7 @@ export class FlowLiveSession {
       // The orb shows a tool at work whichever brain called it.
       onCall: (event) => {
         if (event.type === "tool_call") {
+          void this.narrate?.({ type: "tool_start", id: String(event.id), tool: String(event.name) });
           const target = toolSummary(String(event.name), event.args as Record<string, unknown>);
           this.send({ t: "flow", event: { type: "tool_start", id: String(event.id), name: String(event.name), ...(target && { target }) }, turn: this.replyTurn });
         }
@@ -727,7 +741,11 @@ export class FlowLiveSession {
   private onAgentTool(call: ToolCallState, settled: boolean): void {
     const { kind, target, args } = agentToolEntry(call, flowAgentCwd());
     const shown = { kind, ...(target && { target }) };
-    if (!settled) { this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn }); return; }
+    if (!settled) {
+      this.send({ t: "flow", event: { type: "tool_start", id: call.id, name: kind, ...shown }, turn: this.replyTurn });
+      void this.narrate?.({ type: "acp_tool_call", call });
+      return;
+    }
     emitFact("flow", { agent_tools: 1, ...(call.status === "failed" && { agent_tools_failed: 1 }) });
     const cancelled = call.status === "canceled" || (call.status !== "completed" && !!this.ac?.signal.aborted);
     this.write(async () => {

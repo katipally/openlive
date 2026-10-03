@@ -8,7 +8,7 @@ import { Segmented, menuItem, menuPanel, MenuCheck, useMenu, Disclosure, Switch,
 // Shared controls for the pre-call setup panel. Two rules keep the panel readable
 // instead of a wall of dropdowns:
 //   • a handful of choices → Segmented (all options visible, one tap, no menu)
-//   • a long list (models)  → Picker, the same clean popover as the hero "Talk to"
+//   • a long list (models)  → Picker, the same clean popover as the hero "Who answers"
 // Every control borrows its look from Settings (border/bg-card fields, inverted
 // active pill) so the panel and Settings read as one app, not two design systems.
 

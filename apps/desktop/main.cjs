@@ -896,8 +896,24 @@ function startFlowFromTray() {
   } catch (e) { console.error("[main] tray flow:", e); }
 }
 
+/** The tray's "New call": the window comes up on Chat, and the page opens the
+ *  call setup, where a missing key, agent or download is asked about as ever. */
+async function newCallFromTray() {
+  await showDock();
+  if (!mainWin || mainWin.isDestroyed()) createMainWindow();
+  else {
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+  }
+  app.focus({ steal: true });
+  const wc = mainWin.webContents;
+  const send = () => wc.send("openlive:new-call");
+  if (wc.isLoading()) wc.once("did-finish-load", send); else send();
+}
+
 function wireFlowIpc() {
   flowRuntime.install(telemetry);
+  ipcMain.on("openlive:flow-start", startFlowFromTray);
   ipcMain.on("openlive:flow-summon", summonFlow);
   ipcMain.on("openlive:flow-dismiss", (_e, reason) => dismissFlow(flowEndReason(reason)));
   // The renderer owns the hit test: the orb and its controls take clicks, the
@@ -1144,6 +1160,7 @@ function refreshTray() {
   trayShows = shows;
   tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(state, {
     open: fromTray("open", restoreMainWindow),
+    newCall: fromTray("new_call", () => void newCallFromTray().catch((e) => console.error("[main] tray call:", e))),
     startFlow: fromTray("new_flow", startFlowFromTray),
     flowOn: fromTray("flow_on", () => setFlowArmed(true)),
     flowOff: fromTray("flow_off", () => setFlowArmed(false)),

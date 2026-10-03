@@ -336,6 +336,27 @@ Limit: none.
 | `tts_family` | The text-to-speech engine family in use. Never the variant or a voice. | one of the [text-to-speech families](#text-to-speech-families) | sometimes |
 | `webgpu` | Whether WebGPU was available for the on-device voice models. | true or false | sometimes |
 
+### `dictate_session`
+
+When a Dictate session closes. One event per session that opened. Only counts: never what you said, what was typed, or where.
+
+Limit: none.
+
+| Property | Meaning | Values | Sent |
+| --- | --- | --- | --- |
+| `duration_s` | How long Dictate was open, in seconds. | whole number, 0 to 86400 | always |
+| `ended_by` | What closed it: `gesture` (the double tap, or the orb's mic), `idle` (Close after silence ran out), `stop_command` ("stop dictating"), `flow_opened` (Flow was opened over it), `sleep_or_lock`, `turned_off` (Dictate was switched off), `tool` (Flow's set_dictation tool), `no_mic` (the microphone did not open), or `other`. | `gesture`, `idle`, `stop_command`, `flow_opened`, `sleep_or_lock`, `turned_off`, `tool`, `no_mic`, `other` | always |
+| `dictations` | Dictations typed or copied. | whole number, 0 to 999 | always |
+| `words` | How many words went in, as a range. | `0`, `1_10`, `11_50`, `51_200`, `201_plus` | always |
+| `copied` | Dictations put on the clipboard because nothing took the typing. | whole number, 0 to 999 | sometimes |
+| `failed` | Dictations or edits that could not be typed or copied, or an edit that got no answer. | whole number, 0 to 999 | sometimes |
+| `polished` | Dictations AI polish rewrote. | whole number, 0 to 999 | sometimes |
+| `edits` | Selections edited by voice. | whole number, 0 to 999 | sometimes |
+| `commands` | Spoken commands said, such as "press enter". | whole number, 0 to 999 | sometimes |
+| `snippets` | Snippets typed. | whole number, 0 to 999 | sometimes |
+| `talk_mode` | How you talk: hands-free or push to talk. | `hands_free`, `ptt` | sometimes |
+| `lang` | The session language. | one of the [languages](#languages) | sometimes |
+
 ## Error and crash events
 
 What broke, as a kind and never as text.
@@ -367,6 +388,16 @@ Limit: the same `code` is not sent again within 10 minutes.
 | `origin` | Where the failure was found: `health` (the readiness check), `turn` (a failed turn), `mic`, `lost_answer`, or `link`. | `health`, `turn`, `mic`, `lost_answer`, `link` | sometimes |
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
+
+### `dictate_failure`
+
+When Dictate's orb says something went wrong, by kind. The note's words are never sent.
+
+Limit: the same `code` is not sent again within 10 minutes.
+
+| Property | Meaning | Values | Sent |
+| --- | --- | --- | --- |
+| `code` | What went wrong: `no_mic` (the microphone did not open), `not_written` (the words could not be written down), `insert_failed` (it could not be typed or copied), `polish_late` (AI polish did not answer in time, so the cleaned-up words went in), `polish_cut` (AI polish stopped partway), `command_failed` (an edit by voice got no answer), `keys_failed` (a spoken command's key could not be pressed), or `too_long` (the selection was too long to edit). | `no_mic`, `not_written`, `insert_failed`, `polish_late`, `polish_cut`, `command_failed`, `keys_failed`, `too_long` | always |
 
 ### `crash_detected`
 
@@ -510,7 +541,7 @@ Limit: once per install for each `step`.
 | `step` | Which step. | one of the [onboarding steps](#onboarding-steps) | always |
 | `hours_since_first_open` | Hours since the install first ran, to 0.1. | number, 0 to 99999, rounded to 0.1 | sometimes |
 | `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside, which shows the tour again next time. | `done`, `skipped`, `left` | sometimes |
-| `tour_step` | On a `tour_closed_` step only: the tour step showing when it ended, counting from 1. | whole number, 1 to 9 | sometimes |
+| `tour_step` | On a `tour_closed_` step: the tour step showing when it ended, counting from 1. On `welcome_done` and `welcome_skipped`: the furthest of Welcome's steps reached. | whole number, 1 to 9 | sometimes |
 
 ### `flow_consent_result`
 
@@ -585,7 +616,7 @@ Limit: none.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `action` | Which item: `new_flow` is Start Flow; `flow_on` and `flow_off` turn Flow on or off; `dictate_on` and `dictate_off` turn Dictate on or off; `talk_hands_free` and `talk_ptt` pick how you talk. | `open`, `new_flow`, `flow_on`, `flow_off`, `dictate_on`, `dictate_off`, `talk_hands_free`, `talk_ptt`, `allow_accessibility`, `settings`, `quit` | always |
+| `action` | Which item: `new_call` is New call; `new_flow` is Start Flow; `flow_on` and `flow_off` turn Flow on or off; `dictate_on` and `dictate_off` turn Dictate on or off; `talk_hands_free` and `talk_ptt` pick how you talk. | `open`, `new_call`, `new_flow`, `flow_on`, `flow_off`, `dictate_on`, `dictate_off`, `talk_hands_free`, `talk_ptt`, `allow_accessibility`, `settings`, `quit` | always |
 
 ### `feature_usage`
 
@@ -607,6 +638,12 @@ Limit: at most 3 per day.
 | `n_flow_history_open` | Flow sessions opened from Flow's history. | whole number, 0 to 999 | sometimes |
 | `n_flow_history_search` | Searches in Flow's history. | whole number, 0 to 999 | sometimes |
 | `n_flow_carry_on` | Times Carry on was used to continue a Flow session. | whole number, 0 to 999 | sometimes |
+| `n_chat_history_clear` | Times Clear all deleted Chat's history, in Settings. | whole number, 0 to 999 | sometimes |
+| `n_flow_history_clear` | Times Clear all deleted Flow's history, in Settings. | whole number, 0 to 999 | sometimes |
+| `n_dictate_history_clear` | Times Clear all deleted Dictate's history, in Settings. | whole number, 0 to 999 | sometimes |
+| `n_dictate_history_search` | Searches in Dictate's history. | whole number, 0 to 999 | sometimes |
+| `n_dictate_history_copy` | Dictations copied from Dictate's history. | whole number, 0 to 999 | sometimes |
+| `n_dictate_insert_again` | Times Insert again was used on a dictation. | whole number, 0 to 999 | sometimes |
 | `n_mode_to_flow` | Switches to Flow. | whole number, 0 to 999 | sometimes |
 | `n_mode_to_chat` | Switches to Chat. | whole number, 0 to 999 | sometimes |
 | `n_mode_to_dictate` | Switches to Dictate. | whole number, 0 to 999 | sometimes |
@@ -713,6 +750,16 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `close_after_silence` | How long Flow and Dictate stay open with nothing said. | `30s`, `90s`, `5m`, `never`, `custom` | none |
 | `talk_mode` | How you talk in Flow, Dictate and calls: hands-free or push to talk. | `hands_free`, `ptt` | none |
 | `ptt_key` | The push-to-talk key: one of the two defaults, or another key, never which. | `fn`, `ctrl_right`, `other` | none |
+| `dictate_enabled` | Dictate on or off, from its home, Settings or the command palette. The tray reports its own clicks as `tray_action`. | `on`, `off` | none |
+| `dictate_polish` | AI polish, on or off. | `on`, `off` | none |
+| `dictate_tone` | AI polish's tone. | `natural`, `casual`, `formal` | none |
+| `dictate_own_brain` | Dictate has its own choice of who answers, on or off. | `on`, `off` | none |
+| `dictate_brain` | Who answers for Dictate's AI polish and edits, while it has its own: your API key or a coding agent. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
+| `flow_key` | The key double-tapped to open Flow: a key group by name, or `other` for one side of a key or a spare key, never which. | `ctrl`, `option`, `shift`, `command`, `fn`, `other` | none |
+| `dictate_key` | The key double-tapped to open Dictate, reported as `flow_key` is. | `ctrl`, `option`, `shift`, `command`, `fn`, `other` | none |
+| `chat_history_keep` | How long OpenLive's own conversations are kept. Agents' own CLI sessions are never touched. | `off`, `day`, `week`, `month`, `forever` | none |
+| `flow_history_keep` | How long Flow's sessions and their screenshots are kept. | `off`, `day`, `week`, `month`, `forever` | none |
+| `dictate_history_keep` | How long dictations are kept. | `off`, `day`, `week`, `month`, `forever` | none |
 
 ## Lists used above
 
@@ -805,3 +852,13 @@ The Values cells link here for the long lists.
 | `first_typed_message` | A message was typed in a call for the first time. |
 | `first_mode_switch` | You switched between Chat, Flow and Dictate for the first time. |
 | `first_shortcuts_sheet` | The keyboard shortcuts sheet was opened for the first time. |
+| `welcome_shown` | Welcome, the first run of the whole app, was shown. |
+| `welcome_done` | Welcome was finished, with `tour_step` its furthest step. |
+| `welcome_skipped` | Welcome was skipped, with `tour_step` its furthest step. |
+| `welcome_try_chat` | Welcome's last step opened Chat. |
+| `welcome_try_flow` | Welcome's last step opened Flow. |
+| `welcome_try_dictate` | Welcome's last step opened Dictate. |
+| `dictate_onboarding_shown` | Dictate's first-run cards were shown. |
+| `dictate_onboarding_done` | Dictate's first run was finished. |
+| `dictate_onboarding_skipped` | Dictate's first run was skipped. |
+| `first_dictation` | A dictation went in for the first time. |

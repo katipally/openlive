@@ -21,6 +21,8 @@ export interface AppSettings {
   defaultAgent?: string;
   defaultAgentModel?: string;
   defaultAgentEffort?: string;
+  /** How long OpenLive's own chats are kept (HistoryKeep); unset is forever. */
+  chatHistory?: string;
 }
 
 export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
@@ -59,7 +61,10 @@ export const api = {
   settings: () => fetch("/api/settings").then(j<AppSettings & Record<string, string>>).then(seedServerSettings),
   updateSettings: (b: Record<string, string>) =>
     fetch("/api/settings", { method: "PUT", headers: JSON_TYPE, body: JSON.stringify(b) }).then(j<AppSettings & Record<string, string>>).then(serverSettingsChanged),
-  history: () => fetch("/api/history").then(j<HistoryWorkspace[]>),
+  /** `open` is the conversation on screen, which pruning to Settings > Chat's keep never takes. */
+  history: (open = "") => fetch(`/api/history${open ? `?open=${encodeURIComponent(open)}` : ""}`).then(j<HistoryWorkspace[]>),
+  /** Every OpenLive chat but `open`. Agents' own CLI sessions are never touched. */
+  clearChats: (open = "") => fetch(`/api/history${open ? `?open=${encodeURIComponent(open)}` : ""}`, { method: "DELETE" }).then(j<{ deleted: number }>),
   messages: (id: string) => fetch(`/api/chats/${id}`).then(j<ChatMessage[]>),
   deleteChat: (id: string) => fetch(`/api/chats/${id}`, { method: "DELETE", keepalive: true }).then(j),
   renameChat: (id: string, title: string) =>

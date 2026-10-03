@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { addDictation, clearDictations, deleteDictation, DICTATION_CAP, dictationsPath, KEEP_MS, readDictations } from "./dictations";
+import { addDictation, clearDictations, deleteDictation, DICTATION_CAP, dictationsPath, readDictations } from "./dictations";
+import { KEEP_MS } from "./shared";
 
 const dir = mkdtempSync(join(tmpdir(), "flow-dictations-"));
 beforeAll(() => { process.env.OPENLIVE_FLOW_HOME = dir; });

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Provider + model are chosen live in Settings; nothing hardcoded. Live effort
 // defaults to "auto" (lowest the model supports → smoothest voice).
 const DEFAULTS = { liveEffort: "auto" };
-const KEYS = ["liveModel", "liveProviderId", "liveEffort", "ollamaBaseUrl", "visionProviderId", "visionModel", "agentCwd", "customInstructions", "narrateProgress", "defaultAgent", "defaultAgentModel", "defaultAgentEffort"];
+const KEYS = ["liveModel", "liveProviderId", "liveEffort", "ollamaBaseUrl", "visionProviderId", "visionModel", "agentCwd", "customInstructions", "narrateProgress", "chatHistory", "defaultAgent", "defaultAgentModel", "defaultAgentEffort"];
 // Per-agent config keys (acpCommand:<id> ACP override, agentHidden:<id>
 // visibility toggle) are also readable/writable.
 const PREFIXES = ["acpCommand:", "agentHidden:"];

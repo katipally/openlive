@@ -67,6 +67,8 @@ describe("serverChanges", () => {
     expect(serverChanges({ liveEffort: "high" }, { liveEffort: "ludicrous" })).toEqual([{ setting: "api_effort", value: "auto" }]);
     expect(serverChanges({}, { narrateProgress: "0" })).toEqual([{ setting: "narrate_progress", value: "off" }]);
     expect(serverChanges({ narrateProgress: "0" }, { narrateProgress: "1" })).toEqual([{ setting: "narrate_progress", value: "on" }]);
+    expect(serverChanges({}, { chatHistory: "week" })).toEqual([{ setting: "chat_history_keep", value: "week" }]);
+    expect(serverChanges({ chatHistory: "week" }, { chatHistory: "nonsense" })).toEqual([{ setting: "chat_history_keep", value: "forever" }]);
   });
 
   it("never reports keys the table does not have (project folder, agent commands)", () => {
@@ -121,6 +123,27 @@ describe("flowChanges", () => {
     expect(at((c) => { c.talk.mode = null; })).toEqual([]);
     expect(at((c) => { c.talk.pttKey = c.talk.pttKey === "fn" ? "ctrl_right" : "fn"; })).toEqual([{ setting: "ptt_key", value: expect.stringMatching(/^(fn|ctrl_right)$/) }]);
     expect(at((c) => { c.talk.pttKey = "f18"; })).toEqual([{ setting: "ptt_key", value: "other" }]);
+  });
+
+  it("reports Dictate's switch, polish, tone, its own brain and both keys, a key by group or other", () => {
+    const at = (edit: (c: FlowConfig) => void) => flowChanges(DEFAULT_FLOW_CONFIG, flow(edit));
+    expect(at((c) => { c.dictate.enabled = true; c.dictate.polish = { enabled: true, tone: "formal" }; })).toEqual([
+      { setting: "dictate_enabled", value: "on" }, { setting: "dictate_polish", value: "on" }, { setting: "dictate_tone", value: "formal" },
+    ]);
+    expect(at((c) => { c.dictate.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }; })).toEqual([
+      { setting: "dictate_own_brain", value: "on" }, { setting: "dictate_brain", value: "acp", subject: "codex" },
+    ]);
+    // Following Flow, Dictate's brain moves with Flow's, which flow_brain reports once.
+    expect(at((c) => { c.brain = { override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" }; }).map((x) => x.setting)).toEqual(["flow_own_brain", "flow_brain"]);
+    expect(at((c) => { c.talk.flowKey = "shift"; c.talk.dictateKey = "option_right"; })).toEqual([
+      { setting: "flow_key", value: "shift" }, { setting: "dictate_key", value: "other" },
+    ]);
+  });
+
+  it("reports how long Flow and Dictate keep their history", () => {
+    expect(flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.history = "week"; c.dictate.history = "off"; }))).toEqual([
+      { setting: "flow_history_keep", value: "week" }, { setting: "dictate_history_keep", value: "off" },
+    ]);
   });
 
   it("reports Flow's own wait, and which preset the new values are", () => {

@@ -9,3 +9,4 @@ export const brainIdOf = member(events.lobby_blocked.props.brain_id.values);
 export const sttFamilyOf = member(events.voice_models_result.props.stt_family.values);
 export const ttsFamilyOf = member(events.voice_models_result.props.tts_family.values);
 export const failureCodeOf = member(events.flow_failure_card.props.code.values);
+export const languageOf = member(events.call_session.props.lang.values);

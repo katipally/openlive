@@ -21,7 +21,7 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
     });
     return new Response(await res.text(), { status: res.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
   } catch {
-    return Response.json({ error: "The agent service is not reachable." }, { status: 503 });
+    return Response.json({ error: "The agent service isn't reachable." }, { status: 503 });
   }
 }
 

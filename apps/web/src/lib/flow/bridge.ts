@@ -83,6 +83,10 @@ export interface FlowBridge {
   onResumeSession(cb: (sessionId: string) => void): () => void;
   /** The tray's "Start Flow", and whether Flow was already open when it was chosen. */
   onNewSession?(cb: (wasOpen: boolean) => void): () => void;
+  /** "Start Flow" from the window, as the tray's. Absent on a build from before it. */
+  start?(): void;
+  /** The tray's "New call": open Chat's call setup. */
+  onNewCall?(cb: () => void): () => void;
   /** Flow's settings were written, so the runtime should re-read them. */
   settingsChanged?(): void;
   onSettingsChanged?(cb: () => void): () => void;

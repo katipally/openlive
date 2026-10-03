@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { parseSession, readHead, sessionIdFromFileName } from "./jsonl";
 import { sessionAssetsDir, sessionsDir } from "./paths";
 import { readSessionState } from "./session";
+import { readFlowConfig } from "./config";
+import { KEEP_MS } from "./shared";
 import type { SessionEntry, SessionHeader, SessionState } from "./types";
 
 // History has to stay fast with tens of thousands of sessions, so nothing here
@@ -137,6 +139,41 @@ export function deleteSession(id: string): boolean {
   rmSync(sessionAssetsDir(id), { recursive: true, force: true });
   return true;
 }
+
+/** Deletes every session last written before `before` (ms), with its pictures,
+ *  except one still running. Returns how many went. A name sorts by when the
+ *  session began, so the walk starts at the oldest and stops at the first that
+ *  began after `before`: only those older are statted. O(F) names, O(old) stats. */
+export function pruneSessions(before: number): number {
+  let gone = 0;
+  for (const { id, name } of sessionFiles().reverse()) {
+    const path = join(sessionsDir(), name);
+    if (stampMs(name) >= before) break;
+    let at: number;
+    try { at = statSync(path).mtimeMs; } catch { continue; }
+    if (at >= before || readSessionState(path) === "active") continue;
+    rmSync(path, { force: true });
+    rmSync(sessionAssetsDir(id), { recursive: true, force: true });
+    gone++;
+  }
+  return gone;
+}
+
+/** Prunes to what Settings > Flow says to keep. Run on every first page read
+ *  and as a session opens, so the store stays bounded without a timer. */
+export function keepSessions(now = Date.now()): number {
+  const keep = readFlowConfig().history;
+  return keep === "forever" ? 0 : pruneSessions(now - KEEP_MS[keep]);
+}
+
+/** How many sessions are kept: one readdir, nothing opened. */
+export const countSessions = (): number => sessionFiles().length;
+
+/** `20250101T120000123Z_<id>.jsonl` → when it began, in ms. */
+const stampMs = (name: string): number => {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z/.exec(name);
+  return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!, +m[7]!) : 0;
+};
 
 /**
  * Give a session its own title, or clear it with "" so it falls back to the first

@@ -9,7 +9,7 @@ type Reply = { items: Dictation[] };
 
 const read = async (): Promise<Reply> => {
   const r = await fetch("/api/dictate/history", { cache: "no-store" });
-  if (!r.ok) throw new Error("Dictate's history could not be read.");
+  if (!r.ok) throw new Error("Couldn't read Dictate's history.");
   return r.json() as Promise<Reply>;
 };
 /** Shared by Dictate's home, which lists them, and Settings, which keeps them. */
@@ -28,4 +28,4 @@ export const pendingDictationKey = (id: string) => `dictation:${id}`;
 
 /** Hides the dictation now and deletes it once the Undo toast is gone, as Chat and Flow do. */
 export const deleteDictation = (qc: QueryClient, id: string) =>
-  deferDelete(pendingDictationKey(id), "Dictation deleted", () => dropDictations(qc, id), "It could not be deleted.");
+  deferDelete(pendingDictationKey(id), "Dictation deleted", () => dropDictations(qc, id), "Couldn't delete that dictation. It's back in the list.");

@@ -49,7 +49,7 @@ const apiDetail = (c: ReturnType<typeof useApiModeChoice>) =>
 
 export { agentLabel };
 
-/** "Talk to" picker for the pre-call panel — choose the agent BEFORE starting.
+/** "Who answers" picker for the pre-call panel: choose the agent BEFORE starting.
  *  Same per-conversation bind as the hero selector, in the same order and words.
  *  A bound agent that is not ready stays listed (the Start CTA explains the gap
  *  and links to Settings) but says so up front, rather than looking ready. */
@@ -60,7 +60,7 @@ export function AgentQuickPick() {
   const choice = useApiModeChoice();
   return (
     <Picker
-      ariaLabel="Talk to"
+      ariaLabel="Who answers"
       value={boundAgent ?? ""}
       onChange={(id) => { if (activeChatId) setConversationBind(activeChatId, (id || null) as AgentId | null); }}
       options={[
@@ -90,7 +90,7 @@ export function AgentSelect({ up = false }: { up?: boolean }) {
 
   return (
     <div ref={ref} className={cn("relative", noDrag)}>
-      <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`Talk to ${label}`}
+      <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`Who answers: ${label}`}
         className={cn(pill, "max-w-full gap-2 pl-1")}>
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
           {boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={16} />}
@@ -99,7 +99,7 @@ export function AgentSelect({ up = false }: { up?: boolean }) {
         <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
       </button>
       {mounted && (
-        <div ref={menuRef} role="menu" aria-label="Talk to" className={cn("openlive-scroll absolute left-0 z-overlay max-h-[min(24rem,60vh)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto text-left", up ? "bottom-full mb-1.5" : "mt-1.5", menuPanel)}>
+        <div ref={menuRef} role="menu" aria-label="Who answers" className={cn("openlive-scroll absolute left-0 z-overlay max-h-[min(24rem,60vh)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto text-left", up ? "bottom-full mb-1.5" : "mt-1.5", menuPanel)}>
           <div role="group" aria-label={API_KEY}>
             <p aria-hidden className={cn("px-2.5 pb-1 pt-1.5", groupLabel)}>{API_KEY}</p>
             <Item checked={!boundAgent} onClick={() => pick(null)} icon={<OpenLiveOrb size={16} />} name={choice.loading ? "\u2026" : choice.providerName}

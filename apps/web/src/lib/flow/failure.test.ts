@@ -81,7 +81,7 @@ describe("deriveFailure", () => {
     expect(going.detail).toMatch(/^25% of about 212 MB/);
     expect(going.actionLabel).toBeUndefined();
     expect(modelsFailed(true)).toMatchObject({ code: "models_missing", title: "The download stopped", actionLabel: "Try again" });
-    expect(modelsFailed(false).title).toBe("You are offline");
+    expect(modelsFailed(false).title).toBe("You're offline");
   });
 });
 

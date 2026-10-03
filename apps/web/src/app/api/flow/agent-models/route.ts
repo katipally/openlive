@@ -20,6 +20,6 @@ export async function GET(req: NextRequest) {
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
   } catch {
-    return Response.json({ error: "The agent service is not reachable." }, { status: 503 });
+    return Response.json({ error: "The agent service isn't reachable." }, { status: 503 });
   }
 }

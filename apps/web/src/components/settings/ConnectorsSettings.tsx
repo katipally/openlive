@@ -581,7 +581,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       {withServers.map((s) => <ImportSource key={s.source} s={s} picks={picks} flip={flip} />)}
       {sources && !withServers.length && <p className="text-label text-muted-foreground">No MCP servers found.</p>}
       {empty.length > 0 && <p className="break-words text-caption text-faint">Nothing in {empty.join(", ")}.</p>}
-      {warned && <p className="text-caption text-muted-foreground">Some values could not come over. Fill them in after importing, with Edit.</p>}
+      {warned && <p className="text-caption text-muted-foreground">Some values couldn&apos;t come over. Fill them in after importing, with Edit.</p>}
       <span className="flex flex-wrap gap-1.5">
         <Button variant="primary" size="sm" onClick={() => void commit()} disabled={!items.length || busy}>
           {busy ? <Loader2 className="animate-spin" /> : <Download />} Import {items.length || ""}

@@ -46,6 +46,6 @@ describe("deleting a dictation", () => {
     deleteDictation(qc, "a");
     await vi.advanceTimersByTimeAsync(UNDO_MS);
     expect(hidden("a")).toBe(false);
-    expect(useToasts.getState().toasts.map((t) => t.text)).toContain("It could not be deleted.");
+    expect(useToasts.getState().toasts.map((t) => t.text)).toContain("Couldn't delete that dictation. It's back in the list.");
   });
 });

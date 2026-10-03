@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { deleteSession, listAssets, listSessions, loadSession, renameSession, searchSessions, sessionPath } from "./history";
+import { countSessions, deleteSession, listAssets, listSessions, loadSession, pruneSessions, renameSession, searchSessions, sessionPath } from "./history";
 import { FlowSession } from "./session";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -132,4 +132,25 @@ test("a cut reply loads as what was heard, and a file without cuts loads as writ
   await old.append("message", { role: "assistant", text: "Hello." });
   await old.archive();
   expect(said(old.id)).toEqual([["message", "hi"], ["message", "Hello."]]);
+});
+
+test("pruning deletes what was last written before the cut, with its pictures, and never a running session", async () => {
+  const done = await FlowSession.open({ title: "ended" });
+  done.writeAsset("shot.png", Buffer.from([1]));
+  await done.archive();
+  const running = await FlowSession.open({ title: "still going" });
+  await sleep(2);
+  const before = Date.now();
+  await sleep(2);
+  const fresh = await FlowSession.open({ title: "after the cut" });
+  await fresh.archive();
+  expect(pruneSessions(before)).toBeGreaterThanOrEqual(1);
+  expect(sessionPath(done.id)).toBe("");
+  expect(listAssets(done.id)).toEqual([]);
+  expect(sessionPath(running.id)).not.toBe("");
+  expect(sessionPath(fresh.id)).not.toBe("");
+  const left = countSessions();
+  expect(pruneSessions(Infinity)).toBe(left - 1);
+  expect(listSessions().map((s) => s.id)).toEqual([running.id]);
+  await running.archive();
 });

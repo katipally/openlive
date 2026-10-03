@@ -18,7 +18,7 @@ const compact = (n: number): string =>
 
 // The built-in brain's side of the setup panel: provider, model, and how hard it
 // thinks — the same Field/Picker/Chips vocabulary the agent panel uses, so switching
-// "Talk to" doesn't switch design languages. Writes the same liveProviderId /
+// "Who answers" doesn't switch design languages. Writes the same liveProviderId /
 // liveModel settings as full Settings.
 export function ModelQuickPick({ onOpenSettings }: { onOpenSettings: () => void }) {
   const qc = useQueryClient();

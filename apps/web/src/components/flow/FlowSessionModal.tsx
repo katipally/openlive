@@ -54,7 +54,7 @@ export function FlowSessionModal({ id, live, onClose }: { id: string; live: bool
   const rename = async (next: string | null) => {
     setRenaming(false);
     if (next === null || next.trim() === title) return;
-    if (!(await renameFlowSession(id, next))) return setFailed("It could not be renamed.");
+    if (!(await renameFlowSession(id, next))) return setFailed("Couldn't rename it.");
     setFailed("");
     void refreshFlowSessions(qc);
   };

@@ -22,6 +22,7 @@ import { speechFacts } from "./speechFacts";
 import { featureUsed } from "../featureUse";
 import { reportSetting } from "../settingChanges";
 import { telemetry } from "../telemetry";
+import { MIC_COPY } from "./micCopy";
 import { agentPrefsOf, chatPrefsOf, setAgentPrefs, setChatPrefs, useSessionPrefs } from "../prefs";
 import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
 
@@ -618,7 +619,7 @@ export function useLiveSession(chatId: string) {
         holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
         answersAsk: (text) => !!useLiveStore.getState().permission && !!classifyYesNo(text),
         // The chosen mic can come back later; the call needs one now.
-        onMicLost: () => { fact.current.micLost++; toast("Microphone lost. Switching to the default mic.", "info"); void setMic(""); },
+        onMicLost: () => { fact.current.micLost++; toast(MIC_COPY.switched, "info"); void setMic(""); },
       }, player.current ?? undefined);
       engine.current = eng;
       // How you talk is shared with Flow and Dictate: push to talk shuts the gate between holds.
@@ -637,7 +638,7 @@ export function useLiveSession(chatId: string) {
     } catch (e: any) {
       const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";
       fact.current.startResult = denied ? "mic_denied" : "start_failed";
-      set({ error: denied ? "Microphone access denied. Allow the mic and try again." : `Couldn't start live mode: ${String(e?.message ?? e)}` });
+      set({ error: denied ? `${MIC_COPY.noOpen}. ${MIC_COPY.noOpenDetail}` : `Couldn't start live mode: ${String(e?.message ?? e)}` });
       teardown("start_failed");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -815,7 +816,7 @@ export function useLiveSession(chatId: string) {
     try {
       await eng.reopen();
     } catch (e) {
-      set({ error: (e as Error)?.name === "NotAllowedError" ? "Microphone access was turned off. Allow it, then pick the mic again." : "Couldn't switch microphone." });
+      set({ error: (e as Error)?.name === "NotAllowedError" ? `${MIC_COPY.noOpen}. Allow it for OpenLive, then pick the mic again.` : "Couldn't switch microphone." });
     }
   }, [set]);
 
@@ -831,7 +832,7 @@ export function useLiveSession(chatId: string) {
       try {
         const devs = await md.enumerateDevices();
         if (!devs.some((d) => d.kind === "audioinput" && d.deviceId === st.micId)) {
-          toast("Microphone disconnected. Switched to the default mic.", "info");
+          toast(MIC_COPY.switched, "info");
           await setMic("");
         }
       } catch { /* enumerate unavailable */ }

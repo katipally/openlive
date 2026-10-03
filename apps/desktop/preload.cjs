@@ -180,6 +180,10 @@ contextBridge.exposeInMainWorld("openlive", {
     // so the owner starts the session itself; closed, main fires the gesture and
     // this only says the tray was the one that did.
     onNewSession: (cb) => listen("openlive:flow-new-session", (wasOpen) => cb(!!wasOpen)),
+    // "Start Flow" from the command palette: the tray's, run by main the same way.
+    start: () => ipcRenderer.send("openlive:flow-start"),
+    // The tray's "New call": main brings the window up, the page opens the call setup.
+    onNewCall: (cb) => listen("openlive:new-call", () => cb()),
     // Flow's settings were written. Main re-registers the keys and the owner
     // renderer re-reads the rest, or every change would need a relaunch.
     // The main window is told too when the tray turned Dictate on or off.

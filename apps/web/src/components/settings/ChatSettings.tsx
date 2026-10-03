@@ -1,42 +1,63 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { historyKeep } from "@openlive/flow-store/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { Switch, ListGroup, ListRow } from "@/components/ui";
+import { chatOnScreen, useUi } from "@/lib/uiStore";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { ListGroup } from "@/components/ui";
+import { TalkLinks } from "@/components/flow/FlowSettings";
+import { ChatStatusLine } from "@/components/live/ChatStatus";
 import { Section } from "./Section";
+import { LinkRow, useSettingsNav } from "./nav";
+import { AnswerSummary, useDefaultBrain } from "./WhoAnswers";
+import { HistorySection } from "./HistorySection";
+import { SharedSettings } from "./SharedSettings";
 
-// What only a call does. The project folder, camera, screen and the model or
-// agent for a call are picked in Set up your call, per call, so they have no
-// setting here. How a call listens is How you talk, shared with Flow and Dictate.
+// The Chat tab, in the skeleton Flow's and Dictate's share. The project folder,
+// camera, screen and who answers one call are picked in Set up your call, per
+// call, so they have no setting here. How a call listens is How you talk.
 
-/** Spoken progress for coding-agent turns: a short voiced one-liner ("Step 2 of
- *  4: refactor the store.") when a tool has run a while and the agent is quiet. */
-function NarrateToggle() {
-  const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  // On unless explicitly "0": mirrors narrationEnabled() on the server, so the
-  // switch always shows what the session will actually do.
-  const on = (data as Record<string, string> | undefined)?.narrateProgress !== "0";
-  const flip = () => void api.updateSettings({ narrateProgress: on ? "0" : "1" })
-    .then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
-    .catch(() => toast("Couldn’t save that setting. Try again."));
+export function ChatSettings() {
+  const { config } = useFlowConfig();
+  const answers = useDefaultBrain();
+  const go = useSettingsNav();
   return (
-    <ListRow asLabel label="Narrate agent progress" detail="Short spoken updates"
-      info={<>While a coding agent works in silence, speak its plan steps out loud (&ldquo;Step 2 of 4: …&rdquo;). At most a few short lines a turn.</>}>
-      <Switch on={on} onFlip={flip} />
-    </ListRow>
+    <div className="flex flex-col gap-7">
+      <ChatStatusLine id="set-chat-status" />
+      {config && (
+        <Section id="set-chat-trigger" title="Trigger" desc="How you talk in a call. Set in General.">
+          <ListGroup>
+            <TalkLinks talk={config.talk} silence={false} />
+          </ListGroup>
+        </Section>
+      )}
+      <Section id="set-chat-brain" title="Who answers" desc="New chats start with the default. A chat can switch in its setup.">
+        <ListGroup>
+          <LinkRow label="The default" value={<AnswerSummary brain={answers.brain} />} onGo={() => go("models", "set-models-default")} />
+        </ListGroup>
+      </Section>
+      <SharedSettings id="set-chat-shared" speaks />
+      <ChatHistory />
+    </div>
   );
 }
 
-export function ChatSettings() {
+/** How long OpenLive's own conversations stay, and Clear all. Agents' CLI sessions are theirs and never touched. */
+function ChatHistory() {
+  const qc = useQueryClient();
+  const onScreen = useUi(chatOnScreen);
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const { data: workspaces } = useQuery({ queryKey: ["history", "v2"], queryFn: () => api.history(onScreen) });
+  const count = workspaces?.reduce((n, w) => n + w.chats.filter((c) => c.source === "openlive").length, 0);
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["settings"] }), qc.invalidateQueries({ queryKey: ["history", "v2"] })]);
   return (
-    <div className="flex flex-col gap-7">
-      <Section id="set-chat-narrate" title="While an agent works" desc="What a call says while a coding agent is busy.">
-        <ListGroup>
-          <NarrateToggle />
-        </ListGroup>
-      </Section>
-    </div>
+    <HistorySection id="set-chat-history" mode="chat" noun="conversations" desc="Your conversations in OpenLive, kept on this machine only."
+      keep={historyKeep(settings?.chatHistory)} count={count} offDetail="Each one goes once it ends"
+      onKeep={(chatHistory) => void api.updateSettings({ chatHistory }).then(refresh, () => toast("Couldn't save that setting. Try again."))}
+      onClear={() => api.clearChats(onScreen).then(refresh).then(() => true, () => false)}>
+      Only conversations started in OpenLive. Sessions from the agents&apos; own CLIs stay as they are.
+    </HistorySection>
   );
 }

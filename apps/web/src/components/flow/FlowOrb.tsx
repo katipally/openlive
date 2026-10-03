@@ -151,7 +151,7 @@ export function FlowOrb() {
         Hold {s.talk.keys.map((k) => <Keycap key={k} className="px-1 py-0 text-micro">{k}</Keycap>)} to talk
       </>
     );
-    return <><span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current motion-safe:animate-pulse" /> {s.dictate && !ptt ? "Hands-free" : "Listening"}</>;
+    return <><span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current motion-safe:animate-pulse" /> Listening</>;
   };
   const lastBadge = useRef<{ kind: "flow" | "dictate"; words: React.ReactNode } | null>(null);
   if (badge) lastBadge.current = { kind: badge, words: badgeWords() };

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { ChevronRight, Layers, Loader2, Play } from "lucide-react";
 import {
   loadPipelineConfig, savePipelineConfig, onPipelineConfig, familyInfo, isNativeVariant, activeTurnPreset, withWait,
@@ -148,6 +149,26 @@ function SpeakingSpeed() {
   );
 }
 
+/** Spoken progress while a coding agent works, in a call and in Flow alike: a
+ *  short voiced line ("Step 2 of 4: refactor the store.") when a tool has run a
+ *  while and the agent is quiet. One setting, since it is the same behavior. */
+function NarrateToggle() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  // On unless explicitly "0": mirrors narrationEnabled() on the server, so the
+  // switch always shows what the session will actually do.
+  const on = data?.narrateProgress !== "0";
+  const flip = () => void api.updateSettings({ narrateProgress: on ? "0" : "1" })
+    .then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+    .catch(() => toast("Couldn't save that setting. Try again."));
+  return (
+    <ListRow asLabel label={<span id="set-voice-narrate">Narrate agent progress</span>} detail="Calls and Flow, with a coding agent"
+      info={<>While a coding agent works in silence, say its plan steps out loud (&ldquo;Step 2 of 4: &hellip;&rdquo;). A few short lines a turn at most, and never while Flow keeps quiet.</>}>
+      <Switch on={on} onFlip={flip} />
+    </ListRow>
+  );
+}
+
 /** Turn-taking in plain words. One wait for every mode; Flow may keep its own. */
 function Conversation() {
   const [cfg, save] = usePipeline();
@@ -175,6 +196,7 @@ function Conversation() {
           info="A quiet “mm-hmm” in the reply's voice at a pause while you talk at length. Never after a question or over your voice, and never in the transcript.">
           <Switch on={cfg.turn.backchannels} onFlip={() => save({ ...cfg, turn: { ...cfg.turn, backchannels: !cfg.turn.backchannels } })} />
         </ListRow>
+        <NarrateToggle />
       </ListGroup>
     </Section>
   );

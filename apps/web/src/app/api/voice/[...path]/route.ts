@@ -31,7 +31,7 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path: s
     });
   } catch (e) {
     const timedOut = (e as Error)?.name === "TimeoutError";
-    return Response.json({ error: timedOut ? "The voice engine did not answer in time." : "The voice engine is not reachable." }, { status: timedOut ? 504 : 502 });
+    return Response.json({ error: timedOut ? "The voice engine didn't answer in time." : "The voice engine isn't reachable." }, { status: timedOut ? 504 : 502 });
   }
   // Stream the body through (download progress + PCM depend on it).
   return new Response(res.body, {

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, stagger, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Settings2, MessageSquare, Plus } from "lucide-react";
+import { Settings2, History, Plus } from "lucide-react";
 import { animateAll, EXIT, FADE, GENTLE, SHEET, SMOOTH } from "@/lib/motion";
 import { APP_MODES, useUi } from "@/lib/uiStore";
 import { LiveDock } from "@/components/live/LiveDock";
@@ -31,6 +31,7 @@ import { PrivacyNotice } from "@/components/PrivacyNotice";
 import { FeedbackPrompt } from "@/components/FeedbackPrompt";
 import { DictateHome } from "@/components/dictate/DictateHome";
 import { Welcome } from "@/components/Welcome";
+import { ChatStatusChip } from "@/components/live/ChatStatus";
 
 // One home for the mode switch: top centre of the window, clear of the traffic
 // lights on the left and the window controls on the right, in every mode.
@@ -67,7 +68,7 @@ export default function Home() {
   const [welcomePending, setWelcomePending] = useState(false);
   // Every tour, in any mode, waits for both.
   useEffect(() => useTourGate.setState({ firstRun: noticePending || welcomePending }), [noticePending, welcomePending]);
-  // The hero's "Talk to" is what the next new chat talks to: the default each
+  // The hero's "Who answers" is what the next new chat talks to: the default each
   // time the hero comes back, and whenever the default changes.
   const defaultAgent = useDefaultAgent();
   useEffect(() => { if (!liveOpen && defaultAgent !== undefined) useLiveStore.getState().set({ boundAgent: defaultAgent }); }, [liveOpen, defaultAgent]);
@@ -117,11 +118,22 @@ export default function Home() {
 
   const startNew = () => {
     newConversation();
-    // Carry the hero's "Talk to" pick onto the freshly created conversation,
+    // Carry the hero's "Who answers" pick onto the freshly created conversation,
     // the API key too, so a later change of default never moves it.
     setConversationBind(useUi.getState().activeChatId, useLiveStore.getState().boundAgent);
     setLiveOpen(true);
   };
+
+  // The tray's New call opens the call setup, which asks about any gap or
+  // download before a call can start. A call already on is left alone.
+  const startNewRef = useRef(startNew);
+  startNewRef.current = startNew;
+  useEffect(() => flowBridge()?.onNewCall?.(() => {
+    useUi.getState().closeSettings();
+    if (useLiveStore.getState().active) return;
+    useUi.getState().setMode("chat");
+    startNewRef.current();
+  }), []);
 
   // Flow and Dictate swap the whole window rather than sharing the lobby's
   // centred layout. Their keys are armed by the owner renderer either way, so
@@ -175,19 +187,20 @@ export default function Home() {
               </div>
               <div className="ol-hero-cta flex flex-wrap items-center justify-center gap-3">
                 <Button variant="primary" size="lg" onClick={startNew} data-tour="new"><Plus /> New</Button>
-                <Tooltip label="Browse & resume past conversations">
+                <Tooltip label="Browse and resume past conversations">
                   <Button size="lg" onClick={() => setHistoryOpen(true)} data-tour="resume">
-                    <MessageSquare /> Resume
+                    <History /> History
                   </Button>
                 </Tooltip>
                 <Tooltip label="Settings" keys={SETTINGS_KEYS}>
                   <Button size="lg" icon onClick={openSettings} aria-label="Settings" data-tour="settings"><Settings2 /></Button>
                 </Tooltip>
               </div>
-              {/* Choose what a new conversation talks to — the built-in assistant or a
-                  coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
-              <div className="ol-hero-sub flex max-w-full items-center gap-2 text-label text-faint" data-tour="talk-to">
-                Talk to <AgentSelect up />
+              {/* Who a new conversation talks to: your API key or a coding agent. Carried
+                  into New. Beside it, whether a call would start, as Flow's and Dictate's homes say. */}
+              <div className="ol-hero-sub flex max-w-full flex-wrap items-center justify-center gap-2 text-label text-faint">
+                <span data-tour="talk-to" className="flex min-w-0 max-w-full items-center gap-2">Who answers <AgentSelect up /></span>
+                <ChatStatusChip />
               </div>
             </div>
 
@@ -199,9 +212,9 @@ export default function Home() {
 
             <SpotlightTour id="home" active={!liveOpen} steps={[
               { target: "mode", concept: "modes", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
-              { target: "talk-to", concept: "whoAnswers", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." },
+              { target: "talk-to", concept: "whoAnswers", title: "Pick who answers", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." },
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then talk. Interrupt any time." },
-              { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
+              { target: "resume", title: "Everything is saved", body: "History lists every conversation by project folder, including sessions from the agent's own CLI." },
             ]} />
           </motion.main>
         )}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { listChats, chatMessageCounts, getSetting } from "@openlive/db";
+import { listChats, chatMessageCounts, deleteChatsBefore, getSetting } from "@openlive/db";
+import { historyKeep, KEEP_MS } from "@openlive/flow-store";
 import { AGENT_LIST, type HistoryChat, type HistoryWorkspace } from "@openlive/shared";
 import { mergeListed, readExternalAgentSessions, readListedAgentSessions } from "./agentSessions";
 
@@ -16,7 +17,13 @@ const isHidden = (id: string | null) => !!id && getSetting(`agentHidden:${id}`) 
 // external sessions read from disk (source:"external", resumable via ACP
 // loadSession). Only truly empty chats (never spoken in) are hidden — folderless
 // conversations show under a "No folder" workspace, always sorted last.
-export async function GET() {
+// OpenLive's own chats are pruned to what Settings > Chat keeps on every read,
+// as Dictate's history is. `?open=` is the conversation on screen, never pruned.
+const openOf = (req: Request) => new URL(req.url).searchParams.get("open") ?? "";
+
+export async function GET(req: Request) {
+  const keep = historyKeep(getSetting("chatHistory"));
+  if (keep !== "forever") await deleteChatsBefore(new Date(Date.now() - KEEP_MS[keep]).toISOString(), openOf(req));
   const byCwd = new Map<string, HistoryWorkspace>();
   const add = (cwd: string, c: HistoryChat) => {
     const ws = byCwd.get(cwd) ?? { cwd, chats: [] };
@@ -57,4 +64,9 @@ export async function GET() {
     .sort((x, y) => (x.cwd === "" ? 1 : y.cwd === "" ? -1 : recent(x) < recent(y) ? 1 : -1));
 
   return NextResponse.json(workspaces);
+}
+
+/** Clear all: every OpenLive chat but the open one. Agents' own CLI sessions stay. */
+export async function DELETE(req: Request) {
+  return NextResponse.json({ deleted: await deleteChatsBefore(new Date(Date.now() + 1000).toISOString(), openOf(req)) });
 }

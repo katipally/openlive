@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, NO_EDIT_BRAIN, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, wordsBucket, DONE_MS, NO_EDIT_BRAIN, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
@@ -196,7 +196,7 @@ describe("push to talk", () => {
   });
 
   it("says so when the words it heard could not be written down, or there were none, and types nothing", async () => {
-    for (const [held, note] of [["lost", "Your words could not be written down."], ["silent", NO_SPEECH]] as const) {
+    for (const [held, note] of [["lost", "Couldn't write your words down."], ["silent", NO_SPEECH]] as const) {
       const r = rig({ held, inserted: "copied" });
       await hold(r, "");
       expect(r.typed).toEqual([]);
@@ -321,7 +321,7 @@ describe("AI polish", () => {
     const r = rig({ settings: on, rewrite: async () => { throw new Error("No API key for OpenAI."); } });
     await hold(r, "send it by friday");
     expect(r.typed).toEqual(["Send it by Friday."]);
-    expect(r.last()?.note).toMatch(/did not answer/);
+    expect(r.last()?.note).toMatch(/didn't answer/);
   });
 
   it("falls back to the cleaned-up words once it takes too long, and hangs up on the brain", async () => {
@@ -592,5 +592,40 @@ describe("editing a selection by voice", () => {
     await hold(r, "first words");
     await hold(r, "replace it");
     expect(r.typed).toEqual(["First words", "New"]);
+  });
+});
+
+describe("its report", () => {
+  it("counts what a session typed, never what was said, and says why it closed", async () => {
+    const r = rig();
+    const reports: unknown[] = [];
+    r.ports.report = (x) => void reports.push(x);
+    await hold(r, "send it friday");
+    await hold(r, "and the report");
+    await hold(r, "press enter");
+    await r.dictate.setOpen(false, "idle");
+    expect(reports).toEqual([expect.objectContaining({ ended: "idle", dictations: 2, failed: 0, commands: 1, edits: 0 })]);
+    expect(JSON.stringify(reports)).not.toMatch(/friday|report/);
+    await r.dictate.setOpen(false);
+    expect(reports).toHaveLength(1);
+  });
+
+  it("names each failure the orb says, once per note", async () => {
+    const r = rig({ inserted: "failed" });
+    const codes: string[] = [];
+    r.ports.failure = (c) => void codes.push(c);
+    await hold(r, "hello there");
+    expect(codes).toEqual(["insert_failed"]);
+    const quiet = rig({ mic: false });
+    quiet.ports.failure = (c) => void codes.push(c);
+    const ends: unknown[] = [];
+    quiet.ports.report = (x) => void ends.push(x);
+    await quiet.dictate.setOpen(true);
+    expect(codes).toEqual(["insert_failed", "no_mic"]);
+    expect(ends).toEqual([expect.objectContaining({ ended: "no_mic", dictations: 0 })]);
+  });
+
+  it("buckets the words typed", () => {
+    expect([0, 1, 10, 11, 50, 51, 200, 201].map(wordsBucket)).toEqual(["0", "1_10", "1_10", "11_50", "11_50", "51_200", "51_200", "201_plus"]);
   });
 });

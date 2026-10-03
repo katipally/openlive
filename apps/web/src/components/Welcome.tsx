@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { TalkMode } from "@openlive/flow-store";
 import { Button, ListGroup, Radio } from "@/components/ui";
+import { SkipSetup } from "@/components/SkipSetup";
+import { telemetry } from "@/lib/telemetry";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { coverConcepts, tourSeen } from "@/components/SpotlightTour";
 import { MODES, ModeStart } from "@/components/flow/ModeSwitch";
@@ -63,7 +65,11 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   useEffect(() => { if (!liveOpen) setOpen(owed()); }, [welcomed, liveOpen]);
   useEffect(() => onPending(open), [open, onPending]);
 
-  const finish = (mode?: AppMode) => {
+  // Once per install: a Welcome replayed from About is not a new person's.
+  useEffect(() => { if (open) telemetry.track("onboarding_step", { step: "welcome_shown" }); }, [open]);
+  const finish = (how: "welcome_done" | "welcome_skipped", mode?: AppMode) => {
+    telemetry.track("onboarding_step", { step: how, tour_step: reached.current });
+    if (mode) telemetry.track("onboarding_step", { step: `welcome_try_${mode}` });
     markSeen();
     coverConcepts(...(["modes", "whoAnswers"] as const).slice(0, reached.current));
     coverFlowAccess(passedAccess.current, allGranted(caps, !!config?.consent.granted));
@@ -72,7 +78,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   };
   const next = () => {
     if (step === 3) passedAccess.current = true;
-    if (step < STEPS) { setStep(step + 1); reached.current = Math.max(reached.current, step + 1); } else finish();
+    if (step < STEPS) { setStep(step + 1); reached.current = Math.max(reached.current, step + 1); } else finish("welcome_done");
   };
   // Focus goes back to the dialog, not to wherever the gone question leaves it.
   const keepGoing = () => { setAsking(false); root.current?.focus(); };
@@ -85,15 +91,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
         <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Welcome · ${step} of ${STEPS}`}</span>
-        {asking ? (
-          <span role="group" aria-labelledby="welcome-skip" className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
-            <span id="welcome-skip" aria-live="polite" className="whitespace-nowrap text-label text-muted-strong">Skip setup?</span>
-            <Button variant="ghost" size="sm" autoFocus onClick={keepGoing}>Keep going</Button>
-            <Button variant="secondary" size="sm" onClick={() => finish()}>Skip</Button>
-          </span>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={() => setAsking(true)} className="[-webkit-app-region:no-drag]">Skip</Button>
-        )}
+        <SkipSetup asking={asking} onAsk={() => setAsking(true)} onKeep={keepGoing} onSkip={() => finish("welcome_skipped")} className="[-webkit-app-region:no-drag]" />
       </header>
 
       <FlowCanvas className="max-w-[40rem]">
@@ -150,9 +148,9 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
               <p className="text-body text-muted-strong">One thing to say in each mode. Pick one to start there.</p>
             </div>
             <ListGroup>
-              <Try label="Chat" onGo={() => finish("chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
-              <Try label="Flow" onGo={() => finish("flow")}><ModeStart mode="flow" on /> Say &ldquo;Summarize this page&rdquo;</Try>
-              <Try label="Dictate" onGo={() => finish("dictate")}>
+              <Try label="Chat" onGo={() => finish("welcome_done", "chat")}><ModeStart mode="chat" /> Say &ldquo;What can you do?&rdquo;</Try>
+              <Try label="Flow" onGo={() => finish("welcome_done", "flow")}><ModeStart mode="flow" on /> Say &ldquo;Summarize this page&rdquo;</Try>
+              <Try label="Dictate" onGo={() => finish("welcome_done", "dictate")}>
                 <ModeStart mode="dictate" on={config?.dictate.enabled} /> Say &ldquo;Running five minutes late&rdquo;
               </Try>
             </ListGroup>

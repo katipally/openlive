@@ -23,7 +23,7 @@ function brainOf(config: FlowConfig) {
 }
 
 const failed = (e: unknown) =>
-  NextResponse.json({ error: e instanceof Error ? e.message : "Flow's settings could not be read." }, { status: 500 });
+  NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't read Flow's settings." }, { status: 500 });
 
 export function GET() {
   try {

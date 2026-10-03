@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessagesSquare, Plus, MoreHorizontal, Search } from "lucide-react";
 import { api } from "@/lib/api";
-import { useUi } from "@/lib/uiStore";
+import { chatOnScreen, useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { setConversationBind, setConversationFolder, setConversationResume } from "@/lib/live/useLiveSession";
 import { AgentIcon } from "./live/AgentIcon";
@@ -45,7 +45,7 @@ const REVEAL_MS = 700;
 // the animation O(LAYOUT_ROWS) per render however long the history is.
 const LAYOUT_ROWS = 40;
 
-// Left Sessions drawer: every conversation, newest first under date headings,
+// Left History drawer: every conversation, newest first under date headings,
 // each row wearing its agent's mark with its folder, when and how long. Search
 // matches titles and folder names; rename and delete sit on the row (hover,
 // focus or the open one). A delete waits behind an Undo toast.
@@ -69,7 +69,8 @@ export function HistorySidebar() {
   // "openlive" = only sessions started from OpenLive.
   const filter = useUi((s) => s.sessionsFilter);
   const setFilter = (f: "all" | "openlive") => useUi.setState({ sessionsFilter: f });
-  const { data: workspaces = [], isLoading, error } = useQuery({ queryKey: ["history", "v2"], queryFn: api.history, enabled: open });
+  const onScreen = useUi(chatOnScreen);
+  const { data: workspaces = [], isLoading, error } = useQuery({ queryKey: ["history", "v2"], queryFn: () => api.history(onScreen), enabled: open });
   const pendingDeletes = usePendingDeletes((st) => st.keys);
   const overrides = useHistoryOverrides((st) => st.titles);
   const all = useMemo(() => flattenHistory(workspaces), [workspaces]);
@@ -162,7 +163,7 @@ export function HistorySidebar() {
       {open && (
       // Drags left to put away, from anywhere but a field (where a drag selects
       // text). A drag that ends over a row is not a click on it.
-      <motion.aside key="drawer" ref={root} role="dialog" aria-modal="true" aria-label="Sessions" onKeyDown={walk}
+      <motion.aside key="drawer" ref={root} role="dialog" aria-modal="true" aria-label="History" onKeyDown={walk}
         initial={{ x: "-105%", opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: "-105%", opacity: 0.6, transition: reduce ? leave : { ...smooth, opacity: leave } }}
         transition={{ ...smooth, opacity: fade }}
         drag="x" dragListener={false} dragControls={drag} dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 1, right: 0 }} dragMomentum={false}
@@ -175,15 +176,15 @@ export function HistorySidebar() {
         // macOS's traffic lights, and short of Windows' and Linux's at the right.
         className={cn(sidePanel(true), "fixed bottom-3 left-3 z-drawer w-[min(22.5rem,calc(100%-1.5rem))] overflow-hidden",
           isMacDesktop ? "top-14" : "top-3", isNonMacDesktop && "max-w-[calc(100%-var(--spacing-window-controls)-1.5rem)]")}>
-        <SidePanelHeader title="Sessions" className={cn(isDesktop && "[-webkit-app-region:drag]")}>
-          <Tooltip label="Close sessions" className={cn(isDesktop && "[-webkit-app-region:no-drag]")}>
-            <Button variant="ghost" size="sm" icon onClick={close} aria-label="Close sessions"><X /></Button>
+        <SidePanelHeader title="History" className={cn(isDesktop && "[-webkit-app-region:drag]")}>
+          <Tooltip label="Close history" className={cn(isDesktop && "[-webkit-app-region:no-drag]")}>
+            <Button variant="ghost" size="sm" icon onClick={close} aria-label="Close history"><X /></Button>
           </Tooltip>
         </SidePanelHeader>
 
         <div className="flex shrink-0 flex-col gap-2.5 px-3 pb-2" data-tour="history-actions">
-          <Input type="search" icon={<Search />} value={query} onChange={(e) => { if (!query && e.target.value) featureUsed("n_history_search"); setQuery(e.target.value); }} placeholder="Search chats & folders" spellCheck={false}
-            aria-label="Search sessions" onKeyDown={(e) => { if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); } }} />
+          <Input type="search" icon={<Search />} value={query} onChange={(e) => { if (!query && e.target.value) featureUsed("n_history_search"); setQuery(e.target.value); }} placeholder="Search conversations and folders" spellCheck={false}
+            aria-label="Search history" onKeyDown={(e) => { if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); } }} />
           <Segmented label="Which sessions to show" size="sm" className="grid w-full"
             value={filter} onChange={setFilter} options={SESSION_FILTERS} />
         </div>
@@ -191,16 +192,16 @@ export function HistorySidebar() {
         {/* layoutScroll: the gliding rows are measured inside this scroller. */}
         <motion.div ref={list} layoutScroll className="openlive-scroll min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
           {isLoading && <SkeletonRows />}
-          {error && <p className="px-3 py-6 text-label text-muted-foreground">Sessions could not be read.</p>}
+          {error && <p className="px-3 py-6 text-label text-muted-foreground">Couldn&apos;t read Chat&apos;s history.</p>}
           {!isLoading && !error && rows.length === 0 && (
             <div className="animate-fade-in flex flex-col items-center gap-1.5 px-6 py-12 text-center">
               <MessagesSquare className="mb-1 size-5 text-faint" aria-hidden />
               <p className="break-words text-body text-muted-strong">
-                {q ? <>Nothing matches &ldquo;{query.trim()}&rdquo;.</> : filter === "openlive" ? "No OpenLive sessions yet." : "No sessions yet."}
+                {q ? <>Nothing matches &ldquo;{query.trim()}&rdquo;.</> : filter === "openlive" ? "No OpenLive conversations yet." : "Nothing yet."}
               </p>
               {!q && (
                 <p className="text-caption text-muted-foreground">
-                  {filter === "openlive" ? "Switch to All to see sessions from the agents' own CLIs." : "Start a conversation and it will be here."}
+                  {filter === "openlive" ? "Switch to All to see sessions from the agents' own CLIs." : "Start a conversation and it shows up here."}
                 </p>
               )}
             </div>
@@ -324,7 +325,7 @@ function ChatRow({ c, cwd, folder, now, selected, resume, rise }: { c: HistoryCh
 function SkeletonRows() {
   return (
     <div role="status" className="ol-skeleton pt-9">
-      <span className="sr-only">Loading sessions</span>
+      <span className="sr-only">Loading history</span>
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} aria-hidden className="flex min-h-14 items-center gap-2.5 px-2.5">
           <span className="size-[1.625rem] shrink-0 rounded-md bg-foreground/[0.06]" />
@@ -348,7 +349,7 @@ function useDeleteFolder() {
         : api.deleteChat(c.id)).then(() => true, () => false)));
       await qc.invalidateQueries({ queryKey: ["history", "v2"] });
       return !ok.includes(false);
-    }, "Some could not be deleted. They're back in the list.");
+    }, "Some couldn't be deleted. They're back in the list.");
 }
 
 /** Rename and Delete for one row, then Delete all for its folder, which asks first. */

@@ -1,7 +1,7 @@
 import { telemetrySchema, type TelemetryEventProps } from "@openlive/shared";
 import { isLoopbackUrl } from "@openlive/harness/registry";
 import type { FlowConfig } from "@openlive/flow-store";
-import { flowBrain } from "@openlive/flow-store/shared";
+import { dictateBrain, flowBrain, historyKeep } from "@openlive/flow-store/shared";
 import { activeTurnPreset, loadPipelineConfig, onPipelineConfig, turnPresetOf, type PipelineConfig } from "./live/pipelineConfig";
 import { telemetry } from "./telemetry";
 import { sttFamilyOf, ttsFamilyOf } from "./telemetryIds";
@@ -65,6 +65,7 @@ export function serverChanges(before: Rec, after: Rec): Change[] {
     out.push({ setting: "custom_instructions", value: filled(after.customInstructions) ? "set" : "cleared" });
   }
   if (changed("narrateProgress")) out.push({ setting: "narrate_progress", value: onOff(after.narrateProgress !== "0") });
+  if (changed("chatHistory")) out.push({ setting: "chat_history_keep", value: historyKeep(after.chatHistory) });
   const provider = providerOf(after.liveProviderId);
   if (changed("liveProviderId") && provider) out.push({ setting: "api_provider", value: "none", subject: provider });
   // A model emptied because its provider just changed is a reset, not a choice.
@@ -110,6 +111,9 @@ export function providerKeyChanged(kind: string, value: "added" | "removed"): vo
 }
 
 // ── Flow config ───────────────────────────────────────────────────────────
+const TOGGLES = telemetrySchema.settings.flow_key.values;
+/** A double-tap key by its group name, or "other" for one side or a spare key. */
+const toggleKeyOf = (k: string) => TOGGLES.find((v) => v === k) ?? "other";
 const SILENCES = new Map<number | null, "30s" | "90s" | "5m" | "never">([[30_000, "30s"], [90_000, "90s"], [300_000, "5m"], [null, "never"]]);
 
 /** Pure, but for the default Flow follows, which is the server settings last known unless given. */
@@ -133,6 +137,20 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   flip("flow_quiet_mic", a.voice.autoQuiet.micContention, b.voice.autoQuiet.micContention);
   flip("flow_quiet_dnd", a.voice.autoQuiet.systemDnd, b.voice.autoQuiet.systemDnd);
   flip("flow_consent", a.consent.granted, b.consent.granted);
+  if (a.history !== b.history) out.push({ setting: "flow_history_keep", value: b.history });
+  flip("dictate_enabled", a.dictate.enabled, b.dictate.enabled);
+  flip("dictate_polish", a.dictate.polish.enabled, b.dictate.polish.enabled);
+  if (a.dictate.polish.tone !== b.dictate.polish.tone) out.push({ setting: "dictate_tone", value: b.dictate.polish.tone });
+  flip("dictate_own_brain", a.dictate.brain.override, b.dictate.brain.override);
+  const was = dictateBrain(a, settings);
+  const now = dictateBrain(b, settings);
+  // Following Flow, Dictate's brain moves with it, and flow_brain already said so.
+  if (b.dictate.brain.override && (was.kind !== now.kind || was.agentId !== now.agentId)) {
+    out.push({ setting: "dictate_brain", value: now.kind, subject: (now.kind === "acp" && agentOf(now.agentId)) || "none" });
+  }
+  if (a.talk.flowKey !== b.talk.flowKey) out.push({ setting: "flow_key", value: toggleKeyOf(b.talk.flowKey) });
+  if (a.talk.dictateKey !== b.talk.dictateKey) out.push({ setting: "dictate_key", value: toggleKeyOf(b.talk.dictateKey) });
+  if (a.dictate.history !== b.dictate.history) out.push({ setting: "dictate_history_keep", value: b.dictate.history });
   if (a.insertion.method !== b.insertion.method) out.push({ setting: "flow_insertion", value: b.insertion.method });
   const silence = b.talk.closeAfterSilenceMs;
   if (a.talk.closeAfterSilenceMs !== silence) out.push({ setting: "close_after_silence", value: SILENCES.get(silence) ?? "custom" });

@@ -20,6 +20,7 @@ import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
+import { GrantPills, missingGrants } from "./GrantPills";
 import { ModeStart, modeCopy } from "./ModeSwitch";
 import { PowerPill } from "./PowerPill";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
@@ -76,11 +77,11 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
   const flowKey = config ? keyName(liveKeys(config.talk).flow, desktopPlatform) : "its key";
   const hookError = caps?.hookError;
   const armed = !!caps?.armed && !!caps.permissions?.accessibility && !hookError;
-  // The one missing piece that has a fix right here: the chip becomes the ask.
-  const needsAccess = !!caps?.armed && caps.permissions?.accessibility === false && !hookError;
+  // What it still needs from this machine has its fix right here, as Dictate's home does.
+  const missing = caps?.armed && !hookError ? missingGrants(caps) : [];
   const all = deletable.length > 0 && deletable.every((s) => picked.has(s.id));
   const hasPower = !!caps && !caps.addonError;
-  const hasStatus = needsAccess || (!!caps?.armed && !caps.addonError);
+  const hasStatus = missing.length > 0 || (!!caps?.armed && !caps.addonError);
   // Only the controls on screen right now get a step.
   const tour: TourStep[] = [
     ...hasPower ? [{ target: "flow-power", concept: "flowPower" as const, title: "Turn Flow on and off",
@@ -118,13 +119,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         {caps && !caps.addonError && <PowerPill name="Flow" tour="flow-power" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
-          {needsAccess ? (
-            <ChipButton tour="flow-status" onClick={() => void flowBridge()?.request("accessibility", "flow_home")}
-              tip={`Flow needs ${isMac ? "Accessibility" : "input access"} to hear ${flowKey} in every app`}>
-              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
-              <span className="min-w-0 truncate">{isMac ? "Allow Accessibility" : "Allow input access"}</span>
-            </ChipButton>
-          ) : caps?.armed && !caps.addonError && (
+          {missing.length ? <GrantPills mode="flow" tour="flow-status" missing={missing} refresh={onRetry} /> : caps?.armed && !caps.addonError && (
             <Tooltip label={hookError} className="flex min-w-0 max-w-full">
               <span data-tour="flow-status" className="flex min-w-0 max-w-full">
                 <Chip dot={armed ? "success" : hookError ? "danger" : "muted"}>
@@ -162,12 +157,12 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
               </motion.div>
             ) : (
               <motion.h2 key="browse" {...CROSSFADE} transition={fade} className="min-w-0 truncate text-title-sm font-semibold">
-                {query ? "Matches" : "Recent"}
+                {query ? "Matches" : "History"}
               </motion.h2>
             )}
             </AnimatePresence>
           </div>
-          <Input type="search" icon={<Search />} value={typed} onChange={(e) => { if (!typed && e.target.value) featureUsed("n_flow_history_search"); setTyped(e.target.value); }} placeholder="Search what you said" aria-label="Search what you said"
+          <Input type="search" icon={<Search />} value={typed} onChange={(e) => { if (!typed && e.target.value) featureUsed("n_flow_history_search"); setTyped(e.target.value); }} placeholder="Search what you said" aria-label="Search what you said" data-history-search="flow"
             className="min-w-[10rem] flex-[0_1_15rem]"
             trailing={isFetching && !isFetchingNextPage && <Loader2 className="animate-spin motion-reduce:animate-none" aria-label="Looking" />} />
           <Button variant="ghost" size="sm" onClick={selecting ? done : () => setSelecting(true)} disabled={!selecting && !sessions.length}>
@@ -178,7 +173,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
         <div className="openlive-scroll -mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-8">
         <AnimatePresence mode="wait" initial={false}>
         <motion.div key={shown} {...CROSSFADE} transition={fade} className="flex flex-col">
-        {error && <Empty>Flow&rsquo;s history could not be read.</Empty>}
+        {error && <Empty>Couldn&rsquo;t read Flow&rsquo;s history.</Empty>}
         {!error && isLoading && <Empty>Looking&hellip;</Empty>}
         {!error && !isLoading && !sessions.length && (
           <Empty>{shown ? `Nothing matching \u201c${shown}\u201d.` : `Nothing yet. ${caps?.armed === false ? "Turn Flow on, then double-tap" : "Double-tap"} ${flowKey} and say something.`}</Empty>
@@ -353,9 +348,12 @@ function RowMenu({ live, onRename, onDelete }: { live: boolean; onRename: () => 
               Rename
             </button>
           </Tooltip>
+          {/* Nothing goes until the Undo toast is gone, so no confirm, as in Chat and Dictate. */}
           <Tooltip label={live && RUNNING_TIP} className="flex">
-            <ConfirmButton role="menuitem" label="Delete" confirm="Delete session?" disabled={live} className="w-full text-left"
-              onConfirm={() => { requestClose(); onDelete(); }} />
+            <button type="button" role="menuitem" aria-disabled={live || undefined} onClick={() => { if (live) return; requestClose(); onDelete(); }}
+              className={cn(menuItem, "text-label font-medium text-destructive-text aria-disabled:opacity-40 aria-disabled:hover:bg-transparent")}>
+              Delete
+            </button>
           </Tooltip>
         </div>
       )}

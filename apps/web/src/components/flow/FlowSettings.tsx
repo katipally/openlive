@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { FlowConfig } from "@openlive/flow-store";
-import { Keyboard, TextCursorInput } from "lucide-react";
+import { Keyboard } from "lucide-react";
 import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
 import { desktopPlatform, isDesktop, isMac } from "@/lib/platform";
-import { Keycaps, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented, type DotTone } from "@/components/ui";
+import { Keycaps, Switch, Select, Button, ListGroup, ListRow, Segmented, type DotTone } from "@/components/ui";
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
@@ -14,12 +15,15 @@ import { effectiveWait } from "@/lib/flow/wait";
 import { dndNote } from "@/lib/flow/quiet";
 import { keyListenerNote } from "@/lib/flow/failure";
 import { hotkeyKeys, keyName, liveKeys, silenceLabel, type Talk } from "@/lib/dictate/hotkey";
-import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS, type PipelineConfig } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS } from "@/lib/live/pipelineConfig";
 import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
 import { LinkRow, useSettingsNav } from "@/components/settings/nav";
 import { ModeOnLine, MoreMenu, QueryState, StatusDot } from "@/components/settings/common";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
+import { HistorySection } from "@/components/settings/HistorySection";
+import { SharedSettings } from "@/components/settings/SharedSettings";
+import { clearFlowSessions, refreshFlowSessions, useFlowSessionCount } from "@/lib/flow/sessions";
 import { AddonCard } from "./AddonCard";
 
 // The Flow tab of Settings: only what Flow does that Chat does not, plus rows
@@ -29,13 +33,6 @@ import { AddonCard } from "./AddonCard";
 // visible rather than silently different from what was clicked.
 
 const presetName = (v: Parameters<typeof turnPresetOf>[0]) => TURN_PRESETS.find((p) => p.id === turnPresetOf(v))?.name ?? "Custom";
-
-/** The shared voice in words: its name and speed. */
-function voiceLine(c: PipelineConfig): string {
-  const family = familyInfo("tts", c.tts.family);
-  const name = family?.id === "clone" ? "Your voice" : family?.voices?.find((v) => v.id === c.tts.voice)?.name ?? (c.tts.voice || "Default");
-  return `${name} · ${c.tts.speed.toFixed(2)}×`;
-}
 
 export function FlowSettings() {
   const { config, save, error, loading, refetch } = useFlowConfig();
@@ -89,10 +86,11 @@ export function FlowSettings() {
         </div>
       </Section>
 
+      <SharedSettings id="set-flow-shared" insertion={config.insertion} speaks />
+
       <Section id="set-flow-voice" title="Voice" desc="How Flow talks back.">
         <ListGroup>
           <Toggle label="Say replies out loud" on={config.voice.speakReplies} onFlip={(speakReplies) => save({ voice: { speakReplies } })} />
-          <LinkRow label="Voice" detail="Set once for every mode" value={voiceLine(pipeline)} onGo={() => go("voice", "set-voice-voice")} />
           {!ownWait && (
             <LinkRow label="Wait before answering" value={presetName(shared)} onGo={() => go("voice", "set-voice-wait")} />
           )}
@@ -126,37 +124,45 @@ export function FlowSettings() {
         <AccessRows config={config} save={save} />
       </Section>
 
-      <Section id="set-flow-typing" title="Typing at cursor" desc="Shared with Dictate, set in General.">
-        <ListGroup>
-          <LinkRow icon={TextCursorInput} label="Paste or type, clipboard" value="General" shared={false} onGo={() => go("general", "set-general-typing")} />
-        </ListGroup>
-      </Section>
-
-      <p className="text-label leading-relaxed text-muted-foreground">
-        Flow also uses the shared <SharedLink onGo={() => go("voice", "set-voice-language")}>Language</SharedLink>,{" "}
-        <SharedLink onGo={() => go("voice", "set-voice-pronunciation")}>Pronunciation</SharedLink> and{" "}
-        <SharedLink onGo={() => go("engine")}>Speech engine</SharedLink>. Change them once, every mode follows.
-      </p>
+      <FlowHistory keep={config.history} save={save} />
     </div>
   );
 }
 
-/** How you talk and Close after silence, set in General for Flow and Dictate alike. Shared with Dictate's settings. */
-export function TalkLinks({ talk }: { talk: Talk }) {
+/** How long Flow's sessions and their screenshots stay, and Clear all. The list is on Flow's home. */
+function FlowHistory({ keep, save }: { keep: FlowConfig["history"]; save: (patch: FlowConfigPatch) => void }) {
+  const qc = useQueryClient();
+  const { data: count } = useFlowSessionCount();
+  // The store prunes to the new length on its next read, which has to wait for the save to land.
+  const kept = useRef(keep);
+  useEffect(() => {
+    if (kept.current === keep) return;
+    kept.current = keep;
+    void refreshFlowSessions(qc);
+  }, [keep, qc]);
+  return (
+    <HistorySection id="set-flow-history" mode="flow" noun="sessions" desc="What you asked and the screenshots Flow took, kept on this machine only."
+      keep={keep} onKeep={(history) => save({ history })} count={count} offDetail="Each one goes once it ends"
+      onClear={() => clearFlowSessions(qc)}>
+      A session still running is never deleted.
+    </HistorySection>
+  );
+}
+
+/** How you talk and Close after silence, set in General for every mode. A call never closes on silence, so Chat leaves that row out. */
+export function TalkLinks({ talk, silence: closes = true }: { talk: Talk; silence?: boolean }) {
   const go = useSettingsNav();
   const silence = talk.closeAfterSilenceMs;
   return (
     <>
       <LinkRow label="How you talk" onGo={() => go("general", "set-general-talk")}
         value={talk.mode === "ptt" ? `Push to talk, hold ${keyName(talk.pttKey, desktopPlatform)}` : "Hands-free"} />
-      <LinkRow label="Close after silence" onGo={() => go("general", "set-general-silence")}
-        value={silence === null ? "Never" : silenceLabel(silence)} />
+      {closes && (
+        <LinkRow label="Close after silence" onGo={() => go("general", "set-general-silence")}
+          value={silence === null ? "Never" : silenceLabel(silence)} />
+      )}
     </>
   );
-}
-
-function SharedLink({ onGo, children }: { onGo: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onGo} className={linkClass}>{children}</button>;
 }
 
 /** The four grants Flow runs on. Shared with the first run so both screens

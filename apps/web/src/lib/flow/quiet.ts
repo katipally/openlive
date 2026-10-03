@@ -49,7 +49,7 @@ export function decideQuiet(signals: QuietSignals, rules: QuietRules): QuietReas
 /** Where Flow cannot read Do Not Disturb, said next to its switch, so the rule
  *  is not trusted to fire on a machine that never reports it. "" where it can. */
 export function dndNote(platform: string): string {
-  if (platform === "win32") return "Windows does not tell apps when Focus is on, so this only works on macOS and GNOME.";
+  if (platform === "win32") return "Windows doesn't tell apps when Focus is on, so this only works on macOS and GNOME.";
   if (platform === "linux") return "Read on GNOME only. Other desktops do not tell apps.";
   return "";
 }

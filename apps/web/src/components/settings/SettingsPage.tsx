@@ -32,9 +32,9 @@ import { capabilityTab, resolveSettingsTab, searchSettings, type SettingsEntry, 
 // run. `desc` is the page's own line when it says more than `sub`.
 export const SECTIONS = [
   { id: "general", label: "General", sub: "Look, how you talk, keys", desc: "Look, startup, how you talk and typing.", icon: Settings2, Comp: GeneralSettings },
+  { id: "chat", label: "Chat", sub: "Who answers, history", desc: modeCopy("chat").tagline, icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "flow", label: "Flow", sub: "Trigger, who answers", desc: modeCopy("flow").tagline, icon: Waves, Comp: FlowSettings, group: "Modes" },
   { id: "dictate", label: "Dictate", sub: "Cleanup, words, edits", desc: modeCopy("dictate").tagline, icon: Mic, Comp: DictateSettings, group: "Modes" },
-  { id: "chat", label: "Chat", sub: "Narration", desc: modeCopy("chat").tagline, icon: MessageSquare, Comp: ChatSettings, group: "Modes" },
   { id: "models", label: "Models", sub: "Who answers, API key", desc: "Who answers you, and the model your own key runs.", icon: SlidersHorizontal, Comp: ModelsSettings, group: "Intelligence", shared: true },
   { id: "agents", label: "Agents", sub: "Install, sign in", desc: "Coding agents that can think for Chat, Flow and Dictate.", icon: Bot, Comp: AgentsSettings, Action: AgentsRecheck, group: "Intelligence", shared: true, wide: true },
   { id: "capabilities", label: "Capabilities", sub: "Tools, skills, connectors", desc: "What whoever answers can use, your API key's model and coding agents alike.", icon: Blocks, Comp: CapabilitiesSettings, group: "Intelligence", shared: true, wide: true },
@@ -355,7 +355,7 @@ export function SettingsPage() {
       </div>
 
       <SpotlightTour id="settings" steps={[
-        { target: "settings-nav", title: "Set once, used everywhere", body: "Modes keeps what Flow, Dictate and Chat each need for themselves. Intelligence and Voice are set once and every mode uses them." },
+        { target: "settings-nav", title: "Set once, used everywhere", body: "Modes keeps what Chat, Flow and Dictate each need for themselves. Intelligence and Voice are set once and every mode uses them." },
         { target: "settings-search", title: "Search any setting", body: `Type what you are after and jump straight to it. ${MOD === "⌘" ? "⌘F" : "Ctrl+F"} gets you here from anywhere in Settings.` },
       ]} />
     </div>

@@ -101,6 +101,21 @@ describe("sqlite chat store + JSON migration", () => {
     expect(q.getAllSettings()).toEqual({ "bind:other-chat": "codex" }); // its per-chat settings go with it
   });
 
+  it("deletes chats last active before a time, all but the open one, with their settings", async () => {
+    const q = await freshDb();
+    const old = await q.createChat("old");
+    const open = await q.createChat("open");
+    await q.addMessage(old.id, "user", [{ type: "text", text: "a" }]);
+    await q.setSetting(`bind:${old.id}`, "codex");
+    await q.setSetting("agentHidden:codex", "1");
+    const cut = new Date(Date.now() + 1000).toISOString();
+    expect(await q.deleteChatsBefore(cut, open.id)).toBe(1);
+    expect(q.listChats().map((c) => c.id)).toEqual([open.id]);
+    expect(q.listMessages(old.id)).toHaveLength(0);
+    expect(q.getAllSettings()).toEqual({ "agentHidden:codex": "1" });
+    expect(await q.deleteChatsBefore("2000-01-01T00:00:00.000Z")).toBe(0);
+  });
+
   it("keeps a secret setting encrypted outside settings.json, behind the same calls", async () => {
     const q = await freshDb();
     await q.setSetting("customInstructions", "be brief");

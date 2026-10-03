@@ -6,6 +6,15 @@ import type { FlowConfig } from "./config";
 
 export type FlowBrain = Omit<FlowConfig["brain"], "override">;
 
+export const HISTORY_KEEPS = ["off", "day", "week", "month", "forever"] as const;
+/** How long a mode's history is kept: Chat's chats, Flow's sessions, Dictate's dictations. */
+export type HistoryKeep = (typeof HISTORY_KEEPS)[number];
+const DAY = 86_400_000;
+/** How far back each choice keeps, by last use. */
+export const KEEP_MS: Record<HistoryKeep, number> = { off: 0, day: DAY, week: 7 * DAY, month: 30 * DAY, forever: Infinity };
+/** A choice kept outside Flow's config, Chat's in settings.json: anything else is forever. */
+export const historyKeep = (v: unknown): HistoryKeep => (HISTORY_KEEPS.includes(v as HistoryKeep) ? (v as HistoryKeep) : "forever");
+
 /** Bounds on what Dictate's word lists may hold, so a hand-edited file cannot
  *  make every dictation slow or the settings file huge. */
 export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;

@@ -32,7 +32,7 @@ const CALL_GROUPS: Group[] = [
     { label: "Camera on / off", keys: ["C"] },
     { label: "Share screen", keys: ["S"] },
     { label: "Activity panel", keys: ["T"] },
-    { label: "Sessions", keys: ["H"] },
+    { label: "History", keys: ["H"] },
     { label: "End call", keys: [MOD, "E"] },
   ] },
 ];

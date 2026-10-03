@@ -171,6 +171,20 @@ export async function deleteChat(id: string): Promise<void> {
   await updateJson<Record<string, string>>(SETTINGS, {}, (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !k.endsWith(`:${id}`))));
 }
 
+/** Deletes OpenLive's own chats last active before `before` (an ISO time), all
+ *  but `except` (the one open now), with their settings. Agents' own CLI
+ *  sessions never live here, so they are never touched. Returns how many went.
+ *  O(chats + settings): one delete, one settings pass with a set lookup per key. */
+export async function deleteChatsBefore(before: string, except = ""): Promise<number> {
+  const rows = withBusyRetry(() => getDb().prepare(
+    "DELETE FROM chats WHERE COALESCE(updated_at, created_at) < ? AND id != ? RETURNING id", // messages cascade
+  ).all(before, except)) as unknown as { id: string }[];
+  if (!rows.length) return 0;
+  const gone = new Set(rows.map((r) => r.id));
+  await updateJson<Record<string, string>>(SETTINGS, {}, (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !gone.has(k.slice(k.indexOf(":") + 1)))));
+  return rows.length;
+}
+
 // ─── Voice profiles (cloned-voice metadata; wavs live in DATA_DIR/voices) ───
 export interface VoiceProfile { id: string; name: string; transcript: string; wavFile: string; createdAt: string; seconds?: number }
 const VOICES = join(PATHS.data, "voice-profiles.json");

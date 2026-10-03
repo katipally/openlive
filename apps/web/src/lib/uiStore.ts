@@ -51,6 +51,8 @@ interface UiState {
 export type AppMode = "chat" | "flow" | "dictate";
 export const APP_MODES: readonly AppMode[] = ["chat", "flow", "dictate"];
 export const MODE_LABEL: Record<AppMode, string> = { chat: "Chat", flow: "Flow", dictate: "Dictate" };
+/** The conversation open in the lobby or a call, which no history prune or Clear all takes; "" with none. */
+export const chatOnScreen = (s: { liveOpen: boolean; activeChatId: string }): string => (s.liveOpen ? s.activeChatId : "");
 export interface SettingsJump { anchor: string; reveal?: string }
 
 export const TRANSCRIPT_WIDTH = { min: 280, max: 640, initial: 360 } as const;

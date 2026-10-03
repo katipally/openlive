@@ -4,24 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, ChevronRight, Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
 import type { Dictation, FlowConfig } from "@openlive/flow-store";
-import { Button, Chip, Input, Textarea, Tooltip, groupLabel, linkClass, pill } from "@/components/ui";
+import { Button, Chip, Input, Textarea, Tooltip, groupLabel, linkClass } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { ModeStart, SwitchHole, modeCopy } from "@/components/flow/ModeSwitch";
 import { PowerPill } from "@/components/flow/PowerPill";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { deleteDictation, historyQuery, pendingDictationKey } from "@/lib/dictate/history";
-import { FILTER_AT, QueryState, StatusDot } from "@/components/settings/common";
+import { QueryState, StatusDot } from "@/components/settings/common";
+import { GrantPills, missingGrants } from "@/components/flow/GrantPills";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
-import { flowBridge, valueOr, type FlowCapabilities, type FlowPermissionName } from "@/lib/flow/bridge";
+import { flowBridge, valueOr, type FlowCapabilities } from "@/lib/flow/bridge";
 import { keyListenerNote } from "@/lib/flow/failure";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
 import { COPIED, HISTORY_CHANNEL } from "@/lib/dictate/run";
-import { desktopPlatform, isDesktop, isMac, isMacDesktop } from "@/lib/platform";
+import { desktopPlatform, isDesktop, isMacDesktop } from "@/lib/platform";
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
+import { featureUsed } from "@/lib/featureUse";
+import { telemetry } from "@/lib/telemetry";
+import { SkipSetup } from "@/components/SkipSetup";
 import { toast } from "@/lib/toast";
 import { usePendingDeletes } from "@/lib/deferredDelete";
 import { cn } from "@/lib/cn";
@@ -104,36 +108,12 @@ export function DictateHome() {
   );
 }
 
-/** What it still needs from this machine, as buttons that ask for it. Empty while nothing is missing or nothing can be read. */
-function missingGrants(caps: FlowCapabilities | null): FlowPermissionName[] {
-  const p = caps?.permissions;
-  if (!p || caps?.addonError) return [];
-  return [...(p.microphone !== "granted" ? ["microphone" as const] : []), ...(!p.accessibility || p.postEvents === false ? ["accessibility" as const] : [])];
-}
-
-function GrantPills({ missing, refresh }: { missing: FlowPermissionName[]; refresh: () => void }) {
-  if (!missing.length) return null;
-  return (
-    <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
-      {missing.map((what) => (
-        <Tooltip key={what} label={what === "microphone" ? "Dictate hears you through the microphone" : `Dictate needs ${isMac ? "Accessibility" : "input access"} to hear its key and type for you`}
-          className="min-w-0 max-w-full">
-          <button type="button" className={cn(pill, "min-w-0 max-w-full")} onClick={() => void flowBridge()?.request(what, "other").then(refresh)}>
-            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-arc" />
-            <span className="min-w-0 truncate">{what === "microphone" ? "Allow microphone" : isMac ? "Allow Accessibility" : "Allow input access"}</span>
-          </button>
-        </Tooltip>
-      ))}
-    </div>
-  );
-}
-
 /** Whether the key would work right now, and the fix right here when it would not. */
 function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () => void }) {
   if (!caps || caps.addonError) return null;
   const note = keyListenerNote(caps, "dictate");
   const missing = missingGrants(caps);
-  if (missing.length) return <GrantPills missing={missing} refresh={refresh} />;
+  if (missing.length) return <GrantPills mode="dictate" missing={missing} refresh={refresh} />;
   if (note) return <StatusDot tone={caps.hookError ? "danger" : "arc"}>{note}</StatusDot>;
   return <StatusDot tone="success">Ready</StatusDot>;
 }
@@ -164,9 +144,15 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
     heading.current?.focus();
   }, [card]);
   const [tried, setTried] = useState("");
+  // Skipped, the first run never comes back on its own, so Skip asks first, as Welcome's does.
+  const [asking, setAsking] = useState(false);
+  useEffect(() => { telemetry.track("onboarding_step", { step: "dictate_onboarding_shown" }); }, []);
   // Welcome's access step asked for these already; the second card still shows any that are missing.
   const welcomeAsked = useOnboarding((s) => !flowOnboardingDue(s.flowOnboarded));
-  const done = () => useOnboarding.setState({ dictateOnboarded: true });
+  const done = (how: "dictate_onboarding_done" | "dictate_onboarding_skipped") => {
+    telemetry.track("onboarding_step", { step: how });
+    useOnboarding.setState({ dictateOnboarded: true });
+  };
   const missing = missingGrants(caps);
   const head = (title: string) => (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -185,10 +171,10 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
           </ul>
           <div className="flex flex-col items-start gap-3">
             <PowerPill name="Dictate" on={on} onFlip={flip} />
-            {on && !welcomeAsked && <GrantPills missing={missing} refresh={refresh} />}
+            {on && !welcomeAsked && <GrantPills mode="dictate" missing={missing} refresh={refresh} />}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" onClick={done}>Skip</Button>
+            <SkipSetup asking={asking} onAsk={() => setAsking(true)} onKeep={() => setAsking(false)} onSkip={() => done("dictate_onboarding_skipped")} />
             <span className="flex-1" />
             <Tooltip label={!on && "Turn it on first"}>
               <Button variant="primary" disabled={!on} onClick={() => turn(2)}>Continue <ArrowRight aria-hidden /></Button>
@@ -199,13 +185,13 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
         <>
           {head("Try it here")}
           <p className="break-words text-label leading-relaxed text-muted-strong"><ModeStart mode="dictate" on={on} /></p>
-          {missing.length > 0 && <div className="flex flex-col items-start"><GrantPills missing={missing} refresh={refresh} /></div>}
+          {missing.length > 0 && <div className="flex flex-col items-start"><GrantPills mode="dictate" missing={missing} refresh={refresh} /></div>}
           <Textarea rows={3} value={tried} onChange={(e) => setTried(e.target.value)} aria-label="Try Dictate here" placeholder={`Click here, then double-tap ${keyWords} and talk`} />
-          {tried.trim() && <StatusDot tone="success">That is all there is to it. It works the same in any app.</StatusDot>}
+          {tried.trim() && <StatusDot tone="success">That's all there is to it. It works the same in any app.</StatusDot>}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => turn(1)}><ArrowLeft aria-hidden /> Back</Button>
             <span className="flex-1" />
-            <Button variant="primary" onClick={done}>Done</Button>
+            <Button variant="primary" onClick={() => done("dictate_onboarding_done")}>Done</Button>
           </div>
         </>
       )}
@@ -251,14 +237,12 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
     <section className="flex min-h-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-2">
         <h2 data-tour="dictate-history" className="min-w-0 flex-[1_1_8rem] truncate text-title-sm font-semibold">{q ? "Matches" : "History"}</h2>
-        {items.length > FILTER_AT && (
-          <Input type="search" icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search what you dictated"
-            aria-label="Search what you dictated" className="min-w-[10rem] flex-[0_1_15rem]" />
-        )}
+        <Input type="search" icon={<Search />} value={filter} onChange={(e) => { if (!filter && e.target.value) featureUsed("n_dictate_history_search"); setFilter(e.target.value); }}
+          placeholder="Search what you dictated" aria-label="Search what you dictated" data-history-search="dictate" className="min-w-[10rem] flex-[0_1_15rem]" />
       </div>
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => void refetch()} what="read Dictate's history" />
       {data && !items.length && (
-        <Empty>{own.history === "off" ? "History is off, so dictations are not kept." : "Nothing yet. What you dictate shows up here, kept on this machine."}</Empty>
+        <Empty>{own.history === "off" ? "History is off, so dictations aren't kept." : "Nothing yet. What you dictate shows up here, kept on this machine."}</Empty>
       )}
       {q && items.length > 0 && !days.length && <Empty>Nothing matching &ldquo;{filter.trim()}&rdquo;.</Empty>}
       {days.map(([day, list], i) => (
@@ -273,12 +257,16 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
 }
 
 function Row({ d, first, insertion, onDelete }: { d: Dictation; first: boolean; insertion: FlowConfig["insertion"]; onDelete: () => void }) {
-  const copy = () => void navigator.clipboard.writeText(d.final).then(() => toast("Copied", "info")).catch(() => toast("That could not be copied."));
+  const copy = () => {
+    featureUsed("n_dictate_history_copy");
+    void navigator.clipboard.writeText(d.final).then(() => toast("Copied", "info")).catch(() => toast("Couldn't copy that."));
+  };
   const words = countWords(d.final);
   // Back to the window it was said into, while that window is still open and has a text box in focus; else on the clipboard to paste.
   const again = async () => {
+    featureUsed("n_dictate_insert_again");
     const api = flowBridge();
-    let note = "That window is gone, so it is on the clipboard. Paste it where you want it.";
+    let note = "That window's gone, so it's on the clipboard. Paste it where you want it.";
     if (api && d.windowId != null && (await api.device("control", { kind: "window", op: "activate", windowId: d.windowId })).ok) {
       await new Promise((r) => setTimeout(r, FOCUS_MS));
       if (valueOr(await api.focusEditable(), null) === false) note = COPIED;

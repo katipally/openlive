@@ -96,7 +96,7 @@ function ShowMeAround() {
 function YourData() {
   const home = useQuery({ queryKey: ["openlive-home"], queryFn: async () => {
     const r = await fetch("/api/home", { cache: "no-store" });
-    if (!r.ok) throw new Error("The folder could not be read.");
+    if (!r.ok) throw new Error("Couldn't read the folder.");
     return ((await r.json()) as { home: string }).home;
   }, staleTime: Infinity });
   return (

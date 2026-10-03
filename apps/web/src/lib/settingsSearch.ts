@@ -3,13 +3,13 @@
 
 import { CURATED_LANGUAGES, STT_FAMILIES, TTS_FAMILIES, type EngineFamilyInfo } from "./live/pipelineConfig";
 
-export type SettingsTabId = "general" | "flow" | "dictate" | "chat" | "models" | "agents" | "capabilities" | "memory" | "voice" | "engine" | "privacy" | "about";
+export type SettingsTabId = "general" | "chat" | "flow" | "dictate" | "models" | "agents" | "capabilities" | "memory" | "voice" | "engine" | "privacy" | "about";
 
 /** The subtabs of Capabilities. Each was, or could have been, a tab of its own. */
 export const CAPABILITY_TABS = ["tools", "skills", "connectors"] as const;
 export type CapabilityTab = (typeof CAPABILITY_TABS)[number];
 
-export const SETTINGS_TABS: readonly string[] = ["general", "flow", "dictate", "chat", "models", "agents", "capabilities", "memory", "voice", "engine", "privacy", "about"] satisfies SettingsTabId[];
+export const SETTINGS_TABS: readonly string[] = ["general", "chat", "flow", "dictate", "models", "agents", "capabilities", "memory", "voice", "engine", "privacy", "about"] satisfies SettingsTabId[];
 // Tabs that were merged away. A deep link or anything persisted with an old id
 // still lands on the tab that holds its content now.
 const LEGACY_TABS: Record<string, SettingsTabId> = { pipeline: "engine", voices: "voice", tools: "capabilities", skills: "capabilities", connectors: "capabilities" };
@@ -72,6 +72,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Edit by voice", keywords: "dictate command mode selection selected text rewrite change make formal translate ai", tab: "dictate", anchor: "set-dictate-edit", reveal: "set-dictate-commands" },
   { label: "Spoken commands", keywords: "dictate press enter return new line paragraph undo that stop dictating voice commands", tab: "dictate", anchor: "set-dictate-spoken", reveal: "set-dictate-commands" },
   { label: "Dictate history", keywords: "dictations past transcripts recent keep retention days clear all delete", tab: "dictate", anchor: "set-dictate-history", reveal: "set-dictate-basics" },
+  { label: "Dictate's shared settings", keywords: "typing language speech engine linked", tab: "dictate", anchor: "set-dictate-shared", reveal: "set-dictate-basics" },
 
   { label: "Who answers you", keywords: "default brain who thinks api key coding agent claude code codex cursor new chats flow dictate", tab: "models", anchor: "set-models-default" },
   { label: "Provider & API key", keywords: "byok key openai anthropic paste remove default", tab: "models", anchor: "set-models-provider" },
@@ -107,7 +108,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Web search key", keywords: "exa api key web search rate limit free tier built-in connector", tab: "capabilities", anchor: "set-capabilities-exa", reveal: capabilityReveal("connectors") },
   { label: "Memory", keywords: "remember notes facts forget delete clear edit add budget prompt saved what it knows about me", tab: "memory", anchor: "set-memory-list" },
 
-  { label: "Narrate agent progress", keywords: "spoken steps plan voice call", tab: "chat", anchor: "set-chat-narrate" },
+  { label: "Narrate agent progress", keywords: "spoken steps plan voice call flow coding agent working progress", tab: "voice", anchor: "set-voice-narrate" },
+
+  { label: "Chat ready for a call", keywords: "status readiness voice models download api key agent install sign in microphone", tab: "chat", anchor: "set-chat-status" },
+  { label: "Who answers in Chat", keywords: "brain agent model api key coding agent new chats default", tab: "chat", anchor: "set-chat-brain" },
+  { label: "Chat history", keywords: "conversations sessions past keep retention days clear all delete", tab: "chat", anchor: "set-chat-history" },
+  { label: "Chat's shared settings", keywords: "language voice narrate speech engine linked", tab: "chat", anchor: "set-chat-shared" },
 
   { label: "Flow on or off", keywords: "listen for the flow hotkey armed disarm pause turn off on enable disable control ctrl double tap trigger gesture", tab: "flow", anchor: "set-flow-status", desktop: true },
   { label: "Who answers in Flow", keywords: "brain agent model api key coding agent who thinks its own different override same as default", tab: "flow", anchor: "set-flow-brain" },
@@ -115,6 +121,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Flow's own wait", keywords: "wait before answering pace turn patient even quick different override", tab: "flow", anchor: "set-flow-wait" },
   { label: "Go quiet when", keywords: "meeting mic do not disturb dnd silent text", tab: "flow", anchor: "set-flow-quiet" },
   { label: "Access", keywords: "permissions microphone accessibility screen recording consent computer use helper", tab: "flow", anchor: "set-flow-access" },
+  { label: "Flow history", keywords: "sessions screenshots captures past keep retention days clear all delete", tab: "flow", anchor: "set-flow-history" },
+  { label: "Flow's shared settings", keywords: "typing language voice narrate speech engine linked", tab: "flow", anchor: "set-flow-shared" },
 
   { label: "Share anonymous usage", keywords: "telemetry analytics usage data tracking diagnostics opt out collect send privacy", tab: "privacy", anchor: "set-privacy-usage", desktop: true },
   { label: "What is shared", keywords: "events list telemetry data collected transparency", tab: "privacy", anchor: "set-privacy-usage", desktop: true },

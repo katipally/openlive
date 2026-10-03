@@ -49,8 +49,8 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
   if (h.accessibility === false) {
     return {
       code: "no_accessibility",
-      title: "I can hear you, but I cannot type for you",
-      detail: `${h.platform === "darwin" ? "macOS has not given OpenLive Accessibility access" : "Your system has not given OpenLive input access"}, so nothing can be inserted. Your words are still here.`,
+      title: "Flow hears you, but can't type for you",
+      detail: `${h.platform === "darwin" ? "macOS hasn't given OpenLive Accessibility access" : "Your system hasn't given OpenLive input access"}, so nothing can be typed. Your words are still here.`,
       actionLabel: "Open settings",
     };
   }
@@ -73,8 +73,8 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
   if (!h.online) {
     return {
       code: "offline",
-      title: "You are offline",
-      detail: "I kept what you said. Send it again when the connection is back.",
+      title: "You're offline",
+      detail: "What you said is kept. Say it again once you're back online.",
       actionLabel: "Try again",
     };
   }
@@ -97,7 +97,7 @@ export function modelsOffer(models: string[], bytes: number | null): FlowFailure
 /** The offer, agreed to: how far the download is. Nothing to press but Close. */
 export function modelsDownloading(loaded: number, total: number): FlowFailure {
   const size = aboutSize(total || null);
-  return { code: "models_missing", title: "Downloading the voice models", detail: `${total ? Math.round((100 * loaded) / total) : 0}%${size ? ` of ${size}` : ""}. Flow opens as soon as they are ready.` };
+  return { code: "models_missing", title: "Downloading the voice models", detail: `${total ? Math.round((100 * loaded) / total) : 0}%${size ? ` of ${size}` : ""}. Flow opens as soon as they're ready.` };
 }
 
 /** A download the open session needs after an engine or language switch, or
@@ -112,7 +112,7 @@ export function sessionModelsOffer(a: { name: string; meanwhile: string }, bytes
 /** The download failed; trying again asks nothing new. */
 export const modelsFailed = (online: boolean): FlowFailure => ({
   code: "models_missing",
-  title: online ? "The download stopped" : "You are offline",
+  title: online ? "The download stopped" : "You're offline",
   detail: online ? "Check the connection and try again. Nothing half-downloaded is kept." : "The voice models download once. Connect to the internet, then try again.",
   actionLabel: "Try again",
 });
@@ -145,12 +145,12 @@ export function turnFailure(message: string, agent = false, code?: ErrorClass): 
   const m = message;
   switch (code ?? classFromText(m)) {
     case "no_key":
-      return { code: "brain_setup", title: "Your API key is missing", detail: `${said(m)} Your words were not sent anywhere.`, actionLabel: "Open settings", settings: "models" };
+      return { code: "brain_setup", title: "Your API key is missing", detail: `${said(m)} Your words weren't sent anywhere.`, actionLabel: "Open settings", settings: "models" };
     case "auth":
       return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
     case "model_not_found":
     case "no_model":
-      return { code: "brain_setup", title: "That model is not available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
+      return { code: "brain_setup", title: "That model isn't available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
     case "quota":
       return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
     case "rate_limited":
@@ -158,8 +158,8 @@ export function turnFailure(message: string, agent = false, code?: ErrorClass): 
     case "unreachable":
       // The brain names the address it tried when it knows it; that is the thing to
       // check, and the address is set in Models.
-      if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "I could not reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
-      return { code: "turn_failed", title: "I could not reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
+      if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "Couldn't reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
+      return { code: "turn_failed", title: "Couldn't reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
     default:
       return { code: "turn_failed", title: "That turn failed", detail: said(m) || "It stopped without saying why." };
   }
@@ -176,7 +176,7 @@ export function addonProblem(packaged: boolean, user: KeyUser): { title: string;
   const name = KEY_USER[user];
   const needs = user === "shared" ? "Flow and Dictate need" : `${name} needs`;
   return packaged
-    ? { title: `${name} can't hear the keyboard`, detail: `A part of OpenLive that ${needs} did not load. Reinstalling OpenLive puts it back.` }
+    ? { title: `${name} can't hear the keyboard`, detail: `A part of OpenLive that ${needs} didn't load. Reinstalling OpenLive puts it back.` }
     : { title: `${name}'s keyboard helper isn't built`, detail: "Run pnpm native:build in the repo, then try again. No restart needed." };
 }
 

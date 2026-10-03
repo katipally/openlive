@@ -129,7 +129,7 @@ function OllamaAddressField({ name }: { name: string }) {
           </Tooltip>
         )}
       </div>
-      {offMachine && <p className="break-words text-label text-muted-foreground">{current} is not on this computer. Flow and Chat send it what you say and type, and screen content.</p>}
+      {offMachine && <p className="break-words text-label text-muted-foreground">{current} isn&apos;t on this computer. Flow and Chat send it what you say and type, and screen content.</p>}
       {invalid && <p className="text-label text-destructive">Enter an http:// or https:// address, like {DEFAULT_OLLAMA_URL}.</p>}
       {save.isError && <p className="text-label text-destructive">{(save.error as Error).message}</p>}
     </div>

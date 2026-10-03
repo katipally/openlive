@@ -64,7 +64,7 @@ function talkItems({ talk, platform }, act) {
   ];
 }
 
-/** `act` holds the click handlers: open, startFlow, flowOn, flowOff, dictateOn, dictateOff, talkHandsFree, talkPtt, allowAccess, settings, quit. */
+/** `act` holds the click handlers: open, newCall, startFlow, flowOn, flowOff, dictateOn, dictateOff, talkHandsFree, talkPtt, allowAccess, settings, quit. */
 function trayTemplate(state, act) {
   const dictateOn = !!state.dictate?.on;
   return [
@@ -77,6 +77,8 @@ function trayTemplate(state, act) {
     // another app, so gating on it would grey out the one control that brings
     // OpenLive forward, the commonest reason to reach for the tray at all.
     { label: "Open OpenLive", click: act.open },
+    // Chat's call setup, which asks about anything missing before a call can start.
+    { label: "New call", click: act.newCall },
     // Enabled only when a double tap would work; the status line says why not.
     // Electron cannot show a double tap as an accelerator, so the status line carries it.
     { label: "Start Flow", enabled: state.readiness === "ready", click: act.startFlow },

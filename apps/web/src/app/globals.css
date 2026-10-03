@@ -265,7 +265,7 @@
   --z-stage: 40;     /* full-window call surfaces: the lobby and the call itself */
   --z-overlay: 50;   /* drawers, side panels, in-call popovers */
   --z-drawer-scrim: 54;
-  --z-drawer: 55;    /* the Sessions drawer, over its own scrim */
+  --z-drawer: 55;    /* the History drawer, over its own scrim */
   --z-settings: 60;  /* full-screen Settings overlay */
   --z-tour: 65;      /* spotlight tour: over Settings, which it points into */
   --z-palette: 66;   /* ⌘K palette + shortcuts sheet: over Settings and the tour, under blocking modals */
@@ -486,7 +486,7 @@ html.chromeless button:focus-visible { border-radius: 9999px; }
 
 /* ─── Layers under glass ───────────────────────────────────────────────────
    The page's layers, bottom to top: the view (Chat home or Flow), the stage
-   (the call setup and the call), the Sessions drawer, Settings (app/page.tsx).
+   (the call setup and the call), the History drawer, Settings (app/page.tsx).
    Under glass the window is see-through and every fill is translucent, so a
    full-window surface tagged [data-covering] cannot hide what it covers by
    painting over it: the layers under it fade out as it fades in, then stop

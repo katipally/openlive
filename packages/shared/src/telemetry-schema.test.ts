@@ -16,17 +16,17 @@ const events = schema.events as unknown as Loose;
 const facts = schema.facts as unknown as Record<string, { event: string; props: Record<string, Spec> }>;
 
 describe("telemetry schema contents", () => {
-  it("has the 29 events, 37 counters and 4 fact scopes of the catalog", () => {
-    expect(Object.keys(events)).toHaveLength(29);
-    expect(schema.counters).toHaveLength(37);
+  it("has the 31 events, 43 counters and 4 fact scopes of the catalog", () => {
+    expect(Object.keys(events)).toHaveLength(31);
+    expect(schema.counters).toHaveLength(43);
     expect(Object.keys(facts).sort()).toEqual(["agent_call", "agent_flow", "call_renderer", "flow_owner"]);
   });
 
-  it("lists 30 web onboarding steps (seven tours) and the main and agent steps", () => {
+  it("lists 40 web onboarding steps (seven tours) and the main and agent steps", () => {
     const steps = events.onboarding_step!.props.step!.values!;
     expect(steps.filter((s) => s.startsWith("tour_closed_"))).toHaveLength(7);
-    expect(steps).toHaveLength(39);
-    expect(new Set(steps).size).toBe(39);
+    expect(steps).toHaveLength(49);
+    expect(new Set(steps).size).toBe(49);
     for (const s of ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "flow_consent_granted", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "first_lobby_open"]) {
       expect(steps).toContain(s);
     }
@@ -176,7 +176,7 @@ describe("telemetry types", () => {
     expectTypeOf<TelemetryEventName>().toMatchTypeOf<string>();
     expectTypeOf<"flow_session">().toMatchTypeOf<TelemetryEventName>();
     expectTypeOf<TelemetryEventProps<"tray_action">["action"]>().toEqualTypeOf<
-      "open" | "new_flow" | "flow_on" | "flow_off" | "dictate_on" | "dictate_off" | "talk_hands_free" | "talk_ptt" | "allow_accessibility" | "settings" | "quit"
+      "open" | "new_call" | "new_flow" | "flow_on" | "flow_off" | "dictate_on" | "dictate_off" | "talk_hands_free" | "talk_ptt" | "allow_accessibility" | "settings" | "quit"
     >();
     expectTypeOf<TelemetryEventProps<"flow_session">["turns"]>().toEqualTypeOf<number>();
     expectTypeOf<TelemetryEventProps<"flow_session">["t_see"]>().toEqualTypeOf<number | undefined>();

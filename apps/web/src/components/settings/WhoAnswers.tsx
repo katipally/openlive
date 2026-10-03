@@ -171,7 +171,7 @@ function AgentAdvanced({ id, brain, onPick }: { id: string; brain: FlowBrain; on
     retry: false,
   });
   const note = models.isLoading ? "Asking the agent what it can be set to…"
-    : models.isError ? "The agent did not answer, so it keeps its own settings."
+    : models.isError ? "The agent didn't answer, so it keeps its own settings."
     : !models.data?.models.length ? "This agent keeps its own model." : "";
   return (
     <Advanced id={`answers-${id}`}>

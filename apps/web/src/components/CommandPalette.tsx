@@ -3,14 +3,17 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { Search, Plus, Keyboard, SunMoon, History, LifeBuoy, type LucideIcon } from "lucide-react";
-import { useUi } from "@/lib/uiStore";
+import { Search, Plus, Keyboard, SunMoon, History, LifeBuoy, Power, Play, Mic, Compass, type LucideIcon } from "lucide-react";
+import { MODE_LABEL, useUi, type AppMode } from "@/lib/uiStore";
+import { flowBridge } from "@/lib/flow/bridge";
+import { keysListen, useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { isTextTarget } from "@/lib/live/keyTargets";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { filterCommands, type Command } from "@/lib/commandPalette";
 import { featureUsed } from "@/lib/featureUse";
-import { MOD } from "@/lib/platform";
+import { isDesktop, MOD } from "@/lib/platform";
 import { reportProblem } from "@/lib/reportProblem";
 import { useBrainId } from "@/lib/useBrainId";
 import { cn } from "@/lib/cn";
@@ -20,6 +23,18 @@ import { MODE_COUNTER, MODES } from "@/components/flow/ModeSwitch";
 import { Keycap, groupLabel, sidePanel } from "@/components/ui";
 
 type PaletteCommand = Command & { icon: LucideIcon };
+
+/** Focus Flow's or Dictate's History search once its home has slid in. Held
+ *  for a second: the palette's focus trap hands focus back as it closes. */
+function focusHistorySearch(mode: "flow" | "dictate") {
+  let frames = 0;
+  const hold = () => {
+    const el = document.querySelector<HTMLInputElement>(`[data-history-search="${mode}"]`);
+    if (el && document.activeElement !== el) el.focus();
+    if (++frames < 60) requestAnimationFrame(hold);
+  };
+  requestAnimationFrame(hold);
+}
 
 /** A permission or question prompt is up, or a dialog higher on the z ladder
  *  than the palette: that surface owns the keyboard, so ⌘K and ? stay quiet. */
@@ -68,6 +83,12 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
   const liveOpen = useUi((s) => s.liveOpen);
   const inCall = useLiveStore((s) => s.active);
   const brainId = useBrainId();
+  // The tray's verbs: Flow and Dictate exist only in the desktop app.
+  const { caps } = useFlowCapabilities();
+  const { config, save } = useFlowConfig();
+  // A new function each render: held so the list is not rebuilt for it.
+  const saveFlow = useRef(save);
+  saveFlow.current = save;
   const { smooth, snappy, fade, exit: leave } = useMotionTokens();
   const highlightId = useId();
   // Let go of focus as the exit starts, not when it ends: a command that opens
@@ -82,24 +103,43 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
     const chatShown = mode === "chat" || liveOpen;
     const out: PaletteCommand[] = [];
     // A new conversation remounts the dock, which would drop a live call.
-    if (!inCall) out.push({ id: "new", label: "New chat", group: "Actions", icon: Plus, keywords: "conversation call talk openlive lobby start",
+    if (!inCall) out.push({ id: "new", label: "New call", group: "Actions", icon: Plus, keywords: "new chat conversation talk openlive lobby start",
       run: () => { leaveSettings(); onNewChat(); } });
-    // The switch is hidden while the lobby or a call is up; so is this.
-    if (!liveOpen) for (const m of MODES) if (m.id !== mode) out.push({ id: `mode-${m.id}`, label: `Switch to ${m.label}`, group: "Actions", icon: m.icon, keywords: "mode", hint: m.tagline,
-      run: () => { leaveSettings(); featureUsed(MODE_COUNTER[m.id]); ui.setMode(m.id); } });
+    // The tray's Flow and Dictate items, in the tray's words.
+    const flow = flowBridge();
+    if (isDesktop && flow && caps && !caps.addonError) {
+      if (flow.start && caps.armed && keysListen(caps)) out.push({ id: "flow-start", label: "Start Flow", group: "Actions", icon: Play, keywords: "open flow summon orb ask",
+        run: () => flow.start?.() });
+      out.push({ id: "flow-power", label: caps.armed ? "Turn Flow off" : "Turn Flow on", group: "Actions", icon: Power, keywords: "flow enable disable switch key",
+        run: () => flow.setArmed(!caps.armed) });
+    }
+    if (isDesktop && config) {
+      const on = config.dictate.enabled;
+      out.push({ id: "dictate-power", label: on ? "Turn Dictate off" : "Turn Dictate on", group: "Actions", icon: Power, keywords: "dictate dictation voice typing enable disable switch",
+        run: () => saveFlow.current({ dictate: { enabled: !on } }) });
+      const ptt = config.talk.mode === "ptt";
+      out.push({ id: "talk", label: `How you talk: ${ptt ? "Hands-free" : "Push to talk"}`, group: "Actions", icon: Mic, keywords: "hands-free push to talk ptt hold mode listen",
+        hint: ptt ? "Now push to talk" : "Now hands-free", run: () => saveFlow.current({ talk: { mode: ptt ? "handsFree" : "ptt" } }) });
+    }
     out.push({ id: "shortcuts", label: "Show shortcuts", group: "Actions", icon: Keyboard, keywords: "keyboard keys help", keys: ["?"],
       run: () => ui.setShortcutsOpen(true) });
     out.push({ id: "theme", label: "Toggle theme", group: "Actions", icon: SunMoon, keywords: "dark light appearance",
       hint: resolvedTheme === "dark" ? "Now dark" : "Now light", run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark") });
-    // The History drawer lives in the Chat view.
-    if (chatShown) out.push({ id: "history", label: "Open sessions", group: "Actions", icon: History, keywords: "history resume past conversations",
-      run: () => { leaveSettings(); ui.setHistoryOpen(true); } });
+    // Each mode's History. The switch is hidden while the lobby or a call is up,
+    // so only Chat's, whose drawer opens over them, stays.
+    for (const m of ["chat", "flow", "dictate"] as const satisfies readonly AppMode[]) {
+      if (liveOpen && m !== "chat") continue;
+      out.push({ id: `history-${m}`, label: `Open ${MODE_LABEL[m]} history`, group: "Actions", icon: History, keywords: "history past sessions conversations dictations resume search",
+        run: () => { leaveSettings(); if (!chatShown || m !== "chat") ui.setMode(m); if (m === "chat") ui.setHistoryOpen(true); else focusHistorySearch(m); } });
+    }
+    out.push({ id: "tours", label: "Show me around again", group: "Actions", icon: Compass, keywords: "tour welcome setup first run onboarding replay help",
+      hint: "Asks first", run: () => ui.openSettingsTab("about", { anchor: "set-about-tours" }) });
     out.push({ id: "report", label: "Report a problem", group: "Actions", icon: LifeBuoy, keywords: "bug issue github feedback broken help",
       hint: "Opens a GitHub issue", run: () => void reportProblem(brainId) });
     for (const s of shownSections()) out.push({ id: `settings-${s.id}`, label: s.label, group: "Settings", icon: s.icon, keywords: s.sub, hint: s.sub,
       run: () => ui.openSettingsTab(s.id) });
     return out;
-  }, [mode, liveOpen, inCall, resolvedTheme, setTheme, onNewChat, brainId]);
+  }, [mode, liveOpen, inCall, resolvedTheme, setTheme, onNewChat, brainId, caps, config]);
 
   const groups = useMemo(() => filterCommands(commands, query), [commands, query]);
   const flat = useMemo(() => groups.flatMap((g) => g.items) as PaletteCommand[], [groups]);

@@ -85,6 +85,9 @@ export const flowEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn_end"), stop: z.enum(["stop", "tools", "length"]), usage: z.object({ input: z.number(), output: z.number() }).optional() }),
   z.object({ type: z.literal("error"), message: z.string(), aborted: z.boolean(), code: errorClassSchema.optional() }),
   z.object({ type: z.literal("done"), reason: z.enum(["no_tools", "terminate", "host_stop", "error", "aborted"]) }),
+  // A coding agent's progress, said out loud while it works in silence (Narrate
+  // agent progress, shared with calls). Spoken only; never in the reply or the session file.
+  z.object({ type: z.literal("say"), text: z.string() }),
 ]);
 export type FlowEventWire = z.infer<typeof flowEventSchema>;
 export type FlowContextWire = z.infer<typeof flowContextSchema>;

@@ -64,7 +64,7 @@ export function createTalk(p: TalkPorts) {
       if (held || p.flow.busy()) return;
       if (p.dictate.busy()) return armSilence();
       if (p.flow.isOpen()) p.flow.close("idle");
-      else if (p.dictate.isOpen()) void p.dictate.setOpen(false);
+      else if (p.dictate.isOpen()) void p.dictate.setOpen(false, "idle");
     }, after);
   };
 
@@ -90,7 +90,7 @@ export function createTalk(p: TalkPorts) {
     if (p.flow.isOpen()) return p.flow.close("gesture");
     // Opened first, so Flow takes over the microphone Dictate leaves.
     p.flow.open();
-    if (p.dictate.isOpen()) p.dictate.yield();
+    if (p.dictate.isOpen()) p.dictate.yield("flow_opened");
   };
   /** Dictate's double tap, the orb's mic button, or Flow's set_dictation tool. */
   const toggleDictate = async () => {

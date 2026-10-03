@@ -15,12 +15,13 @@ import { log } from "@/lib/log";
 import { featureUsed } from "@/lib/featureUse";
 import { noteLastFailure } from "@/lib/reportProblem";
 import { telemetry } from "@/lib/telemetry";
-import { brainIdOf } from "@/lib/telemetryIds";
+import { MIC_COPY } from "@/lib/live/micCopy";
+import { brainIdOf, languageOf } from "@/lib/telemetryIds";
 import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
-import { createDictate, HISTORY_CHANNEL, readRewrite, type Typing } from "@/lib/dictate/run";
+import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
@@ -262,7 +263,7 @@ export function useFlowOwner(): void {
         const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string; editReady: boolean };
         settings.current = body.config;
         // Dictate turned off closes a session still open: its key is no longer watched.
-        if (!body.config.dictate.enabled) dictate.yield();
+        if (!body.config.dictate.enabled) dictate.yield("turned_off");
         talk.modeChanged();
         publishTalk(talk.holding());
         brainReady.current = body.brainReady;
@@ -334,8 +335,8 @@ export function useFlowOwner(): void {
         if (engine.current !== eng) return;
         const failure: FlowFailure = {
           code: "mic_failed",
-          title: "The microphone went away",
-          detail: "It was unplugged or its access was turned off. Nothing was lost; try again once it is back.",
+          title: MIC_COPY.lost,
+          detail: MIC_COPY.lostDetail,
           actionLabel: "Try again",
         };
         fact.micLost++;
@@ -390,7 +391,7 @@ export function useFlowOwner(): void {
       if (!summoned.current) { patch({ failure: null }); cards.clear(); }
       summon(by);
       // Opening Flow closes Dictate, as opening Dictate closes Flow.
-      dictate.yield();
+      dictate.yield("flow_opened");
       const ticket = ++openTicket;
       setPhase("listening");
       const health = refreshHealth();
@@ -427,8 +428,8 @@ export function useFlowOwner(): void {
       if (!engine.current) {
         const failure: FlowFailure = {
           code: "mic_failed",
-          title: "I could not open the microphone",
-          detail: "Something else may still be holding it. Nothing was lost; try again in a moment.",
+          title: MIC_COPY.noOpen,
+          detail: MIC_COPY.noOpenDetail,
           actionLabel: "Try again",
         };
         fact.ready = "mic_failed";
@@ -677,7 +678,19 @@ export function useFlowOwner(): void {
       // editors with nothing selected, and turn every sentence into an edit.
       selection: async () => valueOr(await api.accessibleSelection(), null),
       keys: async (keys, times) => (await api.keys(keys, times)).ok,
+      report: (r) => {
+        const n = (v: number) => Math.min(999, v);
+        const lang = languageOf(loadPipelineConfig().language);
+        telemetry.track("dictate_session", {
+          duration_s: Math.min(86400, Math.round(r.ms / 1000)), ended_by: r.ended, dictations: n(r.dictations), words: wordsBucket(r.words),
+          ...(r.copied && { copied: n(r.copied) }), ...(r.failed && { failed: n(r.failed) }), ...(r.polished && { polished: n(r.polished) }),
+          ...(r.edits && { edits: n(r.edits) }), ...(r.commands && { commands: n(r.commands) }), ...(r.snippets && { snippets: n(r.snippets) }),
+          talk_mode: talkMode() === "ptt" ? "ptt" : "hands_free", ...(lang && { lang }),
+        });
+      },
+      failure: (code) => telemetry.track("dictate_failure", { code }),
       record: (d) => void (async () => {
+        telemetry.track("onboarding_step", { step: "first_dictation" });
         const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
         await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, app: front?.appName, windowId: front?.id }) });
         const ch = new BroadcastChannel(HISTORY_CHANNEL); ch.postMessage(null); ch.close();
@@ -734,6 +747,10 @@ export function useFlowOwner(): void {
         case "tool_call":
           // An API brain's call names its arguments only once they are all in.
           return setPhase("acting", toolActive(e.name, toolSummary(e.name, e.args)));
+        case "say":
+          // Narration, voiced only while the orb speaks at all: a quiet turn shows nothing extra.
+          if (snap.current.speaking) engine.current?.say(e.text);
+          return;
         case "tool_result":
           // Deliberately nothing. A run of tool calls is one continuous piece of
           // work, and bouncing the orb back to thinking between every pair of
@@ -780,9 +797,9 @@ export function useFlowOwner(): void {
           // Started now, it would take the very turn that asked for it.
           dictateAfterTurn = on && turnActive.current;
           if (dictateAfterTurn) return reply("Dictation starts as soon as this reply ends, and Flow closes for it: what the user says next is typed at their cursor.");
-          if (!on) return reply(await dictate.setOpen(false));
+          if (!on) return reply(await dictate.setOpen(false, "tool"));
           await talk.toggleDictate();
-          return reply(dictate.isOpen() ? "Dictation is on, and Flow closed for it." : "The microphone could not be opened for dictation.");
+          return reply(dictate.isOpen() ? "Dictation is on, and Flow closed for it." : "Couldn't open the microphone for dictation.");
         }
         if (op === "flow_context") { const c = await api.context(); return reply(c.ok ? JSON.stringify(c.value) : ""); }
         if (op === "flow_device") {
@@ -815,7 +832,7 @@ export function useFlowOwner(): void {
         if (!buf) return { ok: false, error: "The camera opened but never produced a frame." };
         return { ok: true, value: { data: base64(buf), mime: "image/jpeg" } };
       } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : "The camera could not be opened." };
+        return { ok: false, error: e instanceof Error ? e.message : "Couldn't open the camera." };
       } finally {
         cam.stop();
       }
@@ -897,7 +914,7 @@ export function useFlowOwner(): void {
         armed.current = false;
         void api.suspend();
         // Dictate may hold the microphone with Flow closed.
-        dictate.yield();
+        dictate.yield("sleep_or_lock");
         // A close, not a stop: a stop would leave the orb up through sleep.
         onClose("sleep_or_lock");
         teardownMic();

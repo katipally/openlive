@@ -320,6 +320,21 @@ describe("native STT fallback", () => {
     expect(posted.at(-1)).toMatchObject({ type: "stt", audio });
   });
 
+  it("says Whisper stands in only once it is here, and asks to download it when it is not", async () => {
+    models.nativeSttFailed("parakeet", new Error("not downloaded"), true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(toast).toHaveBeenLastCalledWith(expect.stringMatching(/using Whisper/));
+    expect(models.downloadAsk()).toBeNull();
+
+    vi.resetModules();
+    models = await import("./models");
+    vi.stubGlobal("caches", { match: async () => undefined });
+    models.nativeSttFailed("parakeet", new Error("not downloaded"), true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(toast).toHaveBeenLastCalledWith(expect.stringMatching(/Whisper can stand in once it's downloaded/));
+    expect(models.downloadAsk()).toMatchObject({ key: "stt", state: "ask" });
+  });
+
   it("waits out a slow native engine rather than falling back to a Whisper that is not loaded yet", async () => {
     // Node's own timeout signal runs on a clock the fake timers do not move.
     const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {

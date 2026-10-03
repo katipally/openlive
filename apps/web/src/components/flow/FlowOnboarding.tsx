@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { cn } from "@/lib/cn";
@@ -11,6 +11,7 @@ import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { flowOnboardingOpen } from "@/lib/settingChanges";
 import { telemetry } from "@/lib/telemetry";
+import { SkipSetup } from "@/components/SkipSetup";
 import { AccessRows } from "./FlowSettings";
 import { FlowCanvas } from "./FlowCanvas";
 import { ModeStart, SwitchHole, modeCopy } from "./ModeSwitch";
@@ -39,6 +40,8 @@ export function FlowOnboarding({ onDone, config, save }: {
     return () => flowOnboardingOpen(false);
   }, []);
   const finish = (how: "flow_onboarding_done" | "flow_onboarding_skipped") => { telemetry.track("onboarding_step", { step: how }); onDone(); };
+  // Skipped, setup never comes back on its own, so Skip asks first, as Welcome's does.
+  const [asking, setAsking] = useState(false);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -50,7 +53,7 @@ export function FlowOnboarding({ onDone, config, save }: {
             ? "max-w-[calc(50vw_-_var(--mode-switch-w,0px)/2_-_var(--spacing-traffic-lights)_-_var(--spacing)*3)]"
             : "max-w-[calc(50vw_-_var(--mode-switch-w,0px)/2_-_var(--spacing)*7)]")}>Set up Flow</span>
         </span>
-        <Button variant="ghost" size="sm" onClick={() => finish("flow_onboarding_skipped")} className="[-webkit-app-region:no-drag]">Skip</Button>
+        <SkipSetup asking={asking} onAsk={() => setAsking(true)} onKeep={() => setAsking(false)} onSkip={() => finish("flow_onboarding_skipped")} className="[-webkit-app-region:no-drag]" />
         {isDesktop && <SwitchHole />}
       </header>
 
