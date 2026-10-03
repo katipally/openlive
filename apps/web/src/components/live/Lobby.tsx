@@ -258,8 +258,8 @@ export function Lobby(props: LobbyProps) {
       </div>
 
       <SpotlightTour id="lobby" steps={[
-        { target: "folder", title: "Give it a project folder", body: "A coding agent works inside one folder. It is the only place it reads and writes, and where its session is saved so you can resume from the CLI too." },
-        { target: "setup-panel", title: "The AI side of the call", body: "Who you talk to, plus the model and mode it runs with, reported live by the agent itself the moment it connects." },
+        { target: "folder", title: "Give it a project folder", body: "The one place whoever answers reads and writes files. A coding agent also saves its session there, so you can resume it from its own CLI too." },
+        { target: "setup-panel", title: "The AI side of the call", body: "Who you talk to, and how it runs: its model, effort or mode. A coding agent reports its own the moment it connects." },
       ]} />
     </div>
   );
