@@ -506,7 +506,8 @@ Releases before 0.1.9 predate this file — see the
 - **Dictate's errors name Dictate.** When the keyboard helper did not load or
   the key listener stopped, Dictate's home and settings said "Flow can't hear
   the keyboard" or "Flow's key listener stopped". Each mode now names itself,
-  and How you talk, which both share, says OpenLive.
+  and How you talk, which both share, says OpenLive. The orb's download offer
+  as Dictate starts closes with **Close Dictate**, not Close Flow.
 - **The home tour after Welcome skips what Welcome just showed.** Right after
   Welcome's Done, it no longer repeats the three modes and the agent picker.
 - **A click outside a spotlight tour does what it was meant to.** It closes the

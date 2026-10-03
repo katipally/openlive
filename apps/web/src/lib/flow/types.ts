@@ -37,6 +37,8 @@ export interface FlowFailure {
   actionLabel?: string;
   /** The settings page that action opens, when the fix lives in settings. */
   settings?: FlowSettingsPage;
+  /** Raised as Dictate starts, so the card's close button names Dictate. */
+  dictate?: true;
 }
 
 /** The settings pages a failure's fix can live on. */

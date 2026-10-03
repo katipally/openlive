@@ -573,14 +573,14 @@ export function useFlowOwner(): void {
       if (askCard) {
         afterModels = "dictate";
         summon();
-        patch({ failure: askCard });
+        patch({ failure: { ...askCard, dictate: true } });
         raise(askCard, "health");
         return true;
       }
       const plan = await voiceDownloadPlan();
       if (!plan.missing.length) return false;
       afterModels = "dictate";
-      const failure = modelsOffer(planModels(plan), plan.bytes);
+      const failure: FlowFailure = { ...modelsOffer(planModels(plan), plan.bytes), dictate: true };
       summon();
       patch({ failure });
       raise(failure, "health");

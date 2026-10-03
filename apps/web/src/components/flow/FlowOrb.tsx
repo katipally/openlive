@@ -313,7 +313,7 @@ export function FlowOrb() {
                 )}
                 <button onClick={() => cmd({ t: "flowCancel" })}
                   className={cn(PILL_BTN, "border border-border bg-card text-foreground hover:bg-foreground/10")}>
-                  Close Flow
+                  {dictating || ask.failure.dictate ? "Close Dictate" : "Close Flow"}
                 </button>
               </div>
             </>
