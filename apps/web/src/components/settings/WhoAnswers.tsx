@@ -149,7 +149,7 @@ export function WhoAnswers({ id, label, value, onPick }: {
         {!!missing.length && (
           <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="min-w-0 break-words">
-              Not set up: {missing.slice(0, SHOWN_MISSING).map((a) => a.label).join(", ")}{missing.length > SHOWN_MISSING && `, +${missing.length - SHOWN_MISSING}`}
+              Not set up: {missing.slice(0, SHOWN_MISSING).map((a) => a.label).join(", ")}{missing.length > SHOWN_MISSING && `,\u00a0+${missing.length - SHOWN_MISSING}`}
             </span>
             {!!installed.length && <button type="button" onClick={toAgents} className={cn("shrink-0 text-label", linkClass)}>Set up in Agents &rsaquo;</button>}
           </span>

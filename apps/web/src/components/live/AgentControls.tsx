@@ -116,7 +116,7 @@ export function AgentSelect({ up = false }: { up?: boolean }) {
             {(!!missing.length || (loaded && !agents.length)) && (
               <button type="button" role="menuitem" onClick={() => { requestClose(); openSettingsTab("agents"); }} className={cn(menuItem, "text-caption text-muted-foreground")}>
                 <span className="min-w-0 flex-1 break-words">
-                  {missing.length ? `Not set up: ${missing.slice(0, 2).map((a) => a.label).join(", ")}${missing.length > 2 ? `, +${missing.length - 2}` : ""}` : "Install one"}
+                  {missing.length ? `Not set up: ${missing.slice(0, 2).map((a) => a.label).join(", ")}${missing.length > 2 ? `,\u00a0+${missing.length - 2}` : ""}` : "Install one"}
                 </span>
                 <span className="shrink-0 font-medium text-link-foreground">Set up in Agents &rsaquo;</span>
               </button>
