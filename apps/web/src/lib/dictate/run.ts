@@ -32,7 +32,8 @@ export interface DictateSettings {
 /** Typing at the cursor, open: words pushed as they come, then ended. */
 export interface Typing {
   push(text: string): Promise<void>;
-  /** False when the words did not all land. */
+  /** False when the words did not all land. Putting the clipboard back after a
+   *  paste is not part of it: ol-input does that later, on its own thread. */
   end(): Promise<boolean>;
 }
 
@@ -57,6 +58,8 @@ export interface DictatePorts {
   show(d: DictateSnapshot | null): void;
   /** Dictate is done with the microphone: nothing it caught from here on goes anywhere. */
   release(): void;
+  /** Released MIC_WARM_MS ago and not taken back since: the microphone may close. */
+  micIdle(): void;
   /** Hands-free opened or closed other than by the key, so the key's next tap does the right thing. */
   gestureOpen(open: boolean): void;
   /** One rewrite by Dictate's brain, its words handed to `onText` as they come.
@@ -77,6 +80,9 @@ export interface DictatePorts {
 export const DONE_MS = 1600;
 /** How long the orb offers Undo after an insertion, and stays up for it. */
 export const UNDO_MS = 5000;
+/** How long the microphone stays open, muted, once Dictate lets go of it, so the
+ *  next hold finds the engine up and is captioned from its first word. */
+export const MIC_WARM_MS = 30_000;
 
 const NO_MIC = "I could not open the microphone.";
 const NOT_WRITTEN = "Your words could not be written down.";
@@ -131,9 +137,13 @@ export function createDictate(ports: DictatePorts) {
   let opening: Promise<boolean> = Promise.resolve(true);
   // A tap's capture: whatever it heard is thrown away.
   let discarding = false;
+  // A released hold's words are in, but the microphone stays open until `finish`
+  // lets it go: talk heard meanwhile is Dictate's to drop, never a Flow turn.
+  let tail = false;
   // Hands-free types each utterance after the one before, so all but the first are spaced.
   let typed = 0;
   let linger: ReturnType<typeof setTimeout> | null = null;
+  let micWarm: ReturnType<typeof setTimeout> | undefined;
   let offer: ReturnType<typeof setTimeout> | undefined;
   let d: DictateSnapshot | null = null;
   // Utterances are cleaned up and typed one after another, so a slow polish
@@ -146,11 +156,17 @@ export function createDictate(ports: DictatePorts) {
     ports.show(d);
   };
   const stopLinger = () => { if (linger) clearTimeout(linger); linger = null; };
+  const release = () => {
+    ports.release();
+    tail = false;
+    clearTimeout(micWarm);
+    micWarm = setTimeout(() => ports.micIdle(), MIC_WARM_MS);
+  };
   /** Done: what it did stays up a moment, then the orb goes back. `now`: the
    *  person stopped it, so the orb goes back straight away. */
   const finish = (now = false) => {
     mode = null;
-    ports.release();
+    release();
     stopLinger();
     if (!d) return;
     if (now || (!d.inserted && !d.note)) return giveBack();
@@ -163,6 +179,8 @@ export function createDictate(ports: DictatePorts) {
   const start = (next: "hold" | "handsFree") => {
     stopLinger();
     mode = next;
+    tail = false;
+    clearTimeout(micWarm);
     typed = 0;
     d = null;
     if (next === "handsFree") commanding = false;
@@ -317,7 +335,7 @@ export function createDictate(ports: DictatePorts) {
 
   return {
     /** Dictate has the microphone, so an utterance is its to take. */
-    active: () => mode !== null || discarding,
+    active: () => mode !== null || discarding || tail,
     /** `command`: command mode's key, so what is said is an instruction for the selection. */
     holdStart(command = false) {
       if (mode === "handsFree") return;
@@ -338,6 +356,7 @@ export function createDictate(ports: DictatePorts) {
       // The engine hands the words over without waiting for them to be typed, so
       // the orb waits here; the key is free meanwhile for the next press.
       mode = null;
+      tail = true;
       await work;
       if (!mode) finish();
     },
@@ -348,7 +367,7 @@ export function createDictate(ports: DictatePorts) {
         discarding = true;
         try { await ports.endHold(0); } finally { discarding = false; }
       }
-      if (!mode) ports.release();
+      if (!mode) release();
       giveBack();
     },
     setHandsFree,
@@ -368,6 +387,8 @@ export function createDictate(ports: DictatePorts) {
     toggle: () => setHandsFree(mode !== "handsFree", false),
     /** Flow was opened over it: Flow wins the microphone and Dictate stops. */
     yield() {
+      tail = false;
+      clearTimeout(micWarm);
       if (!mode && !d) return;
       if (mode === "handsFree") ports.gestureOpen(false);
       mode = null;
@@ -384,7 +405,7 @@ export function createDictate(ports: DictatePorts) {
     /** A finished utterance. True when Dictate took it, so it must go nowhere else. */
     async heard(text: string): Promise<boolean> {
       if (discarding) return true;
-      if (!mode) return false;
+      if (!mode) return tail;
       const s = ports.settings();
       const asCommand = commanding;
       const run = work.then(() => (asCommand ? command(text, s) : dictation(text, s)));

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, MIC_WARM_MS, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ voided = false, mic = true as boolean | Promise<boolean>, written = true, inserted = "typed" as Inserted, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
+function rig({ voided = false, mic = true as boolean | Promise<boolean>, written = true, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -25,10 +25,11 @@ function rig({ voided = false, mic = true as boolean | Promise<boolean>, written
     typing: vi.fn(async () => {
       if (inserted !== "typed") return null;
       let text = "";
-      return { push: vi.fn(async (t: string) => { text += t; }), end: vi.fn(async () => { typed.push(text); return true; }) };
+      return { push: vi.fn(async (t: string) => { text += t; }), end: vi.fn(async () => { typed.push(text); return ended; }) };
     }),
     copy: vi.fn(async () => inserted !== "failed"),
     release: vi.fn(),
+    micIdle: vi.fn(),
     quietFlow: vi.fn(),
     show: (d) => void shown.push(d),
     gestureOpen: vi.fn(),
@@ -168,6 +169,100 @@ describe("holding the key", () => {
     r.say("hello there friend");
     await r.dictate.holdEnd();
     expect(r.last()).toMatchObject({ inserted: 0, note: "No text box in focus. Copied instead." });
+  });
+
+  it("a release before a cold engine is up still ends on the words, with Undo on the orb", async () => {
+    let up!: (ok: boolean) => void;
+    const r = rig({ mic: new Promise<boolean>((ok) => { up = ok; }) });
+    r.dictate.holdStart();
+    r.say("send it friday");
+    const released = r.dictate.holdEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    up(true);
+    await released;
+    expect(r.typed).toEqual(["Send it Friday."]);
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3, undo: true });
+    // The orb stays up for the Undo offer, not given back underneath it.
+    await vi.advanceTimersByTimeAsync(UNDO_MS - 1);
+    expect(r.last()).toMatchObject({ undo: true });
+  });
+
+  it("keeps Undo for a paste that landed: the clipboard is put back afterwards and is no part of it", async () => {
+    const r = rig();
+    await hold(r, "send it friday");
+    expect(r.ports.copy).not.toHaveBeenCalled();
+    expect(r.last()).toMatchObject({ undo: true, note: "" });
+  });
+
+  it("offers no Undo for words that did not all land, and copies them", async () => {
+    const r = rig({ ended: false });
+    await hold(r, "send it friday");
+    expect(r.ports.copy).toHaveBeenCalledWith("Send it Friday.");
+    expect(r.last()).toMatchObject({ undo: false, note: "No text box in focus. Copied instead." });
+  });
+
+  it("holds on to talk after the release until the microphone is let go, so it can never reach Flow", async () => {
+    let answer = (_: string) => {};
+    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
+    const released = hold(r, "send it friday");
+    await vi.advanceTimersByTimeAsync(0);
+    // The key is up and the words are being polished: the engine still hears.
+    expect(r.dictate.active()).toBe(true);
+    expect(await r.dictate.heard("and something else")).toBe(true);
+    answer("Send it Friday.");
+    await released;
+    expect(r.typed).toEqual(["Send it Friday."]);
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
+    expect(r.dictate.active()).toBe(false);
+    expect(await r.dictate.heard("talk to flow")).toBe(false);
+  });
+
+  it("a press while the last hold's words are still being typed hears its own words", async () => {
+    let answer = (_: string) => {};
+    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: async (ask) => (ask.text === "Second" ? "Second" : new Promise<string>((ok) => { answer = ok; })) });
+    const first = hold(r, "first");
+    await vi.advanceTimersByTimeAsync(0);
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    r.say("second");
+    const second = r.dictate.holdEnd();
+    answer("First.");
+    await Promise.all([first, second]);
+    expect(r.typed).toEqual(["First.", "Second"]);
+  });
+});
+
+describe("the microphone after a dictation", () => {
+  it("stays open, muted, for MIC_WARM_MS after the words land, then may close", async () => {
+    const r = rig();
+    await hold(r, "send it friday");
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(MIC_WARM_MS - 1);
+    expect(r.ports.micIdle).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.ports.micIdle).toHaveBeenCalledTimes(1);
+  });
+
+  it("the next hold inside the window takes it back, and its own release starts the wait again", async () => {
+    const r = rig();
+    await hold(r, "one");
+    await vi.advanceTimersByTimeAsync(MIC_WARM_MS / 2);
+    await hold(r, "two");
+    await vi.advanceTimersByTimeAsync(MIC_WARM_MS - 1);
+    expect(r.ports.micIdle).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.ports.micIdle).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stray tap starts the wait too, and Flow taking the microphone ends it", async () => {
+    const r = rig();
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    await r.dictate.holdCancel();
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
+    r.dictate.yield();
+    await vi.advanceTimersByTimeAsync(MIC_WARM_MS);
+    expect(r.ports.micIdle).not.toHaveBeenCalled();
   });
 });
 
@@ -377,6 +472,13 @@ describe("spoken commands", () => {
     await r.dictate.heard("undo that");
     expect(r.pressed).toHaveLength(1);
     expect(r.last()?.note).toMatch(/Nothing/);
+  });
+
+  it("offers no Undo after a trailing command: Backspace from there would eat the line break, not the words", async () => {
+    const r = rig();
+    await hold(r, "Sounds good. Press enter.");
+    expect(r.typed).toEqual(["Sounds good."]);
+    expect(r.last()).toMatchObject({ undo: false, note: "Pressed Enter" });
   });
 
   it("offers Undo on the orb after an insertion, which takes it back once", async () => {

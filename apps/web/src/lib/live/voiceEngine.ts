@@ -127,7 +127,7 @@ const joinHeard = (a: Heard, aSamples: number, b: Heard): Heard =>
 function rmsOf(a: Float32Array): number { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]! * a[i]!; return Math.sqrt(s / a.length); }
 
 /** Everything a hold hears, 16 kHz mono, from the moment the microphone opens. */
-type Tape = { stop(lateMs: number): Promise<Float32Array> };
+type Tape = { stop(lateMs: number): Promise<Float32Array>; peek(): Float32Array };
 /** For a hold that began before the VAD could: loading it takes a moment, and
  *  words said meanwhile would be gone. A ScriptProcessor, not a worklet, since a
  *  worklet's module load is the very wait this covers. */
@@ -141,6 +141,12 @@ function tapeOf(stream: MediaStream): Tape {
   // A ScriptProcessor runs only on a path to the output. It writes nothing, so nothing plays.
   node.connect(ctx.destination);
   void ctx.resume();
+  const all = () => {
+    const out = new Float32Array(total);
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
+  };
   return {
     // Cut at the release, `lateMs` ago, on the context's clock: what came after it is not the hold's.
     async stop(lateMs) {
@@ -148,11 +154,10 @@ function tapeOf(stream: MediaStream): Tape {
       for (let i = 0; i < 6 && total < end; i++) await new Promise((r) => setTimeout(r, 50)); // the last buffer, in flight
       node.onaudioprocess = null;
       void ctx.close();
-      const all = new Float32Array(total);
-      let off = 0;
-      for (const p of parts) { all.set(p, off); off += p.length; }
-      return all.subarray(0, end);
+      return all().subarray(0, end);
     },
+    /** All of it so far, for a caption while the hold goes on. O(n) in its samples. */
+    peek: all,
   };
 }
 
@@ -299,7 +304,7 @@ export class VoiceEngine {
     if (!variantInfo(e)?.variant.streaming) return;
     this.asr = new AsrStream(e, lang, {
       onPartial: (text) => {
-        if (this.streaming && this.phase === "listening" && text && !isJunk(text)) this.heardPartial(this.pending ? `${this.pendingText} ${text}` : text);
+        if (this.streaming && !this.tape && this.phase === "listening" && text && !isJunk(text)) this.heardPartial(this.pending ? `${this.pendingText} ${text}` : text);
       },
       onRefused: (why) => nativeSttFailed(e, new Error(why), true),
     });
@@ -373,6 +378,8 @@ export class VoiceEngine {
     if (!this.muted || this.ptt) await vad.start();
     if (this.stopped) return;
     this.setupMicSpectrum(stream);
+    // What the hold caught while the VAD loaded is shown now, not at the next word.
+    if (this.tape) { this.uttEngine = activeSttEngine(); void this.maybePartial(); }
     // Only a segment the old VAD was hearing is gone; a reply keeps its phase.
     if (this.phase === "listening") this.setPhase("idle");
   }
@@ -532,8 +539,8 @@ export class VoiceEngine {
     // meanwhile, and talk to someone else resumes it. The settings are read last: never on every frame.
     if (this.tentative && this.hearing && speech && this.voicedMs > BACKCHANNEL_MAX_MS
       && (!this.gating() || this.passed === GATE_MS.length || this.voicedMs > 2 * BACKCHANNEL_MAX_MS) && this.sideTalkMode() !== "ignore") this.bargeIn();
-    if (this.streaming) { this.asr!.send(frame); return; }
-    if (this.asr) this.ring.push(frame);
+    if (this.streaming) { this.asr!.send(frame); if (!this.tape) return; }
+    else if (this.asr) this.ring.push(frame);
     if (this.phase !== "listening") return;
     this.curBuf.push(frame); this.curLen += frame.length;
     void this.maybePartial();
@@ -594,28 +601,34 @@ export class VoiceEngine {
 
   // Interim caption while speaking. Whisper only on WebGPU (too slow to be useful
   // on WASM); a native batch engine runs on the agent's CPU, fast either way; a
-  // streaming engine sends its own partials.
+  // streaming engine sends its own partials while its socket is live. A hold
+  // with a tape is captioned from the tape, which has the words before the VAD.
   private async maybePartial() {
     // Over a paused reply only the final decides, so the engine is kept free for it.
-    if ((this.uttEngine === "whisper" && !hasWebGPU()) || this.asr || this.partialBusy || this.finalizing || this.tentative) return;
+    if (!this.captions() || (this.streaming && !this.tape) || this.partialBusy || this.finalizing || this.tentative) return;
     const now = Date.now();
     // Each partial re-transcribes the whole utterance so far, so its cost grows
     // with it: spacing them by twice that cost keeps a long monologue from
     // holding the STT engine flat out, with the final queued behind.
-    if (now - this.lastPartialAt < Math.max(PARTIAL_MS, 2 * this.partialMs) || this.curLen < MIN_UTTER_SAMPLES) return;
+    if (now - this.lastPartialAt < Math.max(PARTIAL_MS, 2 * this.partialMs)) return;
+    const tape = this.tape;
+    const win = tape ? tape.peek() : this.concat(this.curBuf, this.curLen);
+    if (win.length < MIN_UTTER_SAMPLES) return;
     this.lastPartialAt = now;
     this.partialBusy = true;
     const abort = this.partialAbort = new AbortController();
     try {
-      const win = this.concat(this.curBuf, this.curLen);
       if (rmsOf(win) < this.gate()) return;
       const { text } = await stt(win, abort.signal);
       // The browser's Whisper finishes an aborted caption anyway. Its segment has
       // ended, so the final decides: a half-heard laugh read as "have a" must not.
-      if (text && !abort.signal.aborted && !isJunk(text) && this.phase === "listening") this.heardPartial(text);
+      // A tape's caption stands for as long as its hold does.
+      if (text && !abort.signal.aborted && !isJunk(text) && (tape ? this.tape === tape : this.phase === "listening")) this.heardPartial(text);
     } catch { /* best-effort */ }
     finally { this.partialBusy = false; this.partialMs = Date.now() - now; if (this.partialAbort === abort) this.partialAbort = null; }
   }
+
+  private captions() { return this.uttEngine !== "whisper" || hasWebGPU(); }
 
   /** An interim transcript. Over a paused reply it decides nothing: Whisper reads
    *  half a laugh as "have a", and the reply is silent until the final is in. */
@@ -762,7 +775,8 @@ export class VoiceEngine {
       if (this.ptt) {
         // Push-to-talk's turn takes the label judged on the most speech.
         if (!this.pending || voiced > this.speakerVoiced) { this.pendingSpeaker = speaker; this.speakerVoiced = voiced; }
-        this.pending = combined; this.pendingText = text; this.pendingAt = heard.at; if (!isJunk(text)) this.h.onPartial(text); this.setPhase("idle"); return;
+        // A tape's caption already has more than this segment: it stays.
+        this.pending = combined; this.pendingText = text; this.pendingAt = heard.at; if (!isJunk(text) && !(this.tape && this.captions())) this.h.onPartial(text); this.setPhase("idle"); return;
       }
       // Drop empties and Whisper's silence-hallucinations so background noise and
       // dead air never fire a turn.
@@ -945,6 +959,11 @@ export class VoiceEngine {
     return true;
   }
   pttActive() { return this.ptt; }
+  /** A hold begins on an engine already up: recorded from now, as a cold start's
+   *  is, so a word too short for the VAD is kept. */
+  tapeHold() {
+    if (!this.tape && this.micTrack && !this.stopped) this.tape = tapeOf(new MediaStream([this.micTrack]));
+  }
 
   // ── agent reply → speech ───────────────────────────────────────────────
   feedAgentDelta(text: string) {

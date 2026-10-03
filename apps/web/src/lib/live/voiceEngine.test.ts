@@ -792,6 +792,40 @@ it("a hold begun before the VAD was up is written down from its tape, words befo
   expect(sent).toEqual(["send the report to the team"]);
 });
 
+it("a hold with a tape is captioned from all of it, words before the VAD included, and only while the hold lasts", async () => {
+  const shown: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial: (t: string) => shown.push(t), onBargeIn() {}, onHold() {}, onUserText() {} } as never, { ...playNow, playing: () => false } as never) as any;
+  const tape = { peek: () => new Float32Array(16000).fill(0.1), stop: async () => new Float32Array(0) };
+  // A native engine captions on any machine; this one has a socket that is not live.
+  Object.assign(eng, { ptt: true, uttEngine: "parakeet-tdt", asr: { live: false }, tape, phase: "idle" });
+  Object.assign(tts, { heard: "send the report", at: [] });
+  await eng.maybePartial();
+  expect(shown).toEqual(["send the report"]);
+  // Let go while a caption is in flight: it stands for nothing.
+  let go!: () => void;
+  tts.gate = new Promise<void>((ok) => { go = ok; });
+  eng.lastPartialAt = 0;
+  const late = eng.maybePartial();
+  eng.tape = null;
+  go();
+  await late;
+  expect(shown).toEqual(["send the report"]);
+  tts.gate = Promise.resolve();
+});
+
+it("a streaming engine whose socket is not live still gets batch captions", async () => {
+  const shown: string[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial: (t: string) => shown.push(t), onBargeIn() {}, onHold() {}, onUserText() {} } as never, { ...playNow, playing: () => false } as never) as any;
+  Object.assign(eng, { uttEngine: "nemotron-en-160ms-int8", asr: { live: false }, streaming: false, phase: "listening", curBuf: [new Float32Array(16000).fill(0.1)], curLen: 16000 });
+  Object.assign(tts, { heard: "hello there", at: [] });
+  await eng.maybePartial();
+  expect(shown).toEqual(["hello there"]);
+  // Live, the socket captions it instead.
+  Object.assign(eng, { streaming: true, lastPartialAt: 0 });
+  await eng.maybePartial();
+  expect(shown).toEqual(["hello there"]);
+});
+
 it("a hold whose words could not be written down says so", async () => {
   const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText() {} } as never, { ...playNow, playing: () => false } as never) as any;
   Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });

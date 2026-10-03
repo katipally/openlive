@@ -6,6 +6,22 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Fixed
+- **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
+  longer misses being told it is shown when it comes up for Dictate, which hid
+  the words and the Undo button. The microphone stays open, muted, for 30
+  seconds after a dictation, so the next hold is captioned from its first word;
+  then it closes, and turning Dictate off or opening Flow closes it at once.
+  The first hold after a while is captioned as soon as the engine is up,
+  including what was said while it started.
+- **Talk right after letting go of Dictate's key can no longer open a Flow
+  turn.** Dictate keeps the microphone until the words are typed.
+- **Flow's brain picked during Flow's setup is the one Flow uses.** Picking a
+  coding agent there now takes effect, and the picker shows the brain Flow
+  really runs on.
+- Settings > Dictate gives AI polish's real wait (25 seconds) before it types
+  the cleaned-up words instead.
+
 ## [0.3.0] - 2026-10-02
 
 ### Added

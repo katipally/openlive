@@ -53,9 +53,6 @@ const ARM_WATCH_MS = 1000;
 const ANSWER_SILENCE_MS = 90_000;
 const ARM_WATCH_MAX_ERRORS = 5;
 const MIC: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-// The microphone outlives a dictation by this much, so the second tap of a
-// double-tap, or the next hold, finds it already open.
-const DICTATE_MIC_GRACE_MS = 1500;
 const NONE: never[] = [];
 const JSON_POST = { method: "POST", headers: { "content-type": "application/json" } } as const;
 
@@ -291,6 +288,8 @@ export function useFlowOwner(): void {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string };
         settings.current = body.config;
+        // Dictate turned off lets go of a microphone it kept warm, not MIC_WARM_MS later.
+        if (!body.config.dictate.enabled && !summoned.current) { dictate.yield(); teardownMic(); }
         brainReady.current = body.brainReady;
         brain = { kind: body.brainKind, id: body.brainId };
         if (!armed.current) await arm();
@@ -550,7 +549,6 @@ export function useFlowOwner(): void {
     // ── Dictate ───────────────────────────────────────────────────────────
     // Same microphone, same engine, same orb as Flow; its words go to the
     // cursor instead of the brain.
-    let micGrace: ReturnType<typeof setTimeout> | undefined;
     // set_dictation asked mid-turn: hands-free starts once that turn is over.
     let dictateAfterTurn = false;
     const startDictateAfterTurn = () => {
@@ -580,9 +578,10 @@ export function useFlowOwner(): void {
 
     const dictate = createDictate({
       listen: async (hold) => {
-        clearTimeout(micGrace);
         if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
         await ensureEngine(hold);
+        // An engine already up starts no tape of its own.
+        if (hold) engine.current?.tapeHold();
         engine.current?.setMuted(false);
         return !!engine.current;
       },
@@ -597,6 +596,7 @@ export function useFlowOwner(): void {
         engine.current?.discard();
         if (!summoned.current) engine.current?.setMuted(true);
       },
+      micIdle: () => { if (!summoned.current && !snap.current.dictate) teardownMic(); },
       quietFlow: () => { if (turnActive.current) onStop(); },
       show: (d) => {
         if (d && !summoned.current && !snap.current.dictate) api.summon("dictate");
@@ -604,7 +604,6 @@ export function useFlowOwner(): void {
         if (d) return;
         if (summoned.current) return backToListening();
         api.dismiss("other");
-        micGrace = setTimeout(() => { if (!summoned.current && !snap.current.dictate) teardownMic(); }, DICTATE_MIC_GRACE_MS);
       },
       gestureOpen: (open) => void api.gestureOpen(DICTATE_BINDING, open),
       rewrite: async (ask, signal, onText) => {
@@ -931,6 +930,10 @@ export function useFlowOwner(): void {
 
     return () => {
       for (const off of [offPower, offCmd, offEffect, offSecure, offArmed, offSettings, offResume, offNew]) off?.();
+      // A Fast Refresh runs this effect again on the same refs: a Dictate left in
+      // the snapshot would keep the next one from ever summoning the orb.
+      dictate.yield();
+      patch({ dictate: null });
       clearInterval(bands);
       clearInterval(armWatch);
       window.removeEventListener("online", online);
@@ -941,7 +944,6 @@ export function useFlowOwner(): void {
       teardownMic();
       void api.unregister(BINDING_ID);
       for (const id of dictateKeys.current.keys()) void api.unregister(id);
-      clearTimeout(micGrace);
       client.current?.close();
       client.current = null;
     };

@@ -67,7 +67,10 @@ above them fade into one another rather than popping. Above the badge, one line:
 The first press after a while, or after launch, opens the microphone and
 starts the speech engine, which takes a moment: the line says **Getting
 ready**, and you can talk straight away. Everything said from the key going
-down is kept and written down once the engine is up. Words it heard but could
+down is kept, shown on the line as soon as the engine is up, and written down
+on release. After each dictation the microphone stays open, muted, for 30
+seconds, so the next hold is up at once; then it closes (on macOS the orange
+dot goes). Turning Dictate off, or Flow taking over, ends that wait at once. Words it heard but could
 not write down are said so on the orb (**Your words could not be written
 down.**), never dropped quietly. Flow's own cards (no brain set up, say) never
 show on Dictate's orb with Flow closed.
@@ -88,7 +91,9 @@ always did.
 
 Stopping hands-free puts things back as they were before it started. With Flow
 closed, the microphone goes quiet at once and the orb goes after the Undo
-offer, so talk after the stop never opens Flow. With Flow open, Flow listens
+offer, so talk after the stop never opens Flow. The same holds for talk right
+after a hold is let go: until the words are typed, Dictate keeps the
+microphone and drops it. With Flow open, Flow listens
 again. Either way, a sentence still being said or transcribed at the stop is
 dropped, not typed and not sent to Flow.
 
@@ -313,8 +318,15 @@ One microphone, one engine, one orb, so the two take turns:
   heard could be written down.
 - **Cold start**: a hold that opens the microphone starts the engine with
   `start(stream, true)`, which records the stream at 16 kHz from that moment
-  while the VAD loads. On release the tape, cut where the key went up, is
-  transcribed whole instead of the VAD's segments, which miss its start.
+  while the VAD loads. A hold on an engine that is already up starts one too
+  (`tapeHold`), so a word too short for the VAD is kept. While the hold lasts
+  the line is captioned from the tape, the first time as soon as the VAD is
+  up; a streaming engine whose socket is not live falls back to these batch
+  captions. On release the tape, cut where the key went up, is transcribed
+  whole instead of the VAD's segments, which miss its start.
+- **Warm microphone**: `createDictate` asks the owner to close the microphone
+  (`micIdle`) `MIC_WARM_MS` (30 s) after it last let go of it, unless a press
+  or Flow took it back first.
 - **Tool**: `set_dictation` (`services/agent/src/capabilities/text.ts`) is
   offered wherever a session has `dictate`, which Flow's does through the
   `flow_dictate` bridge op. The registry serves the same tool to API brains and,
