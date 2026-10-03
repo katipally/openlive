@@ -39,6 +39,8 @@ behaves is in Settings > Dictate, and nothing is in both places.
  Settings ›                               Commands: command key, spoken commands
 ```
 
+![Dictate's home](../assets/dictate-home.png)
+
 - **The switch**: **Dictate is on** or **Dictate is off**. The tray (menu bar)
   menu has the same switch: **Turn Dictate on** or **Turn Dictate off**, under
   a line that says how it stands (**Dictate is on · Hold Right ⌥**, **Dictate

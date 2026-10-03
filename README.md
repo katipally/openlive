@@ -209,7 +209,7 @@ Dictate's home; the tray has the same switch. See [docs/DICTATE.md](docs/DICTATE
 | **A failure card with its fix** | **Settings, Flow** |
 | ![Flow failure card](assets/flow-orb-failure.png) | ![Settings, Flow](assets/flow-settings.png) |
 | **Dictate, words and snippets** | |
-| ![Settings, Dictate, Words](assets/dictate.png) | |
+| ![Settings, Dictate, Words](assets/dictate.png) | ![Dictate home](assets/dictate-home.png) |
 
 ## Why on-device voice matters
 
