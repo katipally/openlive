@@ -92,7 +92,7 @@ function Palette({ onNewChat, onClose }: { onNewChat: () => void; onClose: () =>
     out.push({ id: "theme", label: "Toggle theme", group: "Actions", icon: SunMoon, keywords: "dark light appearance",
       hint: resolvedTheme === "dark" ? "Now dark" : "Now light", run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark") });
     // The History drawer lives in the Chat view.
-    if (chatShown) out.push({ id: "history", label: "Open history", group: "Actions", icon: History, keywords: "sessions resume past conversations",
+    if (chatShown) out.push({ id: "history", label: "Open sessions", group: "Actions", icon: History, keywords: "history resume past conversations",
       run: () => { leaveSettings(); ui.setHistoryOpen(true); } });
     out.push({ id: "report", label: "Report a problem", group: "Actions", icon: LifeBuoy, keywords: "bug issue github feedback broken help",
       hint: "Opens a GitHub issue", run: () => void reportProblem(brainId) });
