@@ -15,7 +15,7 @@ import { STAGGER_MAX, useMotionTokens } from "@/lib/motion";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Button, Tooltip, Input, SidePanelHeader, sidePanel, Segmented, type SegOption, menuItem, menuPanel, useMenu, groupLabel, ConfirmButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { isDesktop, isMacDesktop, basename } from "@/lib/platform";
+import { isDesktop, isMacDesktop, isNonMacDesktop, basename } from "@/lib/platform";
 import type { AgentId } from "@/lib/live/liveClient";
 import { agentLabel, isAgentId } from "@openlive/shared";
 import type { HistoryChat } from "@openlive/shared";
@@ -171,9 +171,11 @@ export function HistorySidebar() {
         onDragEnd={(_, i) => { if (i.offset.x < -CLOSE_PX || i.velocity.x < -FLICK_PX_S) close(); }}
         onClickCapture={(e) => { if (dragged.current) { e.preventDefault(); e.stopPropagation(); } }}
         style={{ touchAction: "pan-y" }}
-        className={cn(sidePanel(true), "fixed bottom-3 left-3 top-3 z-drawer w-[min(22.5rem,calc(100%-1.5rem))] overflow-hidden")}>
-        {/* Clear of the macOS traffic lights, which sit over this corner. */}
-        <SidePanelHeader title="Sessions" className={cn(isMacDesktop && "pt-8", isDesktop && "[-webkit-app-region:drag]")}>
+        // Clear of the window's own controls: under the title strip that holds
+        // macOS's traffic lights, and short of Windows' and Linux's at the right.
+        className={cn(sidePanel(true), "fixed bottom-3 left-3 z-drawer w-[min(22.5rem,calc(100%-1.5rem))] overflow-hidden",
+          isMacDesktop ? "top-14" : "top-3", isNonMacDesktop && "max-w-[calc(100%-var(--spacing-window-controls)-1.5rem)]")}>
+        <SidePanelHeader title="Sessions" className={cn(isDesktop && "[-webkit-app-region:drag]")}>
           <Tooltip label="Close sessions" className={cn(isDesktop && "[-webkit-app-region:no-drag]")}>
             <Button variant="ghost" size="sm" icon onClick={close} aria-label="Close sessions"><X /></Button>
           </Tooltip>
