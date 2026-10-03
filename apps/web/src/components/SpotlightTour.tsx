@@ -26,7 +26,7 @@ export interface TourStep {
   /** Dropped when a first run already showed it this launch. */
   concept?: TourConcept;
 }
-export const MAX_TOUR_STEPS = 4;
+const MAX_TOUR_STEPS = 4;
 
 /** What a first run showed: Welcome the modes and who answers, Flow's setup its switch. */
 export type TourConcept = "modes" | "whoAnswers" | "flowPower";
