@@ -701,8 +701,9 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `voiceprint` | The voiceprint mode. | `off`, `label`, `gate` | none |
 | `side_talk` | The side talk check mode. | `off`, `shadow`, `ignore` | none |
 | `allow_restricted` | Whether models with a restricted license are allowed. | `on`, `off` | none |
-| `flow_own_brain` | Use a different brain for Flow, on or off. | `on`, `off` | none |
-| `flow_brain` | Flow's brain kind. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
+| `default_brain` | Who answers by default: your API key or a coding agent. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
+| `flow_own_brain` | Flow has its own choice of who answers, on or off. | `on`, `off` | none |
+| `flow_brain` | Who answers in Flow: your API key or a coding agent. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
 | `flow_speak_replies` | Flow speaks its replies, on or off. | `on`, `off` | none |
 | `flow_own_wait` | Use a different pace for Flow, on or off. | `on`, `off` | none |
 | `flow_quiet_meeting` | Stay quiet during meetings, on or off. | `on`, `off` | none |

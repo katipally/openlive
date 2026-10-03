@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FlowConfig } from "@openlive/flow-store";
 import { TextCursorInput } from "lucide-react";
-import { flowTurn } from "@openlive/flow-store/shared";
+import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
 import { CONTROL, desktopPlatform, isDesktop, isMac } from "@/lib/platform";
 import { Keycaps, Switch, Select, Button, linkClass, ListGroup, ListRow, Segmented, type DotTone } from "@/components/ui";
 import { flowBridge, type FlowPermissionName, type PermissionAskedFrom } from "@/lib/flow/bridge";
@@ -14,12 +14,11 @@ import { effectiveWait } from "@/lib/flow/wait";
 import { dndNote } from "@/lib/flow/quiet";
 import { keyListenerNote } from "@/lib/flow/failure";
 import { familyInfo, loadPipelineConfig, onPipelineConfig, turnPresetOf, TURN_PRESETS, type PipelineConfig } from "@/lib/live/pipelineConfig";
-import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { api, type ComputerGrant, type ComputerStatus } from "@/lib/api";
 import { Section } from "@/components/settings/Section";
 import { LinkRow, useSettingsNav } from "@/components/settings/nav";
 import { MoreMenu, QueryState, StatusDot } from "@/components/settings/common";
-import { BrainPicker } from "./BrainPicker";
+import { AnswerSummary, useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
 import { AddonCard } from "./AddonCard";
 
 // The Flow tab of Settings: only what Flow does that Chat does not, plus rows
@@ -45,7 +44,7 @@ function voiceLine(c: PipelineConfig): string {
 
 export function FlowSettings() {
   const { config, save, error, loading, refetch } = useFlowConfig();
-  const choice = useApiModeChoice();
+  const answers = useDefaultBrain();
   const go = useSettingsNav();
   const [pipeline, setPipeline] = useState(() => loadPipelineConfig());
   useEffect(() => onPipelineConfig(setPipeline), []);
@@ -88,18 +87,19 @@ export function FlowSettings() {
       </Section>
       {error && <p className="text-label text-destructive-text">{error}</p>}
 
-      <Section id="set-flow-brain" title="Brain" desc="Who does the thinking.">
+      <Section id="set-flow-brain" title="Who answers" desc="Flow follows the default, or has its own.">
         <div className="flex flex-col gap-3">
           <ListGroup>
-            {!ownBrain && (
-              <LinkRow label="Who does the thinking" onGo={() => go("models")}
-                value={choice.loading ? "\u2026" : !choice.usable ? <StatusDot tone="arc">{choice.providerName}: no key yet</StatusDot> : `API mode · ${choice.model}`} />
-            )}
-            <Toggle label="Use a different one for Flow" on={ownBrain} onFlip={(override) => save({ brain: { override } })}
-              detail={ownBrain ? "Chat is unchanged" : "Else it follows Models"}
-              info={ownBrain ? "Flow thinks with the one picked below. Swapping it keeps every other setting." : "Off: Flow thinks as a new chat does, with API mode from Models."} />
+            <ListRow label="Who answers in Flow" detail={ownBrain ? "Only in Flow. The default is unchanged." : undefined}>
+              <Select aria-label="Who answers in Flow" value={ownBrain ? "own" : "default"}
+                onChange={(e) => save({ brain: e.target.value === "own" ? { ...answers.brain, override: true } : { override: false } })}>
+                <option value="default">Same as default</option>
+                <option value="own">Its own</option>
+              </Select>
+            </ListRow>
+            {!ownBrain && <LinkRow label="The default" value={<AnswerSummary brain={answers.brain} />} onGo={() => go("models", "set-models-default")} />}
           </ListGroup>
-          {ownBrain && <BrainPicker config={config} save={save} />}
+          {ownBrain && <WhoAnswers id="flow" label="Who answers in Flow" value={flowBrain(config, {})} onPick={(brain) => save({ brain })} />}
         </div>
       </Section>
 

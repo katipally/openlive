@@ -6,7 +6,7 @@ import { isDesktop, isMacDesktop } from "@/lib/platform";
 import { flowBridge } from "@/lib/flow/bridge";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
-import { FLOW_ONBOARDED_DONE, flowOnboardingStep } from "@/lib/flow/onboarding";
+import { FLOW_ONBOARDED_DONE, flowOnboardingDue } from "@/lib/flow/onboarding";
 import { useOnboarding } from "@/lib/prefs";
 import { FlowHome } from "./FlowHome";
 import { FlowOnboarding } from "./FlowOnboarding";
@@ -16,18 +16,17 @@ import { SwitchHole } from "./ModeSwitch";
 // over it, and a first run in front until the person has been asked for what
 // Flow needs.
 
-const firstStep = (): 1 | 2 | null => flowOnboardingStep(useOnboarding.getState().flowOnboarded);
 const markSeen = (): void => { useOnboarding.setState({ flowOnboarded: FLOW_ONBOARDED_DONE }); };
 
 export function FlowShell() {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  // The step the first run opens at, null once done, and undecided until the
-  // effect runs, so first paint never flashes the wrong one.
-  const [onboarding, setOnboarding] = useState<1 | 2 | null | undefined>(undefined);
+  // Whether the first run shows, undecided until the effect runs, so first
+  // paint never flashes the wrong screen.
+  const [onboarding, setOnboarding] = useState<boolean | undefined>(undefined);
   const { caps, refresh } = useFlowCapabilities();
   const { config, save } = useFlowConfig();
 
-  useEffect(() => setOnboarding(firstStep()), []);
+  useEffect(() => setOnboarding(flowOnboardingDue(useOnboarding.getState().flowOnboarded)), []);
 
   // Home's "Ready" is read here and handed down. Nothing announces a grant given
   // in System Settings, so coming back to the window re-reads it; Flow's off
@@ -38,7 +37,7 @@ export function FlowShell() {
     return () => { window.removeEventListener("focus", refresh); offArmed?.(); };
   }, [refresh]);
 
-  const finishOnboarding = () => { markSeen(); setOnboarding(null); refresh(); };
+  const finishOnboarding = () => { markSeen(); setOnboarding(false); refresh(); };
 
   if (onboarding === undefined) return <div className="h-dvh" />;
 
@@ -46,7 +45,7 @@ export function FlowShell() {
     return (
       <div className="flex h-dvh flex-col">
         <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
-          <FlowOnboarding from={onboarding} onDone={finishOnboarding} config={config} save={save} />
+          <FlowOnboarding onDone={finishOnboarding} config={config} save={save} />
         </div>
       </div>
     );

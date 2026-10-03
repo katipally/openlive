@@ -4,7 +4,8 @@ import path from "node:path";
 import type { WebSocket } from "ws";
 import { toolSummary, type FlowContentWire, type LanguageCode, type LiveServerMsg, type ToolCallState } from "@openlive/shared";
 import { classifyError, flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
-import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { FlowSession as FlowStoreSession, flowBrain, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type DefaultBrainSettings, type FlowConfig } from "@openlive/flow-store";
+import { getAllSettings } from "@openlive/db";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
 import { resolveLive, type ResolvedLive } from "../providers.js";
 import { serveMcp } from "../capabilities/mcp.js";
@@ -129,8 +130,8 @@ export function quietModeId(meta: AgentMeta | null): string {
  * because a transcript that cannot say who answered it cannot explain itself
  * months later, and effort is the other half of "why was that turn slow".
  */
-export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLive) => {
-  const brain = flowBrain(cfg);
+export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLive, settings: DefaultBrainSettings = getAllSettings()) => {
+  const brain = flowBrain(cfg, settings);
   if (brain.kind === "acp") return { kind: "acp", id: brain.agentId, model: brain.agentModel, effort: brain.agentEffort };
   const { provider, model, effort } = live();
   return { kind: "api", id: provider.id, model, effort: effort ?? "" };
@@ -646,7 +647,7 @@ export class FlowLiveSession {
    * swapping the brain cannot change what Flow can do or what it asks about.
    */
   private async brainFor(cfg: FlowConfig, signal: AbortSignal): Promise<Brain> {
-    const brain = flowBrain(cfg);
+    const brain = flowBrain(cfg, getAllSettings());
     const agentId = brain.kind === "acp" && isAgentId(brain.agentId) ? brain.agentId : null;
     if (!agentId) {
       if (this.agent) void this.dropAgent();

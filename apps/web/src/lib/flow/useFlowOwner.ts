@@ -27,7 +27,7 @@ import { deriveFailure, forOrb, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
 import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
-import { flowBrain, flowTurn } from "@openlive/flow-store/shared";
+import { flowTurn } from "@openlive/flow-store/shared";
 import type { FlowConfig } from "@openlive/flow-store";
 
 // Flow's owner renderer. It holds the microphone, the voice cascade, the Flow
@@ -200,7 +200,7 @@ export function useFlowOwner(): void {
       turnActive.current = false;
       stopAnswerWatchdog();
       // An error shows on the orb as a failure, never as `reply`, so a reason has to become one.
-      const failure = message ? turnFailure(message, !!settings.current && flowBrain(settings.current).kind === "acp", code) : null;
+      const failure = message ? turnFailure(message, brain.kind === "acp", code) : null;
       patch(failure ? { reply: message, failure } : { reply: message });
       if (failure) raise(failure, "turn");
       setPhase("error");

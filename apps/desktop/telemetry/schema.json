@@ -277,7 +277,7 @@
     },
     "setting_changed": {
       "props": {
-        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "flow_idle_window", "voice_input_mode", "ptt_enabled"] },
+        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "flow_idle_window", "voice_input_mode", "ptt_enabled"] },
         "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "90s", "5m", "30m", "hold", "toggle"] },
         "subject": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi", "none"], "opt": true },
         "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
@@ -560,6 +560,7 @@
     "voiceprint": { "values": ["off", "label", "gate"] },
     "side_talk": { "values": ["off", "shadow", "ignore"] },
     "allow_restricted": { "values": ["on", "off"] },
+    "default_brain": { "values": ["api", "acp"], "subject": "agent" },
     "flow_own_brain": { "values": ["on", "off"] },
     "flow_brain": { "values": ["api", "acp"], "subject": "agent" },
     "flow_speak_replies": { "values": ["on", "off"] },

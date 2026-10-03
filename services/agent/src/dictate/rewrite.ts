@@ -1,5 +1,6 @@
 import { streamProvider } from "@openlive/harness";
 import { isAgentId, type SseEvent } from "@openlive/shared";
+import { getAllSettings } from "@openlive/db";
 import { dictateBrain, readFlowConfig, type DictateTone, type FlowBrain } from "@openlive/flow-store";
 import { liveReasoning, resolveLive, type ResolvedLive } from "../providers.js";
 import { AcpAgent } from "../agents/acp-agent.js";
@@ -142,13 +143,13 @@ function heldFor(brain: FlowBrain): Held {
 }
 
 /** Starts the coding agent ahead of the first rewrite, when Dictate thinks with one. */
-export function warm(brain: FlowBrain = dictateBrain(readFlowConfig())): void {
+export function warm(brain: FlowBrain = dictateBrain(readFlowConfig(), getAllSettings())): void {
   if (brain.kind === "acp") heldFor(brain).agent.catch((e) => log.warn("dictate", "warm:", e));
 }
 
 /** The rewrite, by the brain Settings > Dictate names, its words handed to
  *  `onText` as they come. Rejects on any failure. */
-export async function rewrite(ask: RewriteAsk, signal: AbortSignal, onText?: (text: string) => void, brain: FlowBrain = dictateBrain(readFlowConfig())): Promise<string> {
+export async function rewrite(ask: RewriteAsk, signal: AbortSignal, onText?: (text: string) => void, brain: FlowBrain = dictateBrain(readFlowConfig(), getAllSettings())): Promise<string> {
   if (brain.kind !== "acp") return apiRewrite(ask, signal, onText);
   const h = heldFor(brain);
   // One turn at a time: an agent session answers in order.

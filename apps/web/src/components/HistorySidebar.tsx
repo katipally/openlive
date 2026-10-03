@@ -21,6 +21,7 @@ import { agentLabel, isAgentId } from "@openlive/shared";
 import type { HistoryChat } from "@openlive/shared";
 import { canDelete, flattenHistory, folderSessions, groupHistory, relativeTime, spanLabel } from "@/lib/historyList";
 import { SpotlightTour } from "@/components/SpotlightTour";
+import { useDefaultAgent } from "@/components/settings/WhoAnswers";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
 
 type ResumeFn = (c: HistoryChat, cwd: string) => void;
@@ -49,6 +50,7 @@ const LAYOUT_ROWS = 40;
 // matches titles and folder names; rename and delete sit on the row (hover,
 // focus or the open one). A delete waits behind an Undo toast.
 export function HistorySidebar() {
+  const defaultAgent = useDefaultAgent();
   const open = useUi((s) => s.historyOpen);
   const setOpen = useUi((s) => s.setHistoryOpen);
   const resumeChat = useUi((s) => s.resumeChat);
@@ -119,7 +121,12 @@ export function HistorySidebar() {
     close();
   };
 
-  const newChat = () => { setOpen(false); useUi.getState().newConversation(); useUi.getState().setLiveOpen(true); };
+  const newChat = () => {
+    setOpen(false);
+    useUi.getState().newConversation();
+    setConversationBind(useUi.getState().activeChatId, defaultAgent ?? null);
+    useUi.getState().setLiveOpen(true);
+  };
 
   // Up/Down walk the rows (from the search field too), Home/End jump to the ends.
   const walk = (e: React.KeyboardEvent) => {

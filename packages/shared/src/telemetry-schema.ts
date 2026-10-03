@@ -87,6 +87,7 @@ const SETTINGS = {
   voiceprint: { values: ["off", "label", "gate"] },
   side_talk: { values: ["off", "shadow", "ignore"] },
   allow_restricted: { values: ON_OFF },
+  default_brain: { values: ["api", "acp"], subject: "agent" },
   flow_own_brain: { values: ON_OFF },
   flow_brain: { values: ["api", "acp"], subject: "agent" },
   flow_speak_replies: { values: ON_OFF },

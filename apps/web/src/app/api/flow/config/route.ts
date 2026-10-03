@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 // agent id, for a failure's report).
 
 function brainOf(config: FlowConfig) {
-  const brain = flowBrain(config);
+  const settings = getAllSettings();
+  const brain = flowBrain(config, settings);
   if (brain.kind === "acp") return { brainReady: !!brain.agentId, brainKind: "acp" as const, brainId: brain.agentId };
-  const mode = resolveApiMode(getAllSettings(), listProviders(), (p) => !!envKeyFor(p));
+  const mode = resolveApiMode(settings, listProviders(), (p) => !!envKeyFor(p));
   return { brainReady: mode.ready, brainKind: "api" as const, brainId: mode.provider.id };
 }
 

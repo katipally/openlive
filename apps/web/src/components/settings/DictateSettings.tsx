@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Cpu, Languages, TextCursorInput } from "lucide-react";
 import type { DictateTone, FlowConfig } from "@openlive/flow-store";
-import { Button, Keycaps, ListGroup, ListRow, Segmented, Switch } from "@/components/ui";
+import { Button, Keycaps, ListGroup, ListRow, Segmented, Select, Switch } from "@/components/ui";
 import { desktopPlatform, isDesktop } from "@/lib/platform";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
@@ -13,16 +13,17 @@ import { cleanup, type CleanupRules } from "@/lib/dictate/cleanup";
 import { POLISH_MS } from "@/lib/dictate/run";
 import { bindingOf, hotkeyKeys, mayBeAltGr } from "@/lib/dictate/hotkey";
 import { CURATED_LANGUAGES, familyInfo, loadPipelineConfig, onPipelineConfig } from "@/lib/live/pipelineConfig";
-import { BrainPicker } from "@/components/flow/BrainPicker";
+import { dictateBrain, flowBrain } from "@openlive/flow-store/shared";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { Section } from "./Section";
 import { LinkRow, useSettingsNav } from "./nav";
 import { QueryState, StatusDot } from "./common";
 import { DictateWords } from "./DictateWords";
 import { DictateHistory, historyQuery } from "./DictateHistory";
+import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 
 // The Dictate tab, in four subtabs. Basics: its key, how it cleans up what
-// was said, AI polish and the brain it and commands use. Words: the dictionary
+// was said, AI polish and who answers it and commands. Words: the dictionary
 // and snippets. Commands: command mode and the spoken commands. History: what
 // was dictated. Typing, voice and the speech engine are shared with Flow and
 // Chat, so they are rows that go there.
@@ -128,10 +129,10 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
         </div>
       </Section>
 
-      <Section id="set-dictate-polish" title="AI polish" desc="Rewrites with a brain. Slower, leaves this machine.">
+      <Section id="set-dictate-polish" title="AI polish" desc="Rewrites with your API key or a coding agent. Slower, leaves this machine.">
         <ListGroup>
           <ListRow label="AI polish" detail={own.polish.enabled ? "After cleanup" : "Off"} asLabel
-            info={`After the cleanup rules, the brain below rewrites what you said in the tone you pick. If it has not answered in ${POLISH_MS / 1000} seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.`}>
+            info={`After the cleanup rules, the one that answers below rewrites what you said in the tone you pick. If it has not answered in ${POLISH_MS / 1000} seconds, or fails, the cleaned-up words are typed instead. A snippet is never rewritten.`}>
             <Switch on={own.polish.enabled} onFlip={() => save({ dictate: { polish: { ...own.polish, enabled: !own.polish.enabled } } })} />
           </ListRow>
           {own.polish.enabled && (
@@ -156,21 +157,30 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
   );
 }
 
-/** The brain AI polish and command mode think with, in both of their subtabs. */
+/** Who answers AI polish and command mode. Shown once, under AI polish: command mode uses the same. */
 function BrainSection({ config, save }: { config: FlowConfig; save: Save }) {
   const own = config.dictate;
+  const { settings } = useDefaultBrain();
+  const go = useSettingsNav();
+  const flows = flowBrain(config, settings ?? {});
+  const label = "Who answers for AI polish and commands";
   return (
-    <Section id="set-dictate-brain" title="Brain" desc="For AI polish and commands.">
+    <Section id="set-dictate-brain" title="Who answers" desc="For AI polish and command mode. Plain dictation never uses one.">
       <div className="flex flex-col gap-3">
         <ListGroup>
-          <ListRow label="Use a different one for Dictate" detail={own.brain.override ? "Flow is unchanged" : "Same as Flow"} asLabel
-            info="Plain dictation never uses a brain. AI polish and command mode think with this one, an API model or a coding agent, as text only.">
-            <Switch on={own.brain.override} onFlip={() => save({ dictate: { brain: { ...own.brain, override: !own.brain.override } } })} />
+          <ListRow label={label} detail={own.brain.override ? "Only in Dictate. Flow is unchanged." : undefined}
+            info="AI polish and command mode send the words, as text only, to the one picked here. Plain dictation stays on this machine.">
+            <Select aria-label={label} value={own.brain.override ? "own" : "flow"}
+              onChange={(e) => save({ dictate: { brain: e.target.value === "own" ? { ...flows, override: true } : { ...own.brain, override: false } } })}>
+              <option value="flow">Same as Flow</option>
+              <option value="own">Its own</option>
+            </Select>
           </ListRow>
+          {!own.brain.override && <LinkRow label="Flow's choice" value={<AnswerSummary brain={settings ? flows : null} />} onGo={() => go("flow", "set-flow-brain")} />}
         </ListGroup>
         {own.brain.override && (
-          <BrainPicker config={{ ...config, brain: own.brain }}
-            save={(p) => p.brain && save({ dictate: { brain: { ...own.brain, ...p.brain } as FlowConfig["brain"] } })} />
+          <WhoAnswers id="dictate" label={label} value={dictateBrain(config, {})}
+            onPick={(p) => save({ dictate: { brain: { ...own.brain, ...p } } })} />
         )}
       </div>
     </Section>
@@ -188,8 +198,6 @@ function Commands({ config, save }: { config: FlowConfig; save: Save }) {
             info="Say what to do, like “make this formal” or “translate to Spanish”: the selected text is rewritten and replaced. With nothing selected, what you ask for is written at the cursor. A selection the system cannot read is copied, and your clipboard put back." />
         </ListGroup>
       </Section>
-
-      <BrainSection config={config} save={save} />
 
       <Section id="set-dictate-spoken" title="Spoken commands" desc={loadPipelineConfig().language === "en" ? "Said alone, or after a pause." : "Said in English only, alone or after a pause."}>
         <ListGroup>

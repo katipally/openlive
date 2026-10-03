@@ -17,6 +17,10 @@ export interface AppSettings {
   ollamaBaseUrl?: string;
   /** Working directory a bound coding agent runs in (its file-access scope). */
   agentCwd?: string;
+  /** Who answers by default (defaultBrain in @openlive/flow-store/shared): a coding agent's id, or unset for the API key. */
+  defaultAgent?: string;
+  defaultAgentModel?: string;
+  defaultAgentEffort?: string;
 }
 
 export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }

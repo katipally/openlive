@@ -17,6 +17,7 @@ import { useHydrated } from "@/lib/useHydrated";
 import { SETTINGS_KEYS } from "@/lib/platform";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
+import { useDefaultAgent } from "@/components/settings/WhoAnswers";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
 import { ModeSwitch, SwitchHole } from "@/components/flow/ModeSwitch";
@@ -66,6 +67,10 @@ export default function Home() {
   // Welcome already showed the modes and the agent picker, so the home tour right after it skips those.
   const [welcomedNow, setWelcomedNow] = useState(false);
   useEffect(() => { if (welcomePending) setWelcomedNow(true); }, [welcomePending]);
+  // The hero's "Talk to" is what the next new chat talks to: the default each
+  // time the hero comes back, and whenever the default changes.
+  const defaultAgent = useDefaultAgent();
+  useEffect(() => { if (!liveOpen && defaultAgent !== undefined) useLiveStore.getState().set({ boundAgent: defaultAgent }); }, [liveOpen, defaultAgent]);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
   // opening Live doesn't stall on "Preparing…". Only when the weights are already
@@ -108,9 +113,9 @@ export default function Home() {
 
   const startNew = () => {
     newConversation();
-    // Carry the hero's "Talk to" pick onto the freshly created conversation.
-    const pick = useLiveStore.getState().boundAgent;
-    if (pick) setConversationBind(useUi.getState().activeChatId, pick);
+    // Carry the hero's "Talk to" pick onto the freshly created conversation,
+    // the API key too, so a later change of default never moves it.
+    setConversationBind(useUi.getState().activeChatId, useLiveStore.getState().boundAgent);
     setLiveOpen(true);
   };
 
@@ -175,7 +180,7 @@ export default function Home() {
               {/* Choose what a new conversation talks to — the built-in assistant or a
                   coding agent (Claude Code / Codex / Cursor). Carried into "New". */}
               <div className="ol-hero-sub flex max-w-full items-center gap-2 text-label text-faint" data-tour="talk-to">
-                Talk to <AgentSelect />
+                Talk to <AgentSelect up />
               </div>
             </div>
 
@@ -187,7 +192,7 @@ export default function Home() {
 
             <SpotlightTour id="home" active={!liveOpen && !noticePending && !welcomePending} steps={[
               ...welcomedNow ? [] : [{ target: "mode", title: "Three ways to talk", body: "Chat is a call in this window. Flow talks to any app, and Dictate types what you say. Switch here any time." },
-              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep API mode on your own keys." }],
+              { target: "talk-to", title: "Pick who you talk to", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." }],
               { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then just talk. Interrupt any time." },
               { target: "resume", title: "Everything is saved", body: "Resume lists every conversation by project folder, including sessions from the agent's own CLI." },
               { target: "settings", title: "Make it yours", body: "Voice, agent install & sign-in, appearance, and shortcuts all live in Settings." },

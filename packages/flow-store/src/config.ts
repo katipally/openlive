@@ -31,9 +31,9 @@ export interface FlowConfig {
     /** Off, a paste leaves its text on the clipboard instead of putting the user's copy back. */
     restoreClipboard: boolean;
   };
-  /** Flow's own brain, used only while `override` is on; off, Flow thinks as
-   *  Chat does (flowBrain in shared.ts). API mode has no fields here: it uses
-   *  the provider, model and effort Chat does, set once in Settings > Models.
+  /** Flow's own brain, used only while `override` is on; off, Flow follows the
+   *  default in settings.json (flowBrain in shared.ts). API mode has no fields
+   *  here: it uses the provider, model and effort set once in Settings > Models.
    *  `agentModel` is the coding agent's own, which only that agent can name.
    *  `agentEffort` is how hard it thinks; "" is the agent's own default, which
    *  is the lowest it offers. */

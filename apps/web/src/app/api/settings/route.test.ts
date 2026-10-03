@@ -84,3 +84,13 @@ describe("liveModel", () => {
     expect(getSetting("liveProviderId")).toBe("openai");
   });
 });
+
+describe("the default", () => {
+  it("is saved and read back, so new chats, Flow and Dictate start from it", async () => {
+    const res = await put({ defaultAgent: "codex", defaultAgentModel: "gpt-5", defaultAgentEffort: "" });
+    expect(await res.json()).toMatchObject({ defaultAgent: "codex", defaultAgentModel: "gpt-5" });
+    expect(getSetting("defaultAgent")).toBe("codex");
+    await put({ defaultAgent: "", defaultAgentModel: "", defaultAgentEffort: "" });
+    expect(getSetting("defaultAgent")).toBe("");
+  });
+});

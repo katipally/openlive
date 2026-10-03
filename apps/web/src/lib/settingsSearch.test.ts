@@ -48,6 +48,12 @@ describe("settings search", () => {
     for (const e of SETTINGS_INDEX.filter((x) => x.tab === "dictate")) expect(e.reveal).toMatch(/^set-dictate-(basics|words|commands|history)$/);
   });
 
+  it("finds who answers by the words the screens use, every place it is set ahead of the rest", () => {
+    expect(new Set(find("who answers").slice(0, 3))).toEqual(new Set(["Who answers you", "Who answers for AI polish and commands", "Who answers in Flow"]));
+    for (const q of ["coding agent", "api key"]) expect(find(q)).toContain("Who answers you");
+    expect(find("brain")).toEqual(expect.arrayContaining(["Who answers you", "Who answers in Flow"]));
+  });
+
   it("needs every term, in any order", () => {
     expect(find("speed speaking")).toEqual(["Speaking speed"]);
     expect(find("whisper kokoro")).toEqual([]);

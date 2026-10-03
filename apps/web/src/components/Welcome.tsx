@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Bot, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button, Keycap, Keycaps, ListGroup } from "@/components/ui";
 import { OpenLiveMark } from "@/components/OpenLiveMark";
 import { tourSeen } from "@/components/SpotlightTour";
-import { AgentSelect } from "@/components/live/AgentControls";
 import { MODES } from "@/components/flow/ModeSwitch";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
 import { AccessRows } from "@/components/flow/FlowSettings";
-import { LinkRow } from "@/components/settings/nav";
+import { useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
 import { tile } from "@/components/settings/common";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -22,7 +21,7 @@ import { useUi, type AppMode } from "@/lib/uiStore";
 import { cn } from "@/lib/cn";
 
 // The first run of the whole app, once, for someone new: what the three modes
-// are, where the thinking comes from, what the machine has to allow, and one
+// are, who answers you, what the machine has to allow, and one
 // thing to try in each mode. Skippable at every step. Flow keeps its own
 // onboarding for what only it needs.
 
@@ -52,7 +51,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   const { caps } = useFlowCapabilities(open && step === 3);
   const passedAccess = useRef(false);
   const setMode = useUi((s) => s.setMode);
-  const openSettingsTab = useUi((s) => s.openSettingsTab);
+  const answers = useDefaultBrain();
   // Step 2 opens Settings, which steps in front until it is closed again.
   const settingsOpen = useUi((s) => s.settingsOpen);
   const root = useRef<HTMLDivElement>(null);
@@ -109,14 +108,10 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
         {step === 2 && (
           <>
             <div className="flex flex-col gap-1.5">
-              <h1 className="text-title-lg font-semibold tracking-tight">Pick how OpenLive thinks</h1>
-              <p className="text-body text-muted-strong">Your own API key, or a coding agent you already use, under your own login. Every mode can use either.</p>
+              <h1 className="text-title-lg font-semibold tracking-tight">Who answers you</h1>
+              <p className="text-body text-muted-strong">Your own API key, or a coding agent you already use, under your own login. New chats and Flow start with it, and so does Dictate&rsquo;s AI polish; plain dictation needs neither. Change it any time in Settings.</p>
             </div>
-            <ListGroup>
-              <LinkRow icon={SlidersHorizontal} label="Your own API key" detail="Any provider, your own model" value="Models" onGo={() => openSettingsTab("models")} />
-              <LinkRow icon={Bot} label="A coding agent" detail="Claude Code, Codex, Cursor and more" value="Agents" onGo={() => openSettingsTab("agents")} />
-            </ListGroup>
-            <div className="flex flex-wrap items-center gap-2 text-label text-muted-strong">Chat talks to <AgentSelect /></div>
+            <WhoAnswers id="welcome" label="Who answers you" value={answers.brain} onPick={answers.pick} />
           </>
         )}
 

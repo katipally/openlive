@@ -38,6 +38,11 @@ describe("serverChanges", () => {
     expect(serverChanges({ visionProviderId: "openai", visionModel: "v" }, { visionProviderId: "google", visionModel: "" })).toEqual([]);
   });
 
+  it("reports who answers by default as its kind, with the agent and never its model", () => {
+    expect(serverChanges({}, { defaultAgent: "codex", defaultAgentModel: "gpt-secret" })).toEqual([{ setting: "default_brain", value: "acp", subject: "codex" }]);
+    expect(serverChanges({ defaultAgent: "codex" }, { defaultAgent: "" })).toEqual([{ setting: "default_brain", value: "api", subject: "none" }]);
+  });
+
   it("drops a provider that is not in the closed set", () => {
     expect(serverChanges({}, { liveProviderId: "my-secret-host" })).toEqual([]);
     expect(serverChanges({}, { liveModel: "m", liveProviderId: "my-secret-host" })).toEqual([{ setting: "api_model", value: "changed", subject: "none" }]);

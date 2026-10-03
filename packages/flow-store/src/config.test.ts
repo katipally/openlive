@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
 import { CONFIG_V7_FIXTURE } from "./config.v7.fixture";
-import { dictateBrain, flowBrain, flowTurn, pickFlowBrain } from "./shared";
+import { defaultBrain, defaultBrainSettings, dictateBrain, flowBrain, flowTurn } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -123,7 +123,7 @@ test("a new Flow follows Chat: both overrides start off", () => {
   const cfg = parseFlowConfig({});
   expect(cfg.brain.override).toBe(false);
   expect(cfg.voice.turnOverride).toBe(false);
-  expect(flowBrain(cfg)).toEqual({ kind: "api", agentId: "", agentModel: "", agentEffort: "" });
+  expect(flowBrain(cfg, {})).toEqual({ kind: "api", agentId: "", agentModel: "", agentEffort: "" });
   expect(flowTurn(cfg)).toBeNull();
 });
 
@@ -131,7 +131,7 @@ test("the frozen v6 fixture keeps its coding agent and leaves the wait for the r
   const cfg = parseFlowConfig(CONFIG_V6_FIXTURE);
   expect(cfg.version).toBe(FLOW_CONFIG_VERSION);
   expect(cfg.brain).toEqual({ override: true, kind: "acp", agentId: "claude-code", agentModel: "haiku", agentEffort: "" });
-  expect(flowBrain(cfg)).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "haiku", agentEffort: "" });
+  expect(flowBrain(cfg, {})).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "haiku", agentEffort: "" });
   expect(cfg.voice.turnOverride).toBeNull();
   // Undecided counts as on, so the Flow it came from keeps waiting as it did.
   expect(flowTurn(cfg)).toEqual({ threshold: 0.65, holdMs: 6000, redemptionMs: 800 });
@@ -141,19 +141,39 @@ test("the frozen v6 fixture keeps its coding agent and leaves the wait for the r
 test("a v6 API brain already was Chat's, so its override stays off", () => {
   const cfg = parseFlowConfig({ version: 6, brain: { kind: "api", agentId: "codex", agentModel: "x", agentEffort: "" } });
   expect(cfg.brain.override).toBe(false);
-  expect(flowBrain(cfg).kind).toBe("api");
+  expect(flowBrain(cfg, {}).kind).toBe("api");
 });
 
-test("a coding agent picked for Flow is what Flow runs on, and picking API mode goes back to following Chat", () => {
-  const fresh = parseFlowConfig({});
-  const agent = parseFlowConfig({ ...fresh, brain: { ...fresh.brain, ...pickFlowBrain({ kind: "acp", agentId: "codex", agentModel: "" }) } });
-  expect(flowBrain(agent)).toMatchObject({ kind: "acp", agentId: "codex" });
-  // The agent's model, picked after it, keeps it Flow's own.
-  const model = parseFlowConfig({ ...agent, brain: { ...agent.brain, ...pickFlowBrain({ kind: "acp", agentModel: "gpt-5" }) } });
-  expect(flowBrain(model)).toMatchObject({ kind: "acp", agentId: "codex", agentModel: "gpt-5" });
-  const api = parseFlowConfig({ ...model, brain: { ...model.brain, ...pickFlowBrain({ kind: "api" }) } });
-  expect(api.brain.override).toBe(false);
-  expect(flowBrain(api).kind).toBe("api");
+test("the default is the API key until settings name a coding agent, and an unknown id stays on the API key", () => {
+  expect(defaultBrain({})).toEqual({ kind: "api", agentId: "", agentModel: "", agentEffort: "" });
+  expect(defaultBrain({ defaultAgent: "" })).toMatchObject({ kind: "api" });
+  expect(defaultBrain({ defaultAgent: "not-an-agent" })).toMatchObject({ kind: "api" });
+  expect(defaultBrain({ defaultAgent: "codex", defaultAgentModel: "gpt-5" })).toEqual({ kind: "acp", agentId: "codex", agentModel: "gpt-5", agentEffort: "" });
+});
+
+test("the default round-trips through its settings, and the API key clears the agent's", () => {
+  const agent = { kind: "acp" as const, agentId: "claude-code", agentModel: "haiku", agentEffort: "low" };
+  expect(defaultBrain(defaultBrainSettings(agent))).toEqual(agent);
+  expect(defaultBrainSettings({ ...agent, kind: "api" })).toEqual({ defaultAgent: "", defaultAgentModel: "", defaultAgentEffort: "" });
+});
+
+test("Flow follows the default until it has its own, whichever the default is", () => {
+  const codex = { defaultAgent: "codex" };
+  const follows = parseFlowConfig({});
+  expect(flowBrain(follows, codex)).toMatchObject({ kind: "acp", agentId: "codex" });
+  // Its own API key stays the API key when the default is a coding agent.
+  const ownApi = parseFlowConfig({ brain: { override: true, kind: "api" } });
+  expect(flowBrain(ownApi, codex).kind).toBe("api");
+  const ownAgent = parseFlowConfig({ brain: { override: true, kind: "acp", agentId: "claude-code" } });
+  expect(flowBrain(ownAgent, {})).toMatchObject({ kind: "acp", agentId: "claude-code" });
+});
+
+test("a Flow that ran on the API key with a coding agent left unused in its file still does, under an unset default", () => {
+  // Flow's first run once saved a coding agent without turning the override on.
+  for (const raw of [{ version: 8, brain: { override: false, kind: "acp", agentId: "codex" } }, { version: 7, brain: { kind: "acp", agentId: "codex" } }]) {
+    expect(flowBrain(parseFlowConfig(raw), {}).kind).toBe("api");
+    expect(dictateBrain(parseFlowConfig(raw), {}).kind).toBe("api");
+  }
 });
 
 test("an older file walks every migration into the current version", () => {
@@ -166,7 +186,7 @@ test("a decided override survives a write, and a v7 file is not migrated again",
   const on = parseFlowConfig({ version: 7, brain: { override: true, kind: "acp", agentId: "codex" }, voice: { turnOverride: true } });
   expect(parseFlowConfig(on)).toEqual(on);
   const off = parseFlowConfig({ version: 7, brain: { kind: "acp", agentId: "codex" }, voice: { turnOverride: false } });
-  expect(flowBrain(off).kind).toBe("api");
+  expect(flowBrain(off, {}).kind).toBe("api");
   expect(flowTurn(off)).toBeNull();
   expect(parseFlowConfig({ version: 7, voice: { turnOverride: "yes" } }).voice.turnOverride).toBe(false);
 });
@@ -232,7 +252,7 @@ test("Dictate's extras keep only well-formed words and snippets, and a bad tone 
 
 test("Dictate thinks with Flow's brain until it is given its own", () => {
   const flowOwn = parseFlowConfig({ brain: { override: true, kind: "acp", agentId: "codex" } });
-  expect(dictateBrain(flowOwn)).toEqual(flowBrain(flowOwn));
+  expect(dictateBrain(flowOwn, {})).toEqual(flowBrain(flowOwn, {}));
   const own = parseFlowConfig({ dictate: { brain: { override: true, kind: "acp", agentId: "claude-code" } } });
-  expect(dictateBrain(own)).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "", agentEffort: "" });
+  expect(dictateBrain(own, {})).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "", agentEffort: "" });
 });

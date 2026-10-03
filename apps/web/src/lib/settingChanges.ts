@@ -74,6 +74,10 @@ export function serverChanges(before: Rec, after: Rec): Change[] {
   if (changed("visionModel") && !(changed("visionProviderId") && !after.visionModel)) {
     out.push({ setting: "vision_model", value: after.visionModel ? "changed" : "cleared", subject: providerOf(after.visionProviderId) ?? "none" });
   }
+  if (changed("defaultAgent")) {
+    const agent = agentOf(after.defaultAgent);
+    out.push({ setting: "default_brain", value: agent ? "acp" : "api", subject: agent ?? "none" });
+  }
   if (changed("liveEffort")) out.push({ setting: "api_effort", value: EFFORTS.find((e) => e === after.liveEffort) ?? "auto" });
   if (changed("ollamaBaseUrl")) {
     out.push({ setting: "ollama_address", value: !after.ollamaBaseUrl ? "default" : isLoopbackUrl(after.ollamaBaseUrl) ? "local" : "remote" });
@@ -108,13 +112,13 @@ export function providerKeyChanged(kind: string, value: "added" | "removed"): vo
 // ── Flow config ───────────────────────────────────────────────────────────
 const IDLE_WINDOWS = new Map<number, "90s" | "5m" | "30m">([[90_000, "90s"], [300_000, "5m"], [1_800_000, "30m"]]);
 
-/** Pure. */
-export function flowChanges(a: FlowConfig, b: FlowConfig): Change[] {
+/** Pure, but for the default Flow follows, which is the server settings last known unless given. */
+export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known ?? {}): Change[] {
   const out: Change[] = [];
   const flip = (setting: Change["setting"], x: boolean, y: boolean) => { if (x !== y) out.push({ setting, value: onOff(y) }); };
   flip("flow_own_brain", a.brain.override, b.brain.override);
-  const from = flowBrain(a);
-  const to = flowBrain(b);
+  const from = flowBrain(a, settings);
+  const to = flowBrain(b, settings);
   if (from.kind !== to.kind || from.agentId !== to.agentId) {
     out.push({ setting: "flow_brain", value: to.kind, subject: (to.kind === "acp" && agentOf(to.agentId)) || "none" });
   }

@@ -56,9 +56,9 @@ describe("migrating a Flow from before the wait was shared", () => {
     expect(settleTurnOverride(DEFAULT_FLOW_CONFIG, chatOn("quick"))).toBeNull();
   });
 
-  it("keeps a v6 coding agent brain as Flow's own, and a v6 API brain as Chat's", () => {
+  it("keeps a v6 coding agent brain as Flow's own, and a v6 API brain as the default's", () => {
     const agent = parseFlowConfig({ version: 6, brain: { kind: "acp", agentId: "codex" } });
-    expect(flowBrain(agent)).toMatchObject({ kind: "acp", agentId: "codex" });
-    expect(flowBrain(parseFlowConfig({ version: 6, brain: { kind: "api", agentId: "codex" } })).kind).toBe("api");
+    expect(flowBrain(agent, {})).toMatchObject({ kind: "acp", agentId: "codex" });
+    expect(flowBrain(parseFlowConfig({ version: 6, brain: { kind: "api", agentId: "codex" } }), {}).kind).toBe("api");
   });
 });

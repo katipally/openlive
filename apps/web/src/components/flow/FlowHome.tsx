@@ -4,12 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { ImageIcon, Loader2, MoreHorizontal, Search, Settings2 } from "lucide-react";
-import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
-import { Keycap, menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Checkbox, groupLabel, ConfirmButton, Badge } from "@/components/ui";
+import { Keycap, menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Checkbox, groupLabel, ConfirmButton, Badge, dotTone } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { flowBrain } from "@openlive/flow-store/shared";
-import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
+import { useAnswerLine, useDefaultBrain } from "@/components/settings/WhoAnswers";
 import {
   deleteWithUndo, refreshFlowSessions, renameFlowSession, sessionLine, useFlowSessionPages, pendingSessionKey, type FlowSessionSummary,
 } from "@/lib/flow/sessions";
@@ -232,16 +231,14 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 function BrainChip({ config }: { config: ReturnType<typeof useFlowConfig>["config"] }) {
-  const choice = useApiModeChoice();
   const openSettingsTab = useUi((s) => s.openSettingsTab);
-  const brain = config && flowBrain(config);
-  const label = !brain ? "\u2026"
-    : brain.kind === "acp" ? (isAgentId(brain.agentId) ? AGENT_REGISTRY[brain.agentId].label : brain.agentId || "No agent chosen")
-    : `API mode \u00b7 ${choice.loading ? "\u2026" : choice.usable ? choice.model : `${choice.providerName}: no key yet`}`;
+  const { settings } = useDefaultBrain();
+  const line = useAnswerLine(config && settings ? flowBrain(config, settings) : null);
   return (
-    <ChipButton onClick={() => openSettingsTab("flow")} tip="Change the brain">
-      {brain?.kind === "acp" && isAgentId(brain.agentId) ? <AgentIcon id={brain.agentId} /> : <OpenLiveOrb size={12} />}
-      <span className="min-w-0 truncate">{label}</span>
+    <ChipButton onClick={() => openSettingsTab("flow", { anchor: "set-flow-brain" })} tip="Who answers in Flow">
+      {line.agent ? <AgentIcon id={line.agent} /> : <OpenLiveOrb size={12} />}
+      <span className="min-w-0 truncate">{line.ready === false ? `${line.name} \u00b7 ${line.detail}` : line.name}</span>
+      {line.ready !== null && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotTone(line.ready ? "success" : "arc"))} />}
     </ChipButton>
   );
 }

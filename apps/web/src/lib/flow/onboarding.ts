@@ -1,24 +1,23 @@
 import type { FlowCapabilities } from "./bridge";
 
-// How far Flow's first run has got, kept as one flag (lib/prefs.ts; its old
-// localStorage key is FLOW_ONBOARDED_KEY, for lib/migrateLocal.ts): "1" once it is done,
-// "access" once the app's Welcome covered its access step, which shows the same
-// rows. Only the brain step is left then.
+// Whether Flow's first run is done, kept as one flag (lib/prefs.ts; its old
+// localStorage key is FLOW_ONBOARDED_KEY, for lib/migrateLocal.ts): "1" once it
+// is. Its one step is access, which the app's Welcome shows the same rows of,
+// so passing it there finishes this too. "access" is what a build with a second
+// step wrote for that, when only the step that picked who answers was left; who
+// answers is the default now, picked in Welcome, so it reads as done.
 
 export const FLOW_ONBOARDED_KEY = "openlive-flow-onboarded";
 export const FLOW_ONBOARDED_DONE = "1";
 const ACCESS = "access";
 
-/** The step Flow's first run opens at, or null once it is done. */
-export function flowOnboardingStep(flag: string | null): 1 | 2 | null {
-  return flag === FLOW_ONBOARDED_DONE ? null : flag === ACCESS ? 2 : 1;
-}
+/** Whether Flow's first run is still to show. */
+export const flowOnboardingDue = (flag: string | null): boolean => flag !== FLOW_ONBOARDED_DONE && flag !== ACCESS;
 
-/** The flag to write once Welcome is left: the access step counts when it was
- *  passed, or when nothing on it was left to grant. A finished run stays finished. */
+/** The flag to write once Welcome is left: its access step counts when it was
+ *  passed, or when nothing on it was left to grant. */
 export function afterWelcome(flag: string | null, passedAccess: boolean, allGranted: boolean): string | null {
-  if (flag === FLOW_ONBOARDED_DONE || !(passedAccess || allGranted)) return flag;
-  return ACCESS;
+  return passedAccess || allGranted ? FLOW_ONBOARDED_DONE : flag;
 }
 
 /** Every grant Flow's access step asks for, the same reading as its rows. */

@@ -692,10 +692,12 @@ describe("what the header records", () => {
       .toEqual({ kind: "acp", id: "codex", model: "gpt-5.6-luna", effort: "low" });
   });
 
-  it("names Chat's API mode while Flow's own brain is switched off, whatever it names", () => {
+  it("names the default while Flow's own brain is switched off, whatever Flow's own names", () => {
     const live = () => ({ provider: { id: "anthropic" }, model: "opus", apiKey: "k", effort: "high" }) as never;
-    expect(brainMeta(cfg({ override: false, kind: "acp", agentId: "codex", agentModel: "gpt-5.6-luna" }), live))
-      .toEqual({ kind: "api", id: "anthropic", model: "opus", effort: "high" });
+    const off = cfg({ override: false, kind: "acp", agentId: "codex", agentModel: "gpt-5.6-luna" });
+    expect(brainMeta(off, live, {})).toEqual({ kind: "api", id: "anthropic", model: "opus", effort: "high" });
+    expect(brainMeta(cfg({ override: false }), live, { defaultAgent: "claude-code", defaultAgentModel: "haiku" }))
+      .toEqual({ kind: "acp", id: "claude-code", model: "haiku", effort: "" });
   });
 
   it("names what Chat resolved in API mode, without borrowing the agent's fields", () => {

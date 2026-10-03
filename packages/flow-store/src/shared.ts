@@ -1,6 +1,7 @@
+import { isAgentId } from "@openlive/shared";
 import type { FlowConfig } from "./config";
 
-// What Flow actually runs on where it can follow Chat. No node imports, so the
+// What Flow actually runs on where it can follow the default. No node imports, so the
 // renderer can use it too ("@openlive/flow-store/shared").
 
 export type FlowBrain = Omit<FlowConfig["brain"], "override">;
@@ -9,25 +10,34 @@ export type FlowBrain = Omit<FlowConfig["brain"], "override">;
  *  make every dictation slow or the settings file huge. */
 export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;
 
-const CHAT_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
+const API_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
 
-/** The brain Flow thinks with: its own when the override is on, else Chat's
- *  default, which is API mode as set in Settings > Models. */
-export const flowBrain = (cfg: Pick<FlowConfig, "brain">): FlowBrain => {
-  if (!cfg.brain.override) return CHAT_BRAIN;
+/** The settings.json keys (packages/db) that say who answers by default: a
+ *  coding agent's id, or none for the API key set in Settings > Models. New
+ *  chats, Flow and Dictate start from it. Unset is the API key, which is what
+ *  every build before these keys ran on, so no file needs migrating. */
+export type DefaultBrainSettings = { defaultAgent?: string; defaultAgentModel?: string; defaultAgentEffort?: string };
+
+/** Who answers by default. An id this build does not know answers with the API key. */
+export const defaultBrain = (s: DefaultBrainSettings): FlowBrain =>
+  isAgentId(s.defaultAgent) ? { kind: "acp", agentId: s.defaultAgent, agentModel: s.defaultAgentModel ?? "", agentEffort: s.defaultAgentEffort ?? "" } : API_BRAIN;
+
+/** The default as the settings that hold it. */
+export const defaultBrainSettings = (b: FlowBrain): Required<DefaultBrainSettings> =>
+  b.kind === "acp" ? { defaultAgent: b.agentId, defaultAgentModel: b.agentModel, defaultAgentEffort: b.agentEffort }
+    : { defaultAgent: "", defaultAgentModel: "", defaultAgentEffort: "" };
+
+/** Who answers in Flow: its own when the override is on, else the default. */
+export const flowBrain = (cfg: Pick<FlowConfig, "brain">, settings: DefaultBrainSettings): FlowBrain => {
+  if (!cfg.brain.override) return defaultBrain(settings);
   const { override: _o, ...own } = cfg.brain;
   return own;
 };
 
-/** A brain picked for Flow, as the change to save: a coding agent is Flow's own,
- *  so the override goes on with it; API mode is the default Flow follows anyway. */
-export const pickFlowBrain = (pick: Partial<FlowBrain>): Partial<FlowConfig["brain"]> =>
-  ({ ...pick, override: pick.kind === "acp" });
-
-/** The brain Dictate's AI polish and command mode think with: its own when
- *  its override is on, else Flow's. */
-export const dictateBrain = (cfg: Pick<FlowConfig, "brain" | "dictate">): FlowBrain => {
-  if (!cfg.dictate.brain.override) return flowBrain(cfg);
+/** Who answers Dictate's AI polish and command mode: its own when its
+ *  override is on, else Flow's. */
+export const dictateBrain = (cfg: Pick<FlowConfig, "brain" | "dictate">, settings: DefaultBrainSettings): FlowBrain => {
+  if (!cfg.dictate.brain.override) return flowBrain(cfg, settings);
   const { override: _o, ...own } = cfg.dictate.brain;
   return own;
 };
