@@ -22,7 +22,7 @@ import { Keycaps, Segmented } from "@/components/ui";
 const COPY = {
   chat: {
     tagline: "A voice call with your AI.",
-    body: "Talk back and forth with your API model or a coding agent like Claude Code. Share screen or camera, interrupt any time, resume later.",
+    body: "Talk back and forth with your API key's model or a coding agent like Claude Code. Share screen or camera, interrupt any time, resume later.",
   },
   flow: {
     tagline: "Ask your computer, from any app.",
