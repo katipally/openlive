@@ -12,6 +12,7 @@ import { pauseWaveOrbs, WAVE_ORB_RADIUS, type WaveOrbState } from "@/lib/waveOrb
 import { cn } from "@/lib/cn";
 import { Keycap, Tooltip } from "@/components/ui";
 import { isMac } from "@/lib/platform";
+import { processingHold, stripWords } from "@/lib/dictate/strip";
 
 // Flow's orb, in its own always-on-top window over the dock. It is voice, so it
 // shows one thing: whether Flow is listening, thinking, speaking or doing
@@ -480,18 +481,13 @@ function Control({ label, shown, onClick, side, children }: {
   );
 }
 
-/** Processing is often over in a few hundred ms: the strip shows it at least
- *  this long so it reads as work, not a flicker. The words are typed meanwhile;
- *  only the strip waits. */
-const PROCESSING_MIN_MS = 500;
-
-/** `d`, except that leaving processing waits out PROCESSING_MIN_MS. */
+/** `d`, except that leaving processing waits out what processingHold says. */
 function useHeldProcessing(d: DictateSnapshot): DictateSnapshot {
   const [held, setHeld] = useState(d);
   const since = useRef(0);
   const holding = useRef(false);
   useEffect(() => {
-    const wait = holding.current && d.phase !== "processing" ? PROCESSING_MIN_MS - (performance.now() - since.current) : 0;
+    const wait = holding.current ? processingHold(d, performance.now() - since.current) : 0;
     const show = () => {
       if (d.phase === "processing" && !holding.current) since.current = performance.now();
       holding.current = d.phase === "processing";
@@ -511,8 +507,7 @@ function DictateStrip({ d: live, waiting, warming, onUndo }: { d: DictateSnapsho
   const d = useHeldProcessing(live);
   const working = d.phase === "processing";
   const landed = !working && !d.note && d.inserted > 0;
-  const label = working && (d.polishing ? "Polishing" : d.editing ? "Editing" : !d.partial && "Cleaning up");
-  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (!d.ready || warming ? "Getting ready" : d.phase === "idle" && waiting ? waiting : "Listening"));
+  const said = stripWords(d, waiting, warming);
   // Words still coming, or being worked on, drop their oldest off the start;
   // a status or a note is read whole, so it wraps instead.
   const flowing = said === d.partial;

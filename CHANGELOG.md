@@ -438,6 +438,9 @@ Releases before 0.1.9 predate this file — see the
   again** when offline or when the download stops. Flow and Dictate ask on the
   orb the same way when they open with the models missing, and nothing else
   (a launch warm-up, a fallback engine) downloads them unasked.
+- **A hold on a selection that heard nothing says so at once.** Dictate's orb
+  flashed **Editing** for half a second before **No words heard.**; it says
+  Editing now only once there are words to edit with.
 - **A missing key or agent is named before the voice models download.** Chat's
   pre-call setup used to say so only once the download was done; Flow's home
   now says **no key yet** on its brain chip too, instead of a model name.
