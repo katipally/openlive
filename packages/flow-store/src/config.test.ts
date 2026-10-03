@@ -332,6 +332,9 @@ test("a push-to-talk key is one key that types nothing, and a bad one falls back
   expect(on("linux", () => parseFlowConfig({ talk: { pttKey: "space" } }).talk.pttKey)).toBe("ctrl_right");
   expect(on("darwin", () => parseFlowConfig({ talk: { pttKey: "ctrl" } }).talk.pttKey)).toBe("fn");
   expect(parseFlowConfig({ talk: { pttKey: "f18" } }).talk.pttKey).toBe("f18");
+  // Caps Lock was never a key the hook could hold; a file that names it gets the default.
+  expect(on("darwin", () => parseFlowConfig({ talk: { pttKey: "capslock" } }).talk.pttKey)).toBe("fn");
+  expect(on("win32", () => parseFlowConfig({ talk: { pttKey: "capslock", flowKey: "capslock" } }).talk)).toMatchObject({ pttKey: "ctrl_right", flowKey: "ctrl" });
 });
 
 test("the toggle keys take a modifier group or one side of it, and a bad one falls back", () => {

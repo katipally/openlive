@@ -14,7 +14,7 @@ function names(binding: string, platform: string, words: boolean): string[] {
   const mac = platform === "darwin";
   return binding.split("+").map((part) => {
     const [name = "", side] = part.split("_");
-    if (!isModifier(name)) return name === "capslock" ? "Caps Lock" : name === "fn" ? "Fn" : name.toUpperCase();
+    if (!isModifier(name)) return name === "fn" ? "Fn" : name.toUpperCase();
     const word = name === "command" && platform === "linux" ? "Super" : MODIFIERS[name][mac ? (words ? 1 : 0) : 2];
     return side === "right" ? `Right ${word}` : side === "left" ? `Left ${word}` : word;
   });
@@ -35,14 +35,14 @@ const ORDER = ["ctrl", "option", "shift", "command"];
 /**
  * The binding for the keys held down together (KeyboardEvent.code values), or
  * null for a key that would also type into the app in front: the talk keys are
- * never swallowed, so only modifiers, Fn, Caps Lock and F13 to F24 qualify.
+ * never swallowed, so only modifiers, Fn and F13 to F24 qualify.
  */
 export function bindingOf(codes: Iterable<string>): string | null {
   const mods: string[] = [];
   let key = "";
   for (const code of codes) {
     if (CODES[code]) mods.push(CODES[code]!);
-    else if (code === "CapsLock" || code === "Fn" || /^F(1[3-9]|2[0-4])$/.test(code)) {
+    else if (code === "Fn" || /^F(1[3-9]|2[0-4])$/.test(code)) {
       if (key) return null;
       key = code.toLowerCase();
     } else return null;
