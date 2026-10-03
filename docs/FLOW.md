@@ -238,7 +238,7 @@ Start. Settings > General > **End Flow and calls when the screen locks** turns
 that off, for a long call or a running task that should survive a lock. Sleep
 always does. With it off, Flow keeps listening while the screen is locked and can
 still act on the computer, so anyone in earshot can talk to it. It is the same
-for API mode and coding agents, and it exists on
+for your API key and coding agents, and it exists on
 macOS and Windows only, the systems that report a lock.
 
 ## Privacy: what goes where

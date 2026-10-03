@@ -173,7 +173,7 @@ export function GeneralSettings() {
         <TypingAtCursor />
       </Section>
 
-      <Section id="set-general-style" title="Assistant style" desc="Your words, passed to every brain.">
+      <Section id="set-general-style" title="Assistant style" desc="Your words, passed to whoever answers.">
         <CustomInstructions />
       </Section>
 

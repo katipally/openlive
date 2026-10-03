@@ -87,7 +87,6 @@ export function BuiltInBadge() {
   return <Badge><Lock aria-hidden /> Built-in</Badge>;
 }
 
-/** Where something stands, as a dot and a word (Ready, Sign in needed). */
 /** Whether Flow or Dictate is on, as Settings says it: the switch is on the mode's home, one press away. */
 export function ModeOnLine({ id, mode, on }: { id: string; mode: "flow" | "dictate"; on: boolean }) {
   const name = MODE_LABEL[mode];
@@ -102,6 +101,7 @@ export function ModeOnLine({ id, mode, on }: { id: string; mode: "flow" | "dicta
   );
 }
 
+/** Where something stands, as a dot and a word (Ready, Sign in needed). */
 export function StatusDot({ tone, children }: { tone: DotTone; children: ReactNode }) {
   return (
     <span className="flex min-w-0 items-center gap-2 text-caption text-muted-foreground">

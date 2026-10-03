@@ -53,7 +53,7 @@ export function AgentsSettings() {
       )}
       {q && !shown.length && <NoMatch what="agent" query={query} />}
       {!isLoading && !error && !agents.length && (
-        <EmptyState icon={Bot} actions={openModels}>No coding agents found. Keep using an API model.</EmptyState>
+        <EmptyState icon={Bot} actions={openModels}>No coding agents found. Keep using your API key.</EmptyState>
       )}
       {agents.length > 0 && GROUPS.map((g) => {
         const list = shown.filter((a) => groupOf(a) === g.id);
@@ -64,7 +64,7 @@ export function AgentsSettings() {
             <h2 className={groupLabel}>{g.label} <span className="font-normal tabular-nums">{list.length}</span></h2>
             {list.length
               ? <div className={grid2}>{list.map((a) => <AgentCard key={a.id} a={a} />)}</div>
-              : <EmptyState icon={Bot} actions={openModels}>Nothing ready yet. Install one below, or keep using an API model.</EmptyState>}
+              : <EmptyState icon={Bot} actions={openModels}>Nothing ready yet. Install one below, or keep using your API key.</EmptyState>}
           </section>
         );
       })}

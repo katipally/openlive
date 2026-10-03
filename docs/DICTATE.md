@@ -114,7 +114,7 @@ on release. After each dictation the microphone stays open, muted, for 30
 seconds, so the next hold is up at once; then it closes (on macOS the orange
 dot goes). Turning Dictate off, or Flow taking over, ends that wait at once. Words it heard but could
 not write down are said so on the orb (**Your words could not be written
-down.**), never dropped quietly. Flow's own cards (no brain set up, say) never
+down.**), never dropped quietly. Flow's own cards (nothing set to answer, say) never
 show on Dictate's orb with Flow closed.
 
 A long sentence drops its oldest words so the newest stay in view. When the

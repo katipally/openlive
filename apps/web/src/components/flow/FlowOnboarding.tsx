@@ -13,7 +13,7 @@ import { flowOnboardingOpen } from "@/lib/settingChanges";
 import { telemetry } from "@/lib/telemetry";
 import { AccessRows } from "./FlowSettings";
 import { FlowCanvas } from "./FlowCanvas";
-import { SwitchHole } from "./ModeSwitch";
+import { ModeStart, SwitchHole, modeCopy } from "./ModeSwitch";
 
 // The first run, and only Flow's: what it needs from the machine. Who answers
 // is the default, picked in Welcome and Settings > Models. Everything finer
@@ -48,9 +48,9 @@ export function FlowOnboarding({ onDone, config, save }: {
       <FlowCanvas>
         <div className="flex flex-col gap-3">
           <OpenLiveOrb size={48} pulse />
-          <h1 className="text-title-lg font-semibold tracking-tight">Talk to any app</h1>
+          <h1 className="text-title-lg font-semibold tracking-tight">{modeCopy("flow").tagline}</h1>
           <p className="text-body leading-relaxed text-muted-strong">
-            {`Tap ${CONTROL} ${CONTROL} anywhere. Flow types, acts, and answers out loud. It needs these first:`}
+            {modeCopy("flow").body} <ModeStart mode="flow" /> It needs these first:
           </p>
         </div>
         <AccessRows config={config} save={save} askedFrom="onboarding" />
