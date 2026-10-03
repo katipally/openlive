@@ -7,20 +7,87 @@ commands. It works on macOS, Windows and Linux, on the same on-device voice loop
 as a call, and thinks with your API key or a coding agent you already use.
 
 Flow is not [Dictate](DICTATE.md). Dictate is voice typing: it types what you
-say into the text box in front of you, with no AI and nothing spoken back.
+say into the text box in front of you, with no AI and nothing spoken back. And it's not
+[Chat](CHAT.md), the call inside the OpenLive window.
 
-![Flow home](../assets/flow-home.png)
-
+- [Flow's home](#flows-home)
+- [First run](#first-run)
 - [Summoning Flow](#summoning-flow)
 - [The orb](#the-orb)
 - [What Flow can do](#what-flow-can-do)
 - [Safety: Stop, consent, and the permission card](#safety-stop-consent-and-the-permission-card)
 - [Failure cards](#failure-cards)
 - [Settings](#settings)
+- [History](#history)
 - [Privacy: what goes where](#privacy-what-goes-where)
 - [Platform support](#platform-support)
 - [Troubleshooting](#troubleshooting)
 - [Architecture (for developers)](#architecture-for-developers)
+
+## Flow's home
+
+Pick **Flow** at the top of the window. The home is for using Flow; how it
+behaves is in Settings > Flow.
+
+```
+          ( orb )
+           Flow
+   tagline · how to start
+      [ Flow is on ● ]            the switch
+ [Claude Code ●] [Ready] [⚙]      who answers · readiness · Settings
+ History   [ Search what you said ] [Select]
+ Today
+   "open my calendar"   2 min · 3 steps
+```
+
+![Flow home](../assets/flow-home.png)
+
+- **The switch**: **Flow is on** or **Flow is off**. Off closes Flow and
+  ignores the double tap until you turn it back on, here, from the tray or the
+  palette. A restart keeps it as you left it.
+- **Who answers**: the chip names who answers in Flow and goes to Settings >
+  Flow > Who answers.
+- **Readiness**: **Ready**, **Not ready yet**, or **Key listener stopped**.
+  When the system still has to allow something, the chip becomes buttons for
+  each: **Allow microphone**, **Allow Accessibility** (**Allow input access**
+  on Windows and Linux).
+- **History**: every session, newest first by day, with a search over what
+  you said. Open one to read it with its screenshots, **Copy** the transcript,
+  **Rename** it, **Carry on** where it left off, or **Delete** it; a row's **⋯**
+  has Rename and Delete too. Delete hides
+  it at once and offers **Undo** on a toast for a few seconds, as Chat and
+  Dictate do. **Select** picks several to delete together, which asks first.
+  **See more** loads older ones. See [History](#history) for how long they're
+  kept.
+
+The first time the home shows after setup, a tour of up to four steps
+points at the switch (left out when setup just covered how Flow opens), who
+answers, the readiness chip, and the history. It shows once; its **Skip** asks
+first, and Settings > About > **Show me around again** plays it again.
+
+## First run
+
+The first time you pick Flow, **Set up Flow** asks for what it needs, unless
+Welcome already did:
+
+```
+ Set up Flow                                       [ Skip ]
+   what Flow is, and how to open it
+   Microphone       [ Allow ]
+   Accessibility    [ Allow ]     input access on Windows and Linux
+   Screen           [ Allow ]
+   Computer use, Act on this machine   where they apply
+   ▸ What OpenLive never does
+                                   [ Start using Flow → ]
+```
+
+- Each row shows its state and the button to grant it. On macOS, a grant made
+  in System Settings shows up when you come back.
+- **What OpenLive never does**: no keyboard listening beyond its own keys, no
+  wake word, no audio kept, nothing sent except what whoever answers needs.
+- **Start using Flow** goes to Flow's home and its tour. **Skip** asks **Skip
+  setup?** first, since setup doesn't come back on its own. Settings > About >
+  **Show me around again** brings it back, along with Welcome and every tour.
 
 ## Summoning Flow
 
@@ -35,12 +102,8 @@ say into the text box in front of you, with no AI and nothing spoken back.
 | Double tap `Control` (`Ctrl` on Windows and Linux), either side | Opens Flow. The same gesture closes it. The key is yours to change. |
 | Tray / menu bar > **Start Flow** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
 | **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on, here or from the tray, and stays off when OpenLive restarts. Settings > Flow says which it is and links here. |
-| Flow tab in the OpenLive window | Home for Flow: the switch, readiness, who answers, and your session history. |
-
-The first time Flow's home shows after setup, a tour of up to four steps
-points at the switch (left out when setup just covered how Flow opens), who
-answers, the readiness chip, and the history. It shows once; its **Skip** asks
-first, and Settings > About > **Show me around again** plays it again.
+| Command palette > **Start Flow** | The same as the tray's, from the OpenLive window. |
+| Flow tab in the OpenLive window | [Flow's home](#flows-home): the switch, readiness, who answers, and your history. |
 
 The tray (menu bar) menu is short:
 
@@ -49,6 +112,7 @@ The tray (menu bar) menu is short:
  Dictate is on  ·  Double-tap ⌥        Dictate's, the same way
  ─────────────────────────────
  Open OpenLive
+ New call                             Chat's call setup
  Start Flow
  Turn Flow off                        the switch on Flow's home
  Turn Dictate off                     the switch on Dictate's home
@@ -110,7 +174,7 @@ transcript, not on the orb.
 | State | Looks like | Means |
 |---|---|---|
 | Listening | Calm teal, swells with your voice | The mic is open, waiting for you to finish a sentence. |
-| Thinking | Violet | The brain is working on the turn. |
+| Thinking | Violet | Whoever answers is working on the turn. |
 | Acting | Magenta, with the caption strip | A tool is running on your machine. |
 | Speaking | Blue, moving with the voice | Flow is saying the reply. |
 | Error | Dark red, with a failure card | The turn failed; the card says why. |
@@ -150,7 +214,7 @@ answer you out loud, or do something on the machine.
 | Pointer and keys | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `mouse_down`, `mouse_up`, `type`, `keypress` |
 | Windows and apps | `window_activate`, `window_move`, `window_resize`, `window_minimize`, `window_close`, `open_app`, `open_url` |
 | Commands | `shell` (runs in your home folder through your login shell, 30 second limit) |
-| OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `remember` (memory shared with calls and every brain) |
+| OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `remember` (memory shared with calls, whoever answers) |
 | Files | `list_dir`, `read_file`, `write_file`, `edit_file` anywhere in your home folder, a relative path starting in Flow's own folder (`workspace/` in the OpenLive home); `find_files`, `list_edits`, `undo_edit`: every write and edit is kept, so it can be undone |
 | Reminders | `set_timer`, `remind` (at a local time or in a while, optionally daily, weekdays or weekly), `list_reminders`, `cancel_reminder`: they go off with a notification and a spoken line even after Flow closes, and work offline |
 
@@ -240,19 +304,31 @@ Every card also has **Close Flow**.
 
 ## Settings
 
-Settings > Flow ("Trigger, who answers") opens with one line saying whether
-Flow is on, with a link to Flow's home, where the switch is.
+Settings > Flow has the same shape as Chat's and Dictate's tabs: status,
+Trigger, Who answers, Shared settings, what only Flow has, then History.
+
+```
+ Flow is on. Turn it off in Flow.            status, linking to Flow's home
+ Trigger          double tap · How you talk · Close after silence
+ Who answers      Same as default / Its own
+ Shared settings  Typing at cursor · Language · Voice · Narrate · Speech engine
+ Voice            Say replies out loud · wait before answering
+ Go quiet when    meeting app · mic in use · Do Not Disturb
+ Access           Microphone · Accessibility · Screen · Computer use · Act
+ History          Keep sessions · Clear all · Your sessions, In Flow
+```
 
 | Section | Setting | Options |
 |---|---|---|
 | Trigger | Open and close | The double tap, shown as keycaps, with a note when the key listener stopped; set in General |
 | | How you talk, Close after silence | Links to Settings > General, shared with Dictate and calls |
 | Who answers | Who answers in Flow | Same as default, or Its own: your API key, or an installed coding agent (model and effort under Advanced) |
+| Shared settings | Typing at cursor, Language, Voice, Narrate agent progress, Speech engine | Each links to where it's set, used by every mode |
 | Voice | Say replies out loud | On / off |
-| | Wait before answering | Patient, Even, Quick |
+| | Wait before answering | The shared pace from Settings > Voice, or Flow's own: Patient, Even, Quick |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
 | Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status as a dot and a word, the button to grant or withdraw, and the system settings page under ⋯ |
-| Typing at cursor | Paste or type, clipboard | Goes to Settings > General > Typing at cursor, shared with Dictate |
+| History | Keep sessions, Clear all | See [History](#history) |
 
 Your API key's provider, model, vision model and Ollama address, and the
 default for who answers, live in Settings > Models and are shared with Chat.
@@ -270,19 +346,34 @@ still act on the computer, so anyone in earshot can talk to it. It is the same
 for your API key and coding agents, and it exists on
 macOS and Windows only, the systems that report a lock.
 
+## History
+
+Every Flow session is kept on this machine: what you said, what Flow answered
+and did, and the screenshots it took. [Flow's home](#flows-home) lists them.
+Settings > Flow > **History** sets how long:
+
+- **Keep nothing** (each session goes once it ends), 1 day, 7 days, 30 days,
+  or **Keep forever** (the default).
+- Applied each time History is read and as a session starts, so nothing waits
+  on a timer. A session's screenshots are removed from disk with it.
+- **Clear all** asks to confirm, then deletes every kept session.
+- A session still running is never deleted.
+- Coding agents keep their own logs of what they did under their own login;
+  Flow's History settings never touch those.
+
 ## Privacy: what goes where
 
 | Data | Where it goes |
 |---|---|
 | Your voice | Nowhere. Speech to text, turn detection and text to speech run on-device. No audio is kept. |
-| What you said (transcribed text) | The brain you picked. |
-| Turn context: front app, window title, selected text | The brain, with each turn. |
-| Screenshots, OCR text, clipboard, command output | The brain, when a tool that reads them runs. For a model that cannot see, pictures go to the vision model you set instead. |
+| What you said (transcribed text) | Whoever answers: your API key's provider or your coding agent. |
+| Turn context: front app, window title, selected text | Whoever answers, with each turn. |
+| Screenshots, OCR text, clipboard, command output | Whoever answers, when a tool that reads them runs. For a model that cannot see, pictures go to the vision model you set instead. |
 | Camera | Only when `camera_frame` runs, one frame, then the camera closes. |
 | Session history | On this machine, in `~/.openlive/flow/` (transcripts in `sessions/`, up to 60 screenshots per session in `assets/`), folders created private to your user, for as long as Settings > Flow > History keeps them (forever by default; a running session is never deleted). A dev checkout keeps its own in `<repo>/data/flow/`. |
 | Usage counts (session length, turns and tool calls by kind, failure card codes, timings) | OpenLive's analytics server, as numbers and fixed labels. Never words, window titles, file names, screen content or model ids. On by default, off in Settings > Privacy. Every event is listed in [TELEMETRY.md](TELEMETRY.md). |
 
-A coding agent brain uses its own provider under your own login. Its tools come
+A coding agent uses its own provider under your own login. Its tools come
 from a local MCP server (`openlive`) bound to `127.0.0.1`.
 
 **Remote Ollama.** An Ollama address on this computer saves at once. Any other

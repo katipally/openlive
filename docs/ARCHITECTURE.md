@@ -2,6 +2,9 @@
 
 How OpenLive fits together, and the few decisions that shape everything else.
 
+For what each mode does from the user's side, see [CHAT.md](CHAT.md), [FLOW.md](FLOW.md)
+and [DICTATE.md](DICTATE.md).
+
 ## The one big idea: thick client, thin server
 
 The whole voice loop runs **on your machine, in the browser renderer**. The local

@@ -25,6 +25,12 @@ Releases before 0.1.9 predate this file — see the
   moved to Settings > Voice and now covers Flow as well as calls: while a
   coding agent works in silence, Flow's orb says a short status line, only
   while it speaks at all.
+- **A guide for Chat.** docs/CHAT.md covers Chat's home and readiness chip,
+  the call setup and its download consent, the call, How you talk, who
+  answers, History and its retention, Settings, tours and troubleshooting, as
+  FLOW.md and DICTATE.md do for theirs. The README gives Chat, Flow and
+  Dictate a section each, with How you talk, History, the palette and tray,
+  the readiness chips and getting started.
 - **New call in the tray.** It brings OpenLive up on Chat's call setup, which
   asks about a missing key, agent or download before a call can start.
 - **The command palette has the tray's verbs.** New call, Start Flow, Turn
@@ -854,7 +860,7 @@ Releases before 0.1.9 predate this file — see the
 - Flow's home says to turn Flow on first while it is off, the way Dictate's does.
 - Settings search forgives one typo in a longer word ("memmory", "dicate")
   when nothing matches as typed.
-- The command palette says **Open sessions**, the drawer's own name.
+- The command palette names History the way the drawer does.
 - The call setup's first tour fits your API key as well as a coding agent, and
   Clear all asks **Delete it** when one dictation is kept.
 - **A Dictate hold with no words in it types nothing.** Room sound alone no
@@ -864,7 +870,7 @@ Releases before 0.1.9 predate this file — see the
   is cut to just before you speak.
 - **Esc no longer ends Welcome for good.** Esc and Skip ask **Skip setup?**
   first, with **Keep going** to stay.
-- The sessions drawer opens under the traffic lights on macOS instead of
+- The History drawer opens under the traffic lights on macOS instead of
   beneath them.
 
 ## [0.2.7] - 2026-08-27

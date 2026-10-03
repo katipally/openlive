@@ -7,7 +7,8 @@ machine tidy it, and ol-input types it. It works the same on macOS, Windows and
 Linux.
 
 Dictate is not [Flow](FLOW.md). Flow is for asking your computer: your AI
-answers out loud and can act for you. Dictate only types what you say.
+answers out loud and can act for you. Dictate only types what you say. A call
+with your AI in the window is [Chat](CHAT.md).
 
 - [Dictate's home](#dictates-home)
 - [Starting and stopping](#starting-and-stopping)
@@ -32,8 +33,8 @@ behaves is in Settings > Dictate, and nothing is in both places.
  Dictate's home (use)                     Settings > Dictate (configure)
  ─────────────────────                    ──────────────────────────────
  Dictate is on / off   (the switch)       "Dictate is on. Turn it off in Dictate."
- Ready, or the fix that is missing        Basics: trigger, cleanup, AI polish + tone,
- how to start, with your keys                     who answers, shared settings,
+ Ready, or the fix that is missing        Basics: trigger, who answers, shared
+ how to start, with your keys                     settings, cleanup, AI polish + tone,
  History: search, copy, insert again,             history: how long, Clear all
           delete, Show more               Words: dictionary, snippets
  Settings ›                               Commands: edit by voice, spoken commands
@@ -260,7 +261,7 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
 Select text in any app, and with Dictate open, say what to change.
 
 ```
- select ──▶ talk: "make this formal" ──▶ still selected? ──yes──▶ brain ──▶ typed over it
+ select ──▶ talk: "make this formal" ──▶ still selected? ──yes──▶ your AI ──▶ typed over it
                                              │no
                                              ▼
                                    typed at the cursor, as dictation
@@ -335,19 +336,27 @@ Settings > Dictate > Basics > **History** sets how long it is kept and has
 
 ## Settings
 
-Settings > Dictate opens with one line saying whether Dictate is on, with a
-link to its home, where the switch is. Then three subtabs:
+Settings > Dictate has the same shape as Chat's and Flow's tabs: status,
+Trigger, Who answers, Shared settings, what only Dictate has, then History.
+It opens with one line saying whether Dictate is on, with a link to its home,
+where the switch is. Then three subtabs:
+
+```
+ Dictate is on. Turn it off in Dictate.
+ [ Basics | Words | Commands ]
+ Basics:  Trigger · Who answers · Shared settings · Cleanup · AI polish · History
+```
 
 - **Basics**
   - **Trigger**: the double tap that opens and closes Dictate, How you talk
     and Close after silence, each linking to Settings > General, where they
     are set for Flow and Dictate alike ([Keys](#keys)).
-  - **Cleanup**: the five rules, with a live example of what they do.
-  - **AI polish**: on or off, and its tone.
   - **Who answers**: **Same as Flow**, or **Its own**, for AI polish and
     edit by voice alike. Plain dictation never uses it.
-  - **Shared settings**: links to Typing at cursor (General), Voice and Speech
-    engine.
+  - **Shared settings**: links to Typing at cursor (General), Language and
+    Speech engine.
+  - **Cleanup**: the five rules, with a live example of what they do.
+  - **AI polish**: on or off, and its tone.
   - **History**: how long to keep dictations, **Clear all**, and a link to the
     list on Dictate's home.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
@@ -417,7 +426,7 @@ One microphone, one engine, one orb, so the two take turns:
   off switch mutes Flow's binding alone (`suspendHook("flow")`).
 - **Routing**: `useFlowOwner` hands every finished utterance to Dictate first.
   While Dictate is active it takes it, so the sentence never reaches
-  `flowText`, the brain or the voice.
+  `flowText`, whoever answers, or the voice.
 - **Microphone**: `VoiceEngine.start(open)` takes a function that opens the
   microphone, not a stream: the VAD's `getStream`/`resumeStream` call it and
   its `pauseStream` stops every track, so a paused VAD holds no device. In
@@ -451,9 +460,9 @@ One microphone, one engine, one orb, so the two take turns:
   louder than the room.
 - **Tool**: `set_dictation` (`services/agent/src/capabilities/text.ts`) is
   offered wherever a session has `dictate`, which Flow's does through the
-  `flow_dictate` bridge op. The registry serves the same tool to API brains and,
+  `flow_dictate` bridge op. The registry serves the same tool to API models and,
   over OpenLive's MCP server, to coding agents.
-- **Rewrite**: `services/agent/src/dictate/rewrite.ts`. API mode streams the
+- **Rewrite**: `services/agent/src/dictate/rewrite.ts`. With your API key it streams the
   provider with `tools: []`; a coding agent is an `AcpAgent` with Dictate's own
   preamble, no MCP servers, the registry's `acp.toolless` launch and a
   permission handler that always refuses. `/dictate/rewrite` answers in
