@@ -529,7 +529,7 @@ export function useLiveSession(chatId: string) {
       if (!modelsMatchConfig()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
       if (tornDown.current) return;
 
-      // 2. Mic — the device chosen when the engine opens it (for the call
+      // 2. Mic: the device chosen when the engine opens it (for the call
       //    hands-free, for each hold in push to talk) + browser AEC (so the agent's
       //    own voice is cancelled from the mic and can't self-trigger barge-in).
       const openMic = () => {

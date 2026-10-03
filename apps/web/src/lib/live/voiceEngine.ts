@@ -971,7 +971,7 @@ export class VoiceEngine {
   // ── push-to-talk ────────────────────────────────────────────────────────
   /** Hold-to-talk pressed: barge in if the agent is mid-reply, open the microphone
    *  if a mute or the gate has it shut (shut again on release), tape the hold from
-   *  its first frame, and suspend all auto end-of-turn — release is the turn boundary. */
+   *  its first frame, and suspend all auto end-of-turn: release is the turn boundary. */
   beginPtt() {
     if (this.ptt || !this.vad) return;
     this.ptt = true;
@@ -1006,7 +1006,7 @@ export class VoiceEngine {
     this.ptt = false;
     const held = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
     this.pending = null;
-    if (this.muted) this.listen(false).catch(() => { /* */ }); // the hold is over — restore the mute (or the gate)
+    if (this.muted) this.listen(false).catch(() => { /* */ }); // the hold is over: restore the mute (or the gate)
     else this.settleGate();
     // The tape has the words said before the VAD caught them, which `pending`
     // lacks, from just before its first speech. Without its VAD, the old loudness rule.
