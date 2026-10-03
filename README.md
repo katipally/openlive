@@ -39,10 +39,11 @@ camera and screen on top. Hosted platforms rent you that pipeline by the minute 
 run it on their cloud.
 
 OpenLive is that pipeline, open and local. The listening, the speaking, and the
-watching all run on-device (WebGPU). You pick who answers, and anyone works:
+watching all run on-device (WebGPU in the app, or native engines on your CPU or GPU). You pick who answers, and anyone works:
 
-- **A model you have a key for.** Anthropic, OpenAI, Google, xAI, DeepSeek, Groq,
-  Ollama (fully local), and a dozen more. No per-minute audio fees; you pay only
+- **A model you have a key for.** Anthropic, OpenAI, Google Gemini, xAI, DeepSeek,
+  Groq, Ollama (fully local), MiniMax, OpenRouter, Mistral, Together, Fireworks,
+  Cerebras, Perplexity and Ollama Cloud. No per-minute audio fees; you pay only
   the model costs you'd pay anyway.
 - **The coding agent you already use.** Claude Code, Codex, Cursor, OpenCode,
   Hermes, Gemini CLI, GitHub Copilot, Kiro, or Pi, driven locally over the
@@ -88,16 +89,16 @@ What every mode is built on, the ears, mouth and eyes:
   Canary. Text to speech is Kokoro (28 voices, light), Supertonic (10 voices,
   44.1 kHz), or a native Pocket TTS, Kitten TTS, Piper, Kokoro (CPU) or Matcha that
   starts speaking before the sentence is done. Each native engine comes in variants
-  (size, precision, latency, voice), picked from its Model menu in Settings → Speech engine
+  (size, precision, latency, voice), picked from its Model menu in Settings > Speech engine
   and downloaded on demand; they run in the local agent service, on the CPU or an
   accelerator it measures faster on your machine, and fall back to Whisper or the
   browser voice for the language when missing. On the desktop, Supertonic can run
   there too, on your GPU, with the browser's Supertonic as its fallback.
 - **Ten languages.** English, Spanish, French, German, Italian, Portuguese, Hindi,
-  Chinese, Japanese or Korean, picked once in Settings → Voice. Every stage and the
+  Chinese, Japanese or Korean, picked once in Settings > Voice. Every stage and the
   reply follow it. Engines that don't speak it are greyed out, and switching
   swaps in one that does and tells you what changed.
-- **Speak as yourself.** Settings → Voice records 5 to 30 seconds of you
+- **Speak as yourself.** Settings > Voice records 5 to 30 seconds of you
   (with a seekable listen-back before anything is saved) and your assistant speaks
   in your voice from then on. Zero-shot cloning (ZipVoice) running
   locally, an optional ~208 MB install, deletable anytime. Its weights carry no
@@ -109,9 +110,15 @@ What every mode is built on, the ears, mouth and eyes:
   a crisp hi-res frame on demand. A text-only model can borrow a separate vision
   model's eyes.
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.
-- **Your assistant, your way.** Custom instructions in Settings → General apply to
-  whoever answers, your API key's model or a coding agent. Speaking speed and spoken progress narration live
-  in Settings → Voice.
+- **Your assistant, your way.** **Assistant style** in Settings > General, your own
+  instructions, applies to whoever answers, your API key's model or a coding agent. Speaking speed and spoken progress narration live
+  in Settings > Voice.
+- **Tools, skills and connectors.** Settings > Capabilities turns built-in tools
+  on or off, holds your skills, and adds MCP connectors, or imports them from
+  Claude Desktop, Claude Code, Codex, Cursor, Gemini CLI and VS Code. Your API
+  key's model and coding agents get the same set.
+- **It remembers you.** Settings > Memory lists the facts carried into every
+  conversation, whoever answers. Edit or forget any of them.
 
 ### Chat
 
@@ -162,12 +169,14 @@ you.
 
 - **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
   tray > **Start Flow**. The same double tap, or **Close after silence**,
-  closes it; Esc never does. Hover the orb for close and open-OpenLive buttons.
+  closes it; Esc never does. Hover the orb for close, open-OpenLive and start-dictation buttons.
   The switch on Flow's home, or in the tray, turns it off and on, and a restart
   keeps it as you left it.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
-  screen, move and close windows, run shell commands.
+  screen, move and close windows, run shell commands. On macOS it operates app
+  windows through **OpenLive Computer Use**, a helper with its own grants that
+  presses controls by name rather than aiming at pixels.
 - **Who answers.** The default from Settings > Models > **Who answers you**, the
   same one new chats start with, or Flow's own from Settings > Flow. **Your API
   key** uses the provider, model, and vision model from Settings > Models
@@ -187,7 +196,7 @@ you.
 - **Setup.** On macOS, grant Microphone, Accessibility and Screen Recording in
   Settings > Flow > Access. Windows and Linux have their own backends; on
   Linux the keys need the `input` group (X11 and Wayland alike), and until
-  then the tray opens Flow and a call's **Hold to talk** button works.
+  then the tray opens Flow, and in Push to talk a call's **Hold to talk** button works.
 
 ![Orb states](assets/flow-orb-states.png)
 
@@ -201,13 +210,15 @@ talk the way you set in **How you talk**, and your words are typed at the
 cursor. The full guide is [docs/DICTATE.md](docs/DICTATE.md).
 
 - **On this machine.** No AI and nothing spoken back. Rules on this machine
-  tidy what you said: punctuation, filler words, backtrack, lists.
+  tidy what you said: punctuation, filler words, backtrack, lists, numbers.
 - **AI polish, if you want it.** Off by default. Rewrites what you said in a
   tone you pick, with your API key or a coding agent.
 - **Edit by voice.** Select text, then say how to change it ("make this
   formal").
 - **Your words.** A dictionary for names and terms, snippets that expand, and
   spoken commands like "new line" and "undo that".
+- **Undo on the orb** for a few seconds after Dictate types, and your clipboard
+  put back after each paste (Settings > General > Typing at cursor).
 - **On and off on its home**, or from the tray. Off until you turn it on.
 
 ### How you talk
@@ -254,9 +265,10 @@ bar on macOS) has the same verbs, so Flow and Dictate work with no window open.
  How you talk: Push to talk           Start Flow
  Open Chat / Flow / Dictate history   Turn Flow off
  Show me around again                 Turn Dictate off
- Report a problem                     How you talk ▸ Hands-free / Push to talk
- every Settings tab                   Settings…
-                                      Quit OpenLive
+ Show shortcuts                       How you talk ▸ Hands-free / Push to talk
+ Toggle theme                         Allow Accessibility… (only when needed)
+ Report a problem                     Settings…
+ every Settings tab                   Quit OpenLive
 ```
 
 ### Ready at a glance
@@ -305,6 +317,8 @@ thing missing as a button that goes to the fix.
 | ![Flow failure card](assets/flow-orb-failure.png) | ![Settings, Flow](assets/flow-settings.png) |
 | **Dictate, words and snippets** | **Dictate home** |
 | ![Settings, Dictate, Words](assets/dictate.png) | ![Dictate home](assets/dictate-home.png) |
+| **First-run welcome** | **A tour, the first time a screen shows** |
+| ![Welcome](assets/welcome.png) | ![Chat's tour](assets/tour.png) |
 
 ## Why on-device voice matters
 
@@ -350,7 +364,8 @@ keys, model ids or error text.
 
 Everything OpenLive keeps on your computer is in one folder, like `~/.claude`:
 `~/.openlive` on macOS and Linux, `%USERPROFILE%\.openlive` on Windows. Settings >
-About > Your data > **Open folder** opens it. Set `OPENLIVE_HOME` to put it elsewhere.
+About > Your data > **Open folder** opens it. Set `OPENLIVE_HOME` to put it elsewhere. **Reset local data** on the same page
+erases it and starts fresh, after a confirm.
 
 ```
 ~/.openlive/
@@ -360,7 +375,8 @@ About > Your data > **Open folder** opens it. Set `OPENLIVE_HOME` to put it else
   skills/         your skills
   secrets/        API keys and tokens, encrypted, readable by your user only
   data/           chats, voice profiles, downloaded voice models
-  flow/           Flow's and Dictate's settings and history
+  flow/           Flow's settings and history, and Dictate's dictations
+  workspace/      Flow's own folder for files it makes
   state/          window position, app state, usage-sharing state
   logs/           agent.log
   cache/          scratch files
@@ -380,7 +396,8 @@ mic ─▶ VAD ─▶ streaming STT ─▶ end-of-turn ─▶ your AI ───�
                 frames (vision)
 ```
 
-Everything outside "your AI" runs locally in the renderer. The turn goes over a warm
+Everything outside "your AI" runs locally: in the renderer, or for native engines in
+the local agent service. The turn goes over a warm
 local WebSocket to a small agent server, which either streams a provider reply or
 drives your coding agent's ACP adapter as a child process. The app starts speaking
 sentence by sentence while the reply is still being written.
@@ -398,6 +415,7 @@ Control, Control ─▶ orb ─▶ voice loop ─▶ Flow socket ─▶ your AI 
 
 **Just use it:** grab the installer from the
 [latest release](https://github.com/katipally/openlive/releases/latest) and open the app.
+Once installed, it opens at login; switch that off in Settings > General.
 Welcome walks you through the three modes, who answers you, what the computer has to
 allow and How you talk, then each mode shows a short tour the first time. Paste a model
 key, or pick the coding agent you already use (install and sign in from Settings >
