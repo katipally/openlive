@@ -181,9 +181,10 @@ contextBridge.exposeInMainWorld("openlive", {
     onNewSession: (cb) => listen("openlive:flow-new-session", (wasOpen) => cb(!!wasOpen)),
     // Flow's settings were written. The owner renderer holds the registration and
     // the auto-quiet rules, so it has to be told or every change needs a relaunch.
+    // The main window is told too when the tray turned Dictate on or off.
     settingsChanged: () => ipcRenderer.send("openlive:flow-settings-changed"),
     onSettingsChanged: (cb) => listen("openlive:flow-settings-changed", () => cb()),
-    // Flow's off switch, in Settings > Flow. Main owns the state (it suspends the
+    // Flow's off switch, on Flow's home. Main owns the state (it suspends the
     // hook itself) and broadcasts it, so the tray, the orb and the windows never disagree.
     setArmed: (armed) => ipcRenderer.send("openlive:flow-armed", !!armed),
     onArmed: (cb) => listen("openlive:flow-armed", (v) => cb(!!v)),

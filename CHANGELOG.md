@@ -18,8 +18,28 @@ Releases before 0.1.9 predate this file — see the
   home shows who answers and whether it is ready, and the same words are used
   everywhere. Until you pick otherwise, everything answers as it did.
 - Flow's first run is only its access step: who answers is the default now.
+- **Each mode's home is where you use it, Settings is where you set it up,
+  and nothing is in both.** Dictate's home has the on/off switch, whether it
+  is ready (with the fix when something is missing), how to start in your own
+  keys, and your whole history: search, copy, insert again, delete, and
+  **Show more** for a long one. Settings > Dictate keeps the keys, cleanup,
+  AI polish and its tone, who answers it, words, commands, and how long
+  history is kept with **Clear all**, under one line that says whether
+  Dictate is on and links to its home. Flow's on/off moved from Settings >
+  Flow to Flow's home the same way.
+- **One description of each mode, everywhere.** Chat is a voice call with
+  your AI; Flow is asking your computer, from any app, which can act for you;
+  Dictate is voice typing into any text box, with no AI unless you turn on AI
+  polish. The mode switch, Welcome, the homes, the first tour, Settings and the
+  command palette all say the same thing, with your own keys.
+- **Dictate's first visit** walks you through it on its home: what it is and
+  turning it on, then a box right there to try it in. Skippable.
+- **The tray turns Dictate on and off**, under a line that says how it stands
+  and its key, and the window follows at once.
 
 ### Fixed
+- **Dictating into OpenLive's own text boxes types there,** on every platform:
+  Electron takes the words directly instead of system key events.
 - **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
   longer misses being told it is shown when it comes up for Dictate, which hid
   the words and the Undo button. The microphone stays open, muted, for 30

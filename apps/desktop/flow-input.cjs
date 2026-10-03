@@ -29,10 +29,16 @@ let hooked = false;
 // The addon only reports a hook that started and then died.
 let startError = null;
 let secureTimer = null;
-let armed = true; // Settings > Flow's "Listen for the Flow hotkey"; Flow's binding alone is muted to match, so Dictate's keeps working
+let armed = true; // Flow's on/off switch, on its home; Flow's binding alone is muted to match, so Dictate's keeps working
 const FLOW_BINDING = "flow"; // useFlowOwner's BINDING_ID
 const bindings = new Map(); // id -> the binding the renderer registered, for the tray to show
 let target = () => null; // the webContents that receives effects
+let ownField = () => null; // OpenLive's own window's webContents while it has the keyboard, else null
+const ownSessions = new Map(); // insertion session -> the own window it types into
+let ownSession = 2 ** 30; // above any session id the addon hands out
+// What Dictate types into in OpenLive's own window: a text field or an editable element.
+const OWN_EDITABLE = `(() => { const e = document.activeElement; return !!e && (e.isContentEditable || e.tagName === "TEXTAREA"
+  || (e.tagName === "INPUT" && /^(text|search|email|url|tel|password|number)$/.test(e.type))); })()`;
 let telemetry = null;
 
 function load() {
@@ -118,7 +124,11 @@ const binding = (id) => bindings.get(id) ?? null;
  *  a key listener that is still alive. "stopped" when that listener died,
  *  "access" when the grant is what is missing. */
 function readiness() {
-  if (!armed) return "off";
+  return armed ? hookReadiness() : "off";
+}
+
+/** The key listener's own state, whatever Flow's off switch says: Dictate listens through it too. */
+function hookReadiness() {
   try {
     const api = load();
     if (hookFailure()) return "stopped";
@@ -199,10 +209,12 @@ function teardown() {
   hooked = false;
 }
 
-// `getTarget` returns the webContents that should receive hook effects.
-function install(getTarget, telemetryClient) {
+// `getTarget` returns the webContents that should receive hook effects;
+// `getOwnField`, OpenLive's own window's while it has the keyboard.
+function install(getTarget, telemetryClient, getOwnField = () => null) {
   target = getTarget;
   telemetry = telemetryClient;
+  ownField = getOwnField;
 
   ipcMain.handle("openlive:flow-init", guard(() => initialize()));
   ipcMain.handle("openlive:flow-permissions", guard(() => load().permissionStatus()));
@@ -220,13 +232,27 @@ function install(getTarget, telemetryClient) {
   ipcMain.handle("openlive:flow-gesture-open", guard((id, open) => load().notifyOpen(String(id), open === true)));
 
   ipcMain.handle("openlive:flow-insert", guard((text, method, timing) => load().insertText(text, method, insertionTiming(timing))));
-  ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => load().beginInsertion(method, insertionTiming(timing))));
-  ipcMain.handle("openlive:flow-insert-push", guard((session, chunk) => load().pushInsertion(session, chunk)));
-  ipcMain.handle("openlive:flow-insert-end", guard((session) => load().endInsertion(session)));
+  // OpenLive's own window takes Dictate's words from Electron itself: no system
+  // events, so no Accessibility tree, clipboard or posted keys are involved, and
+  // its own fields work the same on every platform. A session keeps the window it began in.
+  ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => {
+    const own = ownField();
+    if (!own) return load().beginInsertion(method, insertionTiming(timing));
+    ownSessions.set(++ownSession, own);
+    return ownSession;
+  }));
+  ipcMain.handle("openlive:flow-insert-push", guard((session, chunk) => {
+    const own = ownSessions.get(session);
+    return own ? own.insertText(String(chunk)) : load().pushInsertion(session, chunk);
+  }));
+  ipcMain.handle("openlive:flow-insert-end", guard((session) => (ownSessions.delete(session) ? undefined : load().endInsertion(session))));
   // Dictate's spoken commands and command mode: a key chord, and the selection read by copying it.
   ipcMain.handle("openlive:flow-keys", guard((keys, times) => load().keypress((Array.isArray(keys) ? keys : []).map(String), Number.isInteger(times) ? times : undefined)));
   ipcMain.handle("openlive:flow-copy-selection", guard((timing) => load().copySelection(insertionTiming(timing))));
-  ipcMain.handle("openlive:flow-focus-editable", guard(() => load().focusEditable()));
+  ipcMain.handle("openlive:flow-focus-editable", guard(() => {
+    const own = ownField();
+    return own ? own.executeJavaScript(OWN_EDITABLE, true) : load().focusEditable();
+  }));
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
   ipcMain.handle("openlive:flow-hook-error", guard(() => hookFailure()));
@@ -236,4 +262,4 @@ function install(getTarget, telemetryClient) {
   app.on("will-quit", teardown);
 }
 
-module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, request, hookFailure, insertionTiming };
+module.exports = { install, teardown, load, setArmed, isArmed, binding, readiness, hookReadiness, request, hookFailure, insertionTiming };

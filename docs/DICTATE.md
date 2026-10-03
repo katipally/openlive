@@ -1,11 +1,15 @@
 # Dictate
 
-Dictate is talking instead of typing, in any app. Hold a key, say it, let go,
-and the cleaned-up words are typed where your cursor is. No model or agent hears plain
-dictation and nothing is spoken back: the speech engine writes down what you
-said, rules on this machine tidy it, and ol-input types it. It works the same on
-macOS, Windows and Linux.
+Voice typing into any text box. Hold a key, talk, let go: your words are typed
+at the cursor. It runs on this machine. No AI, nothing spoken back, unless you
+turn on AI polish: the speech engine writes down what you said, rules on this
+machine tidy it, and ol-input types it. It works the same on macOS, Windows and
+Linux.
 
+Dictate is not [Flow](FLOW.md). Flow is for asking your computer: your AI
+answers out loud and can act for you. Dictate only types what you say.
+
+- [Dictate's home](#dictates-home)
 - [Starting and stopping](#starting-and-stopping)
 - [The orb](#the-orb)
 - [Cleanup](#cleanup)
@@ -18,6 +22,44 @@ macOS, Windows and Linux.
 - [Dictate and Flow](#dictate-and-flow)
 - [Platform notes](#platform-notes)
 - [Architecture (for developers)](#architecture-for-developers)
+
+## Dictate's home
+
+Pick **Dictate** at the top of the window. The home is for using it; how it
+behaves is in Settings > Dictate, and nothing is in both places.
+
+```
+ Dictate's home (use)                     Settings > Dictate (configure)
+ ─────────────────────                    ──────────────────────────────
+ Dictate is on / off   (the switch)       "Dictate is on. Turn it off in Dictate."
+ Ready, or the fix that is missing        Basics: keys, cleanup, AI polish + tone,
+ how to start, with your keys                     who answers, shared settings,
+ History: search, copy, insert again,             history: how long, Clear all
+          delete, Show more               Words: dictionary, snippets
+ Settings ›                               Commands: command key, spoken commands
+```
+
+- **The switch**: **Dictate is on** or **Dictate is off**. The tray (menu bar)
+  menu has the same switch: **Turn Dictate on** or **Turn Dictate off**, under
+  a line that says how it stands (**Dictate is on · Hold Right ⌥**, **Dictate
+  needs permission**, **Dictate stopped listening**).
+- **Status**, while it is on: **Ready**, or buttons for what is missing
+  (**Allow microphone**, **Allow Accessibility**, or **Allow input access** on
+  Windows and Linux), or why the key listener stopped.
+- **How to start**, in your own keys: hold the key, double-tap for hands-free,
+  and the command key with text selected.
+- **History**: every dictation kept, newest first by day, with a search once
+  there are more than 8, **Copy**, **Insert again** (back into the window it
+  came from while that window is open, else on the clipboard) and **Delete**.
+  The first 100 show, and **Show more** adds 100 at a time, so a long history
+  opens and searches quickly.
+
+The first time, the home walks you through it in two cards, skippable:
+**Voice typing, no AI** (what it is, the switch, and anything the system still
+has to allow, unless Welcome already asked) and **Try it here**, a text box on
+the page to hold the key over. Dictation into OpenLive's own window is typed by
+Electron itself, so the box works the same on every platform. **Done** or
+**Skip** ends it for good.
 
 ## Starting and stopping
 
@@ -34,7 +76,7 @@ macOS, Windows and Linux.
 | The mic button above Flow's orb | Hands-free on. While it is on, the button is a **Hands-free** badge; click it to stop. |
 | Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It starts once Flow's reply ends. |
 
-Dictate is off until you turn it on in Settings > Dictate. The key is watched,
+Dictate is off until you turn it on, on its home or from the tray. The key is watched,
 never swallowed: it still reaches the app in front. A key pressed on top of it
 (Right Alt as AltGr typing a character) cancels the hold. On Windows, holding
 Alt or Win for Dictate sends an inert key with it, so letting go does not open
@@ -87,7 +129,8 @@ system what has the keyboard (macOS Accessibility, Windows UI Automation, Linux
 AT-SPI). Only a plain no copies: a list, a button, Finder's files. Where the
 system cannot tell, as in an Electron app that shows no accessibility tree, a
 web page's body, or a Linux desktop with no accessibility bus, it types as it
-always did.
+always did. OpenLive's own window is the exception: its text boxes take the
+words from Electron directly, with no system events in between.
 
 Stopping hands-free puts things back as they were before it started. With Flow
 closed, the microphone goes quiet at once and the orb goes after the Undo
@@ -223,9 +266,8 @@ does the same.
 ## History
 
 Each dictation is kept after it lands: what was said, the cleaned-up text, what
-was typed, the app and the time. Settings > Dictate > History lists it, newest
-first by day, with copy, **Insert again** (back into the window it came from
-while that window is open, else on the clipboard) and delete, a search, and
+was typed, the app and the time. [Dictate's home](#dictates-home) lists it.
+Settings > Dictate > Basics > **History** sets how long it is kept and has
 **Clear all**.
 
 - Kept for 1 day, 7 days, 30 days (the default) or forever, or not at all.
@@ -236,10 +278,10 @@ while that window is open, else on the clipboard) and delete, a search, and
 
 ## Settings
 
-Settings > Dictate, in four subtabs:
+Settings > Dictate opens with one line saying whether Dictate is on, with a
+link to its home, where the switch is. Then three subtabs:
 
 - **Basics**
-  - **Dictate**: on or off.
   - **Hold to talk**: the key. **Change** takes the next key or combination you
     press: a modifier on either side, Caps Lock, or F13 to F24, since any other
     key would also type. On Windows and Linux a Right Alt key warns that some
@@ -250,10 +292,11 @@ Settings > Dictate, in four subtabs:
     command mode alike. Plain dictation never uses it.
   - **Shared settings**: links to Typing at cursor (General), Voice and Speech
     engine.
+  - **History**: how long to keep dictations, **Clear all**, and a link to the
+    list on Dictate's home.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
   **Show all**) and snippets.
 - **Commands**: command mode's key and the spoken commands.
-- **History**: how long to keep dictations, and the list.
 
 Typing at cursor is shared with Flow, in Settings > General: paste or type it
 out, the Advanced timing, and **Put my clipboard back**. On (the default), what
@@ -341,6 +384,12 @@ One microphone, one engine, one orb, so the two take turns:
   space and a code fence), then `{ text }` or `{ error }`. The renderer
   (`readRewrite`) pushes each delta into one insertion session, holds the
   deadline and aborts the request, which ends the turn.
+- **Own window**: while OpenLive's main window has the keyboard,
+  `flow-input.cjs` answers `focusEditable` from the page's focused element and
+  types each insertion session with `webContents.insertText`, never the addon.
+- **Tray**: main reads and writes Dictate's switch through `/api/flow/config`,
+  the windows' own route, then tells the owner renderer and the main window
+  (`openlive:flow-settings-changed`) so the key and the screens follow.
 - **Focus**: ol-input's `focusEditable()` reads the focused element (AX role
   and settable AXValue or AXSelectedTextRange; UIA control type, ValuePattern
   and TextPattern; AT-SPI role and EDITABLE through python3's GObject bindings,

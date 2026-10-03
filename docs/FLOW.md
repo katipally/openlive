@@ -1,10 +1,13 @@
 # Flow
 
-Flow is OpenLive's voice assistant for the whole machine. Tap `Control` twice in
-any app, say what you want, and Flow answers out loud, types into the app you are
-in, or drives the Mac for you: opening apps and links, clicking, typing, scrolling,
-reading the screen. It runs on the same on-device voice loop as a call, with the
-brain you pick: a model you have a key for, or a coding agent you already use.
+Ask your computer, from any app. Tap `Control` twice (`Ctrl` on Windows and
+Linux), say what you want, and your AI listens, answers out loud, and can act
+for you: open apps and links, click, type, scroll, read the screen, run
+commands. It works on macOS, Windows and Linux, on the same on-device voice loop
+as a call, and thinks with your API key or a coding agent you already use.
+
+Flow is not [Dictate](DICTATE.md). Dictate is voice typing: it types what you
+say into the text box in front of you, with no AI and nothing spoken back.
 
 ![Flow home](../assets/flow-home.png)
 
@@ -31,16 +34,18 @@ brain you pick: a model you have a key for, or a coding agent you already use.
 |---|---|
 | Double tap `Control` (`Ctrl` on Windows and Linux) | Opens Flow. The same gesture closes it. |
 | Tray / menu bar > **Start Flow** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
-| Settings > Flow > **Listen for the Flow hotkey** | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on or restart OpenLive. |
-| Flow tab in the OpenLive window | Home for Flow: readiness, the brain in use, and your session history. |
+| **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on or restart OpenLive. Settings > Flow says which it is and links here. |
+| Flow tab in the OpenLive window | Home for Flow: the switch, readiness, who answers, and your session history. |
 
 The tray (menu bar) menu is short:
 
 ```
  Flow is ready  ·  Double-tap ⌃       status, in plain words
+ Dictate is on  ·  Hold Right ⌥        Dictate's, the same way
  ─────────────────────────────
  Open OpenLive
  Start Flow
+ Turn Dictate off                     the switch on Dictate's home
  Settings…                    ⌘,
  ─────────────────────────────
  Quit OpenLive
@@ -50,7 +55,8 @@ The status line reads **Flow is ready** (with the gesture, `Double-tap Ctrl`
 on Windows and Linux), **Flow is open**, **Flow needs permission** (with
 **Allow Accessibility…** under it, **Allow input access…** off macOS),
 **Flow stopped listening** (the key listener died) or **Flow is off** (the
-switch in Settings > Flow is off).
+switch on Flow's home is off). Dictate's line works the same way; see
+[Dictate](DICTATE.md#dictates-home).
 
 The trigger is fixed to the double `Control` tap; there is no setting to rebind it.
 Flow only listens to the keyboard for that key, has no wake word, and opens the
@@ -205,12 +211,12 @@ Every card also has **Close Flow**.
 
 ## Settings
 
-Settings > Flow ("Trigger, who answers"):
+Settings > Flow ("Trigger, who answers") opens with one line saying whether
+Flow is on, with a link to Flow's home, where the switch is.
 
 | Section | Setting | Options |
 |---|---|---|
 | Trigger | Hotkey | The double tap, shown as keycaps, with a note when the key listener stopped |
-| | Listen for the Flow hotkey | On / off. Off ignores the double tap until it is back on or OpenLive restarts |
 | Who answers | Who answers in Flow | Same as default, or Its own: your API key, or an installed coding agent (model and effort under Advanced) |
 | Voice | Say replies out loud | On / off |
 | | Wait before answering | Patient, Even, Quick |
@@ -317,9 +323,10 @@ PipeWire (installed by default on current GNOME and KDE), and pasting needs
 
 ## Troubleshooting
 
-- **The double tap does nothing.** Check the Flow tab: the chip should say
-  **Ready**. **Off** means Accessibility is missing or **Listen for the Flow
-  hotkey** is off in Settings > Flow; **Key listener stopped** means the hook died (the failure card's
+- **The double tap does nothing.** Check the Flow tab: it should say **Flow is
+  on**, with a **Ready** chip. **Flow is off** means its switch there is off;
+  **Allow Accessibility** (**Allow input access** off macOS) means the grant is
+  missing; **Key listener stopped** means the hook died (the failure card's
   **Try again** restarts it). In a password field secure input hides every key.
 - **Flow hears me but never types.** Grant Accessibility, then press **Open
   settings** on the card. Windows running as administrator refuse input from a

@@ -114,7 +114,7 @@ OpenLive has no crash reporter and never uploads logs. The crash events only cou
 
 The words you say and the frames you share go to the model provider or coding agent you chose, under their terms, and nowhere else. Choose a local model and they stay on your machine. The project does not see them and this page does not govern them.
 
-Dictate's history (Settings > Dictate > History) keeps what you dictated in a file on your machine, for as long as you set there, and never sends it anywhere. Delete one dictation or all of them there, or set it to keep nothing. Plain dictation goes to no model at all; AI polish and command mode send the words, and the selected text, to your API key's provider or the coding agent that answers for Dictate.
+Dictate's history (listed on Dictate's home) keeps what you dictated in a file on your machine, for as long as Settings > Dictate > Basics > History says, and never sends it anywhere. Delete one dictation on the home, all of them with Clear all in Settings, or set it to keep nothing. Plain dictation goes to no model at all; AI polish and command mode send the words, and the selected text, to your API key's provider or the coding agent that answers for Dictate.
 
 Everything else OpenLive keeps on your machine (chats, memory, settings, saved keys, and what the app remembers between launches, like the mode and chat you left open) is in one folder, `~/.openlive` (`%USERPROFILE%\.openlive` on Windows), shown in Settings > About. Reset local data there erases all of it, along with the app's browser storage, and starts again fresh. If you turned usage data off, it stays off after a reset, and Open at login keeps your setting.
 

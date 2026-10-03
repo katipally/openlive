@@ -761,6 +761,8 @@ function createOwnerWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, additionalArguments: agentArgs() },
   });
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
+  // Loaded means the web server answers, so Dictate's state can be read for the tray.
+  ownerWin.webContents.on("did-finish-load", () => void syncDictate());
   ownerWin.on("session-end", onSessionEnd);
   ownerWin.on("closed", () => { ownerWin = null; });
   return ownerWin;
@@ -911,10 +913,11 @@ function wireFlowIpc() {
   ipcMain.on("openlive:flow-armed", (_e, v) => setFlowArmed(v));
   ipcMain.on("openlive:flow-settings-changed", () => {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-settings-changed");
+    void syncDictate();
   });
 }
 
-/** Flow's off switch, from Settings > Flow. One state, told to everyone who
+/** Flow's off switch, from Flow's home. One state, told to everyone who
  *  draws it, so the tray and the windows can never disagree. */
 function setFlowArmed(next) {
   const was = flowInput.isArmed();
@@ -993,7 +996,36 @@ async function openSettings() {
 let tray = null;
 const TRAY_READINESS_POLL_MS = 3000;
 /** What the menu says depends on. Readiness comes from the same test the Flow window uses. */
-const trayState = () => ({ readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform });
+const trayState = () => ({
+  readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
+  hook: flowInput.hookReadiness(), dictate,
+});
+/** Dictate's switch and key from its settings, for the tray; null until first read. */
+let dictate = null;
+
+/** Reads Dictate's settings, or writes `patch` into them, through the same web
+ *  route the windows use, so the file has one writer and one parse. */
+async function syncDictate(patch) {
+  try {
+    const r = await fetch(`${WEB_URL}/api/flow/config`, patch
+      ? { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ dictate: patch }) }
+      : { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const own = (await r.json()).config.dictate;
+    dictate = { on: !!own.enabled, binding: own.hotkey };
+    refreshTray();
+    return true;
+  } catch (e) { console.error("[main] dictate settings:", e); return false; }
+}
+
+/** The tray's Dictate switch. The owner renderer re-registers its key and the
+ *  main window re-reads what its home and Settings show. */
+async function setDictateFromTray(on) {
+  if (!(await syncDictate({ enabled: on }))) return;
+  for (const win of [ownerWin, mainWin]) {
+    if (win && !win.isDestroyed()) win.webContents.send("openlive:flow-settings-changed");
+  }
+}
 let trayShows = "";
 let reportedReadiness = null;
 const TRAY_PLACE = process.platform === "darwin" ? "menu bar" : "tray";
@@ -1075,6 +1107,8 @@ function refreshTray() {
   tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(state, {
     open: fromTray("open", restoreMainWindow),
     startFlow: fromTray("new_flow", startFlowFromTray),
+    dictateOn: fromTray("dictate_on", () => void setDictateFromTray(true)),
+    dictateOff: fromTray("dictate_off", () => void setDictateFromTray(false)),
     allowAccess: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))),
     settings: fromTray("settings", openSettings),
     quit: fromTray("quit", () => quitApp("tray_menu")),
@@ -1529,7 +1563,8 @@ async function boot() {
   wireCrashReports();
   wireFlowIpc();
   // Hook effects drive Flow's cascade, which lives in the owner renderer.
-  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry);
+  flowInput.install(() => (ownerWin && !ownerWin.isDestroyed() ? ownerWin.webContents : null), telemetry,
+    () => (mainWin && !mainWin.isDestroyed() && mainWin.isFocused() ? mainWin.webContents : null));
   // Open at login by default, once, for the installed app only (never the dev
   // binary). After that the person's choice in Settings stands. Run from a DMG or
   // a download, the default waits for a launch from where it was installed.

@@ -585,7 +585,7 @@ Limit: none.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `action` | Which item: `new_flow` is Start Flow. | `open`, `new_flow`, `allow_accessibility`, `settings`, `quit` | always |
+| `action` | Which item: `new_flow` is Start Flow; `dictate_on` and `dictate_off` turn Dictate on or off. | `open`, `new_flow`, `dictate_on`, `dictate_off`, `allow_accessibility`, `settings`, `quit` | always |
 
 ### `feature_usage`
 
@@ -681,7 +681,7 @@ These are the settings `setting_changed` can report, with the values each one ca
 | --- | --- | --- | --- |
 | `login_item` | Open at login, on or off. | `on`, `off` | none |
 | `end_on_lock` | End Flow and calls when the screen locks, on or off. On is the default. | `on`, `off` | none |
-| `flow_armed` | Listen for the Flow hotkey (Settings > Flow), on or off. | `on`, `off` | none |
+| `flow_armed` | Flow on or off, the switch on Flow's home. | `on`, `off` | none |
 | `theme` | The theme. | `system`, `light`, `dark` | none |
 | `look` | The window look. | `glass`, `flat` | none |
 | `custom_instructions` | Custom instructions saved or emptied. The text is never sent. | `set`, `cleared` | none |

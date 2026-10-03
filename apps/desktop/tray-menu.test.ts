@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 
-const { trayTemplate, statusLine, hotkeyLabel, STATUS } = createRequire(import.meta.url)("./tray-menu.cjs");
+const { trayTemplate, statusLine, dictateLine, hotkeyLabel, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
 
-const act = { open: vi.fn(), startFlow: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
-const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin" };
+const act = { open: vi.fn(), startFlow: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
+const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", dictate: { on: false, binding: "option_right" } };
 const labels = (state: object) => trayTemplate(state, act).map((i: { label?: string; type?: string }) => i.label ?? i.type);
 
 describe("the tray's status line", () => {
@@ -24,6 +24,24 @@ describe("the tray's status line", () => {
   });
 });
 
+describe("the tray's Dictate line", () => {
+  it("says whether Dictate is on, and its key while a hold would work", () => {
+    expect(dictateLine(ready)).toBe("Dictate is off");
+    const on = { ...ready, dictate: { on: true, binding: "option_right" } };
+    expect(dictateLine(on)).toBe("Dictate is on  ·  Hold Right ⌥");
+    expect(dictateLine({ ...on, platform: "win32" })).toBe("Dictate is on  ·  Hold Right Alt");
+    expect(dictateLine({ ...on, hook: "access" })).toBe("Dictate needs permission");
+    expect(dictateLine({ ...on, hook: "stopped" })).toBe("Dictate stopped listening");
+    expect(dictateLine({ ...on, hook: "off" })).toBe("Dictate stopped listening");
+    expect(dictateLine({ ...ready, dictate: null })).toBe("Dictate is off");
+    for (const words of Object.values(DICTATE)) expect(words).not.toMatch(/:|\(/);
+  });
+
+  it("follows Dictate's own switch, not Flow's", () => {
+    expect(dictateLine({ ...ready, readiness: "off", dictate: { on: true, binding: "f13" } })).toBe("Dictate is on  ·  Hold F13");
+  });
+});
+
 describe("hotkeyLabel", () => {
   it("writes the registered key the way each platform does", () => {
     expect(hotkeyLabel("ctrl", "darwin")).toBe("Double-tap ⌃");
@@ -40,13 +58,27 @@ describe("hotkeyLabel", () => {
 });
 
 describe("trayTemplate", () => {
-  it("is the minimal menu: status, open, start, settings, quit", () => {
-    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "separator", "Open OpenLive", "Start Flow", "Settings…", "separator", "Quit OpenLive"]);
+  it("is the minimal menu: both statuses, open, start, Dictate's switch, settings, quit", () => {
+    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Dictate on", "Settings…", "separator", "Quit OpenLive"]);
+  });
+
+  it("turns Dictate on or off, once its settings have been read", () => {
+    const item = (state: object) => trayTemplate(state, act).find((i: { label?: string }) => /^Turn Dictate/.test(i.label ?? ""));
+    expect(item(ready)).toMatchObject({ label: "Turn Dictate on", enabled: true, click: act.dictateOn });
+    expect(item({ ...ready, dictate: { on: true, binding: "option_right" } })).toMatchObject({ label: "Turn Dictate off", enabled: true, click: act.dictateOff });
+    expect(item({ ...ready, dictate: null }).enabled).toBe(false);
+  });
+
+  it("offers the grant for Dictate too, while Flow is off", () => {
+    const dictating = { ...ready, readiness: "off", hook: "access", dictate: { on: true, binding: "option_right" } };
+    expect(labels(dictating)).toContain("Allow Accessibility…");
+    expect(labels({ ...dictating, dictate: { on: false, binding: "option_right" } })).not.toContain("Allow Accessibility…");
   });
 
   it("keeps the status line read-only and shows Settings' own shortcut", () => {
     const items = trayTemplate(ready, act);
     expect(items[0].enabled).toBe(false);
+    expect(items[1].enabled).toBe(false);
     expect(items.find((i: { label?: string }) => i.label === "Settings…").accelerator).toBe("CmdOrCtrl+,");
     // ⌘Q only closes to the menu bar, so Quit shows no shortcut.
     expect(items.find((i: { label?: string }) => i.label === "Quit OpenLive").accelerator).toBeUndefined();

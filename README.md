@@ -146,7 +146,9 @@ Flow, the assistant for the whole machine:
 
 ## Flow
 
-Flow is the voice assistant that lives over your dock, not in a window.
+Ask your computer, from any app. Flow is the voice assistant that lives over
+your dock, not in a window: your AI listens, answers out loud, and can act for
+you.
 
 ```
  any app ──▶ tap Control, Control ──▶ orb listens ──▶ thinks ──▶ acts / speaks
@@ -155,7 +157,8 @@ Flow is the voice assistant that lives over your dock, not in a window.
 ```
 
 - **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
-  tray > **Start Flow**. Hover the orb for close and open-OpenLive buttons.
+  tray > **Start Flow**. Hover the orb for close and open-OpenLive buttons. The
+  switch on Flow's home turns it off and on.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
   screen, move and close windows, run shell commands.
@@ -184,9 +187,11 @@ Flow is the voice assistant that lives over your dock, not in a window.
 The full guide, with every setting, failure card, platform detail, and the
 architecture, is in [docs/FLOW.md](docs/FLOW.md).
 
-**Dictate** types what you say: hold Right Alt (Right Option on macOS), talk,
-let go, and the cleaned-up words land at your cursor, with no brain involved.
-Double-tap for hands-free. See [docs/DICTATE.md](docs/DICTATE.md).
+**Dictate** is voice typing into any text box: hold Right Alt (Right Option on
+macOS), talk, let go, and your words are typed at the cursor. It runs on this
+machine: no AI and nothing spoken back, unless you turn on AI polish.
+Double-tap for hands-free. Turn it on, and find everything you dictated, on
+Dictate's home; the tray has the same switch. See [docs/DICTATE.md](docs/DICTATE.md).
 
 ## Screenshots
 
