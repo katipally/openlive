@@ -4,7 +4,7 @@
 // a drifted pin silently breaks native session persistence / `claude --resume`.
 import assert from "node:assert";
 import { test } from "vitest";
-import { AGENT_IDS, AGENT_LIST, AGENT_REGISTRY, adapterCommand, agentLabel, isAgentId } from "./agent-registry";
+import { AGENT_IDS, AGENT_LIST, AGENT_REGISTRY, adapterCommand, agentLabel, agentVersion, isAgentId } from "./agent-registry";
 
 test("every agent id has a complete registry entry", () => {
   for (const id of AGENT_IDS) {
@@ -133,4 +133,15 @@ test("helpers: isAgentId / agentLabel", () => {
   assert.equal(agentLabel("claude-code"), "Claude Code");
   assert.equal(agentLabel(null), "Your API key");
   assert.equal(agentLabel("nope"), "Your API key");
+});
+
+test("an agent's --version output reads as its version alone", () => {
+  assert.equal(agentVersion("GitHub Copilot CLI 1.0.91.\nRun 'copilot --help' for usage."), "1.0.91");
+  assert.equal(agentVersion("2.1.288 (Claude Code)\n"), "2.1.288");
+  assert.equal(agentVersion("codex-cli 0.157.1"), "0.157.1");
+  assert.equal(agentVersion("1.18.33\r\n"), "1.18.33");
+  assert.equal(agentVersion("hermes v2.0.0-beta.3."), "2.0.0-beta.3");
+  assert.equal(agentVersion("  nightly build  \nmore"), "nightly build");
+  assert.equal(agentVersion("x".repeat(80)), "x".repeat(48));
+  assert.equal(agentVersion("   \n"), undefined);
 });

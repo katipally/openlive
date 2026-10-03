@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { AGENT_LIST } from "@openlive/shared";
+import { AGENT_LIST, agentVersion } from "@openlive/shared";
 import { widenedPath, evalCredProbe, readJsonHome, type CredState } from "@openlive/shared/node";
 import { getSetting } from "@openlive/db";
 
@@ -28,15 +28,14 @@ async function locate(bin: string): Promise<string | null> {
  *  binary changed. */
 const versions = new Map<string, { stamp: string; version: string }>();
 
-/** `<bin> --version` → a short version string, or undefined. Best-effort: some
- *  CLIs print banners — keep just the first line, capped. */
+/** `<bin> --version` → its version (see agentVersion), or undefined. */
 async function binVersion(bin: string, path: string): Promise<string | undefined> {
   const stamp = await stat(path).then((s) => `${s.mtimeMs}:${s.size}`, () => "");
   const hit = versions.get(path);
   if (stamp && hit?.stamp === stamp) return hit.version;
   try {
     const { stdout } = await promisify(execFile)(bin, ["--version"], { env: { ...process.env, PATH: widenedPath() }, timeout: 4000 });
-    const version = stdout.trim().split("\n")[0]?.trim().slice(0, 48) || undefined;
+    const version = agentVersion(stdout);
     if (version && stamp) versions.set(path, { stamp, version });
     return version;
   } catch { return undefined; }

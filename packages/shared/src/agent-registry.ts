@@ -411,6 +411,15 @@ export const isAgentId = (x: unknown): x is AgentId => typeof x === "string" && 
 export const agentLabel = (id: string | null | undefined): string =>
   (id && isAgentId(id) && AGENT_REGISTRY[id].label) || "Your API key";
 
+/** A CLI's `--version` output as the version alone: "GitHub Copilot CLI 1.0.91."
+ *  and "2.1.288 (Claude Code)" both read "1.0.91" / "2.1.288". Output with no
+ *  version number in its first line keeps that line, capped. */
+export const agentVersion = (raw: string): string | undefined => {
+  const line = raw.trim().split(/\r?\n/)[0]?.trim() ?? "";
+  const semver = /(?<![\w.])v?(\d+(?:\.\d+)+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)/.exec(line)?.[1];
+  return semver ?? (line.slice(0, 48) || undefined);
+};
+
 /** The adapter command as one display string (settings placeholder, docs). */
 export const adapterCommand = (id: AgentId): string => {
   const a = AGENT_REGISTRY[id].adapter;
