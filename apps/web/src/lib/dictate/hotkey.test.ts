@@ -8,6 +8,7 @@ describe("hotkeyKeys", () => {
     expect(hotkeyKeys("shift+option_right", "linux")).toEqual(["Shift", "Right Alt"]);
     expect(hotkeyKeys("command_right", "linux")).toEqual(["Right Super"]);
     expect(hotkeyKeys("ctrl_right", "darwin")).toEqual(["Right ⌃"]);
+    expect(hotkeyKeys("fn", "darwin")).toEqual(["Fn"]);
     expect(hotkeyKeys("capslock", "win32")).toEqual(["Caps Lock"]);
     expect(hotkeyKeys("f13", "darwin")).toEqual(["F13"]);
   });

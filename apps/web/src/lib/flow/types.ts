@@ -1,3 +1,5 @@
+import type { TalkMode } from "@openlive/flow-store";
+
 // What the orb shows and what it can ask the owner renderer to do. The orb is a
 // display and command surface only: every decision in here was already made by
 // the owner, which runs the cascade and the Flow socket.
@@ -56,18 +58,25 @@ export interface FlowSnapshot {
   aside: string;
   /** Dictate, while it has the orb. Null the rest of the time. */
   dictate: DictateSnapshot | null;
+  /** How Flow and Dictate listen, for the badge above the orb. */
+  talk: TalkSnapshot;
+}
+
+/** How you talk, as the orb shows it. */
+export interface TalkSnapshot {
+  mode: TalkMode;
+  /** The push-to-talk key as the person reads it, for "Hold Fn to talk". */
+  keys: string[];
+  /** The push-to-talk key is down. */
+  holding: boolean;
 }
 
 /** Dictate on the orb: Flow's orb in Dictate's colours, with what it heard. */
 export interface DictateSnapshot {
-  /** idle: hands-free and waiting for words. processing: cleaning up, rewriting and typing. */
+  /** idle: waiting for words, or for the key. processing: cleaning up, rewriting and typing. */
   phase: "idle" | "listening" | "processing";
-  /** Open until stopped, rather than held by the key. */
-  handsFree: boolean;
-  /** Command mode: what is said is an instruction for the selection. */
-  command: boolean;
-  /** The key as the person reads it, for the Hold badge. */
-  keys: string[];
+  /** This utterance began on a selection Dictate's brain will edit, rather than type at. */
+  editing: boolean;
   /** What it has heard so far this utterance, and while processing, the words being worked on. */
   partial: string;
   /** AI polish is rewriting the words. */
@@ -84,4 +93,5 @@ export interface DictateSnapshot {
 
 export const IDLE_FLOW: FlowSnapshot = {
   phase: "idle", reply: "", detail: "", speaking: true, failure: null, aside: "", dictate: null,
+  talk: { mode: "handsFree", keys: [], holding: false },
 };

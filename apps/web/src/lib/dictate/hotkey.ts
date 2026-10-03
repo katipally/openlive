@@ -10,7 +10,7 @@ export function hotkeyKeys(binding: string, platform: string): string[] {
   const mac = platform === "darwin";
   return binding.split("+").map((part) => {
     const [name = "", side] = part.split("_");
-    if (!isModifier(name)) return name === "capslock" ? "Caps Lock" : name.toUpperCase();
+    if (!isModifier(name)) return name === "capslock" ? "Caps Lock" : name === "fn" ? "Fn" : name.toUpperCase();
     const word = name === "command" && platform === "linux" ? "Super" : MODIFIERS[name][mac ? 0 : 1];
     return side === "right" ? `Right ${word}` : side === "left" ? `Left ${word}` : word;
   });

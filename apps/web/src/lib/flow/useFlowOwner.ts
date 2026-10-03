@@ -22,13 +22,14 @@ import { desktopPlatform } from "@/lib/platform";
 import { createDictate, HISTORY_CHANNEL, readRewrite, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
-import { DICTATE_BINDING, FLOW_BINDING, flowBridge, valueOr, type Guarded } from "./bridge";
+import { flowBridge, valueOr, type Guarded } from "./bridge";
+import { createTalk } from "./talk";
 import { deriveFailure, forOrb, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
 import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
 import { flowTurn } from "@openlive/flow-store/shared";
-import type { FlowConfig } from "@openlive/flow-store";
+import type { FlowConfig, TalkMode } from "@openlive/flow-store";
 
 // Flow's owner renderer. It holds the microphone, the voice cascade, the Flow
 // socket and every decision; the orb is a display and command surface fed from
@@ -86,7 +87,6 @@ export function useFlowOwner(): void {
   const disarmed = useRef(false);
   /** Whether the hook was installed. Main registers the keys on it. */
   const armed = useRef(false);
-  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One insertion stream at a time: a new call id closes the previous one, so the
   // addon never has two sessions typing into the same cursor.
@@ -105,6 +105,16 @@ export function useFlowOwner(): void {
     const setPhase = (phase: FlowPhase, detail = "") => {
       if (snap.current.phase === phase && snap.current.detail === detail) return;
       patch({ phase, detail });
+    };
+
+    // ── how you talk ──────────────────────────────────────────────────────
+    // One mode for Flow and Dictate, read from the settings every time, so a
+    // change made mid-session applies from the next utterance.
+    const talkMode = (): TalkMode => settings.current?.talk.mode ?? "handsFree";
+    const publishTalk = (holding: boolean) => {
+      const keys = settings.current ? hotkeyKeys(settings.current.talk.pttKey, desktopPlatform) : [];
+      const was = snap.current.talk;
+      if (was.mode !== talkMode() || was.holding !== holding || was.keys.join() !== keys.join()) patch({ talk: { mode: talkMode(), keys, holding } });
     };
 
     // What this open interval reports about itself, sent once as Flow closes.
@@ -158,7 +168,7 @@ export function useFlowOwner(): void {
     let openTicket = 0;
 
     const summon = (by: OpenedBy = "gesture") => {
-      stopIdleRetire();
+      talk.stopSilence();
       if (!summoned.current) { summoned.current = true; fact = openFact(by, perf.mark()); api.summon(); }
       publish();
     };
@@ -166,9 +176,10 @@ export function useFlowOwner(): void {
       if (!summoned.current) return;
       // Dictate is drawn on this orb, so it goes with it.
       dictate.yield();
+      talk.closed("flow");
       summoned.current = false;
       openTicket++;
-      stopIdleRetire();
+      talk.stopSilence();
       stopAnswerWatchdog();
       telemetry.fact("flow_owner", ownerFactProps(fact, speechFacts(fact.mark)));
       api.dismiss(reason);
@@ -176,7 +187,7 @@ export function useFlowOwner(): void {
       // teardownMic is what lets the microphone actually close: it declines to
       // close one a turn still claims.
       turnActive.current = false;
-      snap.current = { ...IDLE_FLOW, failure: snap.current.failure };
+      snap.current = { ...IDLE_FLOW, failure: snap.current.failure, talk: snap.current.talk };
       publish();
       teardownMic();
     };
@@ -196,25 +207,7 @@ export function useFlowOwner(): void {
       if (failure) raise(failure, "turn");
       setPhase("error");
       teardownMic();
-      armIdleRetire();
-    };
-
-    const stopIdleRetire = () => {
-      if (!idleTimer.current) return;
-      clearTimeout(idleTimer.current);
-      idleTimer.current = null;
-    };
-    /** Nothing said, nothing running. Pushed out by every turn, so it only ever
-     *  fires on a session the person has genuinely walked away from. */
-    const armIdleRetire = () => {
-      stopIdleRetire();
-      const after = settings.current ? settings.current.talk.closeAfterSilenceMs : IDLE_RETIRE_MS;
-      if (after === null) return;
-      idleTimer.current = setTimeout(() => {
-        idleTimer.current = null;
-        if (turnActive.current) return;
-        dismiss("idle");
-      }, after);
+      talk.armSilence();
     };
 
     // ── health ────────────────────────────────────────────────────────────
@@ -257,11 +250,14 @@ export function useFlowOwner(): void {
       try {
         const r = await fetch("/api/flow/config", { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string };
+        const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string; editReady: boolean };
         settings.current = body.config;
-        // Dictate turned off lets go of a microphone it kept warm, not MIC_WARM_MS later.
-        if (!body.config.dictate.enabled && !summoned.current) { dictate.yield(); teardownMic(); }
+        // Dictate turned off closes a session still open: its key is no longer watched.
+        if (!body.config.dictate.enabled) dictate.yield();
+        talk.modeChanged();
+        publishTalk(talk.holding());
         brainReady.current = body.brainReady;
+        editReady = body.editReady;
         brain = { kind: body.brainKind, id: body.brainId };
         if (!armed.current) await arm();
       } catch (e) { log.error("flow", "config:", e); }
@@ -270,8 +266,7 @@ export function useFlowOwner(): void {
     // ── the cascade ───────────────────────────────────────────────────────
     // The microphone is held only while Flow is open: Flow has no wake word and
     // never listens while it is closed.
-    /** `hold`: a Dictate hold begins with it, so it is kept from the moment the microphone opens. */
-    const ensureEngine = async (hold = false) => {
+    const ensureEngine = async () => {
       if (engine.current) return;
       if (starting.current) return starting.current;
       starting.current = (async () => {
@@ -298,11 +293,13 @@ export function useFlowOwner(): void {
           holdBargeIn: () => !!permission.current,
           answersAsk: (text) => !!permission.current && !!classifyYesNo(text),
           onMicLost: () => void recoverMic(eng),
+          onSpeechStart,
         // Flow's own wait when its override is on, else the shared one the
         // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
         }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
-        try { await eng.start(mic, hold); }
+        eng.setGate(talkMode() === "ptt");
+        try { await eng.start(mic); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
           // opens a new mic rather than reusing this one.
@@ -340,7 +337,7 @@ export function useFlowOwner(): void {
         raise(failure, "mic");
         setPhase("error");
         teardownMic();
-        armIdleRetire();
+        talk.armSilence();
       }
     };
 
@@ -363,11 +360,18 @@ export function useFlowOwner(): void {
       if (p === "idle" && !turnActive.current) backToListening();
     };
 
+    /** Hands-free, the user started talking: the silence starts over, and an
+     *  utterance Dictate takes reads the selection it begins on. */
+    const onSpeechStart = () => {
+      if (dictate.active()) dictate.speechStart();
+      talk.speechStart();
+    };
+
     /** A turn ended and the session did not. Flow waits for the next sentence. */
     const backToListening = () => {
       if (!summoned.current) return;
       if (snap.current.phase !== "error") setPhase("listening");
-      armIdleRetire();
+      talk.armSilence();
     };
 
     // ── the session ───────────────────────────────────────────────────────
@@ -381,7 +385,7 @@ export function useFlowOwner(): void {
       // A failure left from the last session is not news; health re-derives the live one.
       if (!summoned.current) { patch({ failure: null }); cards.clear(); }
       summon(by);
-      // Flow's gesture wins the microphone: Dictate stops for it.
+      // Opening Flow closes Dictate, as opening Dictate closes Flow.
       dictate.yield();
       const ticket = ++openTicket;
       setPhase("listening");
@@ -400,7 +404,7 @@ export function useFlowOwner(): void {
         fact.ready = "no_brain";
         setPhase("error");
         teardownMic();
-        armIdleRetire();
+        talk.armSilence();
         return;
       }
       patch({ reply: "" });
@@ -419,13 +423,13 @@ export function useFlowOwner(): void {
         patch({ failure });
         raise(failure, "mic");
         setPhase("error");
-        armIdleRetire();
+        talk.armSilence();
         return;
       }
       engine.current.setMuted(false);
       fact.ready = "ok";
       fact.readyMs = performance.now() - startedAt;
-      armIdleRetire();
+      talk.armSilence();
     };
 
     /**
@@ -496,7 +500,7 @@ export function useFlowOwner(): void {
       // A question that was asked keeps the orb until it has been answered, even
       // if the transcription outlived the dismissal it was racing.
       turnActive.current = true;
-      stopIdleRetire();
+      talk.stopSilence();
       summon("late_speech");
       const quiet = await decideVoice();
       if (quiet) fact.quiet[quiet] = (fact.quiet[quiet] ?? 0) + 1;
@@ -519,12 +523,14 @@ export function useFlowOwner(): void {
     // ── Dictate ───────────────────────────────────────────────────────────
     // Same microphone, same engine, same orb as Flow; its words go to the
     // cursor instead of the brain.
-    // set_dictation asked mid-turn: hands-free starts once that turn is over.
+    // Whether Dictate's brain can edit a selection, as /api/flow/config last said.
+    let editReady = false;
+    // set_dictation asked mid-turn: Dictate opens, and Flow closes, once that turn is over.
     let dictateAfterTurn = false;
     const startDictateAfterTurn = () => {
       if (!dictateAfterTurn) return;
       dictateAfterTurn = false;
-      void dictate.setHandsFree(true);
+      if (!dictate.isOpen()) void talk.toggleDictate();
     };
 
     /** Typing at the cursor. None where the focused element is plainly not a
@@ -547,28 +553,28 @@ export function useFlowOwner(): void {
     };
 
     const dictate = createDictate({
-      listen: async (hold) => {
+      // The session holds the microphone from open to close, whichever way it listens.
+      listen: async () => {
         if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
-        await ensureEngine(hold);
-        // An engine already up starts no tape of its own.
-        if (hold) engine.current?.tapeHold();
+        await ensureEngine();
         engine.current?.setMuted(false);
+        engine.current?.setGate(talkMode() === "ptt");
         return !!engine.current;
       },
-      beginHold: () => engine.current?.beginPtt(),
+      // Recorded from the press, so the first syllable is kept while the VAD wakes.
+      beginHold: () => { engine.current?.tapeHold(); engine.current?.beginPtt(); },
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? "heard",
       dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
       typing: openTyping,
       copy: copyDictation,
-      // What was still being said or transcribed is dropped. With Flow closed the
-      // microphone goes quiet too, so talk after the stop cannot open a Flow turn.
+      // What was still being said or transcribed is dropped, and with Flow closed
+      // the microphone closes at once: the indicator goes out with Dictate.
       release: () => {
+        talk.closed("dictate");
         engine.current?.discard();
-        if (!summoned.current) engine.current?.setMuted(true);
+        if (!summoned.current) teardownMic();
       },
-      micIdle: () => { if (!summoned.current && !snap.current.dictate) teardownMic(); },
-      quietFlow: () => { if (turnActive.current) onStop(); },
       show: (d) => {
         if (d && !summoned.current && !snap.current.dictate) api.summon("dictate");
         patch({ dictate: d });
@@ -583,11 +589,9 @@ export function useFlowOwner(): void {
         throw new Error(body.error || `HTTP ${r.status}`);
       },
       warm: () => void fetch("/api/dictate/warm", { ...JSON_POST, body: "{}" }).catch(() => {}),
-      // The accessibility APIs first; where they cannot see the selection, a copy reads it.
-      selection: async () => {
-        const seen = valueOr(await api.context(), undefined)?.selection;
-        return seen ?? valueOr(await api.copySelection(settings.current?.insertion), null) ?? "";
-      },
+      // The accessibility API alone. A copy would read the whole line in many
+      // editors with nothing selected, and turn every sentence into an edit.
+      selection: async () => valueOr(await api.accessibleSelection(), null),
       keys: async (keys, times) => (await api.keys(keys, times)).ok,
       record: (d) => void (async () => {
         const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
@@ -600,15 +604,37 @@ export function useFlowOwner(): void {
         return {
           rules: own?.cleanup ?? { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
           lang: loadPipelineConfig().language,
-          keys: hotkeyKeys(settings.current?.talk.dictateKey ?? "option", desktopPlatform),
-          // No key opens command mode any more; the badge has none to show.
-          commandKeys: [],
           words: own?.words ?? NONE,
           snippets: own?.snippets ?? NONE,
           commands: new Set(commands ? (Object.keys(commands) as SpokenCommand[]).filter((c) => commands[c]) : []),
           polish: own?.polish ?? { enabled: false, tone: "natural" },
+          canEdit: editReady,
         };
       },
+    });
+
+    const talk = createTalk({
+      mode: talkMode,
+      silenceMs: () => (settings.current ? settings.current.talk.closeAfterSilenceMs : IDLE_RETIRE_MS),
+      flow: {
+        isOpen: () => summoned.current,
+        busy: () => turnActive.current,
+        open: () => void onOpen(tray.opener()),
+        close: (reason) => (reason === "idle" ? dismiss("idle") : onClose(reason)),
+        holdStart: () => {
+          const e = engine.current;
+          if (!e) return false;
+          if (snap.current.aside) patch({ aside: "" });
+          // Recorded from the press, so the first syllable is kept while the VAD wakes.
+          e.tapeHold();
+          e.beginPtt();
+          return true;
+        },
+        holdEnd: async (cancel) => { if (cancel) engine.current?.dropPtt(); else await engine.current?.endPtt(true); },
+      },
+      dictate,
+      gate: (on) => engine.current?.setGate(on),
+      holding: publishTalk,
     });
 
     // ── the Flow socket ───────────────────────────────────────────────────
@@ -669,10 +695,12 @@ export function useFlowOwner(): void {
         if (op === "flow_insert_end") { await endInsertion(); return reply("ok"); }
         if (op === "flow_dictate") {
           const on = arg === "on";
-          dictateAfterTurn = on && turnActive.current;
           // Started now, it would take the very turn that asked for it.
-          if (dictateAfterTurn) return reply("Dictation starts as soon as this reply ends: what the user says next is typed at their cursor.");
-          return reply(await dictate.setHandsFree(on));
+          dictateAfterTurn = on && turnActive.current;
+          if (dictateAfterTurn) return reply("Dictation starts as soon as this reply ends, and Flow closes for it: what the user says next is typed at their cursor.");
+          if (!on) return reply(await dictate.setOpen(false));
+          await talk.toggleDictate();
+          return reply(dictate.isOpen() ? "Dictation is on, and Flow closed for it." : "The microphone could not be opened for dictation.");
         }
         if (op === "flow_context") { const c = await api.context(); return reply(c.ok ? JSON.stringify(c.value) : ""); }
         if (op === "flow_device") {
@@ -751,7 +779,7 @@ export function useFlowOwner(): void {
         case "permission": return answer(c.optionId);
         case "flowCancel": return onClose("orb_button");
         case "flowStop": return onStop();
-        case "dictateToggle": return void dictate.toggle();
+        case "dictateToggle": return void talk.toggleDictate();
         case "dictateUndo": return void dictate.undo();
         case "flowSendAside": {
           const a = aside.current;
@@ -784,6 +812,8 @@ export function useFlowOwner(): void {
         turnActive.current = false;
         armed.current = false;
         void api.suspend();
+        // A hold down as the machine sleeps never sees its release.
+        talk.suspend();
         // Dictate may hold the microphone with Flow closed.
         dictate.yield();
         // A close, not a stop: a stop would leave the orb up through sleep.
@@ -801,18 +831,8 @@ export function useFlowOwner(): void {
     const tray = trayAsk();
     // The double-taps carry no direction: open and closed are this renderer's
     // to know. Opening one of Flow and Dictate closes the other. Push to talk
-    // arrives here only while one is open; using it inside them is still to come.
-    const offEffect = api.onEffect((e) => {
-      if (e.kind !== "double_tap") return;
-      if (e.bindingId === DICTATE_BINDING) {
-        // Flow open means Dictate is not: Flow's opening stopped it.
-        if (summoned.current) onClose("dictate_opened");
-        void dictate.toggle();
-      } else if (e.bindingId === FLOW_BINDING) {
-        if (summoned.current) onClose("gesture");
-        else void onOpen(tray.opener());
-      }
-    });
+    // arrives here only while one is open (main sends it to a call otherwise).
+    const offEffect = api.onEffect((e) => talk.effect(e));
     const offSecure = api.onSecureInput(() => void refreshHealth());
     // Flow's off switch hides the orb from the main process, so the session
     // behind it has to close here too or the microphone stays open.
@@ -904,7 +924,7 @@ export function useFlowOwner(): void {
       clearInterval(armWatch);
       window.removeEventListener("online", online);
       window.removeEventListener("offline", online);
-      stopIdleRetire();
+      talk.stopSilence();
       stopAnswerWatchdog();
       turnActive.current = false;
       teardownMic();

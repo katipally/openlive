@@ -129,11 +129,23 @@ export function FlowOrb() {
   if (s.dictate) lastDictate.current = s.dictate;
   useEffect(() => { if (dictating) setDictateUp(true); }, [dictating]);
   useRise(dictateRef, dictating, dictateUp, () => setDictateUp(false), 0.2);
-  // What sits above the orb. A badge leaving keeps its words while it fades.
-  const badge = !shown || !s.dictate ? null : s.dictate.handsFree ? "handsFree" : s.dictate.phase === "listening" ? "hold" : null;
-  const lastHeld = useRef({ keys: [] as string[], command: false });
-  if (badge === "hold" && s.dictate) lastHeld.current = { keys: s.dictate.keys, command: s.dictate.command };
-  const held = lastHeld.current;
+  // What sits above the orb: how Flow or Dictate listens right now. Dictate's
+  // is also its off switch. Flow's makes way for the mic button on hover, and
+  // hands-free it shows only while Flow is listening rather than answering.
+  // A badge leaving keeps its words while it fades.
+  const ptt = s.talk.mode === "ptt";
+  const waiting = ptt && !s.talk.holding;
+  const badge = !shown ? null
+    : s.dictate ? "dictate"
+    : !hovered && (ptt ? s.phase !== "error" : s.phase === "listening") ? "flow" : null;
+  const badgeWords = (): React.ReactNode => {
+    if (s.dictate?.editing) return "Editing selection";
+    if (waiting) return <>Hold <Keycaps keys={s.talk.keys} label={s.talk.keys.join(" ")} /> to talk</>;
+    return s.dictate && !ptt ? "Hands-free" : "Listening";
+  };
+  const lastBadge = useRef<{ kind: "flow" | "dictate"; words: React.ReactNode } | null>(null);
+  if (badge) lastBadge.current = { kind: badge, words: badgeWords() };
+  const badgeShows = (kind: "flow" | "dictate") => (lastBadge.current?.kind === kind ? lastBadge.current.words : null);
   useEffect(() => { if (asking) setCardUp(true); }, [asking]);
   // Gone with the window rather than left sinking in it.
   useEffect(() => { if (!shown) { setStripUp(false); setCardUp(false); setDictateUp(false); } }, [shown]);
@@ -219,7 +231,7 @@ export function FlowOrb() {
   }, []);
   // A card or a strip can rise under a pointer that is not moving, and no move
   // arrives to make its buttons clickable.
-  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, s.dictate?.handsFree, dictateUp, s.dictate?.undo]);
+  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, badge, dictateUp, s.dictate?.undo]);
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (
@@ -317,7 +329,7 @@ export function FlowOrb() {
           words off the start, then the same words while they are worked on. */}
       {dictateUp && lastDictate.current && (
         <div ref={dictateRef} className="flex max-w-full shrink-0 justify-center">
-          <DictateStrip d={lastDictate.current} onUndo={() => cmd({ t: "dictateUndo" })} />
+          <DictateStrip d={lastDictate.current} waiting={waiting ? `Hold ${s.talk.keys.join(" ")} to talk` : ""} onUndo={() => cmd({ t: "dictateUndo" })} />
         </div>
       )}
 
@@ -347,22 +359,21 @@ export function FlowOrb() {
           never moves the orb out from under the pointer that asked for them.
           Each is a hit only while drawn, so the air around the orb stays
           click-through. */}
-      {/* One place above the orb for the mic button or, while Dictate listens,
-          how it is listening. All three share the cell and cross-fade, so one
-          becomes the next instead of popping, and the orb never moves.
-          Hands-free's is also its off switch. */}
+      {/* One place above the orb for the mic button or how Flow or Dictate is
+          listening. All three share the cell and cross-fade, so one becomes the
+          next instead of popping, and the orb never moves. */}
       <div className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
         <Control label="Start dictation" shown={hovered && !badge} onClick={() => cmd({ t: "dictateToggle" })} side="top">
           <Mic className="size-4" />
         </Control>
-        <span aria-hidden={badge !== "hold"} className={cn(BADGE, badge === "hold" ? BADGE_ON : BADGE_OFF)}>
-          <Keycaps keys={held.keys} label={held.keys.join(" ")} /> {held.command ? "Command" : "Hold"}
+        <span role="status" aria-hidden={badge !== "flow"} className={cn(BADGE, badge === "flow" ? BADGE_ON : BADGE_OFF)}>
+          {badgeShows("flow")}
         </span>
-        <button type="button" data-hit={badge === "handsFree" || undefined} tabIndex={badge === "handsFree" ? 0 : -1} aria-hidden={badge !== "handsFree"}
+        <button type="button" data-hit={badge === "dictate" || undefined} tabIndex={badge === "dictate" ? 0 : -1} aria-hidden={badge !== "dictate"}
           onClick={() => cmd({ t: "dictateToggle" })} aria-label="Stop dictating"
-          className={cn(BADGE, "gap-2 pr-2.5 hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]", badge === "handsFree" ? BADGE_ON : BADGE_OFF)}>
+          className={cn(BADGE, "gap-2 pr-2.5 hover:bg-card hover:text-foreground [-webkit-app-region:no-drag]", badge === "dictate" ? BADGE_ON : BADGE_OFF)}>
           <span className="size-1.5 rounded-full bg-current" aria-hidden />
-          Hands-free <Square className="size-2.5 fill-current" aria-hidden />
+          {badgeShows("dictate")} <Square className="size-2.5 fill-current" aria-hidden />
         </button>
       </div>
       <div className="relative shrink-0">
@@ -485,13 +496,14 @@ function useHeldProcessing(d: DictateSnapshot): DictateSnapshot {
   return held;
 }
 
-/** Dictate under the orb: what it hears, the words while they are worked on, then what landed. */
-function DictateStrip({ d: live, onUndo }: { d: DictateSnapshot; onUndo: () => void }) {
+/** Dictate under the orb: what it hears, the words while they are worked on, then
+ *  what landed. `waiting`: what to say between holds in push to talk. */
+function DictateStrip({ d: live, waiting, onUndo }: { d: DictateSnapshot; waiting: string; onUndo: () => void }) {
   const d = useHeldProcessing(live);
   const working = d.phase === "processing";
   const landed = !working && !d.note && d.inserted > 0;
-  const label = working && (d.polishing ? "Polishing" : d.command ? "Rewriting" : !d.partial && "Cleaning up");
-  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (d.ready ? "Listening" : "Getting ready"));
+  const label = working && (d.polishing ? "Polishing" : d.editing ? "Editing" : !d.partial && "Cleaning up");
+  const said = d.note || label || (landed ? `${d.inserted} ${d.inserted === 1 ? "word" : "words"}` : d.partial || (!d.ready ? "Getting ready" : d.phase === "idle" && waiting ? waiting : "Listening"));
   // Words still coming, or being worked on, drop their oldest off the start;
   // a status or a note is read whole, so it wraps instead.
   const flowing = said === d.partial;

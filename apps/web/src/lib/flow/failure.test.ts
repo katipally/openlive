@@ -170,7 +170,7 @@ describe("keyListenerNote", () => {
 
 describe("forOrb", () => {
   const failure = deriveFailure({ ...HEALTHY, brainReady: false })!;
-  const dictating = { ...IDLE_FLOW, failure, dictate: { phase: "idle" as const, handsFree: false, command: false, keys: [], partial: "", polishing: false, inserted: 3, note: "", undo: true, ready: true } };
+  const dictating = { ...IDLE_FLOW, failure, dictate: { phase: "idle" as const, editing: false, partial: "", polishing: false, inserted: 3, note: "", undo: true, ready: true } };
 
   it("shows Flow's failure while Flow is open", () => {
     expect(forOrb(dictating, true).failure).toBe(failure);

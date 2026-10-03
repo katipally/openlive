@@ -1,23 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, MIC_WARM_MS, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, NO_EDIT_BRAIN, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
 
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
-/** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ voided = false, mic = true as boolean | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
+/** Dictate with every port faked: the engine "hears" `said` when a hold ends.
+ *  `selection`: what the accessibility API reads each time it is asked, the
+ *  last one standing for every read after it. */
+function rig({ voided = false, mic = true as boolean | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = [""] as (string | null)[] } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
   const asked: RewriteAsk[] = [];
   const kept: unknown[] = [];
+  const reads = [...selection];
   let said = "";
   let dictate: ReturnType<typeof createDictate>;
   const consumed: boolean[] = [];
   const ports: DictatePorts = {
-    listen: vi.fn(async (_hold: boolean) => mic),
+    listen: vi.fn(async () => mic),
     ready: vi.fn(() => mic === true),
     beginHold: vi.fn(),
     dropHold: vi.fn(),
@@ -31,175 +34,177 @@ function rig({ voided = false, mic = true as boolean | Promise<boolean>, held = 
     }),
     copy: vi.fn(async () => inserted !== "failed"),
     release: vi.fn(),
-    micIdle: vi.fn(),
-    quietFlow: vi.fn(),
     show: (d) => void shown.push(d),
     rewrite: vi.fn(async (ask: RewriteAsk, _signal: AbortSignal, _onText: (t: string) => void) => { asked.push(ask); return rewrite(ask); }),
     warm: vi.fn(),
-    selection: vi.fn(async () => selection),
+    selection: vi.fn(async () => (reads.length > 1 ? reads.shift()! : reads[0] ?? null)),
     keys: vi.fn(async (keys: string[], times?: number) => { pressed.push([keys, times]); return true; }),
     record: (d) => void kept.push(d),
     settings: () => ({
-      rules: RULES, lang: "en", keys: ["Right ⌥"], commandKeys: ["⇧", "Right ⌥"], words: [], snippets: [],
-      commands: new Set<SpokenCommand>(["enter", "newLine", "newParagraph", "undo", "stop"]), polish: { enabled: false, tone: "natural" }, ...settings,
+      rules: RULES, lang: "en", words: [], snippets: [],
+      commands: new Set<SpokenCommand>(["enter", "newLine", "newParagraph", "undo", "stop"]), polish: { enabled: false, tone: "natural" }, canEdit: true, ...settings,
     }),
   };
   dictate = createDictate(ports);
   return { dictate, ports, shown, typed, pressed, asked, kept, consumed, say: (t: string) => { said = t; }, last: () => shown[shown.length - 1] };
 }
 
-/** A hold that says `text`, start to finish. */
-async function hold(r: ReturnType<typeof rig>, text: string, command = false) {
-  r.dictate.holdStart(command);
+/** A push-to-talk hold that says `text`, start to finish, in a session opened for it if need be. */
+async function hold(r: ReturnType<typeof rig>, text: string) {
+  if (!r.dictate.isOpen()) await r.dictate.setOpen(true);
+  r.dictate.holdStart();
   await vi.advanceTimersByTimeAsync(0);
   r.say(text);
   await r.dictate.holdEnd();
 }
 
+/** A hands-free utterance: speech starts, then its words are heard. */
+async function utter(r: ReturnType<typeof rig>, text: string) {
+  r.dictate.speechStart();
+  await vi.advanceTimersByTimeAsync(0);
+  return r.dictate.heard(text);
+}
+
 beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); });
 afterEach(() => { vi.useRealTimers(); });
 
-describe("holding the key", () => {
-  it("types what was said, cleaned up, and never hands it on", async () => {
+describe("a session", () => {
+  it("opens, holds the microphone until it is closed, and lets it go at once", async () => {
     const r = rig();
+    expect(await r.dictate.setOpen(true)).toMatch(/^Dictation is on/);
+    expect(r.ports.listen).toHaveBeenCalledTimes(1);
+    expect(r.last()).toMatchObject({ phase: "idle", editing: false, ready: true });
+    await hold(r, "send it friday");
+    await utter(r, "and more");
+    expect(r.ports.listen).toHaveBeenCalledTimes(1);
+    expect(r.ports.release).not.toHaveBeenCalled();
+    expect(await r.dictate.setOpen(false)).toBe("Dictation is off.");
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
+    // Closed by the person: the orb goes back at once, Undo or not.
+    expect(r.last()).toBeNull();
+    expect(r.dictate.active()).toBe(false);
+  });
+
+  it("takes nothing while it is closed, and ignores the push-to-talk key", async () => {
+    const r = rig();
+    expect(await r.dictate.heard("for Flow")).toBe(false);
     r.dictate.holdStart();
     await vi.advanceTimersByTimeAsync(0);
+    expect(r.ports.beginHold).not.toHaveBeenCalled();
+    expect(r.typed).toEqual([]);
+    expect(r.shown).toEqual([]);
+  });
+
+  it("says so when the microphone will not open, and closes", async () => {
+    const r = rig({ mic: false });
+    expect(await r.dictate.setOpen(true)).toMatch(/microphone/);
+    expect(r.last()?.note).toMatch(/microphone/);
+    expect(r.dictate.isOpen()).toBe(false);
+    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toBeNull();
+  });
+
+  it("says Getting ready while the engine starts, and a hold made meanwhile waits for it with its words kept", async () => {
+    let up!: (ok: boolean) => void;
+    const r = rig({ mic: new Promise<boolean>((ok) => { up = ok; }) });
+    const opened = r.dictate.setOpen(true);
+    expect(r.last()).toMatchObject({ ready: false });
+    r.dictate.holdStart();
+    r.say("send it friday");
+    const released = r.dictate.holdEnd();
+    up(true);
+    await Promise.all([opened, released]);
+    expect(r.ports.beginHold).toHaveBeenCalledTimes(1);
+    expect(r.typed).toEqual(["Send it Friday."]);
+    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3, undo: true, ready: true });
+  });
+
+  it("stops when Flow is opened over it, letting go of a hold in progress so Flow ends its own turns", async () => {
+    const r = rig();
+    await r.dictate.setOpen(true);
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    r.dictate.yield();
+    expect(r.ports.dropHold).toHaveBeenCalledTimes(1);
+    expect(r.ports.release).toHaveBeenCalledTimes(1);
+    expect(r.last()).toBeNull();
+    expect(r.dictate.active()).toBe(false);
+    // The key coming up afterwards is nothing to Dictate.
+    await r.dictate.holdEnd();
+    expect(r.ports.endHold).not.toHaveBeenCalled();
+  });
+
+  it("is busy while a hold is down or an utterance is worked on, so silence does not close it then", async () => {
+    let answer = (_: string) => {};
+    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
+    await r.dictate.setOpen(true);
+    expect(r.dictate.busy()).toBe(false);
+    r.dictate.holdStart();
+    expect(r.dictate.busy()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    r.say("send it friday");
+    const released = r.dictate.holdEnd();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.dictate.busy()).toBe(true);
+    answer("Send it Friday.");
+    await released;
+    expect(r.dictate.busy()).toBe(false);
+  });
+});
+
+describe("push to talk", () => {
+  it("types each hold, cleaned up, spaced after the first, and stays open between them", async () => {
+    const r = rig();
+    await r.dictate.setOpen(true);
+    r.dictate.holdStart();
+    expect(r.last()).toMatchObject({ phase: "listening" });
+    await vi.advanceTimersByTimeAsync(0);
     expect(r.ports.beginHold).toHaveBeenCalled();
-    expect(r.last()).toMatchObject({ phase: "listening", handsFree: false, keys: ["Right ⌥"] });
     r.say("um send twenty five copies to Maya by friday");
     await r.dictate.holdEnd();
-    expect(r.typed).toEqual(["Send 25 copies to Maya by Friday."]);
     // Taken: the owner returns before Flow's brain ever sees the sentence.
     expect(r.consumed).toEqual([true]);
     expect(r.last()).toMatchObject({ phase: "idle", inserted: 7, undo: true, partial: "" });
-    // While it was typed, the orb showed the cleaned-up words, never a polish.
     expect(r.shown).toContainEqual(expect.objectContaining({ phase: "processing", partial: "Send 25 copies to Maya by Friday.", polishing: false }));
+    await hold(r, "and the slides");
+    expect(r.typed).toEqual(["Send 25 copies to Maya by Friday.", " And the slides."]);
+    expect(r.dictate.isOpen()).toBe(true);
+    expect(r.ports.release).not.toHaveBeenCalled();
+    // Undo goes, the session stays.
     await vi.advanceTimersByTimeAsync(UNDO_MS);
-    expect(r.last()).toBeNull();
+    expect(r.last()).toMatchObject({ undo: false });
   });
 
-  it("keeps the orb up until words handed over unawaited are typed, then lets it go", async () => {
-    let answer = (_: string) => {};
-    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
-    const released = hold(r, "send it friday");
-    await vi.advanceTimersByTimeAsync(0);
-    // The cleaned-up words stay on the orb while the polish works on them.
-    expect(r.last()).toMatchObject({ phase: "processing", partial: "Send it Friday.", polishing: true });
-    answer("Send it Friday.");
-    await released;
-    expect(r.typed).toEqual(["Send it Friday."]);
-    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3, partial: "", polishing: false });
-    await vi.advanceTimersByTimeAsync(UNDO_MS);
-    expect(r.last()).toBeNull();
-  });
-
-  it("types hands-free utterances in the order they were said, however slow the first polish", async () => {
-    const answers: ((t: string) => void)[] = [];
-    const r = rig({ settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answers.push(ok); }) });
-    await r.dictate.setHandsFree(true);
-    const first = r.dictate.heard("first one");
-    const second = r.dictate.heard("second one");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(answers).toHaveLength(1);
-    answers[0]!("First.");
-    await vi.advanceTimersByTimeAsync(0);
-    answers[1]!("Second.");
-    await Promise.all([first, second]);
-    expect(r.typed).toEqual(["First.", " Second."]);
-  });
-
-  it("lets Flow's turn go before it listens", () => {
+  it("throws away a tap's capture, so a stray tap types nothing and the session stays", async () => {
     const r = rig();
-    r.dictate.holdStart();
-    expect(r.ports.quietFlow).toHaveBeenCalled();
-  });
-
-  it("throws away a tap's capture, so a stray tap types nothing", async () => {
-    const r = rig();
+    await r.dictate.setOpen(true);
     r.dictate.holdStart();
     await vi.advanceTimersByTimeAsync(0);
     r.say("half a word");
     await r.dictate.holdCancel();
     expect(r.typed).toEqual([]);
     expect(r.consumed).toEqual([true]);
-    expect(r.last()).toBeNull();
+    expect(r.last()).toMatchObject({ phase: "idle", partial: "" });
+    expect(r.dictate.isOpen()).toBe(true);
   });
 
-  it("gives the orb straight back when nothing was said", async () => {
-    const r = rig();
-    r.dictate.holdStart();
-    await r.dictate.holdEnd();
-    expect(r.typed).toEqual([]);
-    expect(r.last()).toBeNull();
-  });
-
-  it("says so when the microphone will not open", async () => {
-    const r = rig({ mic: false });
-    r.dictate.holdStart();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(r.ports.beginHold).not.toHaveBeenCalled();
-    expect(r.last()?.note).toMatch(/microphone/);
-  });
-
-  it("says Getting ready while the engine starts, and keeps a release before it is up for it", async () => {
-    let up!: (ok: boolean) => void;
-    const r = rig({ mic: new Promise<boolean>((ok) => { up = ok; }) });
-    r.dictate.holdStart();
-    expect(r.ports.listen).toHaveBeenCalledWith(true);
-    expect(r.last()).toMatchObject({ phase: "listening", ready: false });
-    r.say("send it friday");
-    const released = r.dictate.holdEnd();
-    up(true);
-    await released;
-    expect(r.ports.endHold).toHaveBeenCalledWith(expect.any(Number));
-    expect(r.typed).toEqual(["Send it Friday."]);
-    expect(r.shown.filter((d) => d?.ready === false)).toHaveLength(1);
-  });
-
-  it("says so when the words it heard could not be written down", async () => {
-    const r = rig({ held: "lost" });
-    await hold(r, "");
-    expect(r.last()).toMatchObject({ phase: "idle", note: "Your words could not be written down." });
-    await vi.advanceTimersByTimeAsync(DONE_MS);
-    expect(r.last()).toBeNull();
-  });
-
-  it("a hold with no words in it types nothing, leaves the clipboard be, says so and goes", async () => {
-    for (const command of [false, true]) {
-      const r = rig({ held: "silent", inserted: "copied" });
-      await hold(r, "", command);
+  it("says so when the words it heard could not be written down, or there were none, and types nothing", async () => {
+    for (const [held, note] of [["lost", "Your words could not be written down."], ["silent", NO_SPEECH]] as const) {
+      const r = rig({ held, inserted: "copied" });
+      await hold(r, "");
       expect(r.typed).toEqual([]);
       expect(r.ports.typing).not.toHaveBeenCalled();
       expect(r.ports.copy).not.toHaveBeenCalled();
       expect(r.kept).toEqual([]);
-      expect(r.last()).toMatchObject({ phase: "idle", partial: "", inserted: 0, note: NO_SPEECH, undo: false });
-      await vi.advanceTimersByTimeAsync(DONE_MS);
-      expect(r.last()).toBeNull();
+      expect(r.last()).toMatchObject({ phase: "idle", partial: "", inserted: 0, note, undo: false });
+      expect(r.dictate.isOpen()).toBe(true);
     }
   });
 
   it("copies what it could not type, and says so", async () => {
     const r = rig({ inserted: "copied" });
-    r.dictate.holdStart();
-    r.say("hello there friend");
-    await r.dictate.holdEnd();
+    await hold(r, "hello there friend");
     expect(r.last()).toMatchObject({ inserted: 0, note: "No text box in focus. Copied instead." });
-  });
-
-  it("a release before a cold engine is up still ends on the words, with Undo on the orb", async () => {
-    let up!: (ok: boolean) => void;
-    const r = rig({ mic: new Promise<boolean>((ok) => { up = ok; }) });
-    r.dictate.holdStart();
-    r.say("send it friday");
-    const released = r.dictate.holdEnd();
-    await vi.advanceTimersByTimeAsync(300);
-    up(true);
-    await released;
-    expect(r.typed).toEqual(["Send it Friday."]);
-    expect(r.last()).toMatchObject({ phase: "idle", inserted: 3, undo: true });
-    // The orb stays up for the Undo offer, not given back underneath it.
-    await vi.advanceTimersByTimeAsync(UNDO_MS - 1);
-    expect(r.last()).toMatchObject({ undo: true });
   });
 
   it("keeps Undo for a paste that landed: the clipboard is put back afterwards and is no part of it", async () => {
@@ -216,25 +221,10 @@ describe("holding the key", () => {
     expect(r.last()).toMatchObject({ undo: false, note: "No text box in focus. Copied instead." });
   });
 
-  it("holds on to talk after the release until the microphone is let go, so it can never reach Flow", async () => {
-    let answer = (_: string) => {};
-    const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answer = ok; }) });
-    const released = hold(r, "send it friday");
-    await vi.advanceTimersByTimeAsync(0);
-    // The key is up and the words are being polished: the engine still hears.
-    expect(r.dictate.active()).toBe(true);
-    expect(await r.dictate.heard("and something else")).toBe(true);
-    answer("Send it Friday.");
-    await released;
-    expect(r.typed).toEqual(["Send it Friday."]);
-    expect(r.ports.release).toHaveBeenCalledTimes(1);
-    expect(r.dictate.active()).toBe(false);
-    expect(await r.dictate.heard("talk to flow")).toBe(false);
-  });
-
-  it("a press while the last hold's words are still being typed hears its own words", async () => {
+  it("a press while the last hold's words are still being typed hears its own words, typed after them", async () => {
     let answer = (_: string) => {};
     const r = rig({ voided: true, settings: { polish: { enabled: true, tone: "natural" } }, rewrite: async (ask) => (ask.text === "Second" ? "Second" : new Promise<string>((ok) => { answer = ok; })) });
+    await r.dictate.setOpen(true);
     const first = hold(r, "first");
     await vi.advanceTimersByTimeAsync(0);
     r.dictate.holdStart();
@@ -243,103 +233,47 @@ describe("holding the key", () => {
     const second = r.dictate.holdEnd();
     answer("First.");
     await Promise.all([first, second]);
-    expect(r.typed).toEqual(["First.", "Second"]);
-  });
-});
-
-describe("the microphone after a dictation", () => {
-  it("stays open, muted, for MIC_WARM_MS after the words land, then may close", async () => {
-    const r = rig();
-    await hold(r, "send it friday");
-    expect(r.ports.release).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(MIC_WARM_MS - 1);
-    expect(r.ports.micIdle).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(r.ports.micIdle).toHaveBeenCalledTimes(1);
+    expect(r.typed).toEqual(["First.", " Second"]);
   });
 
-  it("the next hold inside the window takes it back, and its own release starts the wait again", async () => {
+  it("is not moved by the engine's own listening and waiting while the key is down", async () => {
     const r = rig();
-    await hold(r, "one");
-    await vi.advanceTimersByTimeAsync(MIC_WARM_MS / 2);
-    await hold(r, "two");
-    await vi.advanceTimersByTimeAsync(MIC_WARM_MS - 1);
-    expect(r.ports.micIdle).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(r.ports.micIdle).toHaveBeenCalledTimes(1);
-  });
-
-  it("lets go of a hold Flow is opened in the middle of, so Flow ends its own turns", async () => {
-    const r = rig();
+    await r.dictate.setOpen(true);
     r.dictate.holdStart();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(r.ports.beginHold).toHaveBeenCalledTimes(1);
-    r.dictate.yield();
-    expect(r.ports.dropHold).toHaveBeenCalledTimes(1);
-    expect(r.ports.endHold).not.toHaveBeenCalled();
-    expect(r.dictate.active()).toBe(false);
-    // The key coming up afterwards is nothing to Dictate.
-    await r.dictate.holdEnd();
-    expect(r.ports.endHold).not.toHaveBeenCalled();
-  });
-
-  it("a stray tap starts the wait too, and Flow taking the microphone ends it", async () => {
-    const r = rig();
-    r.dictate.holdStart();
-    await vi.advanceTimersByTimeAsync(0);
-    await r.dictate.holdCancel();
-    expect(r.ports.release).toHaveBeenCalledTimes(1);
-    r.dictate.yield();
-    await vi.advanceTimersByTimeAsync(MIC_WARM_MS);
-    expect(r.ports.micIdle).not.toHaveBeenCalled();
+    r.dictate.hearing(false);
+    expect(r.last()?.phase).toBe("listening");
   });
 });
 
 describe("hands-free", () => {
-  it("types each utterance, spaced after the first, until it is turned off", async () => {
+  it("types each utterance, spaced after the first, until it is closed", async () => {
     const r = rig();
-    expect(await r.dictate.toggle()).toMatch(/^Dictation is on/);
-    expect(r.last()).toMatchObject({ handsFree: true, phase: "idle" });
-    expect(await r.dictate.heard("first thing here")).toBe(true);
-    expect(await r.dictate.heard("second thing here")).toBe(true);
+    await r.dictate.setOpen(true);
+    expect(await utter(r, "first thing here")).toBe(true);
+    expect(await utter(r, "second thing here")).toBe(true);
     expect(r.typed).toEqual(["First thing here.", " Second thing here."]);
-    expect(r.ports.release).not.toHaveBeenCalled();
-    expect(await r.dictate.toggle()).toBe("Dictation is off.");
-    expect(r.ports.release).toHaveBeenCalledTimes(1);
-    // Stopped by the person: the orb goes back at once, with nothing lingering.
-    expect(r.last()).toBeNull();
+    await r.dictate.setOpen(false);
     expect(await r.dictate.heard("not for dictate")).toBe(false);
   });
 
-  it("carries on from a hold in progress without dropping its words", async () => {
-    const r = rig();
-    r.dictate.holdStart();
+  it("types utterances in the order they were said, however slow the first polish", async () => {
+    const answers: ((t: string) => void)[] = [];
+    const r = rig({ settings: { polish: { enabled: true, tone: "natural" } }, rewrite: () => new Promise<string>((ok) => { answers.push(ok); }) });
+    await r.dictate.setOpen(true);
+    const first = r.dictate.heard("first one");
+    const second = r.dictate.heard("second one");
     await vi.advanceTimersByTimeAsync(0);
-    r.say("start of it all");
-    await r.dictate.setHandsFree(true);
-    expect(r.typed).toEqual(["Start of it all."]);
-    expect(r.dictate.active()).toBe(true);
-  });
-
-  it("is not restarted by a press of the key while it is on", async () => {
-    const r = rig();
-    await r.dictate.setHandsFree(true);
-    r.dictate.holdStart();
-    expect(r.ports.beginHold).not.toHaveBeenCalled();
-  });
-
-  it("stops when Flow is opened over it", async () => {
-    const r = rig();
-    await r.dictate.setHandsFree(true);
-    r.dictate.yield();
-    expect(r.ports.dropHold).not.toHaveBeenCalled();
-    expect(r.last()).toBeNull();
-    expect(r.dictate.active()).toBe(false);
+    expect(answers).toHaveLength(1);
+    answers[0]!("First.");
+    await vi.advanceTimersByTimeAsync(0);
+    answers[1]!("Second.");
+    await Promise.all([first, second]);
+    expect(r.typed).toEqual(["First.", " Second."]);
   });
 
   it("follows the engine between listening and waiting", async () => {
     const r = rig();
-    await r.dictate.setHandsFree(true);
+    await r.dictate.setOpen(true);
     r.dictate.hearing(true);
     expect(r.last()?.phase).toBe("listening");
     r.dictate.partial("so far");
@@ -347,12 +281,6 @@ describe("hands-free", () => {
     r.dictate.hearing(false);
     expect(r.last()?.phase).toBe("idle");
   });
-});
-
-it("takes nothing while it is off", async () => {
-  const r = rig();
-  expect(await r.dictate.heard("for Flow")).toBe(false);
-  expect(r.typed).toEqual([]);
 });
 
 describe("the word lists", () => {
@@ -393,6 +321,7 @@ describe("AI polish", () => {
     let signal: AbortSignal | undefined;
     const r = rig({ settings: on });
     r.ports.rewrite = vi.fn((_ask: RewriteAsk, s: AbortSignal) => { signal = s; return new Promise<string>(() => {}); });
+    await r.dictate.setOpen(true);
     r.dictate.holdStart();
     await vi.advanceTimersByTimeAsync(0);
     r.say("send it by friday");
@@ -487,7 +416,7 @@ describe("spoken commands", () => {
 
   it("breaks the line with Shift+Enter, and the next words start it with no space", async () => {
     const r = rig();
-    await r.dictate.setHandsFree(true);
+    await r.dictate.setOpen(true);
     await r.dictate.heard("first line");
     await r.dictate.heard("new paragraph");
     await r.dictate.heard("second line");
@@ -497,7 +426,7 @@ describe("spoken commands", () => {
 
   it("takes back the last insertion with one Backspace per character, once", async () => {
     const r = rig();
-    await r.dictate.setHandsFree(true);
+    await r.dictate.setOpen(true);
     await r.dictate.heard("send it");
     await r.dictate.heard("and more 👍");
     await r.dictate.heard("undo that");
@@ -521,13 +450,12 @@ describe("spoken commands", () => {
     await Promise.all([r.dictate.undo(), r.dictate.undo()]);
     expect(r.pressed).toEqual([[["backspace"], r.typed[0]!.length]]);
     expect(r.last()).toMatchObject({ undo: false, inserted: 0, note: "Took it back" });
-    await vi.advanceTimersByTimeAsync(DONE_MS);
-    expect(r.last()).toBeNull();
+    expect(r.dictate.isOpen()).toBe(true);
   });
 
   it("stops offering Undo after a few seconds, or once the next words start", async () => {
     const r = rig();
-    await r.dictate.setHandsFree(true);
+    await r.dictate.setOpen(true);
     await r.dictate.heard("send it");
     expect(r.last()?.undo).toBe(true);
     await vi.advanceTimersByTimeAsync(UNDO_MS);
@@ -543,9 +471,9 @@ describe("spoken commands", () => {
     expect(copied.last()?.undo).toBe(false);
   });
 
-  it("stops hands-free on \"stop dictating\", and only hands-free", async () => {
+  it("closes the session on \"stop dictating\", hands-free and in push to talk alike", async () => {
     const r = rig();
-    await r.dictate.setHandsFree(true);
+    await r.dictate.setOpen(true);
     await r.dictate.heard("that is all. stop dictating");
     expect(r.typed).toEqual(["That is all."]);
     expect(r.dictate.active()).toBe(false);
@@ -553,7 +481,8 @@ describe("spoken commands", () => {
     expect(r.ports.release).toHaveBeenCalledTimes(1);
     const held = rig();
     await hold(held, "stop dictating");
-    expect(held.typed).toEqual(["Stop dictating"]);
+    expect(held.typed).toEqual([]);
+    expect(held.dictate.isOpen()).toBe(false);
   });
 
   it("types the words in another language, where spoken commands are English only", async () => {
@@ -564,35 +493,73 @@ describe("spoken commands", () => {
   });
 });
 
-describe("command mode", () => {
-  it("rewrites the selection as told and types over it", async () => {
-    const r = rig({ selection: "hey can u send the numbers", rewrite: async () => "Could you send the numbers?" });
-    await hold(r, "um make it polite", true);
+describe("editing a selection by voice", () => {
+  it("edits a selection the words began on and that is still selected, with Dictate's brain, typed over it", async () => {
+    const r = rig({ selection: ["hey can u send the numbers"], rewrite: async () => "Could you send the numbers?" });
+    await r.dictate.setOpen(true);
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    // Said on the orb for the whole utterance, and the brain is woken for it.
+    expect(r.last()).toMatchObject({ editing: true, phase: "listening" });
     expect(r.ports.warm).toHaveBeenCalled();
+    r.say("um make it polite");
+    await r.dictate.holdEnd();
     expect(r.asked).toEqual([{ kind: "command", text: "Make it polite.", selection: "hey can u send the numbers" }]);
     expect(r.typed).toEqual(["Could you send the numbers?"]);
     expect(r.kept).toEqual([{ raw: "um make it polite", cleaned: "Make it polite.", final: "Could you send the numbers?", command: true, copied: false }]);
+    expect(r.last()).toMatchObject({ editing: false, phase: "idle", undo: true });
   });
 
-  it("writes at the cursor when nothing is selected, and shows it is a command", async () => {
-    const r = rig({ rewrite: async () => "A haiku." });
-    r.dictate.holdStart(true);
-    expect(r.last()).toMatchObject({ command: true, keys: ["⇧", "Right ⌥"] });
+  it("does the same hands-free, reading the selection once as the words begin, not again at a pause", async () => {
+    const r = rig({ selection: ["draft one"], rewrite: async () => "Draft two" });
+    await r.dictate.setOpen(true);
+    r.dictate.speechStart();
     await vi.advanceTimersByTimeAsync(0);
-    r.say("write a haiku");
-    await r.dictate.holdEnd();
-    expect(r.asked[0]).toMatchObject({ selection: "" });
-    expect(r.typed).toEqual(["A haiku."]);
+    expect(r.last()).toMatchObject({ editing: true });
+    r.dictate.partial("make it");
+    r.dictate.speechStart();
+    await r.dictate.heard("make it the second draft");
+    // Once as the words began, once more as they ended.
+    expect(r.ports.selection).toHaveBeenCalledTimes(2);
+    expect(r.typed).toEqual(["Draft two"]);
+  });
+
+  it("types normally when the selection changed or went before the words ended", async () => {
+    for (const end of ["something else", ""]) {
+      const r = rig({ selection: ["the old line", end] });
+      await hold(r, "the new line");
+      expect(r.asked).toEqual([]);
+      expect(r.typed).toEqual(["The new line."]);
+      expect(r.last()).toMatchObject({ editing: false, note: "" });
+    }
+  });
+
+  it("types normally where the selection cannot be read that way, as on Wayland", async () => {
+    const r = rig({ selection: [null] });
+    await hold(r, "the new line");
+    expect(r.asked).toEqual([]);
+    expect(r.typed).toEqual(["The new line."]);
+    expect(r.shown.some((d) => d?.editing)).toBe(false);
+  });
+
+  it("with no brain to edit with, never claims to edit: types over the selection and says so", async () => {
+    const r = rig({ selection: ["the old line"], settings: { canEdit: false } });
+    await hold(r, "the new line");
+    expect(r.shown.some((d) => d?.editing)).toBe(false);
+    expect(r.asked).toEqual([]);
+    expect(r.typed).toEqual(["The new line."]);
+    expect(r.last()?.note).toBe(NO_EDIT_BRAIN);
   });
 
   it("changes nothing when the brain fails or runs out of time", async () => {
-    const r = rig({ selection: "keep me", rewrite: async () => { throw new Error("rate limited"); } });
-    await hold(r, "make it formal", true);
+    const r = rig({ selection: ["keep me"], rewrite: async () => { throw new Error("rate limited"); } });
+    await hold(r, "make it formal");
     expect(r.typed).toEqual([]);
     expect(r.last()?.note).toBe("rate limited");
-    const slow = rig({ selection: "keep me" });
+    const slow = rig({ selection: ["keep me"] });
     slow.ports.rewrite = vi.fn(() => new Promise<string>(() => {}));
-    slow.dictate.holdStart(true);
+    await slow.dictate.setOpen(true);
+    slow.dictate.holdStart();
     await vi.advanceTimersByTimeAsync(0);
     slow.say("make it formal");
     const done = slow.dictate.holdEnd();
@@ -605,21 +572,18 @@ describe("command mode", () => {
   it("says a selection is too long instead of sending what the brain would refuse", async () => {
     // Over the length, and under it but over the body once JSON escapes it.
     for (const selection of ["a".repeat(20_001), "\u0007".repeat(12_000)]) {
-      const r = rig({ selection });
-      await hold(r, "make it formal", true);
+      const r = rig({ selection: [selection] });
+      await hold(r, "make it formal");
       expect(r.asked).toEqual([]);
       expect(r.typed).toEqual([]);
-      expect(r.last()).toMatchObject({ phase: "idle", note: "Selection too long for a command." });
+      expect(r.last()).toMatchObject({ phase: "idle", note: "Selection too long to edit." });
     }
   });
 
-  it("takes over a plain hold when Shift joins it", async () => {
-    const r = rig({ rewrite: async () => "Done." });
-    r.dictate.holdStart();
-    r.dictate.holdStart(true);
-    await vi.advanceTimersByTimeAsync(0);
-    r.say("fix the typo");
-    await r.dictate.holdEnd();
-    expect(r.asked[0]?.kind).toBe("command");
+  it("an edit after other words in the session is typed with no space before it", async () => {
+    const r = rig({ selection: ["", "old"], rewrite: async () => "New" });
+    await hold(r, "first words");
+    await hold(r, "replace it");
+    expect(r.typed).toEqual(["First words", "New"]);
   });
 });

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { flowBrain, readFlowConfig, updateFlowConfig, type FlowConfig } from "@openlive/flow-store";
+import { dictateBrain, flowBrain, readFlowConfig, updateFlowConfig, type FlowConfig, type FlowBrain } from "@openlive/flow-store";
 import { getAllSettings, listProviders } from "@openlive/db";
 import { envKeyFor, resolveApiMode } from "@openlive/harness";
 
@@ -8,14 +8,18 @@ export const dynamic = "force-dynamic";
 
 // Flow's settings, plus what the runtime cannot work out for itself: whether
 // there is a brain to think with, and which one (its kind and the provider or
-// agent id, for a failure's report).
+// agent id, for a failure's report), and whether Dictate's brain can edit a
+// selection by voice.
 
 function brainOf(config: FlowConfig) {
   const settings = getAllSettings();
+  const api = () => resolveApiMode(settings, listProviders(), (p) => !!envKeyFor(p));
+  const ready = (b: FlowBrain) => (b.kind === "acp" ? !!b.agentId : api().ready);
   const brain = flowBrain(config, settings);
-  if (brain.kind === "acp") return { brainReady: !!brain.agentId, brainKind: "acp" as const, brainId: brain.agentId };
-  const mode = resolveApiMode(settings, listProviders(), (p) => !!envKeyFor(p));
-  return { brainReady: mode.ready, brainKind: "api" as const, brainId: mode.provider.id };
+  const editReady = ready(dictateBrain(config, settings));
+  if (brain.kind === "acp") return { brainReady: !!brain.agentId, brainKind: "acp" as const, brainId: brain.agentId, editReady };
+  const mode = api();
+  return { brainReady: mode.ready, brainKind: "api" as const, brainId: mode.provider.id, editReady };
 }
 
 const failed = (e: unknown) =>
