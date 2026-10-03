@@ -331,6 +331,8 @@ Settings > Dictate > Basics > **History** sets how long it is kept and has
 
 - Kept for 1 day, 7 days, 30 days (the default) or forever, or not at all.
   Pruned on every read and after every dictation, at most 1000 kept.
+- A delete, Clear all and the prune remove dictations from the file itself,
+  through a temp file and a rename, so a deleted one is gone from disk.
 - A JSONL file under the OpenLive home (`flow/dictations.jsonl`, so
   `OPENLIVE_HOME` moves it), readable by this user only, and never sent
   anywhere.

@@ -116,6 +116,24 @@ describe("sqlite chat store + JSON migration", () => {
     expect(await q.deleteChatsBefore("2000-01-01T00:00:00.000Z")).toBe(0);
   });
 
+  it("a deleted chat's words are gone from the database files, not only from the list", async () => {
+    const q = await freshDb();
+    const { DB_FILE } = await import("./sqlite");
+    const onDisk = () => [DB_FILE(), `${DB_FILE()}-wal`].map((f) => (existsSync(f) ? readFileSync(f).toString("latin1") : "")).join("");
+    const one = await q.createChat("one");
+    const two = await q.createChat("two");
+    const keep = await q.createChat("keep");
+    await q.addMessage(one.id, "user", [{ type: "text", text: "zebra-marker-one" }]);
+    await q.addMessage(two.id, "user", [{ type: "text", text: "zebra-marker-two" }]);
+    await q.addMessage(keep.id, "user", [{ type: "text", text: "zebra-marker-kept" }]);
+    expect(onDisk()).toContain("zebra-marker-one");
+    await q.deleteChat(one.id);
+    expect(onDisk()).not.toContain("zebra-marker-one");
+    await q.deleteChatsBefore(new Date(Date.now() + 1000).toISOString(), keep.id);
+    expect(onDisk()).not.toContain("zebra-marker-two");
+    expect(onDisk()).toContain("zebra-marker-kept");
+  });
+
   it("keeps a secret setting encrypted outside settings.json, behind the same calls", async () => {
     const q = await freshDb();
     await q.setSetting("customInstructions", "be brief");

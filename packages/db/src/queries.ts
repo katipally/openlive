@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { SECRET_SETTINGS } from "@openlive/shared/home";
 import { readJson, updateJson } from "./store";
 import { encryptSecret, decryptSecret } from "./crypto";
-import { getDb, withBusyRetry } from "./sqlite";
+import { getDb, scrubDeleted, withBusyRetry } from "./sqlite";
 import { PATHS } from "./paths";
 
 // Stored shapes. Providers/settings/voice-profiles live in tiny JSON files;
@@ -167,6 +167,7 @@ export async function renameChat(id: string, title: string): Promise<void> {
 
 export async function deleteChat(id: string): Promise<void> {
   withBusyRetry(() => getDb().prepare("DELETE FROM chats WHERE id = ?").run(id)); // messages cascade
+  scrubDeleted();
   // Its settings too (bind:, agentCwd:, agentCut:, acpSession:), each keyed `<name>:<chat id>`. O(settings).
   await updateJson<Record<string, string>>(SETTINGS, {}, (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !k.endsWith(`:${id}`))));
 }
@@ -180,6 +181,7 @@ export async function deleteChatsBefore(before: string, except = ""): Promise<nu
     "DELETE FROM chats WHERE COALESCE(updated_at, created_at) < ? AND id != ? RETURNING id", // messages cascade
   ).all(before, except)) as unknown as { id: string }[];
   if (!rows.length) return 0;
+  scrubDeleted();
   const gone = new Set(rows.map((r) => r.id));
   await updateJson<Record<string, string>>(SETTINGS, {}, (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !gone.has(k.slice(k.indexOf(":") + 1)))));
   return rows.length;

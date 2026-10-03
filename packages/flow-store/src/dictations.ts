@@ -1,14 +1,16 @@
-import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import lockfile from "proper-lockfile";
 import { ensureDir, flowDir } from "./paths";
 import { KEEP_MS, type HistoryKeep } from "./shared";
 
 // Dictate's history: what was said and what was typed, kept on this machine
 // for as long as Settings > Dictate says and never sent anywhere. One JSONL
-// file, a dictation or a deletion per line, so a write is one append. A read
-// folds it and, once dropped lines outnumber kept ones, rewrites it with only
-// what is kept, so the file stays under about twice the kept size.
+// file, a dictation per line, so a new one is one append. Deleted means gone
+// from disk: a delete, Clear all, and a read that finds something past what
+// Settings keeps each rewrite the file with only what is kept, through a temp
+// file and an atomic rename, so a crash leaves the old file or the new one.
 
 export interface Dictation {
   id: string;
@@ -37,31 +39,47 @@ export const dictationsPath = (): string => join(flowDir(), "dictations.jsonl");
 
 const cut = (s: unknown) => (typeof s === "string" ? s.slice(0, TEXT_MAX) : "");
 
-/** Kept as given unless `keep` is off. Returns the stored dictation, or null when none is kept. */
-export function addDictation(d: Omit<Dictation, "id" | "at">, keep: HistoryKeep, at = Date.now()): Dictation | null {
-  if (keep === "off") return null;
-  const entry: Dictation = {
-    id: randomUUID(), at, raw: cut(d.raw), cleaned: cut(d.cleaned), final: cut(d.final),
-    ...(d.app && { app: cut(d.app).slice(0, 120) }), ...(Number.isInteger(d.windowId) && { windowId: d.windowId }), ...(d.command && { command: true }), ...(d.copied && { copied: true }),
-  };
-  ensureDir(flowDir());
-  appendFileSync(dictationsPath(), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
-  return entry;
+// Every change, and every read that may rewrite the file, holds it: callers in
+// this process queue on the chain, and the lockfile arbitrates with any other.
+// Same tuning as config.ts.
+const LOCK = { realpath: false, stale: 15000, update: 2500, retries: { retries: 15, minTimeout: 15, maxTimeout: 250 } } as const;
+let chain: Promise<unknown> = Promise.resolve();
+function locked<T>(fn: () => T): Promise<T> {
+  const run = chain.catch(() => {}).then(async () => {
+    ensureDir(flowDir());
+    const release = await lockfile.lock(dictationsPath(), LOCK);
+    try { return fn(); } finally { await release(); }
+  });
+  chain = run;
+  return run;
 }
 
-export function deleteDictation(id: string): void {
-  ensureDir(flowDir());
-  appendFileSync(dictationsPath(), `${JSON.stringify({ id, deleted: true })}\n`, { mode: 0o600 });
+// Past the cap, the oldest are dropped from disk this many at a time, so a full
+// history is not rewritten on every new dictation. Anything deleted or expired goes at once.
+const CAP_SLACK = 100;
+
+/** Temp files a crash mid-rewrite left behind hold dictations too. O(directory). */
+function dropTemps(): void {
+  const base = "dictations.jsonl.";
+  let names: string[];
+  try { names = readdirSync(flowDir()); } catch { return; }
+  for (const n of names) if (n.startsWith(base) && n.endsWith(".tmp")) rmSync(join(flowDir(), n), { force: true });
 }
 
-export function clearDictations(): void {
-  rmSync(dictationsPath(), { force: true });
+/** The file as `kept`, or none at all. O(kept). */
+function rewrite(kept: Dictation[]): void {
+  dropTemps();
+  if (!kept.length) { rmSync(dictationsPath(), { force: true }); return; }
+  const tmp = `${dictationsPath()}.${process.pid}.tmp`;
+  writeFileSync(tmp, kept.map((d) => `${JSON.stringify(d)}\n`).join(""), { mode: 0o600 });
+  renameSync(tmp, dictationsPath()); // atomic on the same filesystem
 }
 
-/** What `keep` still keeps, newest first. O(lines): one pass to fold, one to prune. */
-export function readDictations(keep: HistoryKeep, now = Date.now()): Dictation[] {
+/** Every dictation on disk, oldest first, and how many lines held them. A line
+ *  torn by a crash is skipped; a deletion line from an older file still deletes. O(lines). */
+function fold(): { all: Dictation[]; lines: number } {
   let raw = "";
-  try { raw = readFileSync(dictationsPath(), "utf8"); } catch { return []; }
+  try { raw = readFileSync(dictationsPath(), "utf8"); } catch { return { all: [], lines: 0 }; }
   const byId = new Map<string, Dictation>();
   let lines = 0;
   for (const line of raw.split("\n")) {
@@ -72,17 +90,44 @@ export function readDictations(keep: HistoryKeep, now = Date.now()): Dictation[]
       if (typeof r.id !== "string") continue;
       if (r.deleted) byId.delete(r.id);
       else if (typeof r.at === "number" && typeof r.final === "string") byId.set(r.id, r as Dictation);
-    } catch { /* a line torn by a crash: skipped */ }
+    } catch { /* torn */ }
   }
-  const since = now - KEEP_MS[keep];
-  const kept = [...byId.values()].filter((d) => d.at >= since).slice(-DICTATION_CAP);
-  if (lines > 2 * kept.length) {
-    if (!kept.length) clearDictations();
-    else {
-      const tmp = `${dictationsPath()}.${process.pid}.tmp`;
-      writeFileSync(tmp, kept.map((d) => `${JSON.stringify(d)}\n`).join(""), { mode: 0o600 });
-      renameSync(tmp, dictationsPath());
-    }
-  }
-  return kept.reverse();
+  return { all: [...byId.values()], lines };
+}
+
+/** Kept as given unless `keep` is off. Returns the stored dictation, or null when none is kept. */
+export async function addDictation(d: Omit<Dictation, "id" | "at">, keep: HistoryKeep, at = Date.now()): Promise<Dictation | null> {
+  if (keep === "off") return null;
+  const entry: Dictation = {
+    id: randomUUID(), at, raw: cut(d.raw), cleaned: cut(d.cleaned), final: cut(d.final),
+    ...(d.app && { app: cut(d.app).slice(0, 120) }), ...(Number.isInteger(d.windowId) && { windowId: d.windowId }), ...(d.command && { command: true }), ...(d.copied && { copied: true }),
+  };
+  await locked(() => appendFileSync(dictationsPath(), `${JSON.stringify(entry)}\n`, { mode: 0o600 }));
+  return entry;
+}
+
+/** Removes it from disk now. O(lines). */
+export function deleteDictation(id: string): Promise<void> {
+  return locked(() => {
+    const { all } = fold();
+    const rest = all.filter((d) => d.id !== id);
+    if (rest.length < all.length) rewrite(rest);
+  });
+}
+
+export function clearDictations(): Promise<void> {
+  return locked(() => rewrite([]));
+}
+
+/** What `keep` still keeps, newest first. Rewrites the file when it holds
+ *  anything else, past the cap only once that is CAP_SLACK over. O(lines). */
+export function readDictations(keep: HistoryKeep, now = Date.now()): Promise<Dictation[]> {
+  return locked(() => {
+    const { all, lines } = fold();
+    const since = now - KEEP_MS[keep];
+    const live = all.filter((d) => d.at >= since);
+    const kept = live.slice(-DICTATION_CAP);
+    if (lines > live.length || live.length - kept.length > CAP_SLACK) rewrite(kept);
+    return kept.reverse();
+  });
 }

@@ -484,6 +484,12 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **Deleted means gone from disk.** A deleted or expired dictation stayed in
+  `dictations.jsonl` until dropped lines outnumbered kept ones, and a deleted
+  conversation's words stayed in the database's free space. Now a delete,
+  once its Undo passes, Clear all, and History's keep each remove dictations
+  from the file at once, through a temp file and a rename under a lock, and
+  the database overwrites what a deleted conversation held.
 - **A tour you didn't finish comes back.** A tour counted as seen when its
   screen went away under it, from a mode switch or the app moving on by
   itself. Now only Done or a confirmed Skip does; otherwise it plays again

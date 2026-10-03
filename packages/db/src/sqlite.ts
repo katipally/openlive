@@ -26,6 +26,7 @@ export function getDb(): DatabaseSync {
     PRAGMA busy_timeout = 5000;
     PRAGMA synchronous = NORMAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA secure_delete = ON;
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -61,6 +62,13 @@ export function withBusyRetry<T>(fn: () => T): T {
     if (e instanceof Error && /SQLITE_BUSY/.test(e.message)) return fn();
     throw e;
   }
+}
+
+/** Deleted means gone from disk: secure_delete zeroes the freed pages, and this
+ *  empties the WAL, which still holds earlier copies of them. Best effort: a
+ *  reader in the other process makes it wait for the next delete. */
+export function scrubDeleted(): void {
+  try { getDb().exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch { /* busy: the next delete tries again */ }
 }
 
 /** Test hook: close and forget the singleton so a fresh open re-runs setup. */
