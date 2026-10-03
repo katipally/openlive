@@ -155,13 +155,14 @@ const ARG_CAP = 200;
 
 /**
  * A coding agent's own tool call as Flow shows and keeps it: the kind (the
- * orb's verb) and the file it touches, relative to where the agent runs. The
- * title is left out, since for a command it is the command line itself.
+ * orb's verb) and the file it touches, relative to where the agent runs, in
+ * forward slashes on every OS. The title is left out, since for a command it
+ * is the command line itself.
  */
 export function agentToolEntry(call: ToolCallState, cwd: string) {
   const file = call.locations[0]?.path;
   const rel = file && path.relative(cwd, path.resolve(cwd, file));
-  const target = !file ? "" : rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : path.basename(file);
+  const target = !file ? "" : rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel.split(path.sep).join("/") : path.basename(file);
   const raw = call.rawInputJson ? safeJson(call.rawInputJson) : null;
   const args: Record<string, unknown> = {};
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
