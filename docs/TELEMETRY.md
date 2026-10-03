@@ -585,7 +585,7 @@ Limit: none.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `action` | Which item: `new_flow` is Start Flow; `flow_on` and `flow_off` turn Flow on or off; `dictate_on` and `dictate_off` turn Dictate on or off. | `open`, `new_flow`, `flow_on`, `flow_off`, `dictate_on`, `dictate_off`, `allow_accessibility`, `settings`, `quit` | always |
+| `action` | Which item: `new_flow` is Start Flow; `flow_on` and `flow_off` turn Flow on or off; `dictate_on` and `dictate_off` turn Dictate on or off; `talk_hands_free` and `talk_ptt` pick how you talk. | `open`, `new_flow`, `flow_on`, `flow_off`, `dictate_on`, `dictate_off`, `talk_hands_free`, `talk_ptt`, `allow_accessibility`, `settings`, `quit` | always |
 
 ### `feature_usage`
 
@@ -714,6 +714,8 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `close_after_silence` | How long Flow and Dictate stay open with nothing said. | `30s`, `90s`, `5m`, `never`, `custom` | none |
 | `voice_input_mode` | Push to talk works by holding the key or by toggling it. | `hold`, `toggle` | none |
 | `ptt_enabled` | Push to talk, on or off. | `on`, `off` | none |
+| `talk_mode` | How you talk in Flow, Dictate and calls: hands-free or push to talk. | `hands_free`, `ptt` | none |
+| `ptt_key` | The push-to-talk key: one of the two defaults, or another key, never which. | `fn`, `ctrl_right`, `other` | none |
 
 ## Lists used above
 

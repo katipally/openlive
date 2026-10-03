@@ -19,7 +19,7 @@ const DICTATE = {
 };
 
 const KEYS = {
-  darwin: { ctrl: "⌃", control: "⌃", option: "⌥", opt: "⌥", alt: "⌥", shift: "⇧", command: "⌘", cmd: "⌘", meta: "⌘", super: "⌘", win: "⌘", fn: "fn" },
+  darwin: { ctrl: "⌃", control: "⌃", option: "⌥", opt: "⌥", alt: "⌥", shift: "⇧", command: "⌘", cmd: "⌘", meta: "⌘", super: "⌘", win: "⌘", fn: "Fn" },
   win32: { ctrl: "Ctrl", control: "Ctrl", option: "Alt", opt: "Alt", alt: "Alt", shift: "Shift", command: "Win", cmd: "Win", meta: "Win", super: "Win", win: "Win", fn: "Fn" },
   linux: { ctrl: "Ctrl", control: "Ctrl", option: "Alt", opt: "Alt", alt: "Alt", shift: "Shift", command: "Super", cmd: "Super", meta: "Super", super: "Super", win: "Super", fn: "Fn" },
 };
@@ -56,7 +56,15 @@ function dictateLine({ dictate, hook, platform }) {
   return [DICTATE[state], key].filter(Boolean).join("  ·  ");
 }
 
-/** `act` holds the click handlers: open, startFlow, flowOn, flowOff, dictateOn, dictateOff, allowAccess, settings, quit. */
+/** How you talk, as two radio items. `talk` is { mode, pttKey } from Flow's settings, null until read. */
+function talkItems({ talk, platform }, act) {
+  return [
+    { label: "Hands-free", type: "radio", checked: talk?.mode !== "ptt", click: act.talkHandsFree },
+    { label: talk ? `Push to talk  ·  Hold ${keyNames(talk.pttKey, platform)}` : "Push to talk", type: "radio", checked: talk?.mode === "ptt", click: act.talkPtt },
+  ];
+}
+
+/** `act` holds the click handlers: open, startFlow, flowOn, flowOff, dictateOn, dictateOff, talkHandsFree, talkPtt, allowAccess, settings, quit. */
 function trayTemplate(state, act) {
   const dictateOn = !!state.dictate?.on;
   return [
@@ -76,6 +84,8 @@ function trayTemplate(state, act) {
     { label: state.armed ? "Turn Flow off" : "Turn Flow on", click: state.armed ? act.flowOff : act.flowOn },
     // Unknown until its settings are read.
     { label: dictateOn ? "Turn Dictate off" : "Turn Dictate on", enabled: !!state.dictate, click: dictateOn ? act.dictateOff : act.dictateOn },
+    // The same choice as Settings > General > How you talk, for Flow, Dictate and calls alike.
+    { label: "How you talk", enabled: !!state.talk, submenu: talkItems(state, act) },
     // The one state the menu can fix in place.
     ...(state.readiness === "access" || (dictateOn && state.hook === "access") ? [{ label: state.platform === "darwin" ? "Allow Accessibility…" : "Allow input access…", click: act.allowAccess }] : []),
     { label: "Settings…", accelerator: "CmdOrCtrl+,", click: act.settings },
@@ -85,4 +95,4 @@ function trayTemplate(state, act) {
   ];
 }
 
-module.exports = { trayTemplate, statusLine, dictateLine, hotkeyLabel, STATUS, DICTATE };
+module.exports = { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, STATUS, DICTATE };

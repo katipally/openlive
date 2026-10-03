@@ -115,6 +115,14 @@ describe("flowChanges", () => {
     expect(at(30_000)).toEqual([]);
   });
 
+  it("reports how you talk, and the push-to-talk key only as a default or another", () => {
+    const at = (edit: (c: FlowConfig) => void) => flowChanges(DEFAULT_FLOW_CONFIG, flow(edit));
+    expect(at((c) => { c.talk.mode = "ptt"; })).toEqual([{ setting: "talk_mode", value: "ptt" }]);
+    expect(at((c) => { c.talk.mode = null; })).toEqual([]);
+    expect(at((c) => { c.talk.pttKey = c.talk.pttKey === "fn" ? "ctrl_right" : "fn"; })).toEqual([{ setting: "ptt_key", value: expect.stringMatching(/^(fn|ctrl_right)$/) }]);
+    expect(at((c) => { c.talk.pttKey = "f18"; })).toEqual([{ setting: "ptt_key", value: "other" }]);
+  });
+
   it("reports Flow's own wait, and which preset the new values are", () => {
     const out = flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => {
       c.voice.turnOverride = true;

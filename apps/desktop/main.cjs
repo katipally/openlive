@@ -768,7 +768,7 @@ function createOwnerWindow() {
   });
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
   // Loaded means the web server answers, so Dictate's state can be read for the tray.
-  ownerWin.webContents.on("did-finish-load", () => void syncDictate());
+  ownerWin.webContents.on("did-finish-load", () => void syncFlowSettings());
   ownerWin.on("session-end", onSessionEnd);
   ownerWin.on("closed", () => { ownerWin = null; });
   return ownerWin;
@@ -922,7 +922,7 @@ function wireFlowIpc() {
   ipcMain.on("openlive:flow-armed", (_e, v) => setFlowArmed(v));
   ipcMain.on("openlive:flow-settings-changed", () => {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-settings-changed");
-    void syncDictate();
+    void syncFlowSettings();
   });
 }
 
@@ -1033,32 +1033,37 @@ const TRAY_READINESS_POLL_MS = 3000;
 const trayState = () => ({
   readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
   hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate: dictate && { ...dictate, binding: flowInput.binding(flowInput.DICTATE_BINDING) },
+  talk,
 });
 /** Dictate's switch from its settings, for the tray; null until first read. */
 let dictate = null;
+/** How you talk, `{ mode, pttKey }`, for the tray; null until first read. */
+let talk = null;
 
-/** Reads Flow's settings, or writes `patch` into Dictate's, through the same web
+/** Reads Flow's settings, or writes `patch` into them, through the same web
  *  route the windows use, so the file has one writer and one parse. The hook's
  *  keys and the tray follow what comes back. */
-async function syncDictate(patch) {
+async function syncFlowSettings(patch) {
   try {
     const r = await fetch(`${WEB_URL}/api/flow/config`, patch
-      ? { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ dictate: patch }) }
+      ? { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) }
       : { cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const { config } = await r.json();
     // The keys follow the settings at once: a rebind or a talk mode switch needs no restart.
     flowInput.setBindings(talkBindings(config, process.platform));
     dictate = { on: !!config.dictate.enabled };
+    talk = { mode: config.talk?.mode === "ptt" ? "ptt" : "handsFree", pttKey: String(config.talk?.pttKey ?? "") };
     refreshTray();
     return true;
-  } catch (e) { console.error("[main] dictate settings:", e); return false; }
+  } catch (e) { console.error("[main] flow settings:", e); return false; }
 }
 
-/** The tray's Dictate switch. Its key follows in `syncDictate`, and both
- *  windows re-read what their homes and Settings show. */
-async function setDictateFromTray(on) {
-  if (!(await syncDictate({ enabled: on }))) return;
+/** A tray switch over Flow's settings: Dictate's, or how you talk. The keys
+ *  follow in `syncFlowSettings`, and both windows re-read what their homes and
+ *  Settings show. */
+async function setFlowSettingFromTray(patch) {
+  if (!(await syncFlowSettings(patch))) return;
   for (const win of [ownerWin, mainWin]) {
     if (win && !win.isDestroyed()) win.webContents.send("openlive:flow-settings-changed");
   }
@@ -1146,8 +1151,10 @@ function refreshTray() {
     startFlow: fromTray("new_flow", startFlowFromTray),
     flowOn: fromTray("flow_on", () => setFlowArmed(true)),
     flowOff: fromTray("flow_off", () => setFlowArmed(false)),
-    dictateOn: fromTray("dictate_on", () => void setDictateFromTray(true)),
-    dictateOff: fromTray("dictate_off", () => void setDictateFromTray(false)),
+    dictateOn: fromTray("dictate_on", () => void setFlowSettingFromTray({ dictate: { enabled: true } })),
+    dictateOff: fromTray("dictate_off", () => void setFlowSettingFromTray({ dictate: { enabled: false } })),
+    talkHandsFree: fromTray("talk_hands_free", () => void setFlowSettingFromTray({ talk: { mode: "handsFree" } })),
+    talkPtt: fromTray("talk_ptt", () => void setFlowSettingFromTray({ talk: { mode: "ptt" } })),
     allowAccess: fromTray("allow_accessibility", () => void flowInput.request("accessibility", "other").catch((e) => console.error("[main] tray access:", e))),
     settings: fromTray("settings", openSettings),
     quit: fromTray("quit", () => quitApp("tray_menu")),

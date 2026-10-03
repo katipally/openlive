@@ -136,6 +136,11 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   if (a.insertion.method !== b.insertion.method) out.push({ setting: "flow_insertion", value: b.insertion.method });
   const silence = b.talk.closeAfterSilenceMs;
   if (a.talk.closeAfterSilenceMs !== silence) out.push({ setting: "close_after_silence", value: SILENCES.get(silence) ?? "custom" });
+  // An undecided mode is hands-free, as everything reads it, so settling it is no change.
+  const mode = (t: FlowConfig["talk"]) => (t.mode === "ptt" ? "ptt" : "hands_free");
+  if (mode(a.talk) !== mode(b.talk)) out.push({ setting: "talk_mode", value: mode(b.talk) });
+  // Only the two defaults by name: any other key is someone's own choice, kept as "other".
+  if (a.talk.pttKey !== b.talk.pttKey) out.push({ setting: "ptt_key", value: b.talk.pttKey === "fn" || b.talk.pttKey === "ctrl_right" ? b.talk.pttKey : "other" });
   return out;
 }
 

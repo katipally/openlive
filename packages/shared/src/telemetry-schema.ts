@@ -100,6 +100,8 @@ const SETTINGS = {
   close_after_silence: { values: ["30s", "90s", "5m", "never", "custom"] },
   voice_input_mode: { values: ["hold", "toggle"] },
   ptt_enabled: { values: ON_OFF },
+  talk_mode: { values: ["hands_free", "ptt"] },
+  ptt_key: { values: ["fn", "ctrl_right", "other"] },
 } as const;
 type SettingName = keyof typeof SETTINGS;
 type SettingValue = (typeof SETTINGS)[SettingName]["values"][number];
@@ -375,7 +377,7 @@ const events = {
     limit: { perDayPerKey: 3, dayKey: ["setting"] },
   },
   tray_action: {
-    props: { action: en(["open", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "allow_accessibility", "settings", "quit"]) },
+    props: { action: en(["open", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "talk_hands_free", "talk_ptt", "allow_accessibility", "settings", "quit"]) },
   },
   remote_ollama_prompt: {
     props: {

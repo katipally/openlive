@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 
-const { trayTemplate, statusLine, dictateLine, hotkeyLabel, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
+const { trayTemplate, statusLine, dictateLine, hotkeyLabel, talkItems, STATUS, DICTATE } = createRequire(import.meta.url)("./tray-menu.cjs");
 
-const act = { open: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
+const act = { open: vi.fn(), startFlow: vi.fn(), flowOn: vi.fn(), flowOff: vi.fn(), dictateOn: vi.fn(), dictateOff: vi.fn(), talkHandsFree: vi.fn(), talkPtt: vi.fn(), allowAccess: vi.fn(), settings: vi.fn(), quit: vi.fn() };
 const ready = { readiness: "ready", open: false, binding: "ctrl", platform: "darwin", hook: "ready", armed: true, dictate: { on: false, binding: "option_right" } };
 const labels = (state: object) => trayTemplate(state, act).map((i: { label?: string; type?: string }) => i.label ?? i.type);
 
@@ -61,7 +61,7 @@ describe("hotkeyLabel", () => {
 
 describe("trayTemplate", () => {
   it("is the minimal menu: both statuses, open, start, both switches, settings, quit", () => {
-    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Flow off", "Turn Dictate on", "Settings…", "separator", "Quit OpenLive"]);
+    expect(labels(ready)).toEqual(["Flow is ready  ·  Double-tap ⌃", "Dictate is off", "separator", "Open OpenLive", "Start Flow", "Turn Flow off", "Turn Dictate on", "How you talk", "Settings…", "separator", "Quit OpenLive"]);
   });
 
   it("turns Flow on or off, and says so on its status line", () => {
@@ -105,6 +105,19 @@ describe("trayTemplate", () => {
     expect(labels({ ...ready, readiness: "access" })).toContain("Allow Accessibility…");
     expect(labels({ ...ready, readiness: "access", platform: "linux" })).toContain("Allow input access…");
     expect(labels({ ...ready, readiness: "off" })).not.toContain("Allow Accessibility…");
+  });
+
+  it("picks how you talk from two radio items, once Flow's settings are read", () => {
+    const menu = (state: object) => trayTemplate(state, act).find((i: { label?: string }) => i.label === "How you talk");
+    expect(menu(ready).enabled).toBe(false);
+    const ptt = { ...ready, talk: { mode: "ptt", pttKey: "fn" } };
+    expect(menu(ptt).enabled).toBe(true);
+    expect(menu(ptt).submenu).toMatchObject([
+      { label: "Hands-free", type: "radio", checked: false, click: act.talkHandsFree },
+      { label: "Push to talk  ·  Hold Fn", type: "radio", checked: true, click: act.talkPtt },
+    ]);
+    expect(talkItems({ talk: { mode: "handsFree", pttKey: "ctrl_right" }, platform: "win32" }, act).map((i: { label: string; checked: boolean }) => [i.label, i.checked]))
+      .toEqual([["Hands-free", true], ["Push to talk  ·  Hold Right Ctrl", false]]);
   });
 
   it("runs the action each item names", () => {
