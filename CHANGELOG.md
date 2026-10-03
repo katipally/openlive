@@ -39,7 +39,10 @@ Releases before 0.1.9 predate this file — see the
 
 ### Fixed
 - **Dictating into OpenLive's own text boxes types there,** on every platform:
-  Electron takes the words directly instead of system key events.
+  Electron takes the words directly instead of system key events. With no
+  text box in focus there, or a disabled or read-only one, the words are
+  copied instead with "Copied instead", and **Insert again** from Dictate's
+  history does the same, instead of typing into nothing.
 - **Dictate shows what it hears, and offers Undo, on every hold.** The orb no
   longer misses being told it is shown when it comes up for Dictate, which hid
   the words and the Undo button. The microphone stays open, muted, for 30

@@ -85,6 +85,33 @@ describe("typing into OpenLive's own window", () => {
     expect(addon.endInsertion).not.toHaveBeenCalled();
   });
 
+  it("types nothing with no text box in focus, and fails so the caller copies instead", async () => {
+    const wc = { insertText: vi.fn(async () => {}), executeJavaScript: vi.fn(async () => false) };
+    const { addon, call } = load(() => wc);
+    expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: false });
+    expect(await call("openlive:flow-insert-begin", "paste", {})).toEqual({ ok: false, error: "No text box in focus." });
+    expect(wc.insertText).not.toHaveBeenCalled();
+    expect(addon.beginInsertion).not.toHaveBeenCalled();
+  });
+
+  it("asks the page for a field that takes input, not a disabled or read-only one", async () => {
+    const wc = own();
+    const { call } = load(() => wc);
+    await call("openlive:flow-insert-begin", "paste", {});
+    const [script] = wc.executeJavaScript.mock.calls[0] as unknown as [string];
+    const editable = (activeElement: unknown) => new Function("document", `return ${script}`)({ activeElement }) as boolean;
+    const input = (o: object) => ({ tagName: "INPUT", type: "text", disabled: false, readOnly: false, ...o });
+    expect(editable(input({}))).toBe(true);
+    expect(editable({ tagName: "TEXTAREA", disabled: false, readOnly: false })).toBe(true);
+    expect(editable({ tagName: "DIV", isContentEditable: true })).toBe(true);
+    expect(editable(input({ disabled: true }))).toBe(false);
+    expect(editable(input({ readOnly: true }))).toBe(false);
+    expect(editable({ tagName: "TEXTAREA", disabled: false, readOnly: true })).toBe(false);
+    expect(editable(input({ type: "checkbox" }))).toBe(false);
+    expect(editable({ tagName: "BUTTON" })).toBe(false);
+    expect(editable(null)).toBe(false);
+  });
+
   it("leaves every other app to the addon", async () => {
     const { addon, call } = load(() => null);
     expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: null });

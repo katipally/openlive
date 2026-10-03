@@ -18,6 +18,7 @@ import { keyListenerNote } from "@/lib/flow/failure";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
+import { COPIED } from "@/lib/dictate/run";
 import { desktopPlatform, isDesktop, isMac, isMacDesktop } from "@/lib/platform";
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
@@ -247,16 +248,20 @@ function History({ own, insertion }: { own: FlowConfig["dictate"]; insertion: Fl
 function Row({ d, insertion, onDelete }: { d: Dictation; insertion: FlowConfig["insertion"]; onDelete: () => void }) {
   const copy = () => void navigator.clipboard.writeText(d.final).then(() => toast("Copied", "info")).catch(() => toast("That could not be copied."));
   const words = countWords(d.final);
-  // Back to the window it was said into, while that window is still open; else on the clipboard to paste.
+  // Back to the window it was said into, while that window is still open and has a text box in focus; else on the clipboard to paste.
   const again = async () => {
     const api = flowBridge();
+    let note = "That window is gone, so it is on the clipboard. Paste it where you want it.";
     if (api && d.windowId != null && (await api.device("control", { kind: "window", op: "activate", windowId: d.windowId })).ok) {
       await new Promise((r) => setTimeout(r, FOCUS_MS));
-      const session = valueOr(await api.insertBegin(insertion.method, insertion), -1);
-      if (session >= 0 && (await api.insertPush(session, d.final)).ok && (await api.insertEnd(session)).ok) return;
+      if (valueOr(await api.focusEditable(), null) === false) note = COPIED;
+      else {
+        const session = valueOr(await api.insertBegin(insertion.method, insertion), -1);
+        if (session >= 0 && (await api.insertPush(session, d.final)).ok && (await api.insertEnd(session)).ok) return;
+      }
     }
     await navigator.clipboard.writeText(d.final).catch(() => {});
-    toast("That window is gone, so it is on the clipboard. Paste it where you want it.", "info");
+    toast(note, "info");
   };
   return (
     <div className="group flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1 rounded-lg py-2 pl-3 pr-1.5 transition hover:bg-foreground/[0.06]">

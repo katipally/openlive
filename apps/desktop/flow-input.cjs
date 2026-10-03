@@ -36,9 +36,9 @@ let target = () => null; // the webContents that receives effects
 let ownField = () => null; // OpenLive's own window's webContents while it has the keyboard, else null
 const ownSessions = new Map(); // insertion session -> the own window it types into
 let ownSession = 2 ** 30; // above any session id the addon hands out
-// What Dictate types into in OpenLive's own window: a text field or an editable element.
-const OWN_EDITABLE = `(() => { const e = document.activeElement; return !!e && (e.isContentEditable || e.tagName === "TEXTAREA"
-  || (e.tagName === "INPUT" && /^(text|search|email|url|tel|password|number)$/.test(e.type))); })()`;
+// What Dictate types into in OpenLive's own window: a text field that takes input, or an editable element.
+const OWN_EDITABLE = `(() => { const e = document.activeElement; return !!e && (e.isContentEditable || ((e.tagName === "TEXTAREA"
+  || (e.tagName === "INPUT" && /^(text|search|email|url|tel|password|number)$/.test(e.type))) && !e.disabled && !e.readOnly)); })()`;
 let telemetry = null;
 
 function load() {
@@ -235,9 +235,11 @@ function install(getTarget, telemetryClient, getOwnField = () => null) {
   // OpenLive's own window takes Dictate's words from Electron itself: no system
   // events, so no Accessibility tree, clipboard or posted keys are involved, and
   // its own fields work the same on every platform. A session keeps the window it began in.
-  ipcMain.handle("openlive:flow-insert-begin", guard((method, timing) => {
+  // With nothing there to type into it fails, so the caller copies instead, as it does for other apps.
+  ipcMain.handle("openlive:flow-insert-begin", guard(async (method, timing) => {
     const own = ownField();
     if (!own) return load().beginInsertion(method, insertionTiming(timing));
+    if (!(await own.executeJavaScript(OWN_EDITABLE, true))) throw new Error("No text box in focus.");
     ownSessions.set(++ownSession, own);
     return ownSession;
   }));

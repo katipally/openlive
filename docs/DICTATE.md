@@ -52,7 +52,8 @@ behaves is in Settings > Dictate, and nothing is in both places.
   and the command key with text selected.
 - **History**: every dictation kept, newest first by day, with a search once
   there are more than 8, **Copy**, **Insert again** (back into the window it
-  came from while that window is open, else on the clipboard) and **Delete**.
+  came from while that window is open and a text box there has the cursor,
+  else on the clipboard) and **Delete**.
   The first 100 show, and **Show more** adds 100 at a time, so a long history
   opens and searches quickly.
 
@@ -132,7 +133,9 @@ AT-SPI). Only a plain no copies: a list, a button, Finder's files. Where the
 system cannot tell, as in an Electron app that shows no accessibility tree, a
 web page's body, or a Linux desktop with no accessibility bus, it types as it
 always did. OpenLive's own window is the exception: its text boxes take the
-words from Electron directly, with no system events in between.
+words from Electron directly, with no system events in between, and with no
+text box in focus there (or a disabled or read-only one) the words are copied
+instead, as anywhere else.
 
 Stopping hands-free puts things back as they were before it started. With Flow
 closed, the microphone goes quiet at once and the orb goes after the Undo
@@ -389,6 +392,8 @@ One microphone, one engine, one orb, so the two take turns:
 - **Own window**: while OpenLive's main window has the keyboard,
   `flow-input.cjs` answers `focusEditable` from the page's focused element and
   types each insertion session with `webContents.insertText`, never the addon.
+  A session begun with no field there that takes input fails, so the caller
+  copies instead.
 - **Tray**: main reads and writes Dictate's switch through `/api/flow/config`,
   the windows' own route, then tells the owner renderer and the main window
   (`openlive:flow-settings-changed`) so the key and the screens follow.
