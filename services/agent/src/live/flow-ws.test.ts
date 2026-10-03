@@ -25,6 +25,8 @@ const fake = vi.hoisted(() => ({
   preamble: "",
   /** Whether this machine has already said Flow may act. */
   consented: true,
+  never: false,
+  archived: 0,
   /** Consent written back to the config, as `updateFlowConfig` would. */
   remembered: 0,
   /** The brain the config names; unset, the default. */
@@ -43,7 +45,7 @@ const fake = vi.hoisted(() => ({
 
 const store = {
   append: async (type: string, data: Record<string, unknown>) => ({ id: `entry-${fake.appended.push({ type, data })}` }),
-  archive: async () => {},
+  archive: async () => { fake.archived++; },
 };
 
 vi.mock("@openlive/flow-store", async (importOriginal) => {
@@ -53,6 +55,7 @@ vi.mock("@openlive/flow-store", async (importOriginal) => {
     readFlowConfig: () => ({
       ...(real.DEFAULT_FLOW_CONFIG as Record<string, unknown>),
       consent: { granted: fake.consented, at: "" },
+      ...(fake.never && { talk: { ...(real.DEFAULT_FLOW_CONFIG as { talk: object }).talk, closeAfterSilenceMs: null } }),
       ...(fake.brain && { brain: fake.brain }),
     }),
     updateFlowConfig: async () => { fake.remembered++; fake.consented = true; },
@@ -114,7 +117,7 @@ vi.mock("../agents/index.js", async (importOriginal) => ({
 const dataDir = mkdtempSync(join(tmpdir(), "ol-flow-ws-"));
 process.env.OPENLIVE_HOME = dataDir;
 afterAll(() => { delete process.env.OPENLIVE_HOME; rmSync(dataDir, { recursive: true, force: true }); });
-const { FlowLiveSession, quietModeId, agentEffortOption, brainMeta, formChoice } = await import("./flow-ws.js");
+const { FlowLiveSession, CLOSED_ROLL_MS, quietModeId, agentEffortOption, brainMeta, formChoice } = await import("./flow-ws.js");
 const { setSetting, updateMemory } = await import("@openlive/db");
 const { readNotes } = await import("../memory/notes.js");
 const { cancelledText, sentAside } = await import("../turn.js");
@@ -165,6 +168,51 @@ beforeEach(() => {
   fake.cuts = [];
   fake.cancelled = [];
   fake.agentTool = null;
+  fake.never = false;
+  fake.archived = 0;
+});
+
+describe("a session with Close after silence set to never", () => {
+  it("stays while Flow is open, and rolls a while after Flow is closed, unless Flow comes back first", async () => {
+    fake.never = true;
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Done.");
+    ws.say("rename the file");
+    await until(() => turnsDone(ws) === 1);
+    vi.useFakeTimers();
+    try {
+      // Open and silent: a Stop is no close, and nothing rolls.
+      ws.client({ t: "flow_cancel" });
+      await vi.advanceTimersByTimeAsync(CLOSED_ROLL_MS * 3);
+      expect(fake.archived).toBe(0);
+      // Closed, then talked to again within the wait: still the same session.
+      ws.client({ t: "flow_cancel", close: true });
+      await vi.advanceTimersByTimeAsync(CLOSED_ROLL_MS - 1000);
+      fake.script = reply("Sure.");
+      ws.say("and the other one");
+      await vi.advanceTimersByTimeAsync(CLOSED_ROLL_MS);
+      expect(fake.archived).toBe(0);
+      // Closed for good: rolled once the wait is up.
+      ws.client({ t: "flow_cancel", close: true });
+      await vi.advanceTimersByTimeAsync(CLOSED_ROLL_MS);
+      expect(fake.archived).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("leaves a set silence to the session's own idle roll", async () => {
+    const ws = new FakeSocket();
+    new FlowLiveSession(ws as never);
+    fake.script = reply("Done.");
+    ws.say("rename the file");
+    await until(() => turnsDone(ws) === 1);
+    vi.useFakeTimers();
+    try {
+      ws.client({ t: "flow_cancel", close: true });
+      await vi.advanceTimersByTimeAsync(CLOSED_ROLL_MS * 2);
+      expect(fake.archived).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe("FlowLiveSession", () => {

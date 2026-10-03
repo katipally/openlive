@@ -180,6 +180,10 @@ const YES_NO: PermissionAskOption[] = [
 const CANCEL: PermissionAskOption = { id: "deny", label: "Cancel", kind: "reject_once" };
 /** A pick-one field with more choices than this is not asked as chips. */
 const MAX_CHOICES = 6;
+// "Close after silence" set to never keeps Flow, and so its session, open for
+// as long as the person wants. Once Flow is closed by hand, the session rolls
+// after the wait Flow kept by default before that setting was shared.
+export const CLOSED_ROLL_MS = 5 * 60_000;
 
 /**
  * A server's form as the orb can ask it: chips, so nothing to fill in, or one
@@ -198,6 +202,7 @@ export function formChoice(schema: unknown): { options: PermissionAskOption[]; c
 
 export class FlowLiveSession {
   private closed = false;
+  private closedRoll: ReturnType<typeof setTimeout> | undefined;
   private ac: AbortController | null = null;
   private turnActive = false;
   /** The coding agent's ids for its calls to Flow's tools: this turn's, and every
@@ -317,6 +322,7 @@ export class FlowLiveSession {
   private async onText(str: string) {
     let msg;
     try { msg = liveClientMsgSchema.parse(JSON.parse(str)); } catch { return; }
+    if (msg.t !== "flow_cancel") clearTimeout(this.closedRoll);
     switch (msg.t) {
       case "flow_text": {
         // An ask may be awaiting the user. The orb answers its own chip, so a sentence
@@ -344,6 +350,11 @@ export class FlowLiveSession {
         }
         this.voicedFrom = -1;
         this.ac?.abort();
+        if (msg.close && readFlowConfig().talk.closeAfterSilenceMs === null) {
+          clearTimeout(this.closedRoll);
+          this.closedRoll = setTimeout(() => void this.newSession(), CLOSED_ROLL_MS);
+          this.closedRoll.unref?.();
+        }
         return;
       case "tool_bridge_result": {
         const r = this.bridgePending.get(msg.reqId);
@@ -845,6 +856,7 @@ export class FlowLiveSession {
   private dispose() {
     if (this.closed) return;
     this.closed = true;
+    clearTimeout(this.closedRoll);
     liveSockets.delete(this.hear);
     this.ac?.abort();
     this.cancelPendingPermissions();
