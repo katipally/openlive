@@ -50,6 +50,8 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   // Step 2 opens Settings, which steps in front until it is closed again.
   const settingsOpen = useUi((s) => s.settingsOpen);
   const root = useRef<HTMLDivElement>(null);
+  // Skipped, Welcome never comes back, so both ways out (Skip and Esc) ask first.
+  const [asking, setAsking] = useState(false);
 
   // Decided after mount, so the first frame is the home it covers.
   useEffect(() => setOpen(owed()), []);
@@ -65,7 +67,9 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
     if (step === 3) passedAccess.current = true;
     if (step < STEPS) setStep(step + 1); else finish();
   };
-  useFocusTrap(root, open && !settingsOpen, () => finish());
+  // Focus goes back to the dialog, not to wherever the gone question leaves it.
+  const keepGoing = () => { setAsking(false); root.current?.focus(); };
+  useFocusTrap(root, open && !settingsOpen, () => (asking ? keepGoing() : setAsking(true)));
 
   if (!open || settingsOpen) return null;
   const hold = config ? hotkeyKeys(config.dictate.hotkey, desktopPlatform) : [];
@@ -75,7 +79,15 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
       <header className={cn("flex h-14 shrink-0 items-center gap-3",
         isMacDesktop ? "pl-traffic-lights" : "pl-4", isNonMacDesktop ? "pr-window-controls" : "pr-3", isDesktop && "app-drag")}>
         <span className="min-w-0 flex-1 truncate text-body font-semibold">{`Welcome · ${step} of ${STEPS}`}</span>
-        <Button variant="ghost" size="sm" onClick={() => finish()} className="[-webkit-app-region:no-drag]">Skip</Button>
+        {asking ? (
+          <span role="group" aria-labelledby="welcome-skip" className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
+            <span id="welcome-skip" aria-live="polite" className="whitespace-nowrap text-label text-muted-strong">Skip setup?</span>
+            <Button variant="ghost" size="sm" autoFocus onClick={keepGoing}>Keep going</Button>
+            <Button variant="secondary" size="sm" onClick={() => finish()}>Skip</Button>
+          </span>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setAsking(true)} className="[-webkit-app-region:no-drag]">Skip</Button>
+        )}
       </header>
 
       <FlowCanvas className="max-w-[40rem]">
