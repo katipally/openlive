@@ -65,7 +65,7 @@
         "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "opt": true },
         "duration_s": { "k": "int", "max": 86400 },
-        "ended_by": { "k": "enum", "values": ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "quit", "other"] },
+        "ended_by": { "k": "enum", "values": ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"] },
         "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "opt": true },
         "ready": { "k": "enum", "values": ["ok", "no_brain", "mic_failed"], "opt": true },
         "ready_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
@@ -277,8 +277,8 @@
     },
     "setting_changed": {
       "props": {
-        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "flow_idle_window", "voice_input_mode", "ptt_enabled"] },
-        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "90s", "5m", "30m", "hold", "toggle"] },
+        "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "close_after_silence", "voice_input_mode", "ptt_enabled"] },
+        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "30s", "90s", "5m", "never", "hold", "toggle"] },
         "subject": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi", "none"], "opt": true },
         "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
       },
@@ -570,7 +570,7 @@
     "flow_quiet_dnd": { "values": ["on", "off"] },
     "flow_consent": { "values": ["on", "off"] },
     "flow_insertion": { "values": ["paste", "type"] },
-    "flow_idle_window": { "values": ["90s", "5m", "30m", "custom"] },
+    "close_after_silence": { "values": ["30s", "90s", "5m", "never", "custom"] },
     "voice_input_mode": { "values": ["hold", "toggle"] },
     "ptt_enabled": { "values": ["on", "off"] }
   },

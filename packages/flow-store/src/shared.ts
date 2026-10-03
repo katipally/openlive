@@ -10,6 +10,24 @@ export type FlowBrain = Omit<FlowConfig["brain"], "override">;
  *  make every dictation slow or the settings file huge. */
 export const DICTATE_LIMITS = { words: 2000, word: 80, snippets: 500, trigger: 80, text: 4000 } as const;
 
+/** Push to talk's key where nothing has been picked: Fn on a Mac, Right Ctrl
+ *  elsewhere, where Fn never reaches the OS. */
+export const defaultPttKey = (platform: string): string => (platform === "darwin" ? "fn" : "ctrl_right");
+
+const SIDED_MODIFIER = /^(ctrl|option|shift|command)_(left|right)$/;
+const SPARE_KEY = /^f(1[3-9]|2[0-4])$/;
+
+/** A push-to-talk key: one physical key that types nothing. A side of a
+ *  modifier (a bare group would leave no side for the toggles), Fn on a Mac,
+ *  or F13 to F24. */
+export const pttKeyOk = (key: unknown, platform: string): key is string =>
+  typeof key === "string" && (SIDED_MODIFIER.test(key) || SPARE_KEY.test(key) || (key === "fn" && platform === "darwin"));
+
+/** A key Flow or Dictate double-taps: a modifier group, either side or one, Fn
+ *  on a Mac, or F13 to F24. */
+export const toggleKeyOk = (key: unknown, platform: string): key is string =>
+  typeof key === "string" && (/^(ctrl|option|shift|command)$/.test(key) || pttKeyOk(key, platform));
+
 const API_BRAIN: FlowBrain = { kind: "api", agentId: "", agentModel: "", agentEffort: "" };
 
 /** The settings.json keys (packages/db) that say who answers by default: a

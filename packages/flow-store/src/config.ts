@@ -1,24 +1,28 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import lockfile from "proper-lockfile";
 import { configPath, ensureDir, flowDir } from "./paths";
-import { DICTATE_LIMITS } from "./shared";
+import { DICTATE_LIMITS, defaultPttKey, pttKeyOk, toggleKeyOk } from "./shared";
 
 // One versioned schema for everything Flow can be configured with. Two rules it
 // must never break: every field has a default, and an unknown or missing key
 // never fails the parse. Unknown keys survive a write untouched, so an older
 // build cannot silently destroy a newer build's settings.
 
-export const FLOW_CONFIG_VERSION = 8;
+export const FLOW_CONFIG_VERSION = 9;
 
 export type InsertionMethod = "paste" | "type";
 export type BrainKind = "api" | "acp";
 export type DictateTone = "natural" | "casual" | "formal";
 export type DictateKeep = "off" | "day" | "week" | "month" | "forever";
+export type TalkMode = "handsFree" | "ptt";
 
 const INSERTION_METHODS = ["paste", "type"] as const;
 const BRAIN_KINDS = ["api", "acp"] as const;
 const TONES = ["natural", "casual", "formal"] as const;
 const KEEPS = ["off", "day", "week", "month", "forever"] as const;
+const TALK_MODES = ["handsFree", "ptt"] as const;
+/** The choices "Close after silence" offers, besides never. */
+export const SILENCE_CHOICES_MS = [30_000, 90_000, 300_000] as const;
 
 export interface FlowConfig {
   version: number;
@@ -62,24 +66,37 @@ export interface FlowConfig {
   /** The one permission Flow ever takes: the person said, once, that it may act
    *  on this machine. Nothing is asked per tool, per tier or per call. */
   consent: { granted: boolean; at: string };
-  idleWindowMs: number;
+  /** How you talk, in Flow, Dictate and Chat alike, and the keys that open them.
+   *  Here rather than in ui.json so the main process can read it at launch and
+   *  register the keys with the hook. Keys are in ol-input's binding grammar. */
+  talk: {
+    /** null: not decided yet. A file from before this was shared left Chat's
+     *  push-to-talk switch in ui.json, which only a renderer reads, so a
+     *  renderer decides. Read as hands-free meanwhile. */
+    mode: TalkMode | null;
+    /** Held to talk while Flow or Dictate is open, or in a call. */
+    pttKey: string;
+    /** Double-tapped to open and close Flow, and Dictate. */
+    flowKey: string;
+    dictateKey: string;
+    /** Flow and Dictate close after this long with nothing said (in push to
+     *  talk, nothing held); null never. A call never closes on its own. */
+    closeAfterSilenceMs: number | null;
+  };
   /** The switch on Flow's home and in the tray. Off, a double tap does nothing,
    *  across restarts too. Missing in a file from before it was kept: on. */
   enabled: boolean;
-  /** Talk instead of type: hold `hotkey` and the cleaned-up words go in at the
-   *  cursor, with no brain. `hotkey` is in ol-input's binding grammar. Each
-   *  cleanup rule runs on this machine. `brain` is the one AI polish and
-   *  command mode think with; off, they use Flow's. `polish` rewrites what
-   *  was said with that brain; `commandHotkey` held says what to do with the
-   *  selection instead. `words` are spelled as written, a snippet's trigger
-   *  said alone types its text, and `history` is how long dictations are kept. */
+  /** Talk instead of type: the cleaned-up words go in at the cursor, with no
+   *  brain. Its key is `talk.dictateKey`. Each cleanup rule runs on this
+   *  machine. `brain` is the one AI polish and command mode think with; off,
+   *  they use Flow's. `polish` rewrites what was said with that brain. `words`
+   *  are spelled as written, a snippet's trigger said alone types its text,
+   *  and `history` is how long dictations are kept. */
   dictate: {
     enabled: boolean;
-    hotkey: string;
     cleanup: { punctuation: boolean; fillers: boolean; backtrack: boolean; lists: boolean; numbers: boolean };
     brain: FlowConfig["brain"];
     polish: { enabled: boolean; tone: DictateTone };
-    commandHotkey: string;
     commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
     words: string[];
     snippets: { trigger: string; text: string }[];
@@ -98,15 +115,13 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     turnOverride: false,
   },
   consent: { granted: false, at: "" },
-  idleWindowMs: 5 * 60_000,
+  talk: { mode: "handsFree", pttKey: defaultPttKey(process.platform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: 30_000 },
   enabled: true,
   dictate: {
     enabled: false,
-    hotkey: "option_right",
     cleanup: { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
     brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
     polish: { enabled: false, tone: "natural" },
-    commandHotkey: "shift+option_right",
     commands: { enter: true, newLine: true, newParagraph: true, undo: true, stop: true },
     words: [],
     snippets: [],
@@ -166,7 +181,25 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
     const insertion = obj(raw.insertion);
     return insertion.modifierHoldMs === 100 ? { ...raw, insertion: { ...insertion, modifierHoldMs: 50 } } : raw;
   },
+  // v8 held Dictate's key (and Shift with it for command mode) and kept Flow
+  // open for `idleWindowMs` after the last reply. v9 double-taps one key per
+  // mode, talks one way everywhere, and closes Flow and Dictate after a
+  // silence: the hold keys are dropped, the talk mode is left for a renderer
+  // to decide from Chat's push-to-talk switch, and the wait moves to its
+  // nearest new choice, or never past the longest.
+  8: ({ idleWindowMs, ...raw }) => {
+    const { hotkey: _h, commandHotkey: _c, ...dictate } = obj(raw.dictate);
+    return { ...raw, dictate, talk: { ...obj(raw.talk), mode: null, closeAfterSilenceMs: silenceFrom(idleWindowMs) } };
+  },
 };
+
+/** The "Close after silence" choice nearest a v8 "Stay open" wait. Undefined for
+ *  no wait at all, so the parse gives the default. */
+function silenceFrom(ms: unknown): number | null | undefined {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return undefined;
+  if (ms > SILENCE_CHOICES_MS[SILENCE_CHOICES_MS.length - 1]!) return null;
+  return SILENCE_CHOICES_MS.reduce((best, c) => (Math.abs(c - ms) < Math.abs(best - ms) ? c : best));
+}
 
 /** Never throws. Anything unrecognised falls back to its default, and any key
  *  this build does not know about is carried through untouched. */
@@ -184,6 +217,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
   const autoQuiet = obj(voice.autoQuiet);
   const turn = obj(voice.turn);
   const consent = obj(o.consent);
+  const talk = obj(o.talk);
   const dictate = obj(o.dictate);
   const cleanup = obj(dictate.cleanup);
   const dictateBrain = obj(dictate.brain);
@@ -236,12 +270,19 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       granted: bool(consent.granted, d.consent.granted),
       at: str(consent.at, d.consent.at),
     },
-    idleWindowMs: num(o.idleWindowMs, d.idleWindowMs, 1),
+    // Keys are checked against this machine's platform: Fn is a key only on a Mac.
+    talk: {
+      ...talk,
+      mode: talk.mode === null ? null : one(talk.mode, TALK_MODES, "handsFree"),
+      pttKey: pttKeyOk(talk.pttKey, process.platform) ? talk.pttKey : defaultPttKey(process.platform),
+      flowKey: toggleKeyOk(talk.flowKey, process.platform) ? talk.flowKey : d.talk.flowKey,
+      dictateKey: toggleKeyOk(talk.dictateKey, process.platform) ? talk.dictateKey : d.talk.dictateKey,
+      closeAfterSilenceMs: talk.closeAfterSilenceMs === null ? null : num(talk.closeAfterSilenceMs, d.talk.closeAfterSilenceMs as number, 1000),
+    },
     enabled: bool(o.enabled, d.enabled),
     dictate: {
       ...dictate,
       enabled: bool(dictate.enabled, dd.enabled),
-      hotkey: str(dictate.hotkey, dd.hotkey).trim() || dd.hotkey,
       cleanup: {
         ...cleanup,
         punctuation: bool(cleanup.punctuation, dd.cleanup.punctuation),
@@ -259,7 +300,6 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         agentEffort: str(dictateBrain.agentEffort, dd.brain.agentEffort),
       },
       polish: { ...polish, enabled: bool(polish.enabled, dd.polish.enabled), tone: one(polish.tone, TONES, dd.polish.tone) },
-      commandHotkey: str(dictate.commandHotkey, dd.commandHotkey).trim() || dd.commandHotkey,
       commands: {
         ...commands,
         enter: bool(commands.enter, dd.commands.enter),

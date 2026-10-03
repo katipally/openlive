@@ -165,11 +165,11 @@ describe("permission requests", () => {
 
 describe("flowEndReason", () => {
   it("passes what the owner may say and reads everything else as other", () => {
-    for (const reason of ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "other"]) expect(map.flowEndReason(reason)).toBe(reason);
+    for (const reason of ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "other"]) expect(map.flowEndReason(reason)).toBe(reason);
     for (const bad of ["quit", "sleep", "", undefined, null, 7, {}, "GESTURE"]) expect(map.flowEndReason(bad)).toBe("other");
   });
   it("never answers with a value flow_session refuses", () => {
-    for (const reason of ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "other", "quit", "x"]) {
+    for (const reason of ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "other", "quit", "x"]) {
       expect(values("flow_session", "ended_by")).toContain(map.flowEndReason(reason));
     }
   });

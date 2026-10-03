@@ -4,8 +4,10 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FlowConfig } from "@openlive/flow-store";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
+import { useVoicePrefs } from "@/lib/prefs";
 import { flowConfigChanged } from "@/lib/settingChanges";
 import { flowBridge } from "./bridge";
+import { settleTalkMode } from "./talk";
 import { settleTurnOverride } from "./wait";
 
 // Flow's settings, as every Flow screen reads and writes them. One query key, so
@@ -56,17 +58,24 @@ export function useFlowConfig() {
     },
   });
 
-  // A config from before the wait was shared has its override undecided, and
-  // only this renderer holds Chat's wait to compare it with. Every screen using
-  // this hook sees the same config, so one write goes; the server applies it only
-  // while still undecided, so it can never undo a choice made meanwhile.
+  // A config from before the wait or the talk mode was shared has them
+  // undecided, and only a renderer holds Chat's wait and push-to-talk switch
+  // (ui.json) to decide them with. Every screen using this hook sees the same
+  // config, so one write goes; the server applies each only while still
+  // undecided, so it can never undo a choice made meanwhile.
   const config = query.data?.config;
   const { mutateAsync } = mutation;
   useEffect(() => {
-    const on = config && settleTurnOverride(config, loadPipelineConfig());
-    if (on == null || settling) return;
+    if (!config || settling) return;
+    const turnOverride = settleTurnOverride(config, loadPipelineConfig());
+    const mode = settleTalkMode(config, useVoicePrefs.getState().pttEnabled);
+    if (turnOverride === null && mode === null) return;
+    const patch: FlowConfigPatch = {
+      ...(turnOverride === null ? {} : { voice: { turnOverride } }),
+      ...(mode === null ? {} : { talk: { mode } }),
+    };
     settling = true;
-    mutateAsync({ patch: { voice: { turnOverride: on } }, settle: true }).catch(() => {}).finally(() => { settling = false; });
+    mutateAsync({ patch, settle: true }).catch(() => {}).finally(() => { settling = false; });
   }, [config, mutateAsync]);
 
   return {

@@ -97,7 +97,7 @@ const SETTINGS = {
   flow_quiet_dnd: { values: ON_OFF },
   flow_consent: { values: ON_OFF },
   flow_insertion: { values: ["paste", "type"] },
-  flow_idle_window: { values: ["90s", "5m", "30m", "custom"] },
+  close_after_silence: { values: ["30s", "90s", "5m", "never", "custom"] },
   voice_input_mode: { values: ["hold", "toggle"] },
   ptt_enabled: { values: ON_OFF },
 } as const;
@@ -143,7 +143,7 @@ const LAUNCH_KIND = en(["manual", "login"]);
 const EXIT_CODE = int(999, { min: -1 });
 
 const brain = { brain_kind: opt(BRAIN_KIND), brain_id: opt(BRAIN_ID) };
-const flowEndedBy = en(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "quit", "other"]);
+const flowEndedBy = en(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"]);
 const callEndedBy = en(["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"]);
 const speech = {
   stt_ms_p50: opt(MS), tts_ms_p50: opt(MS), v2v_ms_p50: opt(MS), v2v_turns: opt(COUNT),

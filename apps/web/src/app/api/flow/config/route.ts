@@ -42,18 +42,28 @@ function merge(current: Record<string, unknown>, patch: Record<string, unknown>)
   return out;
 }
 
+/** `patch` written only where the current value is still null: a field a
+ *  migration left undecided, decided once. A choice the person made in the
+ *  meantime stands. */
+function settled(current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    const before = out[key];
+    if (isPlain(before) && isPlain(value)) out[key] = settled(before, value);
+    else if (before === null) out[key] = value;
+  }
+  return out;
+}
+
 /** Writes are read-modify-write under the store's cross-process lock, so the
  *  main process and the agent service cannot lose each other's edits. */
 export async function PATCH(req: Request) {
   let patch: unknown;
   try { patch = await req.json(); } catch { patch = null; }
   if (!isPlain(patch)) return NextResponse.json({ error: "expected an object" }, { status: 400 });
-  // `settle` decides an override a migration left undecided, and only while it
-  // still is: a choice the person made in the meantime stands.
   const settle = new URL(req.url).searchParams.has("settle");
   try {
-    const config = await updateFlowConfig((cur) => settle && cur.voice.turnOverride !== null ? cur
-      : merge(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
+    const config = await updateFlowConfig((cur) => (settle ? settled : merge)(cur as unknown as Record<string, unknown>, patch) as unknown as FlowConfig);
     return NextResponse.json({ config, ...brainOf(config) });
   } catch (e) { return failed(e); }
 }

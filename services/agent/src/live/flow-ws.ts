@@ -558,7 +558,7 @@ export class FlowLiveSession {
       this.store = await FlowStoreSession.resume(
         path,
         undefined,
-        { idleMs: readFlowConfig().idleWindowMs, onIdle: () => this.onStoreIdle() },
+        { idleMs: readFlowConfig().talk.closeAfterSilenceMs ?? undefined, onIdle: () => this.onStoreIdle() },
       );
       this.opening = Promise.resolve(this.store);
       this.messages = transcriptOf(loaded.entries);
@@ -617,7 +617,8 @@ export class FlowLiveSession {
     if (!this.opening) {
       const cfg = readFlowConfig();
       this.opening = FlowStoreSession.open({
-        idleMs: cfg.idleWindowMs,
+        // A session lives as long as Flow stays open on silence; never closing, it never rolls on its own.
+        idleMs: cfg.talk.closeAfterSilenceMs ?? undefined,
         meta: { mode: "flow", brain: brainMeta(cfg) },
         onIdle: () => this.onStoreIdle(),
       }).then((s) => { this.store = s; return s; });

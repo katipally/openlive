@@ -14,7 +14,7 @@ import type {
 export type TelemetryRendererFactScope = Extract<TelemetryFactScope, "flow_owner" | "call_renderer">;
 export type TelemetryFrom = "notice" | "settings";
 /** Why Flow closed, as the owner reports it. Main adds `quit` itself. */
-export type FlowCloseReason = "gesture" | "orb_button" | "idle" | "disarmed" | "sleep_or_lock" | "other";
+export type FlowCloseReason = "gesture" | "orb_button" | "idle" | "disarmed" | "sleep_or_lock" | "dictate_opened" | "other";
 
 type FeedbackProps = TelemetryEventProps<"feedback_given">;
 

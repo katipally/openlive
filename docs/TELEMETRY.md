@@ -224,7 +224,7 @@ Limit: none.
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
 | `duration_s` | How long the orb was open, in seconds. | whole number, 0 to 86400 | always |
-| `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (the Stay open time ran out), `disarmed` (Flow was switched off on its home), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `quit`, `other` | always |
+| `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (Close after silence ran out), `disarmed` (Flow was switched off on its home), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `dictate_opened` (Dictate was opened over it), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `dictate_opened`, `quit`, `other` | always |
 | `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (Start Flow in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
 | `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `mic_failed` | sometimes |
 | `ready_ms` | Time from the open gesture until the microphone was ready, to 10 ms. | whole number, 0 to 600000, rounded to 10 | sometimes |
@@ -711,7 +711,7 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `flow_quiet_dnd` | Stay quiet during Do Not Disturb, on or off. | `on`, `off` | none |
 | `flow_consent` | Whether you have allowed Flow to act on the computer. | `on`, `off` | none |
 | `flow_insertion` | How Flow puts text in: paste or type. | `paste`, `type` | none |
-| `flow_idle_window` | How long Flow stays open after the last reply. | `90s`, `5m`, `30m`, `custom` | none |
+| `close_after_silence` | How long Flow and Dictate stay open with nothing said. | `30s`, `90s`, `5m`, `never`, `custom` | none |
 | `voice_input_mode` | Push to talk works by holding the key or by toggling it. | `hold`, `toggle` | none |
 | `ptt_enabled` | Push to talk, on or off. | `on`, `off` | none |
 

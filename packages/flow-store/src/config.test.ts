@@ -5,7 +5,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { CONFIG_V1_FIXTURE } from "./config.v1.fixture";
 import { CONFIG_V6_FIXTURE } from "./config.v6.fixture";
 import { CONFIG_V7_FIXTURE } from "./config.v7.fixture";
-import { defaultBrain, defaultBrainSettings, dictateBrain, flowBrain, flowTurn } from "./shared";
+import { CONFIG_V8_FIXTURE } from "./config.v8.fixture";
+import { defaultBrain, defaultBrainSettings, defaultPttKey, dictateBrain, flowBrain, flowTurn, pttKeyOk, toggleKeyOk } from "./shared";
 import { DEFAULT_FLOW_CONFIG, FLOW_CONFIG_VERSION, parseFlowConfig, readFlowConfig, updateFlowConfig } from "./config";
 import { configPath, ensureDir, flowDir } from "./paths";
 
@@ -21,7 +22,7 @@ test("the frozen v1 fixture still loads", () => {
   expect(cfg.insertion.clipboardTimeoutMs).toBe(8000);
   expect(cfg.brain.kind).toBe("api");
   expect(cfg.voice.autoQuiet.micContention).toBe(true);
-  expect(cfg.idleWindowMs).toBe(300000);
+  expect(cfg.talk.closeAfterSilenceMs).toBe(300000);
   // v2 has one gesture, v3 has one permission and v6 shares the voice pipeline,
   // so the fields that used to configure the trigger, the risk tiers and Flow's
   // own speech are dropped on the way through rather than left behind as dead
@@ -56,11 +57,11 @@ test("missing and invalid keys fall back per field, not per file", () => {
   const cfg = parseFlowConfig({
     insertion: { method: "type" },
     consent: { granted: "yes", at: 7 },
-    idleWindowMs: -1,
+    talk: { closeAfterSilenceMs: -1 },
   });
   expect(cfg.insertion.method).toBe("type");
   expect(cfg.insertion.modifierHoldMs).toBe(DEFAULT_FLOW_CONFIG.insertion.modifierHoldMs);
-  expect(cfg.idleWindowMs).toBe(DEFAULT_FLOW_CONFIG.idleWindowMs);
+  expect(cfg.talk.closeAfterSilenceMs).toBe(DEFAULT_FLOW_CONFIG.talk.closeAfterSilenceMs);
   expect(cfg.consent).toEqual(DEFAULT_FLOW_CONFIG.consent);
 });
 
@@ -73,22 +74,22 @@ test("a newer build's keys survive an older build's write", async () => {
   const loaded = readFlowConfig() as unknown as Record<string, unknown>;
   expect(loaded.futureField).toEqual({ deep: [1, 2] });
 
-  await updateFlowConfig((c) => ({ ...c, idleWindowMs: 400_000 }));
+  await updateFlowConfig((c) => ({ ...c, talk: { ...c.talk, closeAfterSilenceMs: 400_000 } }));
   const onDisk = JSON.parse(readFileSync(configPath(), "utf8"));
   expect(onDisk.futureField).toEqual({ deep: [1, 2] });
   expect(onDisk.voice.futureVoiceKey).toBe("keep me");
   expect(onDisk.voice.speakReplies).toBe(true);
-  expect(onDisk.idleWindowMs).toBe(400_000);
+  expect(onDisk.talk.closeAfterSilenceMs).toBe(400_000);
 });
 
 test("updateFlowConfig holds the lock across the whole read-modify-write", async () => {
-  await updateFlowConfig((c) => ({ ...c, idleWindowMs: 1 }));
+  await updateFlowConfig((c) => ({ ...c, talk: { ...c.talk, closeAfterSilenceMs: 1000 } }));
   const N = 20;
   await Promise.all(Array.from({ length: N }, () => updateFlowConfig(async (c) => {
     await new Promise((r) => setTimeout(r, 1));
-    return { ...c, idleWindowMs: c.idleWindowMs + 1 };
+    return { ...c, talk: { ...c.talk, closeAfterSilenceMs: c.talk.closeAfterSilenceMs! + 1 } };
   })));
-  expect(readFlowConfig().idleWindowMs).toBe(1 + N);
+  expect(readFlowConfig().talk.closeAfterSilenceMs).toBe(1000 + N);
 });
 
 test("a corrupt config file reads as defaults", () => {
@@ -106,7 +107,7 @@ test("a v2 file's risk tiers are dropped, and consent starts ungiven", () => {
   expect(cfg).not.toHaveProperty("risk");
   expect(cfg).not.toHaveProperty("toolRisk");
   expect(cfg.consent).toEqual({ granted: false, at: "" });
-  expect(cfg.idleWindowMs).toBe(90_000);
+  expect((cfg.talk as { closeAfterSilenceMs: number }).closeAfterSilenceMs).toBe(90_000);
 });
 
 test("consent survives a write, stamp and all", () => {
@@ -218,22 +219,21 @@ test("clamps turn-taking to what the voice pipeline will accept", () => {
   expect(cfg.voice.turn).toEqual({ threshold: 1, holdMs: 8000, redemptionMs: 200 });
 });
 
-test("an older file gets Dictate off, on Right Alt, with every cleanup rule on, and its clipboard put back", () => {
+test("an older file gets Dictate off, on either Option, with every cleanup rule on, and its clipboard put back", () => {
   const cfg = parseFlowConfig(CONFIG_V6_FIXTURE);
   expect(cfg.insertion.restoreClipboard).toBe(true);
   expect(cfg.dictate).toEqual(DEFAULT_FLOW_CONFIG.dictate);
   expect(cfg.dictate.enabled).toBe(false);
-  expect(cfg.dictate.hotkey).toBe("option_right");
+  expect(cfg.talk.dictateKey).toBe("option");
 });
 
-test("Dictate's settings fall back per field, and a blank hotkey is not a hotkey", () => {
+test("Dictate's settings fall back per field", () => {
   const cfg = parseFlowConfig({
     insertion: { restoreClipboard: false },
-    dictate: { enabled: true, hotkey: "  ", cleanup: { fillers: false, lists: "no" }, brain: { override: true, kind: "acp", agentId: "codex" } },
+    dictate: { enabled: true, cleanup: { fillers: false, lists: "no" }, brain: { override: true, kind: "acp", agentId: "codex" } },
   });
   expect(cfg.insertion.restoreClipboard).toBe(false);
   expect(cfg.dictate.enabled).toBe(true);
-  expect(cfg.dictate.hotkey).toBe("option_right");
   expect(cfg.dictate.cleanup).toEqual({ punctuation: true, fillers: false, backtrack: true, lists: true, numbers: true });
   expect(cfg.dictate.brain).toEqual({ override: true, kind: "acp", agentId: "codex", agentModel: "", agentEffort: "" });
 });
@@ -253,7 +253,6 @@ test("Dictate's extras keep only well-formed words and snippets, and a bad tone 
   expect(cfg.dictate.snippets).toEqual([{ trigger: "my address", text: "221B Baker Street" }]);
   expect(cfg.dictate.commands).toEqual({ enter: false, newLine: true, newParagraph: true, undo: true, stop: true });
   expect(cfg.dictate.history).toBe("month");
-  expect(cfg.dictate.commandHotkey).toBe("shift+option_right");
 });
 
 test("Dictate thinks with Flow's brain until it is given its own", () => {
@@ -261,4 +260,85 @@ test("Dictate thinks with Flow's brain until it is given its own", () => {
   expect(dictateBrain(flowOwn, {})).toEqual(flowBrain(flowOwn, {}));
   const own = parseFlowConfig({ dictate: { brain: { override: true, kind: "acp", agentId: "claude-code" } } });
   expect(dictateBrain(own, {})).toEqual({ kind: "acp", agentId: "claude-code", agentModel: "", agentEffort: "" });
+});
+
+/** Runs `fn` as if on `platform`, which the parse reads for the keys it allows. */
+function on<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const real = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...real, value: platform });
+  try { return fn(); } finally { Object.defineProperty(process, "platform", real); }
+}
+
+test("the frozen v8 fixture loses its hold keys, waits for a renderer to pick how it talks, and never closes on silence", () => {
+  const cfg = parseFlowConfig(CONFIG_V8_FIXTURE);
+  expect(cfg.version).toBe(FLOW_CONFIG_VERSION);
+  expect(cfg.dictate).not.toHaveProperty("hotkey");
+  expect(cfg.dictate).not.toHaveProperty("commandHotkey");
+  expect(cfg).not.toHaveProperty("idleWindowMs");
+  expect(cfg.talk).toEqual({ mode: null, pttKey: defaultPttKey(process.platform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: null });
+  // Everything else comes through as it was.
+  expect(cfg.enabled).toBe(false);
+  expect(cfg.dictate.enabled).toBe(true);
+  expect(cfg.dictate.words).toEqual(["OpenLive"]);
+  expect(cfg.dictate.history).toBe("week");
+  expect(cfg.consent.granted).toBe(true);
+});
+
+test("Flow's old Stay open wait becomes the nearest Close after silence, and past five minutes never", () => {
+  const silence = (idleWindowMs: unknown) => parseFlowConfig({ version: 8, idleWindowMs }).talk.closeAfterSilenceMs;
+  expect(silence(90_000)).toBe(90_000);
+  expect(silence(300_000)).toBe(300_000);
+  expect(silence(1_800_000)).toBeNull();
+  expect(silence(301_000)).toBeNull();
+  expect(silence(45_000)).toBe(30_000);
+  expect(silence(200_000)).toBe(300_000);
+  expect(silence(10_000)).toBe(30_000);
+  // No wait at all, or nonsense, takes the new default.
+  for (const bad of [undefined, -1, 0, "5m", Number.NaN]) expect(silence(bad)).toBe(30_000);
+});
+
+test("a v8 file's unknown talk keys survive the move, and a v9 file is not moved again", () => {
+  const moved = parseFlowConfig({ version: 8, talk: { future: 1 } });
+  expect(moved.talk).toMatchObject({ future: 1, mode: null });
+  expect(parseFlowConfig(moved)).toEqual(moved);
+  expect(parseFlowConfig({ version: 9, talk: { mode: "ptt" }, idleWindowMs: 90_000 }).talk).toMatchObject({ mode: "ptt", closeAfterSilenceMs: 30_000 });
+});
+
+test("a fresh file talks hands-free, closes after 30 seconds of silence, and opens on Control and either Option", () => {
+  expect(parseFlowConfig({}).talk).toEqual({ mode: "handsFree", pttKey: defaultPttKey(process.platform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: 30_000 });
+});
+
+test("an undecided talk mode and a never-close survive a round trip, and a bad mode is hands-free", () => {
+  const cfg = parseFlowConfig({ talk: { mode: null, closeAfterSilenceMs: null } });
+  expect(cfg.talk.mode).toBeNull();
+  expect(cfg.talk.closeAfterSilenceMs).toBeNull();
+  expect(parseFlowConfig(JSON.parse(JSON.stringify(cfg)))).toEqual(cfg);
+  expect(parseFlowConfig({ talk: { mode: "toggle" } }).talk.mode).toBe("handsFree");
+  expect(parseFlowConfig({ talk: { mode: "ptt" } }).talk.mode).toBe("ptt");
+});
+
+test("push to talk defaults to Fn on a Mac and Right Ctrl elsewhere, where Fn never reaches the OS", () => {
+  expect(on("darwin", () => parseFlowConfig({}).talk.pttKey)).toBe("fn");
+  expect(on("win32", () => parseFlowConfig({}).talk.pttKey)).toBe("ctrl_right");
+  expect(on("linux", () => parseFlowConfig({ talk: { pttKey: "fn" } }).talk.pttKey)).toBe("ctrl_right");
+  expect(on("win32", () => parseFlowConfig({ talk: { pttKey: "fn" } }).talk.pttKey)).toBe("ctrl_right");
+  expect(on("darwin", () => parseFlowConfig({ talk: { pttKey: "fn" } }).talk.pttKey)).toBe("fn");
+});
+
+test("a push-to-talk key is one key that types nothing, and a bad one falls back per platform", () => {
+  for (const ok of ["ctrl_right", "option_left", "shift_right", "command_right", "f13", "f24"]) expect(pttKeyOk(ok, "linux")).toBe(true);
+  for (const bad of ["ctrl", "option", "fn", "a", "space", "f12", "f25", "ctrl_right+shift", "", 7, null]) expect(pttKeyOk(bad, "linux")).toBe(false);
+  expect(pttKeyOk("fn", "darwin")).toBe(true);
+  expect(on("linux", () => parseFlowConfig({ talk: { pttKey: "space" } }).talk.pttKey)).toBe("ctrl_right");
+  expect(on("darwin", () => parseFlowConfig({ talk: { pttKey: "ctrl" } }).talk.pttKey)).toBe("fn");
+  expect(parseFlowConfig({ talk: { pttKey: "f18" } }).talk.pttKey).toBe("f18");
+});
+
+test("the toggle keys take a modifier group or one side of it, and a bad one falls back", () => {
+  for (const ok of ["ctrl", "option", "ctrl_left", "option_right", "f19"]) expect(toggleKeyOk(ok, "win32")).toBe(true);
+  for (const bad of ["fn", "a", "ctrl+c", "", 1]) expect(toggleKeyOk(bad, "win32")).toBe(false);
+  expect(toggleKeyOk("fn", "darwin")).toBe(true);
+  const cfg = parseFlowConfig({ talk: { flowKey: "ctrl+c", dictateKey: "option_left" } });
+  expect(cfg.talk.flowKey).toBe("ctrl");
+  expect(cfg.talk.dictateKey).toBe("option_left");
 });

@@ -27,10 +27,10 @@ import { AddonCard } from "./AddonCard";
 // what the screen then shows: the parse is the authority, so a clamped value is
 // visible rather than silently different from what was clicked.
 
-const IDLE_CHOICES = [
+const SILENCE_CHOICES = [
+  { ms: 30_000, label: "30 sec" },
   { ms: 90_000, label: "90 sec" },
   { ms: 300_000, label: "5 min" },
-  { ms: 1_800_000, label: "30 min" },
 ];
 
 const presetName = (v: Parameters<typeof turnPresetOf>[0]) => TURN_PRESETS.find((p) => p.id === turnPresetOf(v))?.name ?? "Custom";
@@ -59,6 +59,7 @@ export function FlowSettings() {
   const shared = effectiveWait("chat", pipeline, null);
   const own = config.voice.turn;
   const ownPace = turnPresetOf(own);
+  const silence = config.talk.closeAfterSilenceMs;
 
   return (
     <div className="flex flex-col gap-7">
@@ -112,14 +113,15 @@ export function FlowSettings() {
               {ownPace === "custom" && <p className="text-caption text-faint">Custom: Flow keeps timings from an earlier version. Pick one to replace them.</p>}
             </div>
           )}
-          <ListRow label="Stay open after the last reply">
-            <Select aria-label="Stay open after the last reply"
-              value={IDLE_CHOICES.some((c) => c.ms === config.idleWindowMs) ? String(config.idleWindowMs) : "custom"}
-              onChange={(e) => e.target.value !== "custom" && save({ idleWindowMs: Number(e.target.value) })}>
-              {!IDLE_CHOICES.some((c) => c.ms === config.idleWindowMs) && (
-                <option value="custom">{Math.round(config.idleWindowMs / 1000)} sec</option>
+          <ListRow label="Close after silence">
+            <Select aria-label="Close after silence"
+              value={silence === null ? "never" : SILENCE_CHOICES.some((c) => c.ms === silence) ? String(silence) : "custom"}
+              onChange={(e) => e.target.value !== "custom" && save({ talk: { closeAfterSilenceMs: e.target.value === "never" ? null : Number(e.target.value) } })}>
+              {silence !== null && !SILENCE_CHOICES.some((c) => c.ms === silence) && (
+                <option value="custom">{Math.round(silence / 1000)} sec</option>
               )}
-              {IDLE_CHOICES.map((c) => <option key={c.ms} value={c.ms}>{c.label}</option>)}
+              {SILENCE_CHOICES.map((c) => <option key={c.ms} value={c.ms}>{c.label}</option>)}
+              <option value="never">Never</option>
             </Select>
           </ListRow>
         </ListGroup>

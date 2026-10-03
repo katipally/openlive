@@ -110,7 +110,7 @@ export function providerKeyChanged(kind: string, value: "added" | "removed"): vo
 }
 
 // ── Flow config ───────────────────────────────────────────────────────────
-const IDLE_WINDOWS = new Map<number, "90s" | "5m" | "30m">([[90_000, "90s"], [300_000, "5m"], [1_800_000, "30m"]]);
+const SILENCES = new Map<number | null, "30s" | "90s" | "5m" | "never">([[30_000, "30s"], [90_000, "90s"], [300_000, "5m"], [null, "never"]]);
 
 /** Pure, but for the default Flow follows, which is the server settings last known unless given. */
 export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known ?? {}): Change[] {
@@ -134,7 +134,8 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   flip("flow_quiet_dnd", a.voice.autoQuiet.systemDnd, b.voice.autoQuiet.systemDnd);
   flip("flow_consent", a.consent.granted, b.consent.granted);
   if (a.insertion.method !== b.insertion.method) out.push({ setting: "flow_insertion", value: b.insertion.method });
-  if (a.idleWindowMs !== b.idleWindowMs) out.push({ setting: "flow_idle_window", value: IDLE_WINDOWS.get(b.idleWindowMs) ?? "custom" });
+  const silence = b.talk.closeAfterSilenceMs;
+  if (a.talk.closeAfterSilenceMs !== silence) out.push({ setting: "close_after_silence", value: SILENCES.get(silence) ?? "custom" });
   return out;
 }
 

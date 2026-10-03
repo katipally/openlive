@@ -114,7 +114,7 @@ describe("setting_changed pairs", () => {
     expect(ok("api_effort", "on")).toBeNull();
     expect(ok("language", "ko")).toBeTruthy();
     expect(ok("language", "klingon")).toBeNull();
-    expect(ok("flow_idle_window", "90s")).toBeTruthy();
+    expect(ok("close_after_silence", "never")).toBeTruthy();
   });
 
   it("refuses a setting that is not in the table, including inherited names", () => {

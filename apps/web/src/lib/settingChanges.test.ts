@@ -106,11 +106,13 @@ describe("flowChanges", () => {
     expect(flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.brain.agentModel = "other"; c.brain.agentEffort = "low"; }))).toEqual([]);
   });
 
-  it("maps the idle window to its three choices, else custom", () => {
-    const at = (ms: number) => flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.idleWindowMs = ms; })).map((c) => c.value);
+  it("maps Close after silence to its four choices, else custom", () => {
+    const at = (ms: number | null) => flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.talk.closeAfterSilenceMs = ms; })).map((c) => c.value);
     expect(at(90_000)).toEqual(["90s"]);
-    expect(at(1_800_000)).toEqual(["30m"]);
+    expect(at(300_000)).toEqual(["5m"]);
+    expect(at(null)).toEqual(["never"]);
     expect(at(123_456)).toEqual(["custom"]);
+    expect(at(30_000)).toEqual([]);
   });
 
   it("reports Flow's own wait, and which preset the new values are", () => {

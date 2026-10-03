@@ -88,7 +88,7 @@ const ASKED_FROM = new Set(["onboarding", "flow_settings", "flow_home", "other"]
 /** The screen a permission request came from, or undefined when a renderer names anything else. */
 const askedFrom = (v) => (ASKED_FROM.has(v) ? v : undefined);
 
-const FLOW_END_REASONS = new Set(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "other"]);
+const FLOW_END_REASONS = new Set(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "other"]);
 
 /** Why the owner renderer says Flow closed: one of the closed set, else "other". Main adds "disarmed" and "quit" itself. */
 const flowEndReason = (v) => (FLOW_END_REASONS.has(v) ? v : "other");
