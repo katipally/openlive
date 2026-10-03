@@ -39,6 +39,12 @@ vi.mock("./addressee", () => ({
   labelJudgment: (id: string, label: string) => st.labels.push([id, label]),
 }));
 vi.mock("@/lib/log", () => ({ log: { debug() {}, info() {}, warn() {}, error() {} } }));
+// The tape's VAD: speech from `vad.from` (-1: none), or no VAD at all with `vad.broken`.
+const vad = vi.hoisted(() => ({ from: 0, broken: false }));
+vi.mock("./tapeSpeech", () => ({
+  tapeVad: async () => { if (vad.broken) throw new Error("no wasm"); return { reset_state() {}, process: async () => ({ isSpeech: 0 }) }; },
+  speechFrom: async () => vad.from,
+}));
 const { VoiceEngine } = await import("./voiceEngine");
 const { DEFAULT_PIPELINE_CONFIG } = await import("./pipelineConfig");
 
@@ -796,7 +802,7 @@ it("a hold given up drops its words and its tape, and the next sentence ends its
   expect(stops).toEqual([0]);
   expect(partials).toEqual([""]);
   // Nothing held is sent when the key comes up later.
-  expect(await eng.endPtt(true)).toBe(true);
+  expect(await eng.endPtt(true)).toBe("heard");
   expect(sent).toEqual([]);
 });
 
@@ -806,9 +812,35 @@ it("a hold begun before the VAD was up is written down from its tape, words befo
   const cuts: number[] = [];
   Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async (lateMs: number) => { cuts.push(lateMs); return new Float32Array(16000).fill(0.1); } } });
   Object.assign(tts, { heard: "send the report to the team", at: [] });
-  expect(await eng.endPtt(true, 120)).toBe(true);
+  expect(await eng.endPtt(true, 120)).toBe("heard");
   expect(cuts).toEqual([120]);
   expect(sent).toEqual(["send the report to the team"]);
+});
+
+it("a hold whose tape has no speech in it is not transcribed, however loud the room", async () => {
+  const sent: string[] = [];
+  const heard: number[] = [];
+  const eng = new VoiceEngine({ onPhase() {}, onPartial() {}, onBargeIn() {}, onHold() {}, onUserText: (t: string) => sent.push(t) } as never, { ...playNow, playing: () => false } as never) as any;
+  Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });
+  Object.assign(tts, { heard: "Thanks!", at: [] });
+  vad.from = -1;
+  expect(await eng.endPtt(true)).toBe("silent");
+  expect(sent).toEqual([]);
+  // Speech 600 ms in: transcribed from there, the room before it left out.
+  const models = await import("./models");
+  const stt = vi.spyOn(models, "stt").mockImplementation(async (a: Float32Array) => { heard.push(a.length); return { text: "yes", at: [] }; });
+  Object.assign(eng, { ptt: true, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });
+  vad.from = 9600;
+  expect(await eng.endPtt(true)).toBe("heard");
+  expect(heard).toEqual([16000 - 9600]);
+  expect(sent).toEqual(["yes"]);
+  // Where the VAD cannot run, the loudness rule decides, as it did before it.
+  vad.broken = true;
+  Object.assign(eng, { ptt: true, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });
+  expect(await eng.endPtt(true)).toBe("heard");
+  expect(heard).toEqual([6400, 16000]);
+  stt.mockRestore();
+  Object.assign(vad, { from: 0, broken: false });
 });
 
 it("a hold with a tape is captioned from all of it, words before the VAD included, and only while the hold lasts", async () => {
@@ -850,7 +882,7 @@ it("a hold whose words could not be written down says so", async () => {
   Object.assign(eng, { ptt: true, vad: { start() {}, pause() {}, setOptions() {} }, tape: { stop: async () => new Float32Array(16000).fill(0.1) } });
   tts.gate = Promise.reject(new Error("no speech model"));
   tts.gate.catch(() => {});
-  expect(await eng.endPtt(true)).toBe(false);
+  expect(await eng.endPtt(true)).toBe("lost");
   tts.gate = Promise.resolve();
 });
 

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, DONE_MS, MIC_WARM_MS, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, DONE_MS, MIC_WARM_MS, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
+import type { HoldEnd } from "@/lib/live/voiceEngine";
 
 const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true };
 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends. */
-function rig({ voided = false, mic = true as boolean | Promise<boolean>, written = true, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
+function rig({ voided = false, mic = true as boolean | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = "" } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -21,7 +22,7 @@ function rig({ voided = false, mic = true as boolean | Promise<boolean>, written
     beginHold: vi.fn(),
     dropHold: vi.fn(),
     // `voided`: as the owner does, the words are handed over and not waited on.
-    endHold: vi.fn(async (_lateMs: number) => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; return written; }),
+    endHold: vi.fn(async (_lateMs: number) => { if (said && voided) void dictate.heard(said); else if (said) consumed.push(await dictate.heard(said)); said = ""; return held; }),
     // Pushed pieces land as one insertion once ended; "copied" and "failed" have no text box.
     typing: vi.fn(async () => {
       if (inserted !== "typed") return null;
@@ -157,11 +158,25 @@ describe("holding the key", () => {
   });
 
   it("says so when the words it heard could not be written down", async () => {
-    const r = rig({ written: false });
+    const r = rig({ held: "lost" });
     await hold(r, "");
     expect(r.last()).toMatchObject({ phase: "idle", note: "Your words could not be written down." });
     await vi.advanceTimersByTimeAsync(DONE_MS);
     expect(r.last()).toBeNull();
+  });
+
+  it("a hold with no words in it types nothing, leaves the clipboard be, says so and goes", async () => {
+    for (const command of [false, true]) {
+      const r = rig({ held: "silent", inserted: "copied" });
+      await hold(r, "", command);
+      expect(r.typed).toEqual([]);
+      expect(r.ports.typing).not.toHaveBeenCalled();
+      expect(r.ports.copy).not.toHaveBeenCalled();
+      expect(r.kept).toEqual([]);
+      expect(r.last()).toMatchObject({ phase: "idle", partial: "", inserted: 0, note: NO_SPEECH, undo: false });
+      await vi.advanceTimersByTimeAsync(DONE_MS);
+      expect(r.last()).toBeNull();
+    }
   });
 
   it("copies what it could not type, and says so", async () => {

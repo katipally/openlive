@@ -12,6 +12,7 @@ import { normalizeAligned } from "@openlive/shared/speech/normalize";
 import { captionOnsets, heardText, paceWords, placeWords, spokenWords } from "@openlive/shared/speech/timing";
 import { AsrStream } from "./asrStream";
 import { FrameRing } from "./pcm";
+import { speechFrom, tapeVad } from "./tapeSpeech";
 import { log } from "@/lib/log";
 import { verifyVoice, voiceprintStatus, type Verdict } from "./voiceprint";
 import { OtherVoices } from "@openlive/shared/speech/voiceprint";
@@ -53,6 +54,9 @@ export interface VoiceEngineHandlers {
    *  (sendAside). `judged`: as onUserText's. */
   onSideTalk?: (text: string, speaker?: string, judged?: string) => void;
 }
+
+/** How a push-to-talk hold ended: its words sent on, none heard, or heard and not written down. */
+export type HoldEnd = "heard" | "silent" | "lost";
 
 /**
  * Turn-taking numbers for a surface that needs different ones from the user's
@@ -333,7 +337,7 @@ export class VoiceEngine {
 
   /** `hold`: a push-to-talk hold begins with the microphone, so it is kept from now, not from when the VAD is up. */
   async start(stream: MediaStream, hold = false) {
-    if (hold) { this.ptt = true; this.tape = tapeOf(stream); }
+    if (hold) { this.ptt = true; this.tape = tapeOf(stream); void tapeVad(loadPipelineConfig().vad.model).catch(() => {}); }
     this.micTrack?.removeEventListener("ended", this.onMicEnded);
     this.micTrack = stream.getAudioTracks()[0] ?? null;
     this.micTrack?.addEventListener("ended", this.onMicEnded);
@@ -909,9 +913,10 @@ export class VoiceEngine {
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
    *  it into `pending` (the ptt branch) instead of racing an auto end-of-turn. */
-  /** `lateMs`: how long ago the key went up. False when words were heard that could not be written down. */
-  async endPtt(now = false, lateMs = 0): Promise<boolean> {
-    if (!this.ptt) return true;
+  /** `lateMs`: how long ago the key went up. "silent" when no words were heard,
+   *  "lost" when words were heard that could not be written down. */
+  async endPtt(now = false, lateMs = 0): Promise<HoldEnd> {
+    if (!this.ptt) return "heard";
     const tape = this.tape?.stop(lateMs);
     this.tape = null;
     // `now`: the release itself says the sentence is over, so the segment ends on
@@ -924,22 +929,24 @@ export class VoiceEngine {
     // its words are the turn: let go before them, they arrive with no hold to join.
     for (let i = 0; i < 300 && this.finalizing; i++) await new Promise((r) => setTimeout(r, 50));
     if (now) this.vad?.setOptions({ redemptionMs: this.turnCfg().redemptionMs });
-    if (this.stopped) return true;
+    if (this.stopped) return "heard";
     this.ptt = false;
     if (this.muted) void this.vad?.pause(); // the hold is over — restore the mute
     const held = this.pending; const cached: Heard = { text: this.pendingText, at: this.pendingAt }, speaker = this.pendingSpeaker;
     this.pending = null;
-    // The tape has the words said before the VAD was up, which `pending` lacks.
+    // The tape has the words said before the VAD was up, which `pending` lacks,
+    // from just before its first speech. Without its VAD, the old loudness rule.
     const taped = await tape;
-    const p = taped && (held || rmsOf(taped) >= this.gate()) ? taped : held;
-    if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return true; }
+    const from = taped ? await this.speechFrom(taped) : -1;
+    const p = from === null ? (taped && (held || rmsOf(taped) >= this.gate()) ? taped : held) : from >= 0 ? taped!.subarray(from) : held;
+    if (!p || p.length < MIN_UTTER_SAMPLES) { this.h.onPartial(""); if (this.phase === "listening") this.setPhase("idle"); return "silent"; }
     const perf0 = performance.now();
     try {
       // `pendingText` is always the transcript of exactly `pending`.
       const heard = p === held && cached.text ? cached : await stt(p);
       const text = heard.text.trim();
-      if (this.stopped) return true;
-      if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return true; }
+      if (this.stopped) return "heard";
+      if (isJunk(text)) { this.h.onPartial(""); this.setPhase("idle"); return "silent"; }
       this.setPhase("thinking");
       this.spokenText = "";
       this.voicing = null;
@@ -951,12 +958,24 @@ export class VoiceEngine {
       perf.turnCommitted(this.turnSentAt - perf0);
       this.h.onUserText(text, heard.at, speaker);
     } catch {
-      if (this.stopped) return true;
+      if (this.stopped) return "heard";
       this.h.onPartial("");
       this.setPhase("idle");
-      return false;
+      return "lost";
     }
-    return true;
+    return "heard";
+  }
+  /** Where the tape's speech starts (speechFrom), or null when its VAD could not run. */
+  private async speechFrom(tape: Float32Array): Promise<number | null> {
+    const { model, speechThreshold } = loadPipelineConfig().vad;
+    try {
+      const vad = await tapeVad(model);
+      vad.reset_state();
+      return await speechFrom(tape, async (f) => (await vad.process(f)).isSpeech, speechThreshold);
+    } catch (e) {
+      log.warn("live", "tape VAD:", e);
+      return null;
+    }
   }
   /** A hold given up, its words dropped: what is said next ends its own turn again. */
   dropPtt() {
@@ -972,7 +991,9 @@ export class VoiceEngine {
   /** A hold begins on an engine already up: recorded from now, as a cold start's
    *  is, so a word too short for the VAD is kept. */
   tapeHold() {
-    if (!this.tape && this.micTrack && !this.stopped) this.tape = tapeOf(new MediaStream([this.micTrack]));
+    if (this.tape || !this.micTrack || this.stopped) return;
+    this.tape = tapeOf(new MediaStream([this.micTrack]));
+    void tapeVad(loadPipelineConfig().vad.model).catch(() => {});
   }
 
   // ── agent reply → speech ───────────────────────────────────────────────

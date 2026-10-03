@@ -1,6 +1,7 @@
 import { cleanup, countWords, type CleanupRules } from "./cleanup";
 import { applyDictionary, snippetFor, spokenCommand, type Snippet, type SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
+import type { HoldEnd } from "@/lib/live/voiceEngine";
 import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
 
 // Dictate inside Flow's owner renderer: hold the key and talk, or go hands-free,
@@ -46,8 +47,8 @@ export interface DictatePorts {
   /** The key is down: every word until it is up is one utterance. */
   beginHold(): void;
   /** The key went up `lateMs` ago: the utterance is heard now, through `heard`, before
-   *  this resolves. False when words were heard that could not be written down. */
-  endHold(lateMs: number): Promise<boolean>;
+   *  this resolves, unless no words were heard ("silent") or they could not be written down ("lost"). */
+  endHold(lateMs: number): Promise<HoldEnd>;
   /** The hold is given up and its words dropped, at once. */
   dropHold(): void;
   /** Typing at the cursor, opened. Null where nothing in focus takes typing. */
@@ -88,6 +89,7 @@ export const MIC_WARM_MS = 30_000;
 
 const NO_MIC = "I could not open the microphone.";
 const NOT_WRITTEN = "Your words could not be written down.";
+export const NO_SPEECH = "No words heard.";
 export const COPIED = "No text box in focus. Copied instead.";
 /** Flow's owner window records each dictation; this tells the main window to read the list again. */
 export const HISTORY_CHANNEL = "openlive-dictate-history";
@@ -356,9 +358,9 @@ export function createDictate(ports: DictatePorts) {
       const up = performance.now();
       if (!(await opening)) return;
       set({ phase: "processing" });
-      const written = await ports.endHold(performance.now() - up);
+      const ended = await ports.endHold(performance.now() - up);
       if (mode !== "hold") return;
-      if (!written) set({ phase: "idle", partial: "", note: NOT_WRITTEN });
+      if (ended !== "heard") set({ phase: "idle", partial: "", note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH });
       // The engine hands the words over without waiting for them to be typed, so
       // the orb waits here; the key is free meanwhile for the next press.
       mode = null;

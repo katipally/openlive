@@ -117,7 +117,9 @@ on release. After each dictation the microphone stays open, muted, for 30
 seconds, so the next hold is up at once; then it closes (on macOS the orange
 dot goes). Turning Dictate off, or Flow taking over, ends that wait at once. Words it heard but could
 not write down are said so on the orb (**Your words could not be written
-down.**), never dropped quietly. Flow's own cards (nothing set to answer, say) never
+down.**), never dropped quietly. A hold with no words in it, only the room,
+types nothing and leaves the clipboard alone: the orb says **No words heard.**
+for a moment and goes. Flow's own cards (nothing set to answer, say) never
 show on Dictate's orb with Flow closed.
 
 A long sentence drops its oldest words so the newest stay in view. When the
@@ -362,16 +364,26 @@ One microphone, one engine, one orb, so the two take turns:
   While Dictate is active it takes it, so the sentence never reaches
   `flowText`, the brain or the voice.
 - **Release**: `VoiceEngine.endPtt(true, lateMs)` ends the segment on the next
-  quiet frame instead of after the trailing silence, and says whether what was
-  heard could be written down.
+  quiet frame instead of after the trailing silence, and says how the hold
+  ended: `heard`, `silent` (no speech, or only what speech-to-text drops as
+  noise) or `lost` (heard, not written down).
 - **Cold start**: a hold that opens the microphone starts the engine with
   `start(stream, true)`, which records the stream at 16 kHz from that moment
   while the VAD loads. A hold on an engine that is already up starts one too
   (`tapeHold`), so a word too short for the VAD is kept. While the hold lasts
   the line is captioned from the tape, the first time as soon as the VAD is
   up; a streaming engine whose socket is not live falls back to these batch
-  captions. On release the tape, cut where the key went up, is transcribed
-  whole instead of the VAD's segments, which miss its start.
+  captions. On release the tape, cut where the key went up, is checked for
+  speech first (`lib/live/tapeSpeech.ts`): the VAD's own Silero weights, in a
+  session of their own, at the pipeline's speech threshold. With no run of 3
+  speech frames (96 ms) in it and no VAD segment, nothing is transcribed, so
+  room sound never comes out as "Thanks!". Otherwise the tape is transcribed
+  from 300 ms before its first speech, instead of the VAD's segments, which
+  miss its start. A single "yes", "ok" or "thanks" runs 6 frames or more and
+  noise none (measured with the fixtures in `lib/live/fixtures`). Where that
+  model cannot load, the old rule decides: the tape is transcribed when it is
+  louder than the room. The same release ends a hold the double-tap turns
+  into hands-free, so its first moment of room sound is not typed either.
 - **Warm microphone**: `createDictate` asks the owner to close the microphone
   (`micIdle`) `MIC_WARM_MS` (30 s) after it last let go of it, unless a press
   or Flow took it back first.
