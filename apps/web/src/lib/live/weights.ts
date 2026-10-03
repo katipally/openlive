@@ -18,31 +18,60 @@ export const hubUrl = (repo: string, path: string) => `${HF}/${repo}/resolve/mai
 
 export interface WeightFile { key: ModelKey; repo: string; path: string }
 
+/** Whisper checkpoint `repo`'s weights on `tier`. The dtype suffixes are the
+ *  ones models.worker.ts asks transformers.js for. Pure. */
+export function whisperWeights(repo: string, tier: Tier): WeightFile[] {
+  const [enc, dec] = repo.endsWith("large-v3-turbo") ? ["_fp16", "_q4"] : tier === "webgpu" ? ["", ""] : ["_quantized", "_quantized"];
+  return [{ key: "stt", repo, path: `onnx/encoder_model${enc}.onnx` }, { key: "stt", repo, path: `onnx/decoder_model_merged${dec}.onnx` }];
+}
+
+/** Browser voice `engine`'s weights on `tier`: Supertonic, or Kokoro for any
+ *  other, as the worker reads it. Pure. */
+export const voiceWeights = (engine: string, tier: Tier): WeightFile[] =>
+  engine === "supertonic"
+    ? SUPERTONIC_PARTS.map((p) => ({ key: "tts" as const, repo: SUPERTONIC_REPO, path: `onnx/${p}.onnx` }))
+    : [{ key: "tts", repo: KOKORO_REPO, path: `onnx/model${tier === "webgpu" ? "" : "_quantized"}.onnx` }];
+
+export const TURN_WEIGHTS: WeightFile[] = [{ key: "turn", ...SMART_TURN }];
+
 /**
  * The model files the worker loads for `c` on `tier`, `browserTts` being the
  * browser voice it loads (null for none). Only the weights: the config and
- * tokenizer files beside them are a few kilobytes. The dtype suffixes are the
- * ones models.worker.ts asks transformers.js for. Pure.
+ * tokenizer files beside them are a few kilobytes. Pure.
  */
 export function weightFiles(c: PipelineConfig, tier: Tier, browserTts: string | null): WeightFile[] {
-  const files: WeightFile[] = [];
-  if (!isNativeVariant(c.stt.variant)) {
-    const repo = whisperCheckpoint(c.stt.whisperSize, c.language, tier);
-    const [enc, dec] = repo.endsWith("large-v3-turbo") ? ["_fp16", "_q4"] : tier === "webgpu" ? ["", ""] : ["_quantized", "_quantized"];
-    files.push({ key: "stt", repo, path: `onnx/encoder_model${enc}.onnx` }, { key: "stt", repo, path: `onnx/decoder_model_merged${dec}.onnx` });
-  }
-  if (browserTts === "supertonic") files.push(...SUPERTONIC_PARTS.map((p) => ({ key: "tts" as const, repo: SUPERTONIC_REPO, path: `onnx/${p}.onnx` })));
-  else if (browserTts) files.push({ key: "tts", repo: KOKORO_REPO, path: `onnx/model${tier === "webgpu" ? "" : "_quantized"}.onnx` });
-  files.push({ key: "turn", ...SMART_TURN });
-  return files;
+  return [
+    ...(isNativeVariant(c.stt.variant) ? [] : whisperWeights(whisperCheckpoint(c.stt.whisperSize, c.language, tier), tier)),
+    ...(browserTts ? voiceWeights(browserTts, tier) : []),
+    ...TURN_WEIGHTS,
+  ];
 }
 
-/** The files of `files` the browser cache does not hold. Without a Cache API
+/** The files of `files` the browser cache does not hold, from a page or a
+ *  worker alike. Without a Cache API
  *  nothing is kept, so everything is. O(files). */
 export async function missingWeights(files: WeightFile[]): Promise<WeightFile[]> {
   if (typeof caches === "undefined") return files;
   const held = await Promise.all(files.map((f) => caches.match(hubUrl(f.repo, f.path)).then(Boolean, () => false)));
   return files.filter((_, i) => !held[i]);
+}
+
+/** The files of `files` that would download, missing from the cache, and are
+ *  not in `allow`: the hub URLs the person agreed to fetch. O(files). */
+export async function unagreed(files: WeightFile[], allow: ReadonlySet<string>): Promise<WeightFile[]> {
+  return (await missingWeights(files)).filter((f) => !allow.has(hubUrl(f.repo, f.path)));
+}
+
+/** A load that would have downloaded weights nobody agreed to: `missing` is
+ *  what it would have fetched, for the offer that asks. */
+export class ModelsNotDownloaded extends Error {
+  constructor(readonly missing: WeightFile[] = []) { super("The voice models are not downloaded yet."); this.name = "ModelsNotDownloaded"; }
+}
+
+/** Downloads nothing unless every missing file of `files` is in `allow`. */
+export async function refuseUnagreed(files: WeightFile[], allow: ReadonlySet<string>): Promise<void> {
+  const missing = await unagreed(files, allow);
+  if (missing.length) throw new ModelsNotDownloaded(missing);
 }
 
 // One listing per repo folder for the session; a failed one is asked again.

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, ChevronUp, PanelRightOpen, Hand } from "lucide-react";
 import { animate } from "motion/react";
 import { EXIT, GENTLE, useMotionTokens } from "@/lib/motion";
 import { useLiveStore, type LivePhase, type DeviceOpt } from "@/lib/live/liveStore";
 import { captionWindow } from "@/lib/live/voiceText";
+import { agreeToDownload, declineDownload, downloadAsk, onDownloadAsk } from "@/lib/live/models";
 import { captionWords, wordsHeard } from "@openlive/shared/speech/timing";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
@@ -18,6 +19,7 @@ import { HoldToSend } from "./HoldToSend";
 import { HintChips } from "./HintChips";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { TopBar } from "./TopBar";
+import { DownloadOffer } from "./DownloadOffer";
 import { isTextTarget } from "@/lib/live/keyTargets";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { cn } from "@/lib/cn";
@@ -147,7 +149,10 @@ export function InCall(props: InCallProps) {
           {cameraOn && <CameraPiP stream={cameraStream} />}
           {screenOn && <ScreenTile stream={screenStream} />}
 
-          {error && <p role="alert" className={cn(notice("danger"), "absolute inset-x-0 top-3 mx-auto w-fit max-w-[min(28rem,calc(100%-3rem))]")}>{error}</p>}
+          <div className="absolute inset-x-0 top-3 z-20 mx-auto flex w-fit max-w-[min(28rem,calc(100%-7rem))] flex-col gap-2">
+            {error && <p role="alert" className={notice("danger")}>{error}</p>}
+            <CallDownloadAsk />
+          </div>
 
           {!panelOpen && (
             <Tooltip label="Show activity" keys="T" className="animate-fade-in absolute right-3 top-3 z-20">
@@ -193,6 +198,17 @@ export function InCall(props: InCallProps) {
         { target: "controls", title: "Your call controls", body: "Mute, camera, screen share, and hang up. In push to talk, hold your push-to-talk key or the hand on the left while you speak. Press ? anytime for all shortcuts." },
       ]} />
     </div>
+  );
+}
+
+/** A download the call needs after a mid-call engine or language switch, or for
+ *  Whisper standing in for a native engine. The call keeps what it has until yes. */
+function CallDownloadAsk() {
+  const ask = useSyncExternalStore(onDownloadAsk, downloadAsk, () => null);
+  if (!ask) return null;
+  return (
+    <DownloadOffer title={`Download ${ask.name}?`} meanwhile={ask.meanwhile} files={ask.files} state={ask.state}
+      yes="Download" onYes={() => void agreeToDownload()} onNo={declineDownload} className="shadow-pop" />
   );
 }
 

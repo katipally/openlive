@@ -316,7 +316,8 @@ paste a model key (or pick the coding agent you already use — install/sign in 
 Settings → Agents if needed), and start a call. The first Start asks before the voice models download from
 Hugging Face, with their size (roughly 200 MB with Kokoro, more with
 Supertonic, a bigger Whisper or WebGPU's full-precision weights), and they are
-cached after that.
+cached after that. A voice or language switched mid-call, a voice preview or a
+clip to transcribe asks the same way, in place, before anything more downloads.
 
 **Build it from source:**
 

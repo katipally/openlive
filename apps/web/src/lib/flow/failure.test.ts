@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addonProblem, deriveFailure, forOrb, keyListenerNote, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
+import { addonProblem, deriveFailure, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
@@ -188,6 +188,16 @@ describe("keyListenerNote", () => {
     expect(keyListenerNote(stopped, "dictate")).toMatch(/^Dictate's key listener/);
     expect(keyListenerNote(stopped, "shared")).toMatch(/^OpenLive's key listener/);
     expect(keyListenerNote({ hookError: null, wayland: true }, "dictate")).not.toMatch(/Flow/);
+  });
+});
+
+describe("sessionModelsOffer", () => {
+  const ask = { name: "the Supertonic voice", meanwhile: "Until then, replies keep the Kokoro voice." };
+  it("asks with the size and what happens meanwhile, and downloading has nothing to press", () => {
+    expect(sessionModelsOffer(ask, 400e6)).toMatchObject({ code: "models_missing", title: "Download the Supertonic voice?", actionLabel: "Download" });
+    expect(sessionModelsOffer(ask, 400e6).detail).toMatch(/^Downloaded once, about 400 MB\. Until then, replies keep the Kokoro voice\./);
+    expect(sessionModelsOffer(ask, null).detail).not.toMatch(/about/);
+    expect(sessionModelsOffer(ask, null, true).actionLabel).toBeUndefined();
   });
 });
 

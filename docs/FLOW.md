@@ -222,6 +222,7 @@ is one, a single button that fixes it.
 | Nothing is set to answer yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
 | You are offline | No network | **Try again** |
 | Download the voice models first? | First run of Flow or Dictate: names the models, their size and where they are kept, and nothing listens until it is answered | **Download** shows the progress on the card, then opens what asked; **Try again** if it stops |
+| Download the Supertonic voice? / Download speech recognition for French? | A voice or language switched while Flow was open, or Whisper needed in place of a native engine that failed: names it, its size, and what Flow does meanwhile (it keeps the voice or model it has). Shown at the next open, or Dictate's next start, when it came up with the orb closed | **Download** fetches it and the session uses it from the next sentence; Close leaves things as they are |
 | I could not open the microphone | Another app holds it | **Try again** |
 | Your API key is missing / The key or sign-in was refused | Missing or refused key or sign-in | **Open settings** (Models, or Agents for a coding agent) |
 | That model is not available | Unknown model | **Open settings** |

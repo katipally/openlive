@@ -4,9 +4,9 @@ import { useEffect, useRef } from "react";
 import { toolSummary, type ErrorClass, type FlowCloseReason, type FlowContextWire, type FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
-import { loadModels, modelsCached, modelsMatchConfig, voiceDownloadPlan } from "@/lib/live/models";
+import { agreeToDownload, downloadAsk, loadModels, modelsCached, modelsMatchConfig, onDownloadAsk, voiceDownloadPlan, type DownloadAsk } from "@/lib/live/models";
 import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
-import { planModels } from "@/lib/live/weights";
+import { downloadPlan, planModels } from "@/lib/live/weights";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
 import { agentToolLabel, toolActive } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
@@ -25,7 +25,7 @@ import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
-import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, turnFailure } from "./failure";
+import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, sessionModelsOffer, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
 import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
@@ -217,6 +217,9 @@ export function useFlowOwner(): void {
     // configured" used to stick, and that failure outranks the real one.
     // The voice weights are not all in the cache, as health last read it.
     let weightsMissing = false;
+    // The offer for a download the session needs (models.ts DownloadAsk), kept
+    // up under health until it is answered.
+    let askCard: FlowFailure | null = null;
     const refreshHealth = async () => {
       await loadSettings();
       const c = valueOr(await api.capabilities(), null);
@@ -234,7 +237,7 @@ export function useFlowOwner(): void {
         modelsCached: !weightsMissing,
         voiceModels: planModels(plan),
         downloadBytes: plan.bytes,
-      });
+      }) ?? askCard;
       patch({ failure });
       raise(failure, "health");
     };
@@ -537,6 +540,18 @@ export function useFlowOwner(): void {
     const fetchModels = async () => {
       if (fetching) return;
       fetching = true;
+      const asked = downloadAsk();
+      if (asked && asked.state !== "downloading") {
+        patch({ failure: sessionModelsOffer(asked, null, true) });
+        await agreeToDownload();
+        const failed = downloadAsk()?.state === "failed";
+        const failure = failed ? modelsFailed(typeof navigator === "undefined" || navigator.onLine) : null;
+        patch({ failure });
+        if (failure) raise(failure, "health");
+        else if (afterModels === "dictate") { afterModels = "flow"; dismiss(); void talk.toggleDictate(); }
+        fetching = false;
+        return;
+      }
       patch({ failure: modelsDownloading(0, 0) });
       try {
         await loadModels((p) => patch({ failure: modelsDownloading(p.loaded, p.total) }), "flow_open", true);
@@ -554,6 +569,13 @@ export function useFlowOwner(): void {
     /** Dictate has no health check of its own: with weights missing, the offer
      *  goes up on the orb in place of the microphone. True when it did. */
     const offerModels = async () => {
+      if (askCard) {
+        afterModels = "dictate";
+        summon();
+        patch({ failure: askCard });
+        raise(askCard, "health");
+        return true;
+      }
       const plan = await voiceDownloadPlan();
       if (!plan.missing.length) return false;
       afterModels = "dictate";
@@ -563,6 +585,24 @@ export function useFlowOwner(): void {
       raise(failure, "health");
       return true;
     };
+
+    // A download the session needs after an engine or language switch, or for
+    // Whisper in place of a native engine: offered on the orb while Flow is
+    // open, and at the next open or Dictate start otherwise. Meanwhile the
+    // session keeps the engine it has.
+    const showAsk = async (a: DownloadAsk) => {
+      const card = sessionModelsOffer(a, (await downloadPlan(a.files)).bytes);
+      if (downloadAsk() !== a) return;
+      askCard = card;
+      if (!summoned.current) return;
+      patch({ failure: card });
+      raise(card, "health");
+    };
+    const offAsk = onDownloadAsk((a) => {
+      if (a?.state === "ask") return void showAsk(a);
+      if (!a && askCard && snap.current.failure === askCard) patch({ failure: null });
+      if (!a) askCard = null;
+    });
 
     // ── Dictate ───────────────────────────────────────────────────────────
     // Same microphone, same engine, same orb as Flow; its words go to the
@@ -957,7 +997,7 @@ export function useFlowOwner(): void {
     window.addEventListener("offline", online);
 
     return () => {
-      for (const off of [offPower, offCmd, offEffect, offSecure, offArmed, offSettings, offResume, offNew]) off?.();
+      for (const off of [offPower, offCmd, offEffect, offSecure, offArmed, offSettings, offResume, offNew, offAsk]) off?.();
       // A Fast Refresh runs this effect again on the same refs: a Dictate left in
       // the snapshot would keep the next one from ever summoning the orb.
       dictate.yield();

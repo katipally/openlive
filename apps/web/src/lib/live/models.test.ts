@@ -13,7 +13,7 @@ class FakeWorker {
   postMessage(m: { type: string; id?: number }) {
     posted.push(m);
     const reply = (data: unknown) => queueMicrotask(() => this.onmessage?.({ data, target: this } as { data: unknown }));
-    if (m.type === "load") reply({ type: "ready", turn: true, whisper: false });
+    if (m.type === "load") reply({ type: "ready", turn: true, whisper: (m as { whisper?: boolean }).whisper ? (m as { whisperModel?: string }).whisperModel : "" });
     else if (m.type === "stt") reply({ type: "result", id: m.id, text: "from whisper" });
     else if (m.type === "tts") reply({ type: "result", id: m.id, audio: new Float32Array([0.1, 0.2]), sampleRate: 24000 });
   }
@@ -433,6 +433,89 @@ describe("download consent", () => {
     empty();
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
     expect(await models.voiceDownloadPlan()).toMatchObject({ bytes: null });
+  });
+});
+
+describe("a download a running session needs", () => {
+  const empty = () => vi.stubGlobal("caches", { match: async () => undefined });
+  const ttsPosts = () => posted.filter((m) => m.type === "tts");
+  const sttPosts = () => posted.filter((m) => m.type === "stt");
+  /** A warm worker on the defaults (Whisper base, Kokoro), then nothing more in the cache. */
+  const warmThenEmpty = async () => { await models.loadModels(() => {}, "launch_warm"); empty(); };
+
+  it("keeps the current voice on a switch to one not downloaded, and asks once", async () => {
+    await warmThenEmpty();
+    const seen: unknown[] = [];
+    models.onDownloadAsk((a) => seen.push(a?.state ?? null));
+    const out = await models.tts("Hi.", { engine: "supertonic", lang: "en" });
+    expect(ttsPosts().map((m) => m.engine)).toEqual(["kokoro"]);
+    expect(out.source).toMatchObject({ engine: "kokoro", fallback: true });
+    await models.tts("Again.", { engine: "supertonic", lang: "en" });
+    expect(seen).toEqual(["ask"]);
+    expect(models.downloadAsk()).toMatchObject({ key: "tts", engine: "supertonic", name: "the Supertonic voice", state: "ask" });
+  });
+
+  it("downloads only once agreed to, with exactly those files allowed, then speaks in it", async () => {
+    await warmThenEmpty();
+    await models.tts("Hi.", { engine: "supertonic", lang: "en" });
+    expect(ttsPosts()[0]!.allow).toEqual([]);
+    await models.agreeToDownload();
+    const download = ttsPosts()[1]!;
+    expect(download.engine).toBe("supertonic");
+    expect(download.allow).toHaveLength(4);
+    expect((download.allow as string[]).every((u) => u.includes("Supertone/supertonic-3"))).toBe(true);
+    expect(models.downloadAsk()).toBeNull();
+    await models.tts("Now.", { engine: "supertonic", lang: "en" });
+    expect(ttsPosts().at(-1)!.engine).toBe("supertonic");
+  });
+
+  it("asks nothing more after Not now, until the next call", async () => {
+    await warmThenEmpty();
+    await models.tts("Hi.", { engine: "supertonic", lang: "en" });
+    models.declineDownload();
+    await models.tts("Again.", { engine: "supertonic", lang: "en" });
+    expect(models.downloadAsk()).toBeNull();
+    expect(ttsPosts().every((m) => m.engine === "kokoro")).toBe(true);
+    models.resetNativeFallbacks();
+    await models.tts("New call.", { engine: "supertonic", lang: "en" });
+    expect(models.downloadAsk()).toMatchObject({ engine: "supertonic" });
+  });
+
+  it("keeps hearing with the loaded checkpoint after a language switch, and asks", async () => {
+    await warmThenEmpty();
+    await savedPipeline({ language: "fr" });
+    await models.stt(new Float32Array(1600));
+    const held = (posted.find((m) => m.type === "load") as { whisperModel: string }).whisperModel;
+    expect(sttPosts().map((m) => m.model)).toEqual([held]);
+    expect(models.downloadAsk()).toMatchObject({ key: "stt", name: "speech recognition for French" });
+  });
+
+  it("leaves a sentence unspoken rather than fetch a voice, when the worker holds none", async () => {
+    await savedPipeline({ stt: { engine: "parakeet" }, tts: { engine: "kitten" } });
+    await models.loadModels(() => {}, "launch_warm");
+    empty();
+    expect((await models.tts("Hi.", { engine: "kokoro", lang: "en" })).audio.length).toBe(0);
+    expect(ttsPosts()).toEqual([]);
+    expect(models.downloadAsk()).toMatchObject({ engine: "kokoro", meanwhile: "Until then, replies go unspoken." });
+  });
+
+  it("refuses outright for a preview or a clip to transcribe, which ask in place", async () => {
+    await warmThenEmpty();
+    await expect(models.tts("Hi.", { engine: "supertonic", strict: true })).rejects.toBeInstanceOf(models.ModelsNotDownloaded);
+    await savedPipeline({ language: "fr" });
+    const refused = await models.stt(new Float32Array(1600), undefined, true).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(models.ModelsNotDownloaded);
+    expect((refused as InstanceType<typeof models.ModelsNotDownloaded>).missing.map((f) => f.key)).toEqual(["stt", "stt"]);
+    expect(posted.filter((m) => m.type !== "load")).toEqual([]);
+    expect(models.downloadAsk()).toBeNull();
+  });
+
+  it("a yes to a preview's ask lets the same request through", async () => {
+    await warmThenEmpty();
+    const refused = await models.tts("Hi.", { engine: "supertonic", strict: true }).catch((e: InstanceType<typeof models.ModelsNotDownloaded>) => e);
+    models.agreeTo((refused as InstanceType<typeof models.ModelsNotDownloaded>).missing);
+    await models.tts("Hi.", { engine: "supertonic", strict: true });
+    expect(ttsPosts().map((m) => m.engine)).toEqual(["supertonic"]);
   });
 });
 

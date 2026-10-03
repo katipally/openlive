@@ -419,6 +419,15 @@ Releases before 0.1.9 predate this file — see the
   on** and **Turn Flow off** next to Dictate's.
 
 ### Fixed
+- **Nothing else downloads a model without asking either.** A voice or
+  language switched mid-call, and Whisper standing in for a native engine,
+  used to fetch its weights on the next sentence or utterance. Now the call
+  keeps the voice or model it has and asks in place, with the size: in the
+  call, on Flow's orb, or at Dictate's next start. A voice preview in Settings
+  > Voice and a clip to transcribe for a cloned voice ask in place too,
+  instead of failing, and **Download models now** in Settings > Speech engine
+  names what it downloads and its size. The model workers refuse any file
+  nobody agreed to.
 - **Dictate's errors name Dictate.** When the keyboard helper did not load or
   the key listener stopped, Dictate's home and settings said "Flow can't hear
   the keyboard" or "Flow's key listener stopped". Each mode now names itself,

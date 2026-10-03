@@ -14,7 +14,7 @@ import {
 import { languageLabel, languagesNote, licenseTag, variantGroups, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
-  tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks,
+  tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks, voiceDownloadPlan,
   listNativeEngines, downloadModel, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
   getVoicePerf, setEngineAccel, rebenchEngine, type AccelProvider, type AccelResult,
 } from "@/lib/live/models";
@@ -30,6 +30,7 @@ import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
 import { LinkRow, useSettingsNav } from "./nav";
 import { StatusDot } from "./common";
+import { aboutSize, listed, planModels, type DownloadPlan } from "@/lib/live/weights";
 
 // Pipeline stages, in signal order. Each is a segment so it gets the full panel;
 // its line under the label is the stage's status (stageStatus).
@@ -67,7 +68,7 @@ function StageHead({ title, desc }: { title: string; desc: string }) {
 }
 
 // Shared on-device model download status + prefetch (all stage weights load together).
-function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supertonic" }) {
+function ModelStatus({ cfg, removeKind }: { cfg: PipelineConfig; removeKind?: "whisper" | "kokoro" | "supertonic" }) {
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [removing, setRemoving] = useState(false);
@@ -76,6 +77,15 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
   // "Downloaded". (Don't fall back to modelsReady() — that's true for ANY loaded
   // config and would re-introduce the "everything looks downloaded" bug.)
   const cached = typeof window !== "undefined" && modelsCached();
+  // What the button downloads, named and sized before it is pressed; re-read when the engines or language change.
+  const [plan, setPlan] = useState<DownloadPlan | null>(null);
+  const planKey = `${cfg.stt.variant}:${cfg.stt.whisperSize}:${cfg.tts.variant}:${cfg.language}`;
+  useEffect(() => {
+    if (cached) return;
+    let live = true;
+    void voiceDownloadPlan().then((p) => { if (live) setPlan(p); }, () => {});
+    return () => { live = false; };
+  }, [cached, planKey]);
   const download = async () => {
     setBusy(true);
     try { await loadModels((p) => setPct(p.pct), "settings", true); } catch (e) { log.error("models", e); toast("Model download failed. Check your connection and try again."); } finally { setBusy(false); }
@@ -97,11 +107,21 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
       )}
     </div>
   ) : (
-    <Button size="sm" onClick={download} disabled={busy}>
-      {busy ? <Loader2 className="animate-spin" /> : <Download />}
-      {busy ? `Downloading… ${Math.round(pct * 100)}%` : "Download models now"}
-    </Button>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <Button size="sm" onClick={download} disabled={busy}>
+        {busy ? <Loader2 className="animate-spin" /> : <Download />}
+        {busy ? `Downloading… ${Math.round(pct * 100)}%` : "Download models now"}
+      </Button>
+      {plan && plan.missing.length > 0 && <PlanNote plan={plan} />}
+    </div>
   );
+}
+
+/** "Speech recognition and turn-taking, about 120 MB." */
+function PlanNote({ plan }: { plan: DownloadPlan }) {
+  const what = listed(planModels(plan));
+  const size = aboutSize(plan.bytes);
+  return <span className="min-w-0 break-words text-caption text-muted-foreground">{what[0]!.toUpperCase()}{what.slice(1)}{size ? `, ${size}` : ""}.</span>;
 }
 
 const ENGINE_GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-2";
@@ -636,7 +656,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </div>
       {gate}
       {active && <LicenseNote family={active} variant={cfg.stt.variant} />}
-      {whisper ? <ModelStatus removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
+      {whisper ? <ModelStatus cfg={cfg} removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
       <Advanced id="engine:stt">
         {whisper && <div className="flex flex-col gap-1.5">
           <span className="flex items-center gap-1.5 text-label text-foreground">
@@ -744,11 +764,12 @@ export const SAMPLE = "Hi! This is how I sound in a live conversation.";
 
 /** Play `text` as a live reply would sound with `cfg`: normalized, respelled
  *  by the dictionary, in the chosen voice. Loads the browser models first when
- *  the voice is one of them. */
+ *  the voice is one of them, and throws ModelsNotDownloaded, for the caller to
+ *  ask, when that would download anything not agreed to. */
 export async function playPreview(text: string, cfg: PipelineConfig) {
   if (!isNativeVariant(cfg.tts.variant) && !modelsReady()) await loadModels(() => {}, "settings");
   const said = toSpeech(text, cfg.language, compileLexicon(cfg.pronunciations, cfg.language));
-  const { audio, sampleRate } = await tts(said, { engine: cfg.tts.variant, voice: cfg.tts.voice, speed: cfg.tts.speed, lang: cfg.language });
+  const { audio, sampleRate } = await tts(said, { engine: cfg.tts.variant, voice: cfg.tts.voice, speed: cfg.tts.speed, lang: cfg.language, strict: true });
   const ctx = new AudioContext();
   const buf = ctx.createBuffer(1, audio.length, sampleRate);
   buf.getChannelData(0).set(audio);
@@ -784,7 +805,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       {gate}
       <LicenseNote family={engine} variant={cfg.tts.variant} />
       {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} accel={false} />
-        : <ModelStatus removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
+        : <ModelStatus cfg={cfg} removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
       <Advanced id="engine:tts">
         <VariantPicker cfg={cfg} stage="tts" update={update} onAsk={ask} />
         {native && <AccelRow id={cfg.tts.variant} />}

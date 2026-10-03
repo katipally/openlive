@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Loader2, Mic, Pencil, Play, RotateCcw, Square, Trash2, Upload, Volume2 } from "lucide-react";
-import { stt, modelsReady, loadModels, downloadModel } from "@/lib/live/models";
+import { stt, modelsReady, loadModels, downloadModel, agreeTo, ModelsNotDownloaded } from "@/lib/live/models";
+import type { WeightFile } from "@/lib/live/weights";
+import { DownloadOffer } from "@/components/live/DownloadOffer";
 import { loadPipelineConfig, savePipelineConfig, onPipelineConfig, chooseVariant, familyInfo, LANGUAGE_DEFAULTS } from "@/lib/live/pipelineConfig";
 import { AllowRestricted } from "./PipelineSettings";
 import { deferDelete, usePendingDeletes } from "@/lib/deferredDelete";
@@ -162,6 +164,8 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState<"transcribe" | "save" | "decode" | null>(null);
+  // Transcribing needs Whisper, which is asked about here before it downloads.
+  const [needs, setNeeds] = useState<WeightFile[] | null>(null);
   const rec = useRef<{ ctx: AudioContext; stream: MediaStream; node: ScriptProcessorNode; chunks: Float32Array[]; raf: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -197,18 +201,22 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
     if (samples.length / sampleRate < MIN_SEC) { setBusy(null); toast(`Too short. It needs at least ${MIN_SEC} seconds.`); return; }
     const capped = samples.length / sampleRate > MAX_SEC ? samples.subarray(0, Math.floor(MAX_SEC * sampleRate)) : samples;
     setTake({ samples: capped, sampleRate });
-    void (async () => {
-      setBusy("transcribe");
-      try {
-        if (!modelsReady()) await loadModels(() => {}, "settings");
-        const ratio = sampleRate / 16000; // Whisper expects 16 kHz — cheap linear resample
-        const out = new Float32Array(Math.floor(capped.length / ratio));
-        for (let i = 0; i < out.length; i++) out[i] = capped[Math.floor(i * ratio)]!;
-        const { text } = await stt(out);
-        if (text.trim()) setTranscript(text.trim());
-      } catch (e) { log.error("voice", "reference transcribe:", e); }
-      finally { setBusy(null); }
-    })();
+    void transcribe(capped, sampleRate);
+  };
+  const transcribe = async (samples: Float32Array, sampleRate: number) => {
+    setBusy("transcribe");
+    setNeeds(null);
+    try {
+      if (!modelsReady()) await loadModels(() => {}, "settings");
+      const ratio = sampleRate / 16000; // Whisper expects 16 kHz: a cheap linear resample
+      const out = new Float32Array(Math.floor(samples.length / ratio));
+      for (let i = 0; i < out.length; i++) out[i] = samples[Math.floor(i * ratio)]!;
+      const { text } = await stt(out, undefined, true);
+      if (text.trim()) setTranscript(text.trim());
+    } catch (e) {
+      if (e instanceof ModelsNotDownloaded) setNeeds(e.missing);
+      else log.error("voice", "reference transcribe:", e);
+    } finally { setBusy(null); }
   };
 
   // Clone from an existing recording: decode any browser-supported audio file to
@@ -333,6 +341,10 @@ function Recorder({ onSaved }: { onSaved: () => void }) {
         </Button>
       </div>
       {takeUrl && <AudioBar src={takeUrl} />}
+      {needs && (
+        <DownloadOffer title="Download speech recognition to fill in the transcript?" meanwhile="Or type what you said below." files={needs} state="ask"
+          yes="Download and transcribe" onYes={() => { agreeTo(needs); void transcribe(take.samples, take.sampleRate); }} onNo={() => setNeeds(null)} />
+      )}
       <label className="flex flex-col gap-1">
         <span className="text-caption text-muted-foreground">{busy === "transcribe" ? "Transcribing…" : "Transcript: fix anything Whisper misheard, since cloning quality depends on it."}</span>
         <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} placeholder="What you said, word for word" />

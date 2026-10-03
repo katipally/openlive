@@ -100,6 +100,15 @@ export function modelsDownloading(loaded: number, total: number): FlowFailure {
   return { code: "models_missing", title: "Downloading the voice models", detail: `${total ? Math.round((100 * loaded) / total) : 0}%${size ? ` of ${size}` : ""}. Flow opens as soon as they are ready.` };
 }
 
+/** A download the open session needs after an engine or language switch, or
+ *  for Whisper in place of a native engine (models.ts DownloadAsk). The session
+ *  keeps what it has meanwhile, so Close is a "not now". */
+export function sessionModelsOffer(a: { name: string; meanwhile: string }, bytes: number | null, downloading = false): FlowFailure {
+  const size = aboutSize(bytes);
+  if (downloading) return { code: "models_missing", title: `Downloading ${a.name}`, detail: a.meanwhile };
+  return { code: "models_missing", title: `Download ${a.name}?`, detail: `${size ? `Downloaded once, ${size}. ` : ""}${a.meanwhile} ${WEIGHTS_WHERE}`, actionLabel: "Download" };
+}
+
 /** The download failed; trying again asks nothing new. */
 export const modelsFailed = (online: boolean): FlowFailure => ({
   code: "models_missing",

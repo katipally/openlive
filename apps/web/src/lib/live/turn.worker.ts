@@ -5,7 +5,7 @@
 // end of every turn spoken over a reply waited for speech. Tiny, CPU/WASM only.
 import { env, AutoProcessor } from "@huggingface/transformers";
 import * as ort from "onnxruntime-web/wasm";
-import { hubUrl, SMART_TURN } from "./weights";
+import { hubUrl, refuseUnagreed, SMART_TURN, TURN_WEIGHTS } from "./weights";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
@@ -72,6 +72,7 @@ self.onmessage = async (e: MessageEvent) => {
     if (msg.type === "load") {
       // Non-fatal if it fails to load: the voice engine falls back to silence endpointing.
       try {
+        await refuseUnagreed(TURN_WEIGHTS, new Set(msg.allow ?? []));
         turnProc = await AutoProcessor.from_pretrained(TURN_PROCESSOR, { progress_callback: (p: any) => post({ type: "progress", data: { ...p, model: "turn" } }) });
         turnSession = await ort.InferenceSession.create(await cachedArrayBuffer(SMART_TURN_URL), { executionProviders: ["wasm"] });
       } catch (err) { console.warn("[live] Smart-Turn unavailable:", err); turnSession = null; turnProc = null; }

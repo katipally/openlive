@@ -14,6 +14,9 @@ import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { cn } from "@/lib/cn";
 import { Badge, Segmented, Slider, Switch, Button, linkClass, Tooltip, ListGroup, ListRow } from "@/components/ui";
+import { DownloadOffer } from "@/components/live/DownloadOffer";
+import { agreeTo, ModelsNotDownloaded } from "@/lib/live/models";
+import type { WeightFile } from "@/lib/live/weights";
 import { LanguagePicker, Experimental, SAMPLE, playPreview, useNativeEngines, variantStatus } from "./PipelineSettings";
 import { VoicesSettings } from "./VoicesSettings";
 import { PronunciationSettings } from "./PronunciationSettings";
@@ -74,16 +77,26 @@ function VoicePicker() {
     if (box && row) box.scrollTop = row.offsetTop - box.clientHeight / 2 + row.clientHeight / 2;
   }, [cfg.tts.family, rows.length]);
 
+  // A preview of a voice not downloaded yet asks here, with the size, before it fetches anything.
+  const [needs, setNeeds] = useState<{ id: string; files: WeightFile[] } | null>(null);
   const hear = async (id: string) => {
     setBusy(id);
+    setNeeds(null);
     try { await playPreview(SAMPLE, { ...cfg, tts: { ...cfg.tts, voice: id } }); }
-    catch (e) { log.error("tts", "voice preview:", e); toast("Voice preview failed. Download the engine in Speech engine, then try again."); }
+    catch (e) {
+      if (e instanceof ModelsNotDownloaded) setNeeds({ id, files: e.missing });
+      else { log.error("tts", "voice preview:", e); toast("Voice preview failed. Download the engine in Speech engine, then try again."); }
+    }
     finally { setBusy(null); }
   };
   const openYours = () => document.getElementById("set-voice-yours")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
 
   return (
     <Section id="set-voice-voice" title="Voice" desc={`From the ${engine.name} engine.`}>
+      {needs && (
+        <DownloadOffer title={`Download ${engine.name} to hear its voices?`} meanwhile="The sample plays as soon as it's done." files={needs.files} state="ask" className="mb-3"
+          yes="Download and play" onYes={() => { agreeTo(needs.files); void hear(needs.id); }} onNo={() => setNeeds(null)} />
+      )}
       <div className="overflow-hidden rounded-lg bg-card shadow-card">
         {clone && !isLoading && rows.length === 0 ? (
           <div className="flex min-h-row flex-wrap items-center gap-x-3 gap-y-1 px-card-x py-2 text-body text-muted-foreground">
@@ -96,7 +109,7 @@ function VoicePicker() {
               const on = r.id === cfg.tts.voice;
               return (
                 <div key={r.id || "default"} className="flex min-h-row items-center gap-3 py-1.5">
-                  <Tooltip label={unplayable ? "Download this engine first, in Speech engine" : "Play a sample (downloads the voice first if needed)"}>
+                  <Tooltip label={unplayable ? "Download this engine first, in Speech engine" : "Play a sample"}>
                     <Button variant="secondary" size="sm" icon aria-label={`Hear ${r.name}`} aria-disabled={busy !== null || unplayable || undefined}
                       onClick={() => { if (busy === null && !unplayable) void hear(r.id); }}>
                       {busy === r.id ? <Loader2 className="animate-spin" /> : <Play />}

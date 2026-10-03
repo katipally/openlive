@@ -1,7 +1,7 @@
 // Main-thread facade over the model Web Worker, plus the routing to the native
 // engines on the local agent (/api/voice) when one is selected. Downloads happen ONLY
-// through a consented loadModels() (the person agreed to what and how big), reporting
-// an aggregate progress bar. Weights are cached by the browser Cache API AND the
+// after the person agreed to what and how big: a consented loadModels(), with an
+// aggregate progress bar, or a mid-session ask (agreeToDownload). Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
 import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES, ADDRESSEE_ENGINE } from "./pipelineConfig";
@@ -15,9 +15,10 @@ import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { telemetry } from "../telemetry";
 import { sttFamilyOf, ttsFamilyOf } from "../telemetryIds";
-import { weightFiles, missingWeights, downloadPlan, type DownloadPlan, type ModelKey } from "./weights";
+import { weightFiles, downloadPlan, unagreed, hubUrl, voiceWeights, whisperWeights, ModelsNotDownloaded, type DownloadPlan, type ModelKey, type WeightFile } from "./weights";
 
 export type { ModelKey } from "./weights";
+export { ModelsNotDownloaded };
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
 export type LoadProgress = { pct: number; loaded: number; total: number; models: ModelProgress[] };
 
@@ -30,6 +31,10 @@ let turnAvailable = false;
 let seq = 0;
 let loadedTag: string | null = null; // the config (tier:stt:ttsEngine) the warm worker actually loaded
 let whisperLoaded = ""; // the Whisper checkpoint the worker holds; none while a native STT engine is selected, until a fallback loads it
+const voicesLoaded = new Set<string>(); // the browser voices the worker holds ("kokoro", "supertonic")
+// The weights (hub URLs) the person agreed to download this session. Every
+// worker message carries them, and the worker fetches nothing else.
+const agreed = new Set<string>();
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 // keyed by "<model>:<file>" so the same filename under two models never collides.
 const files = new Map<string, { model: ModelKey; loaded: number; total: number }>();
@@ -41,6 +46,7 @@ function resetWorker() {
   try { worker?.terminate(); } catch { /* already gone */ }
   try { turnWorker?.terminate(); } catch { /* already gone */ }
   worker = null; turnWorker = null; ready = false; loadedTag = null; whisperLoaded = ""; turnAvailable = false;
+  voicesLoaded.clear();
   files.clear();
   for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
 }
@@ -109,10 +115,11 @@ let loading: { p: Promise<void>; consented: boolean } | null = null;
 /** What asked for the load, for the download's report. Joining an in-flight load adds nothing. */
 export type ModelsTrigger = TelemetryEventProps<"voice_models_result">["trigger"];
 
-/** A load that would have downloaded weights nobody agreed to. */
-export class ModelsNotDownloaded extends Error {
-  constructor() { super("The voice models are not downloaded yet."); this.name = "ModelsNotDownloaded"; }
-}
+/** The person agreed to download `files`: the worker may fetch them from now on. */
+export function agreeTo(files: WeightFile[]) { for (const f of files) agreed.add(hubUrl(f.repo, f.path)); }
+
+/** The worker's name for browser voice `engine`: Supertonic, or Kokoro for any other. */
+const workerVoice = (engine: string | null | undefined) => (engine === "supertonic" ? "supertonic" : "kokoro");
 
 // The browser voice the worker loads: a cloned voice loads the one that stands
 // in for it in the language (none for Chinese); a voice the agent runs loads
@@ -148,7 +155,10 @@ export function loadModels(onProgress: (p: LoadProgress) => void, trigger: Model
 
 async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean): Promise<void> {
   if (modelsMatchConfig()) return;
-  if (!consented && (await missingWeights(neededWeights())).length) throw new ModelsNotDownloaded();
+  const needed = neededWeights();
+  if (consented) agreeTo(needed);
+  const missing = await unagreed(needed, agreed);
+  if (missing.length) throw new ModelsNotDownloaded(missing);
   // A load whose weights are all in the browser cache is a warm-up, not a download: it reports only if it fails.
   const download = !modelsCached();
   const startedAt = Date.now();
@@ -174,6 +184,8 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
       stt_family: sttFamilyOf(cfg.stt.family), tts_family: ttsFamilyOf(cfg.tts.family), webgpu: hasWebGPU(),
     });
   };
+  const cfg = loadPipelineConfig();
+  const voice = browserTts(cfg);
   return new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
     const tw = new Worker(new URL("./turn.worker.ts", import.meta.url), { type: "module" });
@@ -205,7 +217,8 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
           break;
         }
         case "ready":
-          if (e.target === tw) turnAvailable = !!m.turn; else whisperLoaded = m.whisper;
+          if (e.target === tw) turnAvailable = !!m.turn;
+          else { whisperLoaded = m.whisper; if (voice) voicesLoaded.add(workerVoice(voice)); }
           if (--waiting) break;
           ready = true; loadedTag = readyTag();
           warmNativeEngines();
@@ -214,8 +227,9 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
         case "error":
-          if (m.id != null) { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.reject(new Error(m.message)); } }
-          else { resetWorker(); reject(new Error(m.message)); } // load failed → clean slate for a retry
+          const err = m.missing ? new ModelsNotDownloaded(m.missing) : new Error(m.message);
+          if (m.id != null) { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.reject(err); } }
+          else { resetWorker(); reject(err); } // load failed → clean slate for a retry
           break;
       }
     };
@@ -228,13 +242,11 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
     };
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
-    const cfg = loadPipelineConfig();
-    const voice = browserTts(cfg);
     w.postMessage({
       type: "load", device: tier, whisperModel: whisperCheckpoint(cfg.stt.whisperSize, cfg.language, tier), whisper: !isNativeVariant(cfg.stt.variant),
-      ttsEngine: voice, ttsNative: !voice, ttsVoice: cfg.tts.voice, lang: cfg.language,
+      ttsEngine: voice, ttsNative: !voice, ttsVoice: cfg.tts.voice, lang: cfg.language, allow: [...agreed],
     });
-    tw.postMessage({ type: "load" });
+    tw.postMessage({ type: "load", allow: [...agreed] });
   }).then(() => settled("ok"), (e) => { settled("failed"); throw e; });
 }
 
@@ -244,27 +256,28 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
 // Generous enough not to trip a legitimately slow WASM/CPU transcription of a long
 // utterance; short enough that a real stall self-heals in seconds.
 const CALL_TIMEOUT_MS = 12000;
-// TTS gets a longer leash: a mid-call ENGINE SWITCH lazy-downloads the new
-// engine's weights inside the first tts call (Cache API after that). So does the
-// first Whisper call when a native STT engine was loaded instead of it.
+// TTS gets a longer leash: an engine the worker does not hold yet loads inside
+// its first tts call, from the cache or a download agreed to. So does the first
+// Whisper call when a native STT engine was loaded instead of it.
 const TTS_TIMEOUT_MS = 120000;
 
-async function call<T>(msg: any, transfer?: Transferable[]): Promise<T> {
+/** `timeoutMs` 0 waits as long as it takes: a download agreed to, on any network. */
+async function call<T>(msg: any, transfer?: Transferable[], timeoutMs?: number): Promise<T> {
   // A native engine that fails before the worker ever loaded (Flow with native
   // engines opens no worker) falls back here: load it now, so the same utterance
   // or sentence still goes through instead of being dropped.
   if (!worker) await loadModels(() => {});
   const id = ++seq;
-  const timeoutMs = msg.type === "tts" || (msg.type === "stt" && msg.model !== whisperLoaded) ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS;
+  const ms = timeoutMs ?? (msg.type === "tts" || (msg.type === "stt" && msg.model !== whisperLoaded) ? TTS_TIMEOUT_MS : CALL_TIMEOUT_MS);
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+    const timer = ms ? setTimeout(() => {
+      if (pending.delete(id)) reject(new Error(`model call "${msg.type}" timed out after ${ms}ms`));
+    }, ms) : undefined;
     pending.set(id, {
       resolve: (v) => { clearTimeout(timer); resolve(v); },
       reject: (e) => { clearTimeout(timer); reject(e); },
     });
-    (msg.type === "turn" ? turnWorker : worker)!.postMessage({ ...msg, id }, transfer ?? []);
+    (msg.type === "turn" ? turnWorker : worker)!.postMessage({ ...msg, id, allow: [...agreed] }, transfer ?? []);
   });
 }
 
@@ -307,8 +320,61 @@ async function agentCopy(engine: string | undefined): Promise<string | undefined
   return onAgent(engine);
 }
 
-/** A new call gives a failed native engine another chance. */
-export function resetNativeFallbacks() { sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; hungSentences = 0; copiesLoading = null; }
+/** A new call gives a failed native engine another chance, and asks again about a download it was refused. */
+export function resetNativeFallbacks() {
+  sttFallback = null; ttsFallback = null; cloneFailed = false; noVoiceToasted = false; hungSentences = 0; copiesLoading = null;
+  declined.clear();
+  if (ask?.state !== "downloading") setAsk(null);
+}
+
+// ── downloads a running session needs ───────────────────────────────────────
+// A call, Flow or Dictate that switches engine or language mid-session, or
+// needs Whisper in place of a native engine, never fetches it unasked: the
+// session keeps the engine it has and this asks, where the session shows it.
+
+/** `engine` is the Whisper checkpoint for "stt", the worker's voice for "tts". */
+export interface DownloadAsk {
+  key: "stt" | "tts"; engine: string; lang: LanguageCode; files: WeightFile[];
+  /** "the Supertonic voice", "speech recognition for French". */
+  name: string;
+  /** What the session does until it is agreed to. */
+  meanwhile: string;
+  state: "ask" | "downloading" | "failed";
+}
+let ask: DownloadAsk | null = null;
+const declined = new Set<string>();
+const askListeners = new Set<(a: DownloadAsk | null) => void>();
+const setAsk = (a: DownloadAsk | null) => { ask = a; for (const l of askListeners) l(a); };
+export const downloadAsk = () => ask;
+export function onDownloadAsk(fn: (a: DownloadAsk | null) => void): () => void {
+  askListeners.add(fn);
+  return () => { askListeners.delete(fn); };
+}
+function askFor(a: Omit<DownloadAsk, "state">) {
+  if (declined.has(a.engine) || ask?.state === "downloading" || ask?.engine === a.engine) return;
+  setAsk({ ...a, state: "ask" });
+}
+/** Not now: the session goes on as it is, and is not asked again until the next one. */
+export function declineDownload() {
+  if (!ask || ask.state === "downloading") return;
+  declined.add(ask.engine);
+  setAsk(null);
+}
+/** Yes: downloads what was asked about and loads it, so the next utterance or sentence uses it. */
+export async function agreeToDownload(): Promise<void> {
+  const a = ask;
+  if (!a || a.state === "downloading") return;
+  agreeTo(a.files);
+  setAsk({ ...a, state: "downloading" });
+  try {
+    if (a.key === "tts") { await call({ type: "tts", text: "Hi.", engine: a.engine, lang: a.lang }, undefined, 0); voicesLoaded.add(a.engine); }
+    else { await call({ type: "stt", audio: new Float32Array(16000), lang: a.lang, model: a.engine }, undefined, 0); whisperLoaded = a.engine; }
+    if (ask?.engine === a.engine) setAsk(null);
+  } catch (e) {
+    log.warn("models", `${a.name} download:`, e);
+    if (ask?.engine === a.engine) setAsk({ ...a, state: "failed" });
+  }
+}
 
 /** The STT variant this session really uses: the selection, or Whisper once it
  *  failed (Whisper speaks every curated language). */
@@ -490,14 +556,24 @@ export const timedOn = (final: StreamedFinal, audio: Float32Array, lang: Languag
  *  caption giving way to the final); it rejects and never falls back. Whisper
  *  times no words here: its word timestamps need another export of every
  *  checkpoint and cost 40% more decoding (tiny.en on CPU, 2026-09-25). */
-export async function stt(audio: Float32Array, signal?: AbortSignal): Promise<Heard> {
+export async function stt(audio: Float32Array, signal?: AbortSignal, strict = false): Promise<Heard> {
   const engine = activeSttEngine();
   const lang = loadPipelineConfig().language;
   // The checkpoint follows the language, so a switch mid-call swaps it on the next utterance.
-  const model = whisperCheckpoint(loadPipelineConfig().stt.whisperSize, lang, deviceTier());
+  let model = whisperCheckpoint(loadPipelineConfig().stt.whisperSize, lang, deviceTier());
   if (isNativeVariant(engine)) {
     try { return timedOn(await nativeStt(engine, lang, audio, model === whisperLoaded ? CALL_TIMEOUT_MS : COLD_FALLBACK_MS, signal), audio, lang); }
     catch (e) { signal?.throwIfAborted(); nativeSttFailed(engine, e); }
+  }
+  // A checkpoint not downloaded is asked about; a session keeps the one it holds meanwhile.
+  if (model !== whisperLoaded) {
+    const missing = await unagreed(whisperWeights(model, deviceTier()), agreed);
+    if (missing.length) {
+      if (!strict) askFor({ key: "stt", engine: model, lang, files: missing, name: `speech recognition for ${languageName(lang)}`,
+        meanwhile: whisperLoaded ? "Until then, it keeps listening with the model it has." : "Until then, what you say can't be heard." });
+      if (strict || !whisperLoaded) throw new ModelsNotDownloaded(missing);
+      model = whisperLoaded;
+    }
   }
   const m = await call<{ text: string }>({ type: "stt", audio, lang, model });
   whisperLoaded = model;
@@ -536,8 +612,10 @@ async function cloneTts(text: string, voice: string, speed?: number): Promise<{ 
   }
 }
 
-/** `engine` is a variant id (a browser engine's is its family's). */
-type TtsOpts = { engine?: string; voice?: string; speed?: number; lang?: LanguageCode };
+/** `engine` is a variant id (a browser engine's is its family's). `strict`
+ *  refuses a voice not downloaded instead of asking and keeping the current
+ *  one: a preview, not a call. */
+type TtsOpts = { engine?: string; voice?: string; speed?: number; lang?: LanguageCode; strict?: boolean };
 
 /** What really produced a piece of audio: `engine` is the one that ran, which is not `opts.engine`
  *  when `fallback` (a stand-in after a failure or an unspoken language). */
@@ -681,7 +759,21 @@ export async function tts(text: string, opts?: TtsOpts): Promise<{ audio: Float3
     opts = standIn;
     fallback = true;
   }
+  const voice = workerVoice(opts?.engine);
+  if (!voicesLoaded.has(voice)) {
+    const missing = await unagreed(voiceWeights(voice, deviceTier()), agreed);
+    if (missing.length) {
+      if (opts?.strict) throw new ModelsNotDownloaded(missing);
+      const current = [...voicesLoaded][0];
+      askFor({ key: "tts", engine: voice, lang: opts?.lang ?? "en", files: missing, name: `the ${familyName(voice)} voice`,
+        meanwhile: current ? `Until then, replies keep the ${familyName(current)} voice.` : "Until then, replies go unspoken." });
+      if (!current) return { audio: new Float32Array(0), sampleRate: 24000 };
+      opts = { engine: current, speed: opts?.speed, lang: opts?.lang };
+      fallback = true;
+    }
+  }
   const m = await call<{ audio: Float32Array; sampleRate: number }>({ type: "tts", text, engine: opts?.engine, voice: opts?.voice, speed: opts?.speed, lang: opts?.lang });
+  voicesLoaded.add(workerVoice(opts?.engine));
   return { audio: m.audio, sampleRate: m.sampleRate, source: { route: "worker", engine: opts?.engine, fallback } };
 }
 
