@@ -1,7 +1,7 @@
 # Dictate
 
-Voice typing into any text box. Hold a key, talk, let go: your words are typed
-at the cursor. It runs on this machine. No AI, nothing spoken back, unless you
+Voice typing into any text box. Double-tap a key to open it, talk, and your
+words are typed at the cursor. It runs on this machine. No AI, nothing spoken back, unless you
 turn on AI polish: the speech engine writes down what you said, rules on this
 machine tidy it, and ol-input types it. It works the same on macOS, Windows and
 Linux.
@@ -14,7 +14,7 @@ answers out loud and can act for you. Dictate only types what you say.
 - [The orb](#the-orb)
 - [Cleanup](#cleanup)
 - [AI polish](#ai-polish)
-- [Command mode](#command-mode)
+- [Edit by voice](#edit-by-voice)
 - [Words: dictionary and snippets](#words-dictionary-and-snippets)
 - [Spoken commands](#spoken-commands)
 - [History](#history)
@@ -32,24 +32,24 @@ behaves is in Settings > Dictate, and nothing is in both places.
  Dictate's home (use)                     Settings > Dictate (configure)
  ─────────────────────                    ──────────────────────────────
  Dictate is on / off   (the switch)       "Dictate is on. Turn it off in Dictate."
- Ready, or the fix that is missing        Basics: keys, cleanup, AI polish + tone,
+ Ready, or the fix that is missing        Basics: trigger, cleanup, AI polish + tone,
  how to start, with your keys                     who answers, shared settings,
  History: search, copy, insert again,             history: how long, Clear all
           delete, Show more               Words: dictionary, snippets
- Settings ›                               Commands: command key, spoken commands
+ Settings ›                               Commands: edit by voice, spoken commands
 ```
 
 ![Dictate's home](../assets/dictate-home.png)
 
 - **The switch**: **Dictate is on** or **Dictate is off**. The tray (menu bar)
   menu has the same switch: **Turn Dictate on** or **Turn Dictate off**, under
-  a line that says how it stands (**Dictate is on · Hold Right ⌥**, **Dictate
+  a line that says how it stands (**Dictate is on · Double-tap ⌥**, **Dictate
   needs permission**, **Dictate stopped listening**).
 - **Status**, while it is on: **Ready**, or buttons for what is missing
   (**Allow microphone**, **Allow Accessibility**, or **Allow input access** on
   Windows and Linux), or why the key listener stopped.
-- **How to start**, in your own keys: hold the key, double-tap for hands-free,
-  and the command key with text selected.
+- **How to start**, in your own keys: double-tap to open and close, how you
+  talk inside, and editing a selection by voice.
 - **History**: every dictation kept, newest first by day, with a search once
   there are more than 8, **Copy**, **Insert again** (back into the window it
   came from while that window is open and a text box there has the cursor,
@@ -60,31 +60,67 @@ behaves is in Settings > Dictate, and nothing is in both places.
 The first time, the home walks you through it in two cards, skippable:
 **Voice typing, no AI** (what it is, the switch, and anything the system still
 has to allow, unless Welcome already asked) and **Try it here**, a text box on
-the page to hold the key over. Dictation into OpenLive's own window is typed by
+the page to dictate into. Dictation into OpenLive's own window is typed by
 Electron itself, so the box works the same on every platform. **Done** or
 **Skip** ends it for good.
 
 ## Starting and stopping
 
 ```
- hold Right Alt ──▶ talk ──▶ let go ──▶ cleaned up ──▶ typed at the cursor
-                                         (on device)
- tap, tap Right Alt ──▶ hands-free: every pause types ──▶ tap once to stop
+ double-tap Option ──▶ Dictate is open ──▶ talk ──▶ cleaned up ──▶ typed at the cursor
+ (Alt off macOS)              │                       (on device)
+                              ├ Hands-free:   every pause types what came before it
+                              └ Push to talk: hold the key, talk, let go; each hold types
+ double-tap again, "stop dictating", or Close after silence ──▶ closed
 ```
 
-| Way in | What it does |
-|---|---|
-| Hold the key (Right Option ⌥ on macOS, Right Alt elsewhere) | Push to talk. Letting go types what you said. A quick tap types nothing. |
-| Double-tap the key | Hands-free: each finished sentence is typed as you go. One more tap stops it. |
-| The mic button above Flow's orb | Hands-free on. While it is on, the button is a **Hands-free** badge; click it to stop. |
-| Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It starts once Flow's reply ends. |
+Dictate is a session, opened and closed the same way Flow is. How you talk
+inside it is one setting for Flow, Dictate and calls alike, in Settings >
+General > **How you talk**:
 
-Dictate is off until you turn it on, on its home or from the tray. The key is watched,
-never swallowed: it still reaches the app in front. A key pressed on top of it
-(Right Alt as AltGr typing a character) cancels the hold. On Windows, holding
-Alt or Win for Dictate sends an inert key with it, so letting go does not open
-the app's menu bar or the Start menu. Shift with the key is kept for command
-mode (below).
+- **Hands-free** (the default): just talk. Each finished sentence is typed
+  as you go.
+- **Push to talk**: hold the push to talk key (Fn on macOS, Right Ctrl on
+  Windows and Linux), talk, let go. Letting go types what you said; a quick tap
+  types nothing. The microphone is open only while the key is down.
+
+| Way in or out | What it does |
+|---|---|
+| Double-tap Option ⌥ on macOS, Alt elsewhere (either side) | Opens Dictate; the same double tap closes it. |
+| The mic button above Flow's orb | Opens Dictate. While it is open the button is a badge (**Hands-free**, or **Hold** and the key while push to talk waits for it); click it to close. |
+| Ask Flow: "turn on dictation" | Flow's `set_dictation` tool. It opens once Flow's reply ends. |
+| Say "stop dictating" | Types what came before it, then closes. |
+| **Close after silence** | Nothing said for that long (30 sec by default; 90 sec, 5 min or Never) closes it. In push to talk, a stretch with no hold counts as silence. |
+
+Esc never closes Dictate: it always goes to the app in front. Every key is
+yours to change in Settings > General, each with **Reset**; see
+[Keys](#keys). Dictate is off until you turn it on, on its home or from the
+tray. The keys are watched, never swallowed: they still reach the app in
+front. A key pressed on top of the push to talk key (Right Alt as AltGr
+typing a character) cancels the hold. On Windows, holding Alt or Win sends an
+inert key with it, so letting go does not open the app's menu bar or the
+Start menu.
+
+### Keys
+
+- **Open Flow**, **Open Dictate** and **Push to talk** each have a picker in
+  Settings > General: **Change** takes the next key pressed alone, **Esc** or
+  Tab gives up, **Reset** goes back to the default. A change applies at once,
+  no restart.
+- A double-tap key is one modifier (Control, Option or Alt, Shift, Command or
+  Win), on either side or one side, or F13 to F24. Push to talk is one key
+  that types nothing: one side of a modifier, Fn on macOS, or F13 to F24.
+- No two of them share a physical key. Where push to talk holds one side of a
+  double-tap key (Right Ctrl beside Flow's Ctrl, say), that double tap uses the
+  other side only while you talk in push to talk, and its picker says so. A key
+  that would leave another with none is refused, with the reason.
+- **Fn on macOS**: holding Fn also runs whatever the system does on a press of
+  🌐 (switch the input source, Emoji & Symbols, macOS dictation). Settings
+  says so and links to Keyboard settings, where **Press 🌐 key to** can be set
+  to Do Nothing. A keyboard without Fn needs another key.
+- **AltGr**: on Windows and Linux, Right Alt types characters on many layouts
+  (German, French, Polish and more). Dictate's default double tap then uses
+  Left Alt only, and Right Alt as the push to talk key carries a warning.
 
 ## The orb
 
@@ -93,13 +129,14 @@ state uses.
 
 | State | Colour | Moves like |
 |---|---|---|
-| Armed, hands-free and waiting | `#93A65A` | Flow idle |
+| Open and waiting | `#93A65A` | Flow idle |
 | Listening | `#C6F135` | Flow listening, riding your voice |
 | Cleaning up, rewriting and typing | `#E2F04A` | Flow thinking |
 
 Right above the orb, in the mic button's place, a badge says how it is
-listening: the key and **Hold** while you hold it, **Hands-free**
-with a stop square while hands-free is on. The mic, the badges and the line
+listening: **Hands-free**, **Hold** and the key while push to talk waits for
+it, **Listening** while you hold it, and **Editing selection** while what you
+say will rewrite a selection. Each has a stop square that closes Dictate. The mic, the badges and the line
 above them fade into one another rather than popping. Above the badge, one line:
 
 ```
@@ -109,13 +146,13 @@ above them fade into one another rather than popping. Above the badge, one line:
  done         ✓ 6 words              [Undo]
 ```
 
-The first press after a while, or after launch, opens the microphone and
-starts the speech engine, which takes a moment: the line says **Getting
-ready**, and you can talk straight away. Everything said from the key going
-down is kept, shown on the line as soon as the engine is up, and written down
-on release. After each dictation the microphone stays open, muted, for 30
-seconds, so the next hold is up at once; then it closes (on macOS the orange
-dot goes). Turning Dictate off, or Flow taking over, ends that wait at once. Words it heard but could
+Opening Dictate starts the speech engine, which takes a moment the first
+time: the line says **Getting ready**. Hands-free, the microphone opens with
+the session and closes with it (on macOS the orange dot goes). In push to
+talk it opens on each press and every track is stopped on the release, so the
+dot is on only while the key is down. A hold is recorded from the first sound
+the microphone gives, shown on the line once the engine has words, and
+written down on release. Words it heard but could
 not write down are said so on the orb (**Your words could not be written
 down.**), never dropped quietly. A hold with no words in it, only the room,
 types nothing and leaves the clipboard alone: the orb says **No words heard.**
@@ -124,7 +161,7 @@ show on Dictate's orb with Flow closed.
 
 A long sentence drops its oldest words so the newest stay in view. When the
 words land the line says **N words** with an **Undo** button, then the orb
-goes. Stopping hands-free gives the orb back at once. Undo does what "undo that" does, once, and is offered for five seconds or
+goes. Closing Dictate gives the orb back at once. Undo does what "undo that" does, once, and is offered for five seconds or
 until the next words start: OpenLive cannot tell when you type somewhere else,
 so it times out instead.
 
@@ -139,12 +176,10 @@ words from Electron directly, with no system events in between, and with no
 text box in focus there (or a disabled or read-only one) the words are copied
 instead, as anywhere else.
 
-Stopping hands-free puts things back as they were before it started. With Flow
-closed, the microphone goes quiet at once and the orb goes after the Undo
-offer, so talk after the stop never opens Flow. The same holds for talk right
-after a hold is let go: until the words are typed, Dictate keeps the
-microphone and drops it. With Flow open, Flow listens
-again. Either way, a sentence still being said or transcribed at the stop is
+Closing Dictate puts things back as they were before it opened. With Flow
+closed, the microphone closes at once and the orb goes after the Undo offer,
+so talk after the close never opens Flow. With Flow open, Flow listens again.
+Either way, a sentence still being said or transcribed at the close is
 dropped, not typed and not sent to Flow.
 
 ## Cleanup
@@ -210,25 +245,30 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
   follows, and a reply that opens with a code fence is held until it ends, so
   the fence is never typed.
 
-## Command mode
+## Edit by voice
 
-Select text, hold **Shift + Right Alt** (Shift + Right Option on macOS), say
-what to do, let go.
+Select text in any app, and with Dictate open, say what to change.
 
 ```
- hold ⇧ + key ──▶ "make this formal" ──▶ read the selection ──▶ brain ──▶ typed over it
+ select ──▶ talk: "make this formal" ──▶ still selected? ──yes──▶ brain ──▶ typed over it
+                                             │no
+                                             ▼
+                                   typed at the cursor, as dictation
 ```
 
-- The selection is read through the accessibility APIs (macOS AX, Windows UI
-  Automation, the X11 or Wayland primary selection). Where they cannot say, it
-  is copied with Cmd+C or Ctrl+C and your clipboard put back, as **Put my
-  clipboard back** says.
-- With nothing selected, what you ask for is written at the cursor.
+- The selection is read through the system's accessibility API only (macOS
+  AX, Windows UI Automation, AT-SPI on Linux), never by copying it, so your
+  clipboard is never touched to read it. It is read when you start talking
+  and again at the end: still selected, what you said is the instruction;
+  gone, it is typed as ordinary dictation. Apps that do not share their
+  selection that way, and Wayland, get your words typed.
+- While it applies, the orb's badge says **Editing selection**.
+- It needs Dictate's AI: whoever answers for AI polish (Settings > Dictate >
+  Basics > Who answers). Until one is set, what you say is typed over the
+  selection, and Settings > Dictate > Commands says **Needs Dictate's AI**.
 - A failure, or 45 seconds without an answer, changes nothing and says why.
 - A selection over 20,000 characters (or 64 KB once sent) is not sent: the orb
   says "Selection too long for a command."
-- The key is changeable in Settings > Dictate > Commands, and may not be
-  Dictate's own key. A double tap of it does nothing.
 
 ## Words: dictionary and snippets
 
@@ -262,7 +302,7 @@ words are typed, and Settings > Dictate says so.
 | "new line" | Shift+Enter: a line break that does not send in a chat box |
 | "new paragraph" | Shift+Enter twice |
 | "undo that" | Said alone: one Backspace per character Dictate typed last |
-| "stop dictating" | Hands-free only: types what came before it, then stops |
+| "stop dictating" | Types what came before it, then closes Dictate |
 
 "Undo that" only works while the cursor is still at the end of what Dictate
 typed, and an app that reformatted it (autocorrect, auto-indent) may be off by a
@@ -289,21 +329,20 @@ Settings > Dictate opens with one line saying whether Dictate is on, with a
 link to its home, where the switch is. Then three subtabs:
 
 - **Basics**
-  - **Hold to talk**: the key. **Change** takes the next key or combination you
-    press: a modifier on either side, Caps Lock, or F13 to F24, since any other
-    key would also type. On Windows and Linux a Right Alt key warns that some
-    layouts use it as AltGr and offers Right Ctrl, Caps Lock and F13.
+  - **Trigger**: the double tap that opens and closes Dictate, How you talk
+    and Close after silence, each linking to Settings > General, where they
+    are set for Flow and Dictate alike ([Keys](#keys)).
   - **Cleanup**: the five rules, with a live example of what they do.
   - **AI polish**: on or off, and its tone.
   - **Who answers**: **Same as Flow**, or **Its own**, for AI polish and
-    command mode alike. Plain dictation never uses it.
+    edit by voice alike. Plain dictation never uses it.
   - **Shared settings**: links to Typing at cursor (General), Voice and Speech
     engine.
   - **History**: how long to keep dictations, **Clear all**, and a link to the
     list on Dictate's home.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
   **Show all**) and snippets.
-- **Commands**: command mode's key and the spoken commands.
+- **Commands**: edit by voice (ready, or what it needs) and the spoken commands.
 
 Typing at cursor is shared with Flow, in Settings > General: paste or type it
 out, the Advanced timing, and **Put my clipboard back**. On (the default), what
@@ -314,65 +353,82 @@ clipboard.
 
 One microphone, one engine, one orb, so the two take turns:
 
-- Pressing Dictate's key while Flow is working or speaking stops that turn, then
-  dictates.
-- Flow's own double tap wins: hands-free Dictate stops and Flow listens.
-- Closing Flow closes Dictate with it.
+- Only one is open at a time. Opening Dictate closes Flow, stopping a turn
+  under way; Flow's own double tap closes Dictate and Flow listens.
+- Asked by Flow's `set_dictation` mid-turn, Dictate opens once that turn is over.
+- The push to talk key goes to whichever is open, and does nothing with both
+  closed (a call takes it then).
 - Dictate works with Flow closed. The orb comes up for it and goes again, and it
   does not count as a Flow session.
 
 ## Platform notes
 
 - **macOS**: the key needs Accessibility, as Flow's does.
+- **macOS**: push to talk defaults to Fn; see [Keys](#keys) for the 🌐
+  setting it wants.
 - **Windows**: Right Alt is AltGr on many layouts (German, French, Polish and
-  more). Pick another key there. In a console, a Ctrl+C sent to copy a
-  selection the system could not read interrupts the program instead, so
-  select text there before command mode.
+  more): see [Keys](#keys). Push to talk defaults to Right Ctrl.
 - **Linux**: the key listener reads `/dev/input` on X11 and Wayland alike, which
-  takes the `input` group. Right Alt is often AltGr (ISO Level 3). The
-  selection is the primary selection, which some apps keep after the
-  highlight is gone. Key presses (spoken commands, the copy) go through
-  `xdotool` on X11 and `ydotool`, with its daemon, on Wayland; new line in a
-  terminal runs the line.
+  takes the `input` group (`sudo usermod -aG input $USER`, then sign out and
+  back in); until then Settings says so, and a call's **Hold to talk** button
+  works without it. Right Alt is often AltGr (ISO Level 3). Edit by voice reads
+  the selection over AT-SPI, which Wayland apps rarely share, so there your
+  words are typed. Key presses (spoken commands) go through `xdotool` on X11
+  and `ydotool`, with its daemon, on Wayland; new line in a terminal runs the
+  line.
 
 ## Architecture (for developers)
 
 ```
- ol-input hook ──hold_start/hold_end/hold_cancel/start/stop──▶ owner renderer
-   (coordinator.rs: hold + double-tap,                           │
-    per binding)                                    createDictate (lib/dictate/run.ts)
+ ol-input hook ──double_tap / hold_start/hold_end/hold_cancel──▶ owner renderer
+   (coordinator.rs: toggle and hold                              │
+    roles, per binding)                      createTalk (lib/flow/talk.ts) ──▶ createDictate (lib/dictate/run.ts)
                                                                  │
  VoiceEngine (beginPtt / endPtt(now)) ──onUserText──▶ heard ──▶ cleanup (lib/dictate/cleanup.ts)
                                                                  │
                        dictionary, snippet, spoken command (lib/dictate/words.ts)
                                                                  │
-              AI polish / command mode ──▶ /api/dictate/rewrite ──▶ agent /dictate (services/agent/src/dictate)
+              AI polish / edit by voice ──▶ /api/dictate/rewrite ──▶ agent /dictate (services/agent/src/dictate)
                                                                  │
                                          insertBegin/Push/End ──▶ ol-input (paste or type)
-                                         keys / copySelection ──▶ ol-input (spoken commands, command mode)
+          keys / accessibleSelection ──▶ ol-input (spoken commands, edit by voice)
                                                                  │
                                            /api/dictate/history ──▶ flow-store dictations.jsonl
 ```
 
-- **Key**: `native/ol-input/src/coordinator.rs`. A binding registered with
-  `hold` reports `hold_start` on the press, `hold_end` on a release past
-  `TAP_MAX`, and `hold_cancel` for a tap or a key on top; its double-tap is
-  `start`, and while that is open a single tap is `stop`. `notifyOpen` keeps
-  the toggle honest when the mic button or the tool opened it. Flow's off switch
-  mutes Flow's binding alone (`suspendHook("flow")`).
+- **Keys**: `native/ol-input/src/coordinator.rs`. Three bindings: Flow's and
+  Dictate's with the `toggle` role report `double_tap`, direction-free, and
+  the push to talk key with the `hold` role reports `hold_start` on the press,
+  `hold_end` on a release past `TAP_MAX`, and `hold_cancel` for a tap or a
+  key on top. A toggle binding never shares a physical key with the hold one:
+  in push to talk main registers it narrowed to the other side (`narrowToggle` in
+  `packages/flow-store`). `createTalk` keeps which session is open, latches a
+  hold to whoever had it at its start, and runs Close after silence. Flow's
+  off switch mutes Flow's binding alone (`suspendHook("flow")`).
 - **Routing**: `useFlowOwner` hands every finished utterance to Dictate first.
   While Dictate is active it takes it, so the sentence never reaches
   `flowText`, the brain or the voice.
-- **Release**: `VoiceEngine.endPtt(true, lateMs)` ends the segment on the next
-  quiet frame instead of after the trailing silence, and says how the hold
-  ended: `heard`, `silent` (no speech, or only what speech-to-text drops as
-  noise) or `lost` (heard, not written down).
-- **Cold start**: a hold that opens the microphone starts the engine with
-  `start(stream, true)`, which records the stream at 16 kHz from that moment
-  while the VAD loads. A hold on an engine that is already up starts one too
-  (`tapeHold`), so a word too short for the VAD is kept. While the hold lasts
-  the line is captioned from the tape, the first time as soon as the VAD is
-  up; a streaming engine whose socket is not live falls back to these batch
+- **Microphone**: `VoiceEngine.start(open)` takes a function that opens the
+  microphone, not a stream: the VAD's `getStream`/`resumeStream` call it and
+  its `pauseStream` stops every track, so a paused VAD holds no device. In
+  push to talk the gate keeps the VAD paused between holds; `beginPtt` starts
+  it, which opens the device, and the hold is taped (16 kHz) from the stream
+  that start leaves open. vad-web's start and pause race across the device's
+  open, so the engine runs them one after another (`micOps`). Measured on an
+  M-series Mac (Electron, AEC on or off alike): `getUserMedia` resolves in
+  about 105 ms, the first frame lands at about 115 ms and the first non-zero
+  sample at 150 to 300 ms (median 280 ms) after the press; a warm
+  AudioContext does not shorten it. Sound before that is not there to keep,
+  so a word begun on the very press can lose its first consonant; one begun a
+  beat later, as most are, is whole.
+- **Release**: `VoiceEngine.endPtt(true, lateMs)` cuts the tape where the key
+  went up and, with the gate on, pauses the VAD at once (its segment in
+  progress dropped: the tape has all of it) and stops every track once the
+  tape has its last frames, at most 300 ms later and usually one 64 ms
+  buffer. It says how the hold ended: `heard`, `silent` (no speech, or only
+  what speech-to-text drops as noise) or `lost` (heard, not written down).
+- **Tape**: while the hold lasts the line is captioned from the tape; a
+  streaming engine whose socket is not live falls back to these batch
   captions. On release the tape, cut where the key went up, is checked for
   speech first (`lib/live/tapeSpeech.ts`): the VAD's own Silero weights, in a
   session of their own, at the pipeline's speech threshold. With no run of 3
@@ -382,17 +438,11 @@ One microphone, one engine, one orb, so the two take turns:
   miss its start. A single "yes", "ok" or "thanks" runs 6 frames or more and
   noise none (measured with the fixtures in `lib/live/fixtures`). Where that
   model cannot load, the old rule decides: the tape is transcribed when it is
-  louder than the room. The same release ends a hold the double-tap turns
-  into hands-free, so its first moment of room sound is not typed either.
-- **Warm microphone**: `createDictate` asks the owner to close the microphone
-  (`micIdle`) `MIC_WARM_MS` (30 s) after it last let go of it, unless a press
-  or Flow took it back first.
+  louder than the room.
 - **Tool**: `set_dictation` (`services/agent/src/capabilities/text.ts`) is
   offered wherever a session has `dictate`, which Flow's does through the
   `flow_dictate` bridge op. The registry serves the same tool to API brains and,
   over OpenLive's MCP server, to coding agents.
-- **Command key**: a second binding, `dictate_command`, registered with
-  `hold` like Dictate's. Both keys down at once is command mode.
 - **Rewrite**: `services/agent/src/dictate/rewrite.ts`. API mode streams the
   provider with `tools: []`; a coding agent is an `AcpAgent` with Dictate's own
   preamble, no MCP servers, the registry's `acp.toolless` launch and a
@@ -414,12 +464,12 @@ One microphone, one engine, one orb, so the two take turns:
   and TextPattern; AT-SPI role and EDITABLE through python3's GObject bindings,
   given up on after 800 ms). The verdicts are pure functions in
   `native/ol-input/src/focus.rs`; `null` means it could not tell, and types.
-- **Stop**: Dictate's `release` port drops what the engine is still hearing
-  or transcribing (`VoiceEngine.discard()`) and, with Flow closed, mutes it
-  until the next press.
-- **Keys**: ol-input's `keypress(keys, times)` repeats the last key with the
-  modifiers held (one call for "undo that"), and `copySelection(timing)` sends
-  the copy chord with a marker on the clipboard, so an app that copies nothing
-  is told apart from one that copied what was there.
+- **Close**: Dictate's `release` port drops what the engine is still hearing
+  or transcribing (`VoiceEngine.discard()`) and, with Flow closed, stops the
+  engine, which stops every microphone track.
+- **Selection and keys**: ol-input's `accessibleSelection()` reads the
+  selection through the accessibility API alone (`""` for none, null where it
+  cannot be read that way), and `keypress(keys, times)` repeats the last key
+  with the modifiers held (one call for "undo that").
 - **Settings**: `dictate` and `insertion.restoreClipboard` in Flow's config
   (`packages/flow-store`); the history in `packages/flow-store/src/dictations.ts`.

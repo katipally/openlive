@@ -1,6 +1,6 @@
 # OpenLive privacy policy
 
-Last updated: 2026-09-30.
+Last updated: 2026-10-03.
 
 This page covers the anonymous usage data the OpenLive desktop app can send to the project. It is written to be read, not skimmed past. The exact list of every event and field is in [docs/TELEMETRY.md](TELEMETRY.md), and the two pages are kept in step.
 
@@ -41,6 +41,13 @@ Every field is a label from a fixed list, true or false, a capped number or an a
 - Model ids, error messages, stack traces, logs.
 - Your location. See [Location](#location).
 - Anything that would identify you as a person, such as an account, because OpenLive has no account.
+
+## The microphone and your selection
+
+These stay on your computer whatever the sharing setting, and are here so you know when OpenLive reads them.
+
+- **The microphone** is open only while Flow, Dictate or a call is. In Push to talk (Settings > General > How you talk) it is open only while you hold the key or the Hold to talk button, and every track is stopped when you let go, so the system's microphone indicator is off between holds. Hands-free, it stays open while the session does.
+- **Selected text**, for editing it by voice, is read through the system's accessibility API only. OpenLive never copies a selection to read it, so your clipboard is not touched for it. Where an app does not share its selection that way, your words are typed instead.
 
 ## Why
 

@@ -32,7 +32,7 @@ say into the text box in front of you, with no AI and nothing spoken back.
 
 | Way in | What it does |
 |---|---|
-| Double tap `Control` (`Ctrl` on Windows and Linux) | Opens Flow. The same gesture closes it. |
+| Double tap `Control` (`Ctrl` on Windows and Linux), either side | Opens Flow. The same gesture closes it. The key is yours to change. |
 | Tray / menu bar > **Start Flow** | Opens Flow, or starts a fresh session if Flow is already open. Enabled only when Flow is ready. |
 | **Flow is on** on Flow's home | On/off switch for the key listener. Off closes Flow and ignores the gesture until you turn it back on, here or from the tray, and stays off when OpenLive restarts. Settings > Flow says which it is and links here. |
 | Flow tab in the OpenLive window | Home for Flow: the switch, readiness, who answers, and your session history. |
@@ -41,12 +41,14 @@ The tray (menu bar) menu is short:
 
 ```
  Flow is ready  ·  Double-tap ⌃       status, in plain words
- Dictate is on  ·  Hold Right ⌥        Dictate's, the same way
+ Dictate is on  ·  Double-tap ⌥        Dictate's, the same way
  ─────────────────────────────
  Open OpenLive
  Start Flow
  Turn Flow off                        the switch on Flow's home
  Turn Dictate off                     the switch on Dictate's home
+ How you talk  ▸  ◉ Hands-free        the same choice as Settings > General
+                  ○ Push to talk  ·  Hold Fn
  Settings…                    ⌘,
  ─────────────────────────────
  Quit OpenLive
@@ -59,13 +61,31 @@ on Windows and Linux), **Flow is open**, **Flow needs permission** (with
 switch on Flow's home is off). Dictate's line works the same way; see
 [Dictate](DICTATE.md#dictates-home).
 
-The trigger is fixed to the double `Control` tap; there is no setting to rebind it.
-Flow only listens to the keyboard for that key, has no wake word, and opens the
-microphone only while Flow is open. Once open, you just talk: Smart-Turn decides
-where each sentence ends, and Flow waits for the next one. It closes on the gesture,
-on the orb's close button, or after the **Stay open after the last reply** time
-with nothing said. It also closes when the computer sleeps, and by default when
-the screen locks (macOS and Windows); see [Settings](#settings).
+Flow only listens to the keyboard for its keys, has no wake word, and opens
+the microphone only while Flow is open. How you talk once it is open is one
+setting for Flow, Dictate and calls, in Settings > General > **How you talk**
+(also in the tray):
+
+```
+ open ──▶ Hands-free:   just talk; Smart-Turn decides where each sentence ends
+      └─▶ Push to talk: hold Fn (Right Ctrl on Windows and Linux) while you talk;
+                        letting go ends what you said. The microphone is on
+                        only while the key is down.
+```
+
+It closes on the gesture, on the orb's close button, or after **Close after
+silence** (30 sec by default; 90 sec, 5 min or Never) with nothing said and
+nothing being answered; in push to talk, a stretch with no hold counts as
+silence. Esc never closes it: Esc always goes to the app in front. It also
+closes when the computer sleeps, and by default when the screen locks (macOS
+and Windows); see [Settings](#settings). Opening Flow closes
+[Dictate](DICTATE.md), and opening Dictate closes Flow.
+
+Every key is editable in Settings > General: **Open Flow** (double-tap
+Control), **Open Dictate** (double-tap Option or Alt) and **Push to talk**,
+each with a picker, a clash check and **Reset**, and a change applies at once.
+The rules (one side kept for push to talk, Fn and the 🌐 setting on macOS,
+AltGr on Windows and Linux) are in [Dictate's Keys](DICTATE.md#keys).
 
 Flow belongs to the machine, not to the OpenLive window. Closing the window (or
 `Cmd+Q`, which closes to the menu bar) keeps Flow running; only the tray's **Quit
@@ -91,9 +111,10 @@ transcript, not on the orb.
 | Error | Dark red, with a failure card | The turn failed; the card says why. |
 
 **Hover controls.** Point at the orb and three buttons appear around it: close
-Flow on the left, open OpenLive on the right, and above it the mic, which turns
-hands-free [Dictate](DICTATE.md) on. While it is on, the mic becomes a
-**Hands-free** badge, always shown, that turns it off.
+Flow on the left, open OpenLive on the right, and above it the mic, which opens
+[Dictate](DICTATE.md). While Dictate is open, the mic becomes a badge, always
+shown, that says how it listens and closes it. In push to talk, a badge over
+the orb says which key to hold while Flow waits for it.
 
 ![Hover controls](../assets/flow-orb-hover.png)
 
@@ -217,11 +238,11 @@ Flow is on, with a link to Flow's home, where the switch is.
 
 | Section | Setting | Options |
 |---|---|---|
-| Trigger | Hotkey | The double tap, shown as keycaps, with a note when the key listener stopped |
+| Trigger | Open and close | The double tap, shown as keycaps, with a note when the key listener stopped; set in General |
+| | How you talk, Close after silence | Links to Settings > General, shared with Dictate and calls |
 | Who answers | Who answers in Flow | Same as default, or Its own: your API key, or an installed coding agent (model and effort under Advanced) |
 | Voice | Say replies out loud | On / off |
 | | Wait before answering | Patient, Even, Quick |
-| | Stay open after the last reply | 90 sec, 5 min, 30 min |
 | Go quiet when | A meeting app is in front / Another app is using the mic / Do Not Disturb is on | Replies switch to text for that turn |
 | Access | Microphone, Accessibility, Screen, Computer use (macOS, Linux), Act on this machine | Status as a dot and a word, the button to grant or withdraw, and the system settings page under ⋯ |
 | Typing at cursor | Paste or type, clipboard | Goes to Settings > General > Typing at cursor, shared with Dictate |
@@ -271,7 +292,7 @@ machine can actually do, and Flow says when it cannot rather than guessing.
 
 | | macOS | Windows | Linux (X11) | Linux (Wayland) |
 |---|---|---|---|---|
-| Double tap trigger | Needs Accessibility | Yes | Needs the `input` group | Needs the `input` group |
+| Double tap trigger and push to talk key | Needs Accessibility | Yes | Needs the `input` group | Needs the `input` group |
 | Typing and clicking | Needs Accessibility | Yes, except into windows running as administrator | Needs one of `xdotool`, `ydotool`, `wtype`, `kwtype`, `dotool` | Same |
 | Screen capture | Needs Screen Recording | Yes (GDI) | Needs `grim`, `spectacle`, `gnome-screenshot`, `maim` or `import` | Same |
 | OCR | Vision | Windows OCR | Needs `tesseract` | Same |
@@ -324,6 +345,10 @@ PipeWire (installed by default on current GNOME and KDE), and pasting needs
 
 ## Troubleshooting
 
+- **Holding the push to talk key does nothing.** It works only with Flow or
+  Dictate open (or in a call), and only with **How you talk** set to **Push to
+  talk**. On macOS, Fn held may also switch the input source or open Emoji &
+  Symbols: set **Press 🌐 key to** to Do Nothing in Keyboard settings.
 - **The double tap does nothing.** Check the Flow tab: it should say **Flow is
   on**, with a **Ready** chip. **Flow is off** means its switch there is off;
   **Allow Accessibility** (**Allow input access** off macOS) means the grant is

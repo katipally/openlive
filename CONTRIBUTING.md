@@ -96,8 +96,8 @@ settings.json and connectors.json as they were).
   Flow opens on a double tap of F19, Dictate on F20, and push to talk holds F18,
   whatever the settings say, and a page may fire `openlive:flow-trigger`. Any other
   OpenLive running on the same machine (a `pnpm desktop:dev` build, say) listens to
-  Control and Option too, so synthesizing those would drive it as well; F18 to F20
-  reach only the build under test. Never set it in a shell profile: it overrides
+  its own keys too (Control, Option, and Fn or Right Ctrl, unless changed), so
+  synthesizing those would drive it as well; F18 to F20 reach only the build under test. Never set it in a shell profile: it overrides
   every key you picked.
 
 The UI's design system is one kit, `apps/web/src/components/ui` (import it from

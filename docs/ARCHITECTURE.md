@@ -1278,6 +1278,19 @@ uses its own tools, labelled by what they do: "Reading src/app.ts"). Device tool
 addon through the owner renderer and `flow-runtime.cjs` in the main process. Config
 and history live in `<home>/flow` via `packages/flow-store`.
 
+How you talk is one setting in Flow's config (`talk`: the mode, the three keys,
+Close after silence), shared by Flow, Dictate and calls. Main registers the keys
+on the ol-input hook at launch and on every change (`flow-input.cjs`): Flow's
+and Dictate's double taps (`toggle` role, default Control and Option/Alt, either
+side) and the push to talk key (`hold` role, default Fn on macOS, Right Ctrl
+elsewhere), a double-tap key narrowed to its other side in push to talk when
+the two share a physical key. The owner renderer's `createTalk`
+(`lib/flow/talk.ts`) keeps one session open at a time and routes each hold;
+with neither open, main sends the hold to a call. Esc is never bound. In push
+to talk `VoiceEngine` opens the microphone on the press and stops every track
+on the release, taping the hold from its first frame; see
+[DICTATE.md](DICTATE.md#architecture-for-developers).
+
 Full user and developer guide: [FLOW.md](FLOW.md).
 
 ## Telemetry (`apps/desktop/telemetry/`, `packages/shared/src/telemetry-schema.ts`)

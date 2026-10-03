@@ -133,7 +133,7 @@ Flow, the assistant for the whole machine:
 
 - **Summoned anywhere.** Double tap `Control` in any app, or pick Start Flow
   from the tray. A small orb rises over the dock and listens; the same gesture
-  closes it.
+  closes it. Talk hands-free, or hold a key while you talk.
 - **Acts on your machine.** Types at your cursor, opens apps and links, clicks,
   scrolls, reads the screen (screenshots and OCR), manages windows, and runs shell
   commands, checking the screen after every step.
@@ -157,9 +157,15 @@ you.
 ```
 
 - **Summon it.** Double tap `Control` (`Ctrl` on Windows and Linux) anywhere, or
-  tray > **Start Flow**. Hover the orb for close and open-OpenLive buttons. The
-  switch on Flow's home, or in the tray, turns it off and on, and a restart
+  tray > **Start Flow**. The same double tap, or **Close after silence**,
+  closes it; Esc never does. Hover the orb for close and open-OpenLive buttons.
+  The switch on Flow's home, or in the tray, turns it off and on, and a restart
   keeps it as you left it.
+- **How you talk.** One setting for Flow, Dictate and calls, in Settings >
+  General and the tray. **Hands-free**: just talk, and a pause ends what you
+  said. **Push to talk**: hold Fn on a Mac (Right Ctrl on Windows and Linux)
+  while you talk; the microphone is on only while the key is down. Every key
+  is yours to change there.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
   screen, move and close windows, run shell commands.
@@ -180,19 +186,21 @@ you.
   first, since it will receive screen content. Anonymous usage counts are separate:
   see [Privacy](#privacy).
 - **Setup.** On macOS, grant Microphone, Accessibility and Screen Recording in
-  Settings > Flow > Access. Windows and Linux have their own backends; Wayland
-  cannot deliver the global key, so use the tray there.
+  Settings > Flow > Access. Windows and Linux have their own backends; on
+  Linux the keys need the `input` group (X11 and Wayland alike), and until
+  then the tray opens Flow and a call's **Hold to talk** button works.
 
 ![Orb states](assets/flow-orb-states.png)
 
 The full guide, with every setting, failure card, platform detail, and the
 architecture, is in [docs/FLOW.md](docs/FLOW.md).
 
-**Dictate** is voice typing into any text box: hold Right Alt (Right Option on
-macOS), talk, let go, and your words are typed at the cursor. It runs on this
-machine: no AI and nothing spoken back, unless you turn on AI polish.
-Double-tap for hands-free. Turn it on, and find everything you dictated, on
-Dictate's home; the tray has the same switch. See [docs/DICTATE.md](docs/DICTATE.md).
+**Dictate** is voice typing into any text box: double-tap Option (Alt on
+Windows and Linux), talk the way you set in **How you talk**, and your words
+are typed at the cursor. It runs on this machine: no AI and nothing spoken
+back, unless you turn on AI polish. Select text and say what to change to edit
+it by voice, with Dictate's AI. Turn it on, and find everything you dictated,
+on Dictate's home; the tray has the same switch. See [docs/DICTATE.md](docs/DICTATE.md).
 
 ## Screenshots
 
