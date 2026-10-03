@@ -4,7 +4,7 @@ import assert from "node:assert";
 import { test } from "vitest";
 import { LANGUAGE_CODES } from "@openlive/shared";
 import {
-  mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, browserModels, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
+  mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
   STT_FAMILIES, TTS_FAMILIES, CURATED_LANGUAGES, LANGUAGE_DEFAULTS, languageSupport, pickCompatible, chooseFamily, chooseVariant,
   defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig,
   type PipelineConfig,
@@ -358,15 +358,6 @@ test("workerTag: moving between native engines keeps the warm worker; browser we
   // A browser voice the agent runs loads nothing in the browser either.
   assert.equal(workerTag(cfg("whisper", "supertonic"), "webgpu", true), "webgpu:base:native");
   assert.equal(tagCached("webgpu:base-ml:supertonic", ["webgpu:base:supertonic"]), false);
-});
-
-test("browserModels: only what the worker downloads for the selected engines", () => {
-  const cfg = (stt: string, tts: string) => mergePipelineConfig({ stt: { engine: stt }, tts: { engine: tts } });
-  assert.deepEqual(browserModels(cfg("whisper", "kokoro")), ["speech", "voice", "turn-taking"]);
-  assert.deepEqual(browserModels(cfg("parakeet", "pocket")), ["turn-taking"]);
-  assert.deepEqual(browserModels(cfg("nemotron", "supertonic")), ["voice", "turn-taking"]);
-  assert.deepEqual(browserModels(cfg("whisper", "kitten")), ["speech", "turn-taking"]);
-  assert.deepEqual(browserModels(cfg("moonshine", "clone")), ["voice", "turn-taking"]); // a browser voice stays as the clone's fallback
 });
 
 test("a config counts as cached when every part it downloads was loaded before, on the same tier", () => {

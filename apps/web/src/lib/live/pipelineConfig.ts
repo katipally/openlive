@@ -455,17 +455,6 @@ export function tagCached(tag: string, loaded: string[]): boolean {
     && (tts === "native" || same.some((p) => p[2] === tts));
 }
 
-/** What the in-browser worker downloads for `c`, in the words the UI uses:
- *  turn-taking always, speech and voice only where no native engine replaces
- *  them (a cloned voice keeps a browser voice as its fallback). Pure. */
-export function browserModels(c: PipelineConfig): string[] {
-  return [
-    ...(isNativeVariant(c.stt.variant) ? [] : ["speech"]),
-    ...(isNativeVariant(c.tts.variant) ? [] : ["voice"]),
-    "turn-taking",
-  ];
-}
-
 const num = (x: unknown, d: number): number => (typeof x === "number" && Number.isFinite(x) ? x : d);
 const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
 

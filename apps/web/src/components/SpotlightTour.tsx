@@ -37,8 +37,6 @@ export const coverConcepts = (...c: TourConcept[]): void => useTourGate.setState
 
 export const tourSeen = (id: string): boolean => useOnboarding.getState().tours.includes(id);
 const markSeen = (id: string) => { if (!tourSeen(id)) useOnboarding.setState((s) => ({ tours: [...s.tours, id] })); };
-/** Forgets every tour, so each plays again the next time its screen shows. */
-export function resetTours(): void { useOnboarding.setState({ tours: [] }); }
 
 export function SpotlightTour({ id, steps, active = true }: { id: TourId; steps: TourStep[]; active?: boolean }) {
   const [show, setShow] = useState(false);
