@@ -1,16 +1,17 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { animate, stagger } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, Video, X, Folder, FolderOpen, Settings2, PanelLeft, Wrench, Loader2 } from "lucide-react";
 import { Button, Input, SidePanelHeader, sidePanel, Tooltip, notice } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
-import { hasWebGPU, type ModelProgress } from "@/lib/live/models";
-import { lobbyGap, useLobbyBlocked } from "@/lib/live/lobbyGap";
+import { hasWebGPU, voiceDownloadPlan, type ModelProgress } from "@/lib/live/models";
+import { lobbyGap, offerStep, useLobbyBlocked } from "@/lib/live/lobbyGap";
+import { aboutSize, listed, planModels, WEIGHTS_WHERE, type DownloadPlan } from "@/lib/live/weights";
 import { brainIdOf } from "@/lib/telemetryIds";
-import { loadPipelineConfig, isNativeVariant, browserModels } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, isNativeVariant } from "@/lib/live/pipelineConfig";
 import { missingEngines, engineName } from "@/lib/live/engineMenu";
 import { useNativeEngines, variantStatus, downloadEngine, NoticeDownload } from "@/components/settings/PipelineSettings";
 import type { AgentId } from "@/lib/live/liveClient";
@@ -57,8 +58,6 @@ export function Lobby(props: LobbyProps) {
   const qc = useQueryClient();
   const { data: engines } = useNativeEngines();
   const missing = missingEngines(voice, engines);
-  const downloads = [...browserModels(voice), ...missing.map((m) => engineName(m.id, engines))];
-  const plural = downloads.length > 1;
   const downloadAll = () => {
     onDownload();
     for (const m of missing) { const e = variantStatus(engines, m.id); if (e && !e.downloading) void downloadEngine(e, qc); }
@@ -142,6 +141,30 @@ export function Lobby(props: LobbyProps) {
     onStart();
   };
 
+  // Start asks before it downloads: when weights the call needs are not in the
+  // cache, it opens the offer (what, how big, where) instead of starting, and
+  // the call starts once the download agreed to there is done.
+  const [offer, setOffer] = useState<{ plan: DownloadPlan | null } | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const pressStart = async () => {
+    setOffer({ plan: null });
+    const plan = await voiceDownloadPlan();
+    if (plan.missing.length) return setOffer({ plan });
+    setOffer(null);
+    void handleStart();
+  };
+  const accept = () => { setAccepted(true); downloadAll(); };
+  const decline = () => { setOffer(null); setAccepted(false); };
+  useEffect(() => {
+    if (!accepted || downloading || !modelsDownloaded) return;
+    setAccepted(false);
+    setOffer(null);
+    void handleStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleStart is rebuilt each render; the download finishing is the trigger
+  }, [accepted, downloading, modelsDownloaded]);
+  const online = typeof navigator === "undefined" || navigator.onLine;
+  const step = offerStep({ open: !!offer, plan: offer?.plan ?? null, downloading, failed: accepted && !downloading && !modelsDownloaded && !!error, online });
+
   // Shown before the download too, so nobody fetches the models to only then learn
   // the brain cannot answer yet.
   const agentNotice = agentGap && (
@@ -155,27 +178,49 @@ export function Lobby(props: LobbyProps) {
       <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
     </button>
   );
-  const cta = downloading ? (
+  const engineRows = missing.map((m) => ({ name: engineName(m.id, engines), bytes: variantStatus(engines, m.id)?.sizeBytes ?? 0 }));
+  const offerText = (plan: DownloadPlan) => {
+    const names = [...planModels(plan), ...engineRows.map((e) => e.name)];
+    const size = aboutSize(plan.bytes === null ? null : plan.bytes + engineRows.reduce((a, e) => a + e.bytes, 0));
+    const what = listed(names);
+    return `${what[0]!.toUpperCase()}${what.slice(1)} ${names.length > 1 ? "models" : "model"}, downloaded once${size ? `: ${size}` : ". The size could not be read just now"}.`;
+  };
+  const cta = step === "downloading" ? (
     <div className="flex flex-col items-center gap-2">
       <p className="text-label font-medium text-muted-foreground">Downloading on-device AI…</p>
       <DownloadProgress pct={downloadPct} loaded={downloadLoaded} total={downloadTotal} models={downloadModels} />
     </div>
-  ) : !modelsDownloaded ? (
-    <div className="flex flex-col items-center gap-2">
-      <Button variant="primary" size="lg" onClick={downloadAll}>
-        {plural ? "Download AI models" : "Download AI model"}
-      </Button>
-      {agentNotice}
-      {keyNotice}
-      <p className="max-w-[17rem] text-caption text-faint">A one-time download of {downloads.length} small AI {plural ? "models" : "model"} ({downloads.join(", ")}) that {plural ? "run" : "runs"} fully on your device. Nothing is sent to a server.</p>
+  ) : step ? (
+    <div role="dialog" aria-label="Download the voice models" className="flex w-full max-w-[24rem] flex-col gap-3 rounded-lg bg-secondary p-4 text-left shadow-rim">
+      {step === "checking" ? (
+        <p className="flex items-center gap-2 text-label text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden /> Checking what this call needs…</p>
+      ) : (
+        <>
+          <p className="text-body font-medium text-foreground">
+            {step === "ask" ? "Download the voice models first?" : step === "offline" ? "You're offline" : "The download stopped"}
+          </p>
+          <p className="break-words text-label text-muted-strong">
+            {step === "ask" ? offerText(offer!.plan!)
+              : step === "offline" ? "The voice models download once before the first call. Connect to the internet, then try again."
+              : "Check the connection and try again. Nothing half-downloaded is kept."}
+          </p>
+          {step === "ask" && <p className="break-words text-caption text-faint">The call listens and speaks on this device. {WEIGHTS_WHERE}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="primary" onClick={step === "ask" ? accept : step === "failed" ? accept : pressStart}>
+              {step === "ask" ? "Download and start" : "Try again"}
+            </Button>
+            <Button variant="ghost" onClick={decline}>Cancel</Button>
+          </div>
+        </>
+      )}
     </div>
   ) : (
     <div className="flex flex-col items-center gap-2">
-      <Button variant="primary" size="lg" className="min-w-[12.5rem] max-w-full" onClick={handleStart} disabled={needFolder || !!agentGap || folderGap || keyGap}>
+      <Button variant="primary" size="lg" className="min-w-[12.5rem] max-w-full" onClick={pressStart} disabled={needFolder || !!agentGap || folderGap || keyGap}>
         Start
       </Button>
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
-          before Start — not as a confusing failure after. */}
+          before Start, and before any download: not as a confusing failure after. */}
       {agentNotice}
       {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
       {folderGap && (

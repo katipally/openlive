@@ -78,7 +78,7 @@ function ModelStatus({ removeKind }: { removeKind?: "whisper" | "kokoro" | "supe
   const cached = typeof window !== "undefined" && modelsCached();
   const download = async () => {
     setBusy(true);
-    try { await loadModels((p) => setPct(p.pct), "settings"); } catch (e) { log.error("models", e); toast("Model download failed. Check your connection and try again."); } finally { setBusy(false); }
+    try { await loadModels((p) => setPct(p.pct), "settings", true); } catch (e) { log.error("models", e); toast("Model download failed. Check your connection and try again."); } finally { setBusy(false); }
   };
   const remove = async () => {
     if (!removeKind) return;

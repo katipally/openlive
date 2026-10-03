@@ -1,5 +1,6 @@
 import type { ErrorClass } from "@openlive/shared";
 import type { FlowFailure, FlowSnapshot } from "./types";
+import { aboutSize, listed, WEIGHTS_WHERE } from "../live/weights";
 
 // Nothing silent. Every way Flow can be unable to do its job has a state with a
 // cause and exactly one thing the user can press, and each is derived from a
@@ -26,8 +27,10 @@ export interface FlowHealth {
   online: boolean;
   /** The on-device voice weights are already downloaded. */
   modelsCached: boolean;
-  /** What that download holds for the selected engines (browserModels). */
+  /** What that download holds (weights.ts planModels). */
   voiceModels: string[];
+  /** Its size from the hub's listing; null when that could not be read. */
+  downloadBytes: number | null;
 }
 
 const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes the input group: run `sudo usermod -aG input $USER`, sign out and back in, then try again.";
@@ -75,19 +78,35 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       actionLabel: "Try again",
     };
   }
-  if (!h.modelsCached) {
-    return {
-      code: "models_missing",
-      title: "The voice models are not downloaded yet",
-      detail: `Flow listens and speaks on-device, so it needs the ${listed(h.voiceModels)} ${h.voiceModels.length > 1 ? "models" : "model"} once.`,
-      actionLabel: "Download",
-    };
-  }
+  if (!h.modelsCached) return modelsOffer(h.voiceModels, h.downloadBytes);
   return null;
 }
 
-/** "a", "a and b", "a, b and c". */
-const listed = (xs: string[]): string => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0] ?? "";
+/** The download offer on the orb, for Flow and Dictate alike: what, how big and
+ *  where, with Download as the yes. Close is the no. */
+export function modelsOffer(models: string[], bytes: number | null): FlowFailure {
+  const size = aboutSize(bytes);
+  return {
+    code: "models_missing",
+    title: "Download the voice models first?",
+    detail: `Flow and Dictate listen on this device, so they need the ${listed(models)} ${models.length > 1 ? "models" : "model"} once${size ? `, ${size}` : ""}. ${WEIGHTS_WHERE}`,
+    actionLabel: "Download",
+  };
+}
+
+/** The offer, agreed to: how far the download is. Nothing to press but Close. */
+export function modelsDownloading(loaded: number, total: number): FlowFailure {
+  const size = aboutSize(total || null);
+  return { code: "models_missing", title: "Downloading the voice models", detail: `${total ? Math.round((100 * loaded) / total) : 0}%${size ? ` of ${size}` : ""}. Flow opens as soon as they are ready.` };
+}
+
+/** The download failed; trying again asks nothing new. */
+export const modelsFailed = (online: boolean): FlowFailure => ({
+  code: "models_missing",
+  title: online ? "The download stopped" : "You are offline",
+  detail: online ? "Check the connection and try again. Nothing half-downloaded is kept." : "The voice models download once. Connect to the internet, then try again.",
+  actionLabel: "Try again",
+});
 
 /** The provider's own sentence out of an `HTTP 400: {"error":{"message":...}}` body. */
 const said = (message: string): string =>

@@ -1,6 +1,6 @@
 // Main-thread facade over the model Web Worker, plus the routing to the native
-// engines on the local agent (/api/voice) when one is selected. Downloads happen ONLY when
-// loadModels() is called (on the user's click in the pre-call screen), reporting
+// engines on the local agent (/api/voice) when one is selected. Downloads happen ONLY
+// through a consented loadModels() (the person agreed to what and how big), reporting
 // an aggregate progress bar. Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
@@ -15,8 +15,9 @@ import { toast } from "@/lib/toast";
 import { log } from "@/lib/log";
 import { telemetry } from "../telemetry";
 import { sttFamilyOf, ttsFamilyOf } from "../telemetryIds";
+import { weightFiles, missingWeights, downloadPlan, type DownloadPlan, type ModelKey } from "./weights";
 
-export type ModelKey = "stt" | "tts" | "turn";
+export type { ModelKey } from "./weights";
 export type ModelProgress = { key: ModelKey; name: string; loaded: number; total: number };
 export type LoadProgress = { pct: number; loaded: number; total: number; models: ModelProgress[] };
 
@@ -103,21 +104,51 @@ export async function removeModel(kind: "whisper" | "kokoro" | "supertonic"): Pr
   return removed;
 }
 
-let loading: Promise<void> | null = null;
+let loading: { p: Promise<void>; consented: boolean } | null = null;
 
 /** What asked for the load, for the download's report. Joining an in-flight load adds nothing. */
 export type ModelsTrigger = TelemetryEventProps<"voice_models_result">["trigger"];
 
-export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start"): Promise<void> {
-  // In-flight guard: a silent background preload and the start() lazy-load must
-  // share ONE worker, not race to spawn two. Late callers join the same promise.
-  // Which voice the agent runs decides what the worker loads, so it is read first.
-  loading ??= agentCopy(loadPipelineConfig().tts.variant).then(() => loadWorker(onProgress, trigger)).finally(() => { loading = null; }); // free the guard so a post-reset reload can re-run
-  return loading;
+/** A load that would have downloaded weights nobody agreed to. */
+export class ModelsNotDownloaded extends Error {
+  constructor() { super("The voice models are not downloaded yet."); this.name = "ModelsNotDownloaded"; }
 }
 
-function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger): Promise<void> {
-  if (modelsMatchConfig()) return Promise.resolve();
+// The browser voice the worker loads: a cloned voice loads the one that stands
+// in for it in the language (none for Chinese); a voice the agent runs loads
+// nothing here until it fails.
+const browserTts = (cfg: ReturnType<typeof loadPipelineConfig>): string | null =>
+  isNativeVariant(cfg.tts.variant) || onAgent(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
+const neededWeights = () => { const cfg = loadPipelineConfig(); return weightFiles(cfg, deviceTier(), browserTts(cfg)); };
+
+/** What the current pipeline would download before it can run: nothing once
+ *  every weight is in the browser cache. Asks the hub for sizes, never for weights. */
+export async function voiceDownloadPlan(): Promise<DownloadPlan> {
+  await agentCopy(loadPipelineConfig().tts.variant);
+  return downloadPlan(neededWeights());
+}
+
+/**
+ * Loads the worker, downloading what is missing only when `consented`: the
+ * person was told what and how big, and said yes. Any other load whose weights
+ * are not all cached rejects with ModelsNotDownloaded instead of fetching.
+ */
+export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start", consented = false): Promise<void> {
+  // In-flight guard: a silent background preload and the start() lazy-load must
+  // share ONE worker, not race to spawn two. Late callers join the same promise,
+  // except a consented one behind a load that may refuse: it runs after.
+  if (loading && (loading.consented || !consented)) return loading.p;
+  const prior = loading?.p.catch(() => {}) ?? Promise.resolve();
+  // Which voice the agent runs decides what the worker loads, so it is read first.
+  const p: Promise<void> = prior.then(() => agentCopy(loadPipelineConfig().tts.variant)).then(() => loadWorker(onProgress, trigger, consented))
+    .finally(() => { if (loading?.p === p) loading = null; }); // free the guard so a post-reset reload can re-run
+  loading = { p, consented };
+  return p;
+}
+
+async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean): Promise<void> {
+  if (modelsMatchConfig()) return;
+  if (!consented && (await missingWeights(neededWeights())).length) throw new ModelsNotDownloaded();
   // A load whose weights are all in the browser cache is a warm-up, not a download: it reports only if it fails.
   const download = !modelsCached();
   const startedAt = Date.now();
@@ -198,12 +229,10 @@ function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigge
     const tier = deviceTier();
     console.info(`[live] on-device compute: ${tier === "webgpu" ? "WebGPU (fast)" : "WASM/CPU (slow — no navigator.gpu)"}`);
     const cfg = loadPipelineConfig();
-    // A cloned voice loads the browser voice that stands in for it in the language
-    // (none for Chinese); a voice the agent runs loads nothing here until it fails.
-    const browserTts = isNativeVariant(cfg.tts.variant) || onAgent(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
+    const voice = browserTts(cfg);
     w.postMessage({
       type: "load", device: tier, whisperModel: whisperCheckpoint(cfg.stt.whisperSize, cfg.language, tier), whisper: !isNativeVariant(cfg.stt.variant),
-      ttsEngine: browserTts, ttsNative: !browserTts, ttsVoice: cfg.tts.voice, lang: cfg.language,
+      ttsEngine: voice, ttsNative: !voice, ttsVoice: cfg.tts.voice, lang: cfg.language,
     });
     tw.postMessage({ type: "load" });
   }).then(() => settled("ok"), (e) => { settled("failed"); throw e; });

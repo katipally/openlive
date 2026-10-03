@@ -9,7 +9,7 @@ const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends.
  *  `selection`: what the accessibility API reads each time it is asked, the
  *  last one standing for every read after it. */
-function rig({ voided = false, mic = true as boolean | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = [""] as (string | null)[] } = {}) {
+function rig({ voided = false, mic = true as boolean | "" | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = [""] as (string | null)[] } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -101,6 +101,13 @@ describe("a session", () => {
     expect(r.last()?.note).toMatch(/microphone/);
     expect(r.dictate.isOpen()).toBe(false);
     await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(r.last()).toBeNull();
+  });
+
+  it("closes at once without a note when the owner asks something on the orb instead, as for a download", async () => {
+    const r = rig({ mic: "" });
+    expect(await r.dictate.setOpen(true)).toMatch(/download the voice models/);
+    expect(r.dictate.isOpen()).toBe(false);
     expect(r.last()).toBeNull();
   });
 

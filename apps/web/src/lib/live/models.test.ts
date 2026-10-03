@@ -39,6 +39,8 @@ beforeEach(async () => {
   toast.mockClear();
   vi.useFakeTimers();
   vi.stubGlobal("Worker", FakeWorker);
+  // Every weight already in the browser cache, unless a test says otherwise.
+  vi.stubGlobal("caches", { match: async () => new Response("") });
   vi.resetModules();
   models = await import("./models");
 });
@@ -379,6 +381,58 @@ describe("modelsCached", () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("localStorage", { getItem: (k: string) => store[k] ?? null, setItem: () => {} });
     expect(models.modelsCached()).toBe(true);
+  });
+});
+
+describe("download consent", () => {
+  const empty = () => vi.stubGlobal("caches", { match: async () => undefined });
+
+  it("never downloads weights nobody agreed to: a start, a warm-up or a fallback refuses instead", async () => {
+    empty();
+    for (const trigger of ["call_start", "launch_warm", "flow_open"] as const) {
+      await expect(models.loadModels(() => {}, trigger)).rejects.toBeInstanceOf(models.ModelsNotDownloaded);
+    }
+    await expect(models.stt(new Float32Array(1600))).rejects.toBeInstanceOf(models.ModelsNotDownloaded);
+    expect(posted).toEqual([]);
+  });
+
+  it("downloads once agreed to, and a refusing load in flight does not swallow the yes", async () => {
+    empty();
+    const refused = models.loadModels(() => {}, "launch_warm");
+    const agreed = models.loadModels(() => {}, "lobby_button", true);
+    await expect(refused).rejects.toBeInstanceOf(models.ModelsNotDownloaded);
+    await agreed;
+    expect(posted.filter((m) => m.type === "load")).toHaveLength(2); // the model worker and the turn worker
+    expect(models.modelsReady()).toBe(true);
+  });
+
+  it("warms up without asking when every weight is cached", async () => {
+    await models.loadModels(() => {}, "launch_warm");
+    expect(models.modelsReady()).toBe(true);
+  });
+
+  it("plans the download from what the cache lacks, sized by the hub's listing", async () => {
+    const held = "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx";
+    vi.stubGlobal("caches", { match: async (url: string) => (url === held ? new Response("") : undefined) });
+    const fetch = vi.fn(async (url: string) => Response.json(url.includes("Kokoro")
+      ? [{ path: "onnx/model_quantized.onnx", size: 134, lfs: { size: 92_361_116 } }]
+      : [{ path: "onnx/encoder_model_quantized.onnx", size: 23_201_320 }, { path: "onnx/decoder_model_merged_quantized.onnx", size: 53_692_803 }]));
+    vi.stubGlobal("fetch", fetch);
+    const plan = await models.voiceDownloadPlan();
+    expect(plan.missing.map((f) => f.key)).toEqual(["stt", "stt", "tts"]);
+    expect(plan.bytes).toBe(23_201_320 + 53_692_803 + 92_361_116);
+    expect(fetch.mock.calls.every(([url]) => String(url).startsWith("https://huggingface.co/api/models/"))).toBe(true);
+    // A file at the repo's root is listed without a trailing slash, which the hub answers with a redirect.
+    empty();
+    fetch.mockImplementation(async () => Response.json([{ path: "smart-turn-v3.2-cpu.onnx", size: 8_679_182 }]));
+    await models.voiceDownloadPlan();
+    expect(fetch.mock.calls.map(([url]) => url)).toContain("https://huggingface.co/api/models/pipecat-ai/smart-turn-v3/tree/main");
+  });
+
+  it("still plans, with no size, when the hub cannot be reached", async () => {
+    empty();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    expect(await models.voiceDownloadPlan()).toMatchObject({ bytes: null });
   });
 });
 

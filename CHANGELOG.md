@@ -430,6 +430,14 @@ Releases before 0.1.9 predate this file — see the
 - **Dictate's home says to turn it on first** when it is off, before holding
   its key, and the Access rows' Allow buttons line up whether or not a row has
   a ⋯ menu.
+- **The voice models never download without asking.** Pressing **Start** in
+  Chat with the on-device models missing used to begin a few hundred MB of
+  Whisper, Kokoro and Smart-Turn on its own. Start now asks first: which models,
+  their size read from the model host's own file list, and where they are kept,
+  with **Download and start** or **Cancel**, then the progress, and **Try
+  again** when offline or when the download stops. Flow and Dictate ask on the
+  orb the same way when they open with the models missing, and nothing else
+  (a launch warm-up, a fallback engine) downloads them unasked.
 - **A missing key or agent is named before the voice models download.** Chat's
   pre-call setup used to say so only once the download was done; Flow's home
   now says **no key yet** on its brain chip too, instead of a model name.

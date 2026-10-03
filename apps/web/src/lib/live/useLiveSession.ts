@@ -11,7 +11,7 @@ import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { labelJudgment } from "./addressee";
-import { loadModels, modelsReady, modelsCached, modelsMatchConfig } from "./models";
+import { loadModels, modelsCached, modelsMatchConfig } from "./models";
 import { kindMeta, toolActive } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
@@ -767,12 +767,12 @@ export function useLiveSession(chatId: string) {
   }, [set, handleUserText]);
 
   // Explicit, user-initiated model download (pre-call). Nothing downloads until
-  // the user asks — and because the worker stays warm, this only happens once.
+  // the user agrees in the lobby's offer, and because the worker stays warm, this only happens once.
   const download = useCallback(async () => {
-    if (modelsReady()) { set({ modelsDownloaded: true }); return; }
-    set({ downloading: true, downloadPct: 0, error: undefined });
+    if (modelsMatchConfig()) { set({ modelsDownloaded: true }); return; }
+    set({ downloading: true, modelsDownloaded: false, downloadPct: 0, error: undefined });
     try {
-      await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models }), "lobby_button");
+      await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models }), "lobby_button", true);
       set({ modelsDownloaded: true, downloading: false });
     } catch (e: any) {
       set({ downloading: false, error: `Couldn't download the AI models: ${String(e?.message ?? e)}` });

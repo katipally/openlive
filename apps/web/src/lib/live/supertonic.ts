@@ -4,8 +4,8 @@
 // Runs inside models.worker.ts and shares its onnxruntime-web module instance.
 import * as ort from "onnxruntime-web";
 import { Supertonic } from "@openlive/shared/speech/supertonic";
+import { hubUrl, SUPERTONIC_REPO } from "./weights";
 
-const HF = "https://huggingface.co/Supertone/supertonic-3/resolve/main";
 export const SUPERTONIC_SAMPLE_HINT = 44100; // real rate comes from tts.json
 
 type Progress = (p: { file: string; loaded: number; total: number }) => void;
@@ -52,7 +52,7 @@ async function cachedFetch(url: string, onProgress?: Progress): Promise<ArrayBuf
 /** Supertonic on onnxruntime-web, WebGPU first with WASM fallback as the
  *  reference example does, its files fetched once from the hub into the Cache API. */
 export function loadSupertonic(device: "webgpu" | "wasm", onProgress?: Progress): Promise<Supertonic> {
-  const bytes = (file: string, progress?: Progress) => cachedFetch(`${HF}/${file}`, progress);
+  const bytes = (file: string, progress?: Progress) => cachedFetch(hubUrl(SUPERTONIC_REPO, file), progress);
   return Supertonic.load(ort, {
     json: async (file) => JSON.parse(new TextDecoder().decode(await bytes(file))),
     model: async (file) => new Uint8Array(await bytes(file, onProgress)),

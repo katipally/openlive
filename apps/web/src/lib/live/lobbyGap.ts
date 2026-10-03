@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { TelemetryEventProps } from "@openlive/shared";
 import { telemetry } from "../telemetry";
 import { useLiveStore } from "./liveStore";
+import type { DownloadPlan } from "./weights";
 
 type Blocked = TelemetryEventProps<"lobby_blocked">;
 export type LobbyGap = Blocked["gap"];
@@ -15,14 +16,28 @@ export interface LobbyState {
   modelsMissing: boolean; agentGap: "install" | "signin" | null; needFolder: boolean; folderGap: boolean; keyGap: boolean; micGap: boolean;
 }
 
-/** The gap the lobby puts first, in the order it shows them. The download offer stands in for all the others. Pure. */
+/** The gap the lobby puts first, in the order it shows them. Whatever keeps Start
+ *  disabled comes before the download, which Start offers, so nobody fetches the
+ *  models to only then learn the call cannot start. Pure. */
 export function lobbyGap(s: LobbyState): LobbyGap | null {
-  if (s.modelsMissing) return "models_not_downloaded";
   if (s.agentGap) return s.agentGap === "install" ? "agent_not_installed" : "agent_signed_out";
   if (s.needFolder) return "folder_unset";
   if (s.folderGap) return "folder_missing";
   if (s.keyGap) return "no_api_key";
+  if (s.modelsMissing) return "models_not_downloaded";
   return s.micGap ? "no_mic" : null;
+}
+
+export type OfferStep = "checking" | "ask" | "offline" | "downloading" | "failed";
+
+/** What the download offer Start opened shows: null while it is closed. `plan`
+ *  is null until the cache and the hub's listing have been read. Pure. */
+export function offerStep(o: { open: boolean; plan: DownloadPlan | null; downloading: boolean; failed: boolean; online: boolean }): OfferStep | null {
+  if (o.downloading) return "downloading";
+  if (!o.open) return null;
+  if (!o.online) return "offline";
+  if (o.failed) return "failed";
+  return o.plan ? "ask" : "checking";
 }
 
 /** The gap to report for a lobby left at `now`: the one showing, if it had been for HELD_MS. Pure. */

@@ -313,9 +313,10 @@ Control, Control ─▶ orb ─▶ voice loop ─▶ Flow socket ─▶ brain �
 **Just use it:** grab the installer from the
 [latest release](https://github.com/katipally/openlive/releases/latest), open the app,
 paste a model key (or pick the coding agent you already use — install/sign in from
-Settings → Agents if needed), and start a call. The voice models download from
-Hugging Face the first time you talk — roughly 200 MB with Kokoro, more with
-Supertonic or a bigger Whisper — and are cached after that.
+Settings → Agents if needed), and start a call. The first Start asks before the voice models download from
+Hugging Face, with their size (roughly 200 MB with Kokoro, more with
+Supertonic, a bigger Whisper or WebGPU's full-precision weights), and they are
+cached after that.
 
 **Build it from source:**
 

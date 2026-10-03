@@ -12,6 +12,7 @@ import * as ort from "onnxruntime-web";
 import type { Supertonic } from "@openlive/shared/speech/supertonic";
 import { loadSupertonic } from "./supertonic";
 import { whisperMaxTokens } from "./pipelineConfig";
+import { KOKORO_REPO } from "./weights";
 import { trimSilence, KEEP_S } from "@openlive/shared/speech/trim";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
@@ -31,7 +32,6 @@ const sttIsMultilingual = (model: string) => !model.endsWith(".en");
 // transformers.js split (fp16 encoder + q4 decoder) keeps it ~1.6 GB on disk.
 const sttDtype = (model: string, dtype: string) =>
   model.includes("large-v3-turbo") ? { encoder_model: "fp16", decoder_model_merged: "q4" } : dtype;
-const TTS_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "af_heart";
 
 type Device = "webgpu" | "wasm";
@@ -63,7 +63,7 @@ async function ensureWhisper(id: string, progress_callback?: (p: any) => void): 
 const pinned = (lang: string) => (asrMultilingual ? { language: lang, task: "transcribe" } : undefined);
 function ensureKokoro(): Promise<void> {
   if (tts) return Promise.resolve();
-  kokoroLoading ??= KokoroTTS.from_pretrained(TTS_MODEL, { device: deviceTier, dtype: deviceTier === "webgpu" ? "fp32" : "q8", progress_callback: taggedTts })
+  kokoroLoading ??= KokoroTTS.from_pretrained(KOKORO_REPO, { device: deviceTier, dtype: deviceTier === "webgpu" ? "fp32" : "q8", progress_callback: taggedTts })
     .then((t: any) => { tts = t; }).finally(() => { kokoroLoading = null; });
   return kokoroLoading;
 }

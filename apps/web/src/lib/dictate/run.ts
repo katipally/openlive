@@ -41,8 +41,9 @@ export interface Typing {
 }
 
 export interface DictatePorts {
-  /** Opens the microphone if it is not open. False when it could not be. */
-  listen(): Promise<boolean>;
+  /** Opens the microphone if it is not open. False when it could not be; "" when
+   *  it was not, because the owner put something else on the orb instead. */
+  listen(): Promise<boolean | "">;
   /** The microphone and speech engine are up, so words are heard as they are said. */
   ready(): boolean;
   /** The push-to-talk key is down: every word until it is up is one utterance. */
@@ -81,6 +82,7 @@ export const DONE_MS = 1600;
 export const UNDO_MS = 5000;
 
 const NO_MIC = "I could not open the microphone.";
+const ASKED = "Dictation did not open: the orb is asking the user to download the voice models first.";
 const NOT_WRITTEN = "Your words could not be written down.";
 export const NO_SPEECH = "No words heard.";
 export const COPIED = "No text box in focus. Copied instead.";
@@ -136,6 +138,8 @@ export function createDictate(ports: DictatePorts) {
   let last: string | null = null;
   // The microphone opening for this session, which a hold waits on.
   let opening: Promise<boolean> = Promise.resolve(true);
+  // It did not open because the owner is asking the user something on the orb first.
+  let asked = false;
   // A cancelled hold's capture: whatever it heard is thrown away.
   let discarding = false;
   // Each utterance after the first in a session is typed after a space.
@@ -181,9 +185,11 @@ export function createDictate(ports: DictatePorts) {
     began = null;
     d = null;
     set({ ready: ports.ready() });
-    opening = ports.listen().then((ok) => {
+    opening = ports.listen().then((heard) => {
+      const ok = heard === true;
+      asked = heard === "";
       if (!open) return ok;
-      if (!ok) { set({ note: NO_MIC }); close(true); }
+      if (!ok) { set({ note: asked ? "" : NO_MIC }); close(true); }
       else if (!d?.ready) set({ ready: true });
       return ok;
     });
@@ -198,7 +204,7 @@ export function createDictate(ports: DictatePorts) {
       return "Dictation is off.";
     }
     if (open) return "Dictation is already on.";
-    return (await start()) ? "Dictation is on. What the user says next is typed at their cursor." : NO_MIC;
+    return (await start()) ? "Dictation is on. What the user says next is typed at their cursor." : asked ? ASKED : NO_MIC;
   };
 
   /** Reads the selection an utterance begins on, and says on the orb when it

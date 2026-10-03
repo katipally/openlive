@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import { toolSummary, type ErrorClass, type FlowCloseReason, type FlowContextWire, type FlowEventWire } from "@openlive/shared";
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
-import { loadModels, modelsCached, modelsMatchConfig } from "@/lib/live/models";
-import { browserModels, loadPipelineConfig } from "@/lib/live/pipelineConfig";
+import { loadModels, modelsCached, modelsMatchConfig, voiceDownloadPlan } from "@/lib/live/models";
+import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
+import { planModels } from "@/lib/live/weights";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
 import { agentToolLabel, toolActive } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
@@ -24,7 +25,7 @@ import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
-import { deriveFailure, forOrb, turnFailure } from "./failure";
+import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
 import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
@@ -214,9 +215,13 @@ export function useFlowOwner(): void {
     // Settings are re-read here rather than remembered from launch: a provider
     // key added after the app started is the commonest way "no brain is
     // configured" used to stick, and that failure outranks the real one.
+    // The voice weights are not all in the cache, as health last read it.
+    let weightsMissing = false;
     const refreshHealth = async () => {
       await loadSettings();
       const c = valueOr(await api.capabilities(), null);
+      const plan = await voiceDownloadPlan();
+      weightsMissing = plan.missing.length > 0;
       const failure = deriveFailure({
         platform: c?.platform ?? "",
         accessibility: c?.permissions ? c.permissions.accessibility : null,
@@ -226,8 +231,9 @@ export function useFlowOwner(): void {
         packaged: !!c?.packaged,
         brainReady: brainReady.current,
         online: typeof navigator === "undefined" || navigator.onLine,
-        modelsCached: modelsCached(),
-        voiceModels: browserModels(loadPipelineConfig()),
+        modelsCached: !weightsMissing,
+        voiceModels: planModels(plan),
+        downloadBytes: plan.bytes,
       });
       patch({ failure });
       raise(failure, "health");
@@ -402,6 +408,14 @@ export function useFlowOwner(): void {
         talk.armSilence();
         return;
       }
+      // Nothing to hear with until the download is agreed to: the offer stays
+      // up instead, and the microphone stays closed.
+      if (weightsMissing) {
+        setPhase("error");
+        teardownMic();
+        talk.armSilence();
+        return;
+      }
       patch({ reply: "" });
       await ensureEngine();
       if (ticket !== openTicket) { teardownMic(); return; }
@@ -516,6 +530,40 @@ export function useFlowOwner(): void {
       catch (e) { log.debug("flow", "warm:", e); }
     };
 
+    // The download offer on the orb, shared by Flow and Dictate. Taken, it
+    // downloads with its progress on the card, then opens what asked for it.
+    let fetching = false;
+    let afterModels: "flow" | "dictate" = "flow";
+    const fetchModels = async () => {
+      if (fetching) return;
+      fetching = true;
+      patch({ failure: modelsDownloading(0, 0) });
+      try {
+        await loadModels((p) => patch({ failure: modelsDownloading(p.loaded, p.total) }), "flow_open", true);
+        weightsMissing = false;
+        patch({ failure: null });
+        if (afterModels === "dictate") { afterModels = "flow"; dismiss(); void talk.toggleDictate(); }
+        else if (summoned.current) void onOpen();
+      } catch (e) {
+        log.warn("flow", "voice models download:", e);
+        const failure = modelsFailed(typeof navigator === "undefined" || navigator.onLine);
+        patch({ failure });
+        raise(failure, "health");
+      } finally { fetching = false; }
+    };
+    /** Dictate has no health check of its own: with weights missing, the offer
+     *  goes up on the orb in place of the microphone. True when it did. */
+    const offerModels = async () => {
+      const plan = await voiceDownloadPlan();
+      if (!plan.missing.length) return false;
+      afterModels = "dictate";
+      const failure = modelsOffer(planModels(plan), plan.bytes);
+      summon();
+      patch({ failure });
+      raise(failure, "health");
+      return true;
+    };
+
     // ── Dictate ───────────────────────────────────────────────────────────
     // Same microphone, same engine, same orb as Flow; its words go to the
     // cursor instead of the brain.
@@ -551,6 +599,7 @@ export function useFlowOwner(): void {
     const dictate = createDictate({
       // The session holds the microphone from open to close, whichever way it listens.
       listen: async () => {
+        if (!modelsMatchConfig() && !engine.current && await offerModels()) return "";
         if (!modelsMatchConfig() && modelsCached() && !engine.current) void warm();
         await ensureEngine();
         engine.current?.setMuted(false);
@@ -783,7 +832,7 @@ export function useFlowOwner(): void {
           fact.fixes++;
           if (c.code === "no_accessibility") void api.init().then(refreshHealth);
           else if (c.code === "mic_failed") void onOpen();
-          else if (c.code === "models_missing") void warm().then(refreshHealth);
+          else if (c.code === "models_missing") void fetchModels();
           else if (snap.current.failure?.settings) api.expand(`${snap.current.failure.settings}-settings`);
           // `init` replaces a hook thread that died, and the binding goes back on it.
           else if (c.code === "hook_failed" || c.code === "addon_missing") { armed.current = false; void arm().then(refreshHealth); }

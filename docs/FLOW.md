@@ -221,7 +221,7 @@ is one, a single button that fixes it.
 | A password field has the keyboard | Secure input is on | Leave the password field |
 | Nothing is set to answer yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |
 | You are offline | No network | **Try again** |
-| The voice models are not downloaded yet | First run | **Download** |
+| Download the voice models first? | First run of Flow or Dictate: names the models, their size and where they are kept, and nothing listens until it is answered | **Download** shows the progress on the card, then opens what asked; **Try again** if it stops |
 | I could not open the microphone | Another app holds it | **Try again** |
 | Your API key is missing / The key or sign-in was refused | Missing or refused key or sign-in | **Open settings** (Models, or Agents for a coding agent) |
 | That model is not available | Unknown model | **Open settings** |

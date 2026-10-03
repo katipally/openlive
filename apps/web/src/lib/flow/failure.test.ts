@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { deriveFailure, forOrb, keyListenerNote, turnFailure, type FlowHealth } from "./failure";
+import { deriveFailure, forOrb, keyListenerNote, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
   platform: "darwin", accessibility: true, secureInput: false,
-  hookError: null, addonError: null, packaged: false, brainReady: true, online: true, modelsCached: true, voiceModels: ["speech", "voice", "turn-taking"],
+  hookError: null, addonError: null, packaged: false, brainReady: true, online: true, modelsCached: true, voiceModels: ["speech recognition", "voice", "turn-taking"], downloadBytes: 0,
 };
 
 describe("deriveFailure", () => {
@@ -62,10 +62,26 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
   });
 
-  it("names the voice models the selected engines actually download", () => {
-    const missing = { ...HEALTHY, modelsCached: false };
-    expect(deriveFailure(missing)?.detail).toContain("needs the speech, voice and turn-taking models once");
-    expect(deriveFailure({ ...missing, voiceModels: ["turn-taking"] })?.detail).toContain("needs the turn-taking model once");
+  it("asks before the download, naming what it fetches, how big and where it is kept", () => {
+    const missing = { ...HEALTHY, modelsCached: false, downloadBytes: 212_400_000 };
+    const offer = deriveFailure(missing);
+    expect(offer?.detail).toContain("need the speech recognition, voice and turn-taking models once, about 212 MB.");
+    expect(offer?.detail).toContain("OpenLive's storage on this device");
+    expect(offer?.actionLabel).toBe("Download");
+    expect(deriveFailure({ ...missing, voiceModels: ["turn-taking"], downloadBytes: 1.6e9 })?.detail).toContain("need the turn-taking model once, about 1.6 GB.");
+    expect(deriveFailure({ ...missing, downloadBytes: null })?.detail).toContain("turn-taking models once. ");
+  });
+
+  it("names a missing key or agent before the download it would otherwise offer", () => {
+    expect(deriveFailure({ ...HEALTHY, modelsCached: false, brainReady: false })?.code).toBe("no_provider");
+  });
+
+  it("shows the download's progress with nothing to press, and a failure that tries again", () => {
+    const going = modelsDownloading(53_000_000, 212_000_000);
+    expect(going.detail).toMatch(/^25% of about 212 MB/);
+    expect(going.actionLabel).toBeUndefined();
+    expect(modelsFailed(true)).toMatchObject({ code: "models_missing", title: "The download stopped", actionLabel: "Try again" });
+    expect(modelsFailed(false).title).toBe("You are offline");
   });
 });
 

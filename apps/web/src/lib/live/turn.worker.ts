@@ -5,6 +5,7 @@
 // end of every turn spoken over a reply waited for speech. Tiny, CPU/WASM only.
 import { env, AutoProcessor } from "@huggingface/transformers";
 import * as ort from "onnxruntime-web/wasm";
+import { hubUrl, SMART_TURN } from "./weights";
 
 env.allowLocalModels = false; // fetch from the hub, then cache
 env.useBrowserCache = true;   // persist weights in the Cache API across sessions
@@ -12,7 +13,7 @@ ort.env.wasm.numThreads = 1;  // single-thread → no cross-origin-isolation nee
 
 // Smart-Turn v3 (pipecat): Whisper-tiny encoder + head; input is a Whisper
 // log-mel, the ONNX output IS a sigmoid probability (>0.5 → turn complete).
-const SMART_TURN_URL = "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx";
+const SMART_TURN_URL = hubUrl(SMART_TURN.repo, SMART_TURN.path);
 const TURN_PROCESSOR = "onnx-community/whisper-tiny.en";
 const N8 = 8 * 16000; // Smart-Turn reads the last 8 s of audio
 
