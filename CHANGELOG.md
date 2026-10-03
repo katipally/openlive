@@ -55,6 +55,8 @@ Releases before 0.1.9 predate this file — see the
 - **Opening Flow in the middle of a Dictate hold no longer leaves Flow waiting
   for the key.** The hold is dropped, so Flow ends each turn on its own.
 - **AI polish that stopped partway offers Undo only when its words landed.**
+- **The menus say OpenLive** (Hide OpenLive, Quit, About) when run from a
+  checkout too, instead of the package's name. No settings or data move.
 - Settings > Dictate gives AI polish's real wait (25 seconds) before it types
   the cleaned-up words instead.
 

@@ -77,6 +77,11 @@ let mainWin = null;
 let splashWin = null;
 const children = [];
 
+// The menus' Hide, Quit and About read the app's name, which in dev is the npm
+// package's. Electron derived userData from that name at startup, so setting it
+// here moves neither profile; a productName in package.json would move dev's.
+app.setName("OpenLive");
+
 // ── single instance ─────────────────────────────────────────────────────────
 // Dev runs under its own profile so it can coexist with an installed OpenLive.
 // Sharing the app id + user-data dir means they fight over this lock, and dev
