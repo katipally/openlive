@@ -13,6 +13,9 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-call-mcp-"));
+// The stub agent runs in its own folder: Windows will not remove a live process's
+// working folder, and its taskkill lands after the socket closes.
+const work = mkdtempSync(join(tmpdir(), "ol-call-mcp-work-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
 const { closeDbForTests, listMessages, setSetting, updateMemory } = await import("@openlive/db");
@@ -21,8 +24,8 @@ const { readNotes } = await import("../memory/notes.ts");
 afterAll(() => {
   delete process.env.OPENLIVE_HOME;
   closeDbForTests();
-  // The stub agent's taskkill lands after close, and Windows will not remove a live process's working folder.
-  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  rmSync(dir, { recursive: true, force: true });
+  try { rmSync(work, { recursive: true, force: true, maxRetries: 10 }); } catch { /* still the agent's folder on Windows; the OS temp folder keeps it */ }
 });
 
 // What the call reports to main, read the way main's validator would.
@@ -120,7 +123,7 @@ function connect(chatId: string, agentId: string | null = "codex", resumeSession
   };
   const done = async () => { while (!ws.sent.some((m) => m.event?.type === "done")) await new Promise((r) => setTimeout(r, 10)); };
   const started = new LiveSession(ws as never, chatId, undefined, device).start();
-  say({ t: "bind", agentId, cwd: dir, resumeSessionId });
+  say({ t: "bind", agentId, cwd: work, resumeSessionId });
   return { ws, say, done, started };
 }
 

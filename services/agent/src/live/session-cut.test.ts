@@ -13,6 +13,9 @@ import { afterAll, expect, test } from "vitest";
 
 // The db resolves its data dir at import time, so this has to be set first.
 const dir = mkdtempSync(join(tmpdir(), "ol-cut-"));
+// The stub agent runs in its own folder: Windows will not remove a live process's
+// working folder, and its taskkill lands after the socket closes.
+const work = mkdtempSync(join(tmpdir(), "ol-cut-work-"));
 process.env.OPENLIVE_HOME = dir;
 const { LiveSession } = await import("./session.ts");
 const { closeDbForTests, getSetting, listMessages, setSetting } = await import("@openlive/db");
@@ -45,8 +48,8 @@ afterAll(() => {
   server.close();
   delete process.env.OPENLIVE_HOME;
   closeDbForTests();
-  // The stub agent's taskkill lands after close, and Windows will not remove a live process's working folder.
-  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  rmSync(dir, { recursive: true, force: true });
+  try { rmSync(work, { recursive: true, force: true, maxRetries: 10 }); } catch { /* still the agent's folder on Windows; the OS temp folder keeps it */ }
 });
 
 function connect(chatId: string) {
@@ -238,7 +241,7 @@ async function stubAgent() {
   `);
   await setSetting("acpCommand:codex", `${process.execPath} ${stub}`);
   const prompts = () => readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as string);
-  return { prompts, bindAgent: (say: (m: unknown) => void) => say({ t: "bind", agentId: "codex", cwd: dir }) };
+  return { prompts, bindAgent: (say: (m: unknown) => void) => say({ t: "bind", agentId: "codex", cwd: work }) };
 }
 
 test("a coding agent keeps its own memory of a reply, so its next turn says what was heard, even after a reconnect", async () => {
