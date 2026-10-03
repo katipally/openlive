@@ -118,6 +118,8 @@ describe("trayTemplate", () => {
     ]);
     expect(talkItems({ talk: { mode: "handsFree", pttKey: "ctrl_right" }, platform: "win32" }, act).map((i: { label: string; checked: boolean }) => [i.label, i.checked]))
       .toEqual([["Hands-free", true], ["Push to talk  ·  Hold Right Ctrl", false]]);
+    // The QA keys stand in for the real ones, and the menu names what is held.
+    expect(talkItems({ talk: { mode: "ptt", pttKey: "f18" }, platform: "darwin" }, act)[1].label).toBe("Push to talk  ·  Hold F18");
   });
 
   it("runs the action each item names", () => {

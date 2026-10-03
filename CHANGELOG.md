@@ -438,6 +438,9 @@ Releases before 0.1.9 predate this file — see the
   again** when offline or when the download stops. Flow and Dictate ask on the
   orb the same way when they open with the models missing, and nothing else
   (a launch warm-up, a fallback engine) downloads them unasked.
+- **The tray names the push-to-talk key the key listener really watches.** It
+  said Hold Fn while a QA run listened to F18; it now follows the registered
+  key in both modes.
 - **A hold on a selection that heard nothing says so at once.** Dictate's orb
   flashed **Editing** for half a second before **No words heard.**; it says
   Editing now only once there are words to edit with.

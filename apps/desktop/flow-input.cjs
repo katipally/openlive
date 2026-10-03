@@ -145,9 +145,13 @@ const isArmed = () => armed;
  *  ol-input's grammar or null for none. Registered at once while the hook runs,
  *  and the moment it starts otherwise, so a rebind needs no restart. */
 function setBindings(next) {
-  wanted = Object.fromEntries(Object.keys(ROLES).map((id) => [id, next?.[id] ? (QA_KEYS ? QA[id] : String(next[id])) : null]));
+  wanted = Object.fromEntries(Object.keys(ROLES).map((id) => [id, watched(id, next?.[id])]));
   if (hooked) syncBindings();
 }
+
+/** The binding the hook watches, or would, for `key` under `id`: the QA
+ *  stand-in while those are on, null for none. */
+const watched = (id, key) => (key ? (QA_KEYS ? QA[id] : String(key)) : null);
 
 /** Registers what changed. A failure leaves that binding off and is logged: one
  *  bad key in a hand-edited file must not cost the other two. */
@@ -334,4 +338,4 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   app.on("will-quit", teardown);
 }
 
-module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, readiness, hookReadiness, request, hookFailure, insertionTiming };
+module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, request, hookFailure, insertionTiming };

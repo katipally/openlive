@@ -1033,11 +1033,13 @@ const TRAY_READINESS_POLL_MS = 3000;
 const trayState = () => ({
   readiness: flowInput.readiness(), open: flowSummoned, binding: flowInput.binding(FLOW_BINDING), platform: process.platform,
   hook: flowInput.hookReadiness(), armed: flowInput.isArmed(), dictate: dictate && { ...dictate, binding: flowInput.binding(flowInput.DICTATE_BINDING) },
-  talk,
+  // The key held, as the hook watches it; in hands-free, the one push to talk would watch.
+  talk: talk && { ...talk, pttKey: flowInput.binding(PTT_BINDING) ?? flowInput.watched(PTT_BINDING, talk.pttKey) },
 });
 /** Dictate's switch from its settings, for the tray; null until first read. */
 let dictate = null;
-/** How you talk, `{ mode, pttKey }`, for the tray; null until first read. */
+/** How you talk, `{ mode, pttKey }` with the push-to-talk key its settings
+ *  pick (or the platform's default), for the tray; null until first read. */
 let talk = null;
 
 /** Reads Flow's settings, or writes `patch` into them, through the same web
@@ -1053,7 +1055,7 @@ async function syncFlowSettings(patch) {
     // The keys follow the settings at once: a rebind or a talk mode switch needs no restart.
     flowInput.setBindings(talkBindings(config, process.platform));
     dictate = { on: !!config.dictate.enabled };
-    talk = { mode: config.talk?.mode === "ptt" ? "ptt" : "handsFree", pttKey: String(config.talk?.pttKey ?? "") };
+    talk = { mode: config.talk?.mode === "ptt" ? "ptt" : "handsFree", pttKey: talkBindings({ talk: { ...config.talk, mode: "ptt" } }, process.platform).ptt };
     refreshTray();
     return true;
   } catch (e) { console.error("[main] flow settings:", e); return false; }

@@ -115,6 +115,18 @@ describe("the QA keys", () => {
     expect(flowInput.binding("dictate")).toBeNull();
   });
 
+  it("are what the tray names, registered or not: F18 is held in push to talk and would be in hands-free", async () => {
+    process.env.OPENLIVE_QA_KEYS = "1";
+    const { flowInput, call } = load();
+    await call("openlive:flow-init");
+    flowInput.setBindings({ flow: "ctrl", dictate: null, ptt: "fn" });
+    expect(flowInput.binding("ptt")).toBe("f18");
+    expect(flowInput.watched("ptt", "fn")).toBe("f18");
+    expect(flowInput.watched("ptt", null)).toBeNull();
+    delete process.env.OPENLIVE_QA_KEYS;
+    expect(load().flowInput.watched("ptt", "fn")).toBe("fn");
+  });
+
   it("open the external trigger in a packaged build", () => {
     process.env.OPENLIVE_QA_KEYS = "1";
     expect(load(undefined, { packaged: true }).handlers.has("openlive:flow-trigger")).toBe(true);
