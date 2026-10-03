@@ -807,13 +807,13 @@ export function useFlowOwner(): void {
     // puts the binding back exactly as it was.
     const power = (window as unknown as { openlive?: { onPower?: (cb: (s: string) => void) => () => void } }).openlive;
     const offPower = power?.onPower?.((state) => {
+      // A hold down as the machine sleeps or the screen locks never sees its release.
+      if (state === "suspend" || state === "lock-screen") void talk.cancelHold();
       if (state === "suspend") {
         disarmed.current = true;
         turnActive.current = false;
         armed.current = false;
         void api.suspend();
-        // A hold down as the machine sleeps never sees its release.
-        talk.suspend();
         // Dictate may hold the microphone with Flow closed.
         dictate.yield();
         // A close, not a stop: a stop would leave the orb up through sleep.

@@ -161,6 +161,8 @@ export function createDictate(ports: DictatePorts) {
    *  session that could not start. Otherwise the person closed it, so the orb
    *  goes back straight away and the microphone with it. */
   const close = (lingers = false) => {
+    // Left on, the engine would wait for a release that never comes.
+    if (holding) ports.dropHold();
     open = false;
     holding = false;
     began = null;
@@ -404,9 +406,7 @@ export function createDictate(ports: DictatePorts) {
     },
     /** Flow was opened, or the machine is going to sleep: Dictate stops now. */
     yield() {
-      // Left on, the engine would wait for a release that never comes, and Flow,
-      // opened mid-hold, would never end a turn on its own.
-      if (holding) ports.dropHold();
+      // Flow, opened mid-hold, ends its own turns: the hold is dropped as Dictate closes.
       if (!open && !d) return;
       if (open) close();
       else giveBack();

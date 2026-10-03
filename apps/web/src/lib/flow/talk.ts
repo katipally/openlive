@@ -131,8 +131,8 @@ export function createTalk(p: TalkPorts) {
       held = null;
       p.holding(false);
     },
-    /** Sleep or a lock: a hold down now never sees its release. */
-    suspend() { void holdEnd(true); stopSilence(); },
+    /** Sleep or a locked screen: a hold down now never sees its release, so its words go nowhere. */
+    cancelHold: () => holdEnd(true),
     holding: () => held !== null,
   };
 }

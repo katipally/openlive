@@ -147,12 +147,12 @@ describe("Flow and Dictate as one way of talking", () => {
     expect(r.s.flow).toBe(true);
   });
 
-  it("cancels a hold as the machine sleeps, and stops the wait", async () => {
+  it("cancels a hold as the machine sleeps or the screen locks", async () => {
     const r = talkRig();
     r.tap("dictate");
     await vi.advanceTimersByTimeAsync(0);
     r.key("ptt", "hold_start");
-    r.talk.suspend();
+    await r.talk.cancelHold();
     await vi.advanceTimersByTimeAsync(0);
     expect(r.log.at(-1)).toBe("dictate drop");
     expect(r.s.holding).toBe(false);
