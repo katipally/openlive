@@ -47,6 +47,9 @@ windows = { version = "0.62", features = [
   "Foundation_Collections",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.14"
+
 [build-dependencies]
 napi-build = "2"
 

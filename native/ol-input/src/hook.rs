@@ -17,9 +17,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use handy_keys::{KeyEvent, KeyboardListener, Modifiers};
+#[cfg(test)]
+use handy_keys::Key;
 
 use crate::binding::Binding;
-use crate::coordinator::{CoordinatorState, Effect, Input};
+use crate::coordinator::{CoordinatorState, Effect, Input, Role};
 use crate::secure_input;
 
 /// How long the manager thread waits on the listener before looking at its
@@ -32,7 +34,7 @@ enum Command {
     Register {
         id: String,
         binding: Binding,
-        hold: bool,
+        role: Role,
         reply: Sender<Result<(), String>>,
     },
     Unregister {
@@ -46,19 +48,27 @@ enum Command {
         id: String,
         pressed: bool,
     },
-    Closed,
-    SetOpen {
-        id: String,
-        open: bool,
-    },
     Shutdown,
 }
 
 struct Entry {
     id: String,
+    /// As registered.
     binding: Binding,
+    role: Role,
+    /// What is actually watched: a toggle narrowed away from every hold key.
+    /// None while a hold key takes all of it.
+    watched: Option<Binding>,
     coordinator: CoordinatorState,
     pressed: bool,
+}
+
+/// Whether Right Alt is AltGr on the layout in front. Re-read at each Right Alt
+/// press, since the layout can change per window (Windows) or at any time
+/// (setxkbmap), and only then, since every use of Right Alt starts with one.
+struct RightAlt {
+    altgr: bool,
+    layout_has_altgr: fn() -> bool,
 }
 
 pub struct Hook {
@@ -114,8 +124,8 @@ impl Hook {
             .map_err(|_| "the hook thread stopped before answering".to_string())?
     }
 
-    pub fn register(&self, id: String, binding: Binding, hold: bool) -> Result<(), String> {
-        self.call(|reply| Command::Register { id, binding, hold, reply })
+    pub fn register(&self, id: String, binding: Binding, role: Role) -> Result<(), String> {
+        self.call(|reply| Command::Register { id, binding, role, reply })
     }
 
     pub fn unregister(&self, id: String) -> Result<(), String> {
@@ -138,16 +148,6 @@ impl Hook {
 
     pub fn trigger_external(&self, id: String, pressed: bool) -> Result<(), String> {
         self.post(Command::External { id, pressed })
-    }
-
-    /// Flow closed for a reason the hook never saw. See `on_closed`.
-    pub fn closed(&self) -> Result<(), String> {
-        self.post(Command::Closed)
-    }
-
-    /// Opened or closed without the gesture. See `set_open`.
-    pub fn set_open(&self, id: String, open: bool) -> Result<(), String> {
-        self.post(Command::SetOpen { id, open })
     }
 }
 
@@ -182,6 +182,8 @@ fn run(
     // Kept apart from the entries so a binding switched off before it is
     // registered (Flow's off switch is read at startup) stays off once it is.
     let mut muted: HashSet<String> = HashSet::new();
+    // Not AltGr until a Right Alt press says otherwise: the press itself re-reads it.
+    let mut right_alt = RightAlt { altgr: true, layout_has_altgr: crate::platform::current::right_alt_is_altgr };
 
     loop {
         loop {
@@ -199,14 +201,7 @@ fn run(
             feed(&mut entries, &id, pressed, false, false, &sink);
         }
 
-        let now = Instant::now();
-        for entry in &mut entries {
-            if entry.coordinator.next_deadline().is_some_and(|d| d <= now) {
-                if let Some(effect) = entry.coordinator.on_grace_expired(now) {
-                    sink(effect);
-                }
-            }
-        }
+        expire(&mut entries, Instant::now(), &sink);
 
         let wait = entries
             .iter()
@@ -217,13 +212,27 @@ fn run(
             .min(TICK);
 
         match listener.recv_timeout(wait) {
-            Ok(event) => {
+            Ok(mut event) => {
                 if !suspended {
-                    on_key_event(&mut entries, &muted, &event, &sink);
+                    if let Some(held) = os_held_modifiers() {
+                        event.modifiers = drop_released(event.modifiers, held, event.changed_modifier);
+                    }
+                    on_key_event(&mut entries, &muted, &event, Instant::now(), &mut right_alt, &sink);
                 }
             }
             Err(handy_keys::Error::Timeout) => {}
             Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+/// Judges every press whose release grace window has closed.
+fn expire(entries: &mut [Entry], now: Instant, sink: &EffectSink) {
+    for entry in entries {
+        if entry.coordinator.next_deadline().is_some_and(|d| d <= now) {
+            if let Some(effect) = entry.coordinator.on_grace_expired(now) {
+                sink(effect);
+            }
         }
     }
 }
@@ -237,15 +246,17 @@ fn apply(
     sink: &EffectSink,
 ) {
     match command {
-        Command::Register { id, binding, hold, reply } => {
+        Command::Register { id, binding, role, reply } => {
             entries.retain(|entry| entry.id != id);
             entries.push(Entry {
-                coordinator: CoordinatorState::new(id.clone(), hold),
+                coordinator: CoordinatorState::new(id.clone(), role),
                 id,
                 binding,
+                role,
+                watched: None,
                 pressed: false,
             });
-            sync(entries, *suspended, blocking);
+            sync(entries, *suspended, muted, blocking);
             let _ = reply.send(Ok(()));
         }
         Command::Unregister { id, reply } => {
@@ -256,55 +267,69 @@ fn apply(
             } else {
                 Ok(())
             };
-            sync(entries, *suspended, blocking);
+            sync(entries, *suspended, muted, blocking);
             let _ = reply.send(result);
         }
         Command::Suspend(Some(id), reply) => {
             muted.insert(id);
+            sync(entries, *suspended, muted, blocking);
             let _ = reply.send(Ok(()));
         }
         Command::Resume(Some(id), reply) => {
             muted.remove(&id);
+            sync(entries, *suspended, muted, blocking);
             let _ = reply.send(Ok(()));
         }
         Command::Suspend(None, reply) => {
             *suspended = true;
-            sync(entries, true, blocking);
+            sync(entries, true, muted, blocking);
             let _ = reply.send(Ok(()));
         }
         Command::Resume(None, reply) => {
             *suspended = false;
-            sync(entries, false, blocking);
+            sync(entries, false, muted, blocking);
             let _ = reply.send(Ok(()));
         }
         Command::External { id, pressed } => feed(entries, &id, pressed, true, false, sink),
-        Command::Closed => {
-            for entry in entries.iter_mut() {
-                entry.coordinator.on_closed();
-            }
-        }
-        Command::SetOpen { id, open } => {
-            for entry in entries.iter_mut().filter(|entry| entry.id == id) {
-                entry.coordinator.set_open(open);
-            }
-        }
         Command::Shutdown => {}
     }
 }
 
-/// Keeps the secure-input shadow list in step with what is registered.
+/// Re-derives what each entry watches, and keeps the blocked set and the
+/// secure-input shadow list in step with it. O(entries x holds), a handful.
 ///
-/// Nothing is ever added to the blocked-hotkey set. The trigger is a plain
-/// modifier the focused app is using for its own shortcuts, and the gesture is
-/// two taps of it alone: watching is enough, and swallowing it would break
-/// every shortcut on the machine.
-fn sync(entries: &[Entry], suspended: bool, blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>) {
+/// A modifier is never blocked. The toggles are plain modifiers the focused app
+/// uses for its own shortcuts, and the gesture is two taps of one alone:
+/// watching is enough, and swallowing it would break every shortcut on the
+/// machine. A push-to-talk key that is a real key (F13 to F24) is blocked, or
+/// every hold would also reach the app in front.
+fn sync(entries: &mut [Entry], suspended: bool, muted: &HashSet<String>, blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>) {
+    let holds: Vec<Binding> = entries.iter().filter(|e| e.role == Role::Hold).map(|e| e.binding).collect();
+    for entry in entries.iter_mut() {
+        let watched = match entry.role {
+            Role::Hold => Some(entry.binding),
+            Role::Toggle => holds.iter().try_fold(entry.binding, |b, hold| b.narrow(*hold)),
+        };
+        if watched != entry.watched {
+            // Rebound live: whatever was half done on the old key means nothing on the new one.
+            entry.watched = watched;
+            entry.pressed = false;
+            entry.coordinator = CoordinatorState::new(entry.id.clone(), entry.role);
+        }
+    }
     if let Ok(mut set) = blocking.lock() {
         set.clear();
+        if !suspended {
+            set.extend(
+                entries
+                    .iter()
+                    .filter(|e| e.role == Role::Hold && !e.binding.is_modifier_only() && !muted.contains(&e.id))
+                    .map(|e| e.binding.hotkey()),
+            );
+        }
     }
-    let _ = suspended;
     secure_input::set_shadow_bindings(
-        entries.iter().map(|entry| (entry.id.clone(), entry.binding)).collect(),
+        entries.iter().filter_map(|entry| Some((entry.id.clone(), entry.watched?))).collect(),
     );
 }
 
@@ -359,16 +384,39 @@ fn os_held_modifiers() -> Option<Modifiers> {
     None
 }
 
-fn on_key_event(entries: &mut [Entry], muted: &HashSet<String>, event: &KeyEvent, sink: &EffectSink) {
-    let now = Instant::now();
-    let mut event = *event;
-    if let Some(held) = os_held_modifiers() {
-        event.modifiers = drop_released(event.modifiers, held, event.changed_modifier);
+fn on_key_event(
+    entries: &mut [Entry],
+    muted: &HashSet<String>,
+    event: &KeyEvent,
+    now: Instant,
+    right_alt: &mut RightAlt,
+    sink: &EffectSink,
+) {
+    let toggles_right_alt = || {
+        entries
+            .iter()
+            .any(|e| e.role == Role::Toggle && e.watched.is_some_and(|b| b.modifiers.contains(Modifiers::OPT_RIGHT)))
+    };
+    if event.is_key_down && event.changed_modifier == Some(Modifiers::OPT_RIGHT) && toggles_right_alt() {
+        right_alt.altgr = (right_alt.layout_has_altgr)();
     }
-    let event = &event;
     for entry in entries.iter_mut().filter(|entry| !muted.contains(&entry.id)) {
-        let hotkey = entry.binding.hotkey();
+        let Some(mut binding) = entry.watched else { continue };
+        // AltGr types characters, so on such a layout Right Alt is never half of
+        // a gesture: it reads as any other key would.
+        if entry.role == Role::Toggle && right_alt.altgr {
+            match binding.without(Modifiers::OPT_RIGHT) {
+                Some(b) => binding = b,
+                None => continue,
+            }
+        }
+        let hotkey = binding.hotkey();
         let matches = hotkey.modifiers.matches(event.modifiers) && hotkey.key == event.key;
+        // The physical key this event is about belongs to the binding.
+        let ours = match event.key {
+            Some(key) => hotkey.key == Some(key),
+            None => event.changed_modifier.is_some_and(|c| hotkey.modifiers.contains(c)),
+        };
 
         let input = if event.is_key_down {
             if matches && !entry.pressed {
@@ -378,9 +426,10 @@ fn on_key_event(entries: &mut [Entry], muted: &HashSet<String>, event: &KeyEvent
                     crate::platform::windows::mask_menu();
                 }
                 Some((true, false))
-            } else if entry.pressed && hotkey.key.is_none() && event.key.is_some() {
-                // A real key landed on top of a held modifier-only binding.
-                // Cancel and let the combination through.
+            } else if !ours {
+                // Another key: on top of this one (a shortcut, Option+letter
+                // typing), or between two of its taps. Either way it is not the
+                // gesture, and the combination goes through untouched.
                 entry.pressed = false;
                 Some((true, true))
             } else {
@@ -411,6 +460,246 @@ fn on_key_event(entries: &mut [Entry], muted: &HashSet<String>, event: &KeyEvent
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::coordinator::RELEASE_GRACE;
+
+    /// The hook thread's state, driven by hand: commands through `apply`,
+    /// events through `on_key_event`, and the clock through `at`.
+    struct Rig {
+        entries: Vec<Entry>,
+        muted: HashSet<String>,
+        suspended: bool,
+        blocking: Arc<Mutex<HashSet<handy_keys::Hotkey>>>,
+        right_alt: RightAlt,
+        sink: EffectSink,
+        effects: Arc<Mutex<Vec<Effect>>>,
+        t0: Instant,
+    }
+
+    fn rig(layout_has_altgr: fn() -> bool) -> Rig {
+        let effects = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&effects);
+        Rig {
+            entries: Vec::new(),
+            muted: HashSet::new(),
+            suspended: false,
+            blocking: Arc::new(Mutex::new(HashSet::new())),
+            right_alt: RightAlt { altgr: true, layout_has_altgr },
+            sink: Arc::new(move |e| seen.lock().unwrap().push(e)),
+            effects,
+            t0: Instant::now(),
+        }
+    }
+
+    impl Rig {
+        fn register(&mut self, id: &str, binding: &str, role: Role) {
+            let (reply, _answer) = channel();
+            let command = Command::Register { id: id.into(), binding: binding.parse().unwrap(), role, reply };
+            apply(command, &mut self.entries, &mut self.suspended, &mut self.muted, &self.blocking, &self.sink);
+        }
+
+        fn unregister(&mut self, id: &str) {
+            let (reply, _answer) = channel();
+            apply(Command::Unregister { id: id.into(), reply }, &mut self.entries, &mut self.suspended, &mut self.muted, &self.blocking, &self.sink);
+        }
+
+        /// Everything due by `ms` after the start, then the event.
+        fn event(&mut self, ms: u64, modifiers: Modifiers, key: Option<Key>, is_key_down: bool, changed_modifier: Option<Modifiers>) {
+            let now = self.t0 + Duration::from_millis(ms);
+            expire(&mut self.entries, now, &self.sink);
+            let event = KeyEvent { modifiers, key, is_key_down, changed_modifier };
+            on_key_event(&mut self.entries, &self.muted, &event, now, &mut self.right_alt, &self.sink);
+        }
+
+        /// A modifier pressed alone at `ms` and let go `held` later.
+        fn tap(&mut self, ms: u64, side: Modifiers, held: u64) {
+            self.event(ms, side, None, true, Some(side));
+            self.event(ms + held, Modifiers::empty(), None, false, Some(side));
+        }
+
+        fn key_tap(&mut self, ms: u64, key: Key, held: u64) {
+            self.event(ms, Modifiers::empty(), Some(key), true, None);
+            self.event(ms + held, Modifiers::empty(), Some(key), false, None);
+        }
+
+        /// Lets every grace window close, then hands over what came out.
+        fn settle(&mut self, ms: u64) -> Vec<Effect> {
+            expire(&mut self.entries, self.t0 + Duration::from_millis(ms) + RELEASE_GRACE, &self.sink);
+            std::mem::take(&mut *self.effects.lock().unwrap())
+        }
+    }
+
+    fn tapped(id: &str) -> Effect {
+        Effect::DoubleTap { binding_id: id.into() }
+    }
+
+    fn no_altgr() -> bool {
+        false
+    }
+
+    fn altgr() -> bool {
+        true
+    }
+
+    #[test]
+    fn a_double_tap_of_control_reaches_the_sink() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.tap(0, Modifiers::CTRL_LEFT, 40);
+        r.tap(200, Modifiers::CTRL_RIGHT, 40);
+        assert_eq!(r.settle(300), vec![tapped("flow")]);
+    }
+
+    /// Option+letter typing: a key on the held Option, then Option again.
+    #[test]
+    fn option_as_a_modifier_is_never_a_gesture() {
+        let mut r = rig(no_altgr);
+        r.register("dictate", "option", Role::Toggle);
+        r.tap(0, Modifiers::OPT_LEFT, 40);
+        r.event(150, Modifiers::OPT_LEFT, None, true, Some(Modifiers::OPT_LEFT));
+        r.event(170, Modifiers::OPT_LEFT, Some(Key::E), true, None);
+        r.event(190, Modifiers::OPT_LEFT, Some(Key::E), false, None);
+        r.event(210, Modifiers::empty(), None, false, Some(Modifiers::OPT_LEFT));
+        assert_eq!(r.settle(300), vec![]);
+        // Option+arrow, the word-jump, is the same.
+        r.event(1000, Modifiers::OPT_RIGHT, None, true, Some(Modifiers::OPT_RIGHT));
+        r.event(1020, Modifiers::OPT_RIGHT, Some(Key::LeftArrow), true, None);
+        r.event(1060, Modifiers::empty(), None, false, Some(Modifiers::OPT_RIGHT));
+        r.tap(1150, Modifiers::OPT_RIGHT, 40);
+        assert_eq!(r.settle(1300), vec![]);
+    }
+
+    #[test]
+    fn a_key_typed_between_the_taps_breaks_them() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.tap(0, Modifiers::CTRL_LEFT, 40);
+        r.key_tap(100, Key::A, 30);
+        r.tap(200, Modifiers::CTRL_LEFT, 40);
+        assert_eq!(r.settle(300), vec![]);
+        // Another modifier between them counts too.
+        r.tap(1000, Modifiers::CTRL_LEFT, 40);
+        r.tap(1080, Modifiers::SHIFT_LEFT, 30);
+        r.tap(1200, Modifiers::CTRL_LEFT, 40);
+        assert_eq!(r.settle(1300), vec![]);
+    }
+
+    /// Windows and evdev repeat a held modifier's key-down.
+    #[test]
+    fn a_held_and_repeating_key_is_not_a_tap() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.tap(0, Modifiers::CTRL_LEFT, 40);
+        for i in 0..10u64 {
+            r.event(150 + i * 33, Modifiers::CTRL_LEFT, None, true, Some(Modifiers::CTRL_LEFT));
+        }
+        r.event(600, Modifiers::empty(), None, false, Some(Modifiers::CTRL_LEFT));
+        assert_eq!(r.settle(700), vec![]);
+    }
+
+    /// Push to talk on Right Ctrl: holds there, and Flow's double-tap on the left only.
+    #[test]
+    fn the_push_to_talk_side_holds_and_the_other_side_toggles() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.register("ptt", "ctrl_right", Role::Hold);
+        r.tap(0, Modifiers::CTRL_RIGHT, 40);
+        r.tap(150, Modifiers::CTRL_RIGHT, 40);
+        let cancel = Effect::HoldCancel { binding_id: "ptt".into() };
+        let start = Effect::HoldStart { binding_id: "ptt".into() };
+        assert_eq!(r.settle(300), vec![start.clone(), cancel.clone(), start.clone(), cancel]);
+        r.tap(1000, Modifiers::CTRL_LEFT, 40);
+        r.tap(1150, Modifiers::CTRL_LEFT, 40);
+        assert_eq!(r.settle(1300), vec![tapped("flow")]);
+        r.event(2000, Modifiers::CTRL_RIGHT, None, true, Some(Modifiers::CTRL_RIGHT));
+        r.event(3500, Modifiers::empty(), None, false, Some(Modifiers::CTRL_RIGHT));
+        assert_eq!(r.settle(3600), vec![start, Effect::HoldEnd { binding_id: "ptt".into() }]);
+    }
+
+    #[test]
+    fn rebinding_takes_effect_at_once() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.register("flow", "f19", Role::Toggle);
+        r.tap(0, Modifiers::CTRL_LEFT, 40);
+        r.tap(150, Modifiers::CTRL_LEFT, 40);
+        assert_eq!(r.settle(300), vec![]);
+        r.key_tap(1000, Key::F19, 40);
+        r.key_tap(1150, Key::F19, 40);
+        assert_eq!(r.settle(1300), vec![tapped("flow")]);
+    }
+
+    /// The narrowing follows the push-to-talk key in and out, with no restart.
+    #[test]
+    fn a_toggle_narrows_while_the_hold_key_is_registered_and_widens_after() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.register("ptt", "ctrl_right", Role::Hold);
+        assert_eq!(r.entries[0].watched, Some("ctrl_left".parse().unwrap()));
+        r.unregister("ptt");
+        assert_eq!(r.entries[0].watched, Some("ctrl".parse().unwrap()));
+        r.register("ptt", "ctrl_right", Role::Hold);
+        r.register("flow", "ctrl_right", Role::Toggle);
+        assert_eq!(r.entries.iter().find(|e| e.id == "flow").unwrap().watched, None);
+        r.tap(0, Modifiers::CTRL_RIGHT, 40);
+        r.tap(150, Modifiers::CTRL_RIGHT, 40);
+        assert!(!r.settle(300).contains(&tapped("flow")));
+    }
+
+    #[test]
+    fn a_push_to_talk_key_that_types_is_blocked_and_a_modifier_never_is() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.register("ptt", "fn", Role::Hold);
+        assert!(r.blocking.lock().unwrap().is_empty());
+        r.register("ptt", "f18", Role::Hold);
+        let blocked: Vec<_> = r.blocking.lock().unwrap().iter().copied().collect();
+        assert_eq!(blocked, vec!["f18".parse::<Binding>().unwrap().hotkey()]);
+        r.unregister("ptt");
+        assert!(r.blocking.lock().unwrap().is_empty());
+    }
+
+    /// AltGr types characters on this layout, so only Left Alt makes the gesture.
+    #[test]
+    fn right_alt_counts_only_where_it_is_not_altgr() {
+        let mut r = rig(altgr);
+        r.register("dictate", "option", Role::Toggle);
+        r.tap(0, Modifiers::OPT_RIGHT, 40);
+        r.tap(150, Modifiers::OPT_RIGHT, 40);
+        assert_eq!(r.settle(300), vec![]);
+        r.tap(1000, Modifiers::OPT_LEFT, 40);
+        r.tap(1150, Modifiers::OPT_LEFT, 40);
+        assert_eq!(r.settle(1300), vec![tapped("dictate")]);
+
+        let mut r = rig(no_altgr);
+        r.register("dictate", "option", Role::Toggle);
+        r.tap(0, Modifiers::OPT_RIGHT, 40);
+        r.tap(150, Modifiers::OPT_RIGHT, 40);
+        assert_eq!(r.settle(300), vec![tapped("dictate")]);
+    }
+
+    /// An AltGr character typed between two Left Alt taps breaks them.
+    #[test]
+    fn altgr_typing_between_taps_breaks_them() {
+        let mut r = rig(altgr);
+        r.register("dictate", "option", Role::Toggle);
+        r.tap(0, Modifiers::OPT_LEFT, 40);
+        r.event(100, Modifiers::OPT_RIGHT, None, true, Some(Modifiers::OPT_RIGHT));
+        r.event(120, Modifiers::OPT_RIGHT, Some(Key::Q), true, None);
+        r.event(160, Modifiers::empty(), None, false, Some(Modifiers::OPT_RIGHT));
+        r.tap(200, Modifiers::OPT_LEFT, 40);
+        assert_eq!(r.settle(300), vec![]);
+    }
+
+    #[test]
+    fn a_muted_binding_hears_nothing() {
+        let mut r = rig(no_altgr);
+        r.register("flow", "ctrl", Role::Toggle);
+        r.muted.insert("flow".into());
+        r.tap(0, Modifiers::CTRL_LEFT, 40);
+        r.tap(150, Modifiers::CTRL_LEFT, 40);
+        assert_eq!(r.settle(300), vec![]);
+    }
 
     #[test]
     fn a_missed_release_is_dropped() {

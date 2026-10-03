@@ -34,6 +34,31 @@ impl Binding {
     pub fn from_hotkey(hotkey: Hotkey) -> Self {
         Self { modifiers: hotkey.modifiers, key: hotkey.key }
     }
+
+    /// This toggle as it is watched beside the push-to-talk key `hold`: never on
+    /// the same physical key, or two quick push-to-talk taps would also throw it.
+    /// A side `hold` takes is dropped from a group this accepts either side of,
+    /// so "ctrl" beside "ctrl_right" is "ctrl_left". None when nothing is left.
+    pub fn narrow(self, hold: Binding) -> Option<Binding> {
+        if self.key.is_some() && self.key == hold.key {
+            return None;
+        }
+        if hold.is_modifier_only() {
+            self.without(hold.modifiers)
+        } else {
+            Some(self)
+        }
+    }
+
+    /// The binding with `sides` taken out. None when that empties a group it
+    /// needs: a binding of Right Alt alone has nothing left once Right Alt goes.
+    pub fn without(self, sides: Modifiers) -> Option<Binding> {
+        let modifiers = self.modifiers.difference(sides);
+        let emptied = [Modifiers::CTRL, Modifiers::OPT, Modifiers::SHIFT, Modifiers::CMD, Modifiers::FN]
+            .into_iter()
+            .any(|group| self.modifiers.intersects(group) && !modifiers.intersects(group));
+        (!emptied).then_some(Binding { modifiers, key: self.key })
+    }
 }
 
 fn parse_modifier(part: &str) -> Option<Modifiers> {
@@ -152,6 +177,39 @@ mod tests {
         for bad in ["", "ctrl+", "ctrl+ctrl", "ctrl+a+b", "ctrl+wat"] {
             assert!(bad.parse::<Binding>().is_err(), "{bad} should not parse");
         }
+    }
+
+    fn narrow(toggle: &str, hold: &str) -> Option<String> {
+        parse(toggle).narrow(parse(hold)).map(|b| b.to_string())
+    }
+
+    /// A toggle never shares a physical key with the push-to-talk key.
+    #[test]
+    fn a_toggle_gives_up_the_side_push_to_talk_holds() {
+        let cases = [
+            ("ctrl", "ctrl_right", Some("ctrl_left")),
+            ("ctrl", "ctrl_left", Some("ctrl_right")),
+            ("option", "option_right", Some("option_left")),
+            ("ctrl_right", "ctrl_right", None),
+            ("ctrl", "ctrl", None),
+            ("ctrl", "fn", Some("ctrl")),
+            ("option", "ctrl_right", Some("option")),
+            ("fn", "fn", None),
+            ("f19", "f18", Some("f19")),
+            ("f18", "f18", None),
+            ("ctrl", "f18", Some("ctrl")),
+            ("ctrl", "ctrl_right+shift_right", Some("ctrl_left")),
+        ];
+        for (toggle, hold, want) in cases {
+            assert_eq!(narrow(toggle, hold).as_deref(), want, "{toggle} beside {hold}");
+        }
+    }
+
+    #[test]
+    fn taking_out_right_alt_leaves_left_alt() {
+        assert_eq!(parse("option").without(Modifiers::OPT_RIGHT), Some(parse("option_left")));
+        assert_eq!(parse("option_right").without(Modifiers::OPT_RIGHT), None);
+        assert_eq!(parse("ctrl").without(Modifiers::OPT_RIGHT), Some(parse("ctrl")));
     }
 
     #[test]

@@ -247,6 +247,28 @@ pub fn secure_input_active() -> bool {
     false
 }
 
+/// Whether Right Alt types characters (AltGr) on this keyboard's layout.
+/// Wayland gives an evdev reader no keymap, so there it always does, and only
+/// Left Alt makes the gesture. On X11 it is the keysym on Right Alt's keycode:
+/// ISO_Level3_Shift or Mode_switch means AltGr. Unreadable counts as AltGr,
+/// since eating an AltGr typist's characters is worse than ignoring a key.
+pub fn right_alt_is_altgr() -> bool {
+    const ISO_LEVEL3_SHIFT: u32 = 0xfe03;
+    const MODE_SWITCH: u32 = 0xff7e;
+    // Right Alt's keycode under both evdev and libinput: KEY_RIGHTALT (100) + 8.
+    const RIGHT_ALT: u8 = 108;
+    if is_wayland() {
+        return true;
+    }
+    let keysym = || -> Option<u32> {
+        use x11rb::protocol::xproto::ConnectionExt;
+        let (conn, _) = x11rb::connect(None).ok()?;
+        let mapping = conn.get_keyboard_mapping(RIGHT_ALT, 1).ok()?.reply().ok()?;
+        mapping.keysyms.first().copied()
+    };
+    keysym().is_none_or(|sym| sym == ISO_LEVEL3_SHIFT || sym == MODE_SWITCH)
+}
+
 pub fn frontmost_app_name() -> Option<String> {
     None
 }

@@ -30,7 +30,7 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
 use binding::Binding;
-use coordinator::Effect;
+use coordinator::{Effect, Role};
 use hook::Hook;
 use inject::{Method, Session};
 
@@ -61,8 +61,7 @@ pub struct HookEffect {
 impl From<Effect> for HookEffect {
     fn from(effect: Effect) -> Self {
         let (kind, binding_id) = match effect {
-            Effect::Start { binding_id } => ("start", binding_id),
-            Effect::Stop { binding_id } => ("stop", binding_id),
+            Effect::DoubleTap { binding_id } => ("double_tap", binding_id),
             Effect::HoldStart { binding_id } => ("hold_start", binding_id),
             Effect::HoldEnd { binding_id } => ("hold_end", binding_id),
             Effect::HoldCancel { binding_id } => ("hold_cancel", binding_id),
@@ -138,11 +137,22 @@ pub fn hook_error() -> Result<Option<String>> {
     Ok(locked(&HOOK)?.as_ref().and_then(|hook| hook.last_error()))
 }
 
-/// `hold` also reports the binding being held, for push-to-talk.
-#[napi]
-pub fn register_binding(id: String, binding: String, hold: Option<bool>) -> Result<()> {
+/// `role` "toggle" reports the double-tap, "hold" the hold (push to talk).
+#[napi(ts_args_type = "id: string, binding: string, role: \"toggle\" | \"hold\"")]
+pub fn register_binding(id: String, binding: String, role: String) -> Result<()> {
     let parsed = Binding::from_str(&binding).map_err(err)?;
-    with_hook(|hook| hook.register(id, parsed, hold.unwrap_or(false)))
+    let role = Role::from_str(&role).map_err(err)?;
+    with_hook(|hook| hook.register(id, parsed, role))
+}
+
+/// The toggle `toggle` as the hook watches it while `hold` is the push-to-talk
+/// key, or null when the hold key takes all of it. Pure, so the tray and the
+/// key pickers say what the hook does.
+#[napi]
+pub fn narrow_toggle(toggle: String, hold: String) -> Result<Option<String>> {
+    let toggle = Binding::from_str(&toggle).map_err(err)?;
+    let hold = Binding::from_str(&hold).map_err(err)?;
+    Ok(toggle.narrow(hold).map(|b| b.to_string()))
 }
 
 #[napi]
@@ -161,23 +171,11 @@ pub fn resume_hook(id: Option<String>) -> Result<()> {
     with_hook(|hook| hook.resume(id))
 }
 
-/// Programmatic trigger, from the CLI or a menu item. One call is the whole
-/// gesture: it opens Flow, and the next one closes it.
+/// Programmatic trigger, from a menu item or a test. A toggle's one call is the
+/// whole gesture; a hold's `pressed` is its edge.
 #[napi]
 pub fn trigger_external(id: String, pressed: bool) -> Result<()> {
     with_hook(|hook| hook.trigger_external(id, pressed))
-}
-
-/// Flow is no longer open, and the gesture was not what closed it.
-#[napi]
-pub fn notify_closed() -> Result<()> {
-    with_hook(|hook| hook.closed())
-}
-
-/// The gesture's toggle under `id` was thrown another way, open or closed.
-#[napi]
-pub fn notify_open(id: String, open: bool) -> Result<()> {
-    with_hook(|hook| hook.set_open(id, open))
 }
 
 fn method(name: Option<String>) -> Result<Method> {

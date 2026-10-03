@@ -511,6 +511,12 @@ pub fn microphone_in_use() -> Option<bool> {
     Some(running != 0)
 }
 
+/// Option is never AltGr on macOS: Option+letter is a key landing on a held
+/// modifier, which already breaks the gesture.
+pub fn right_alt_is_altgr() -> bool {
+    false
+}
+
 pub fn secure_input_active() -> bool {
     unsafe { IsSecureEventInputEnabled() }
 }

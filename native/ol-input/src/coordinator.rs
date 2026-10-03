@@ -1,15 +1,15 @@
 //! Pure activation state machine. No OS handles, no timers, no clock reads:
 //! every entry point takes `now`, so the whole thing is driven from tests.
 //!
-//! One gesture opens Flow and the same gesture closes it: two quick taps of the
-//! trigger key, alone. Anything else the key is doing — held down, pressed as
-//! part of a shortcut — must pass through untouched, because the trigger is
-//! Control and Control belongs to the app the person is working in.
+//! A toggle binding reports one gesture: two quick taps of its key, alone.
+//! Which way that throws Flow or Dictate is the renderer's to know, so the
+//! gesture carries no direction. Anything else the key is doing (held down,
+//! pressed as part of a shortcut) must pass through untouched, because the
+//! default keys are Control and Option and they belong to the app in front.
 //!
-//! A binding registered for holding (Dictate's) also reports the hold itself:
-//! a press starts it at once, a release past `TAP_MAX` ends it, and a tap, or a
-//! key landing on top, cancels it. Its double-tap opens hands-free, and while
-//! that is open one more tap closes it.
+//! A hold binding (push to talk) reports the hold itself: a press starts it at
+//! once, a release past `TAP_MAX` ends it, and a tap, or a key landing on top,
+//! cancels it. Two quick holds are two holds, never a gesture.
 
 use std::time::{Duration, Instant};
 
@@ -19,15 +19,33 @@ pub const DEBOUNCE: Duration = Duration::from_millis(30);
 /// when no press of the same binding follows it inside this window. Without it
 /// a key held down would drum out a stream of taps.
 pub const RELEASE_GRACE: Duration = Duration::from_millis(50);
-/// A press held longer than this is the key being used, not tapped.
+/// A press held longer than this is the key being used, not tapped. A hold this
+/// short is an accidental brush of the push-to-talk key: no words fit in it.
 pub const TAP_MAX: Duration = Duration::from_millis(350);
 /// Two taps this close together are one deliberate double-tap.
 pub const DOUBLE_TAP: Duration = Duration::from_millis(400);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Toggle,
+    Hold,
+}
+
+impl std::str::FromStr for Role {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "toggle" => Ok(Role::Toggle),
+            "hold" => Ok(Role::Hold),
+            other => Err(format!("unknown binding role \"{other}\"")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
-    Start { binding_id: String },
-    Stop { binding_id: String },
+    DoubleTap { binding_id: String },
     HoldStart { binding_id: String },
     HoldEnd { binding_id: String },
     HoldCancel { binding_id: String },
@@ -37,6 +55,7 @@ pub enum Effect {
 pub struct Input {
     pub pressed: bool,
     pub external: bool,
+    /// Some other key went down: on top of this press, or between two taps.
     pub other_key: bool,
 }
 
@@ -52,11 +71,9 @@ struct Press {
 #[derive(Debug, Clone)]
 pub struct CoordinatorState {
     binding_id: String,
-    /// Reports holds as well as the double-tap.
-    hold: bool,
+    role: Role,
     /// A `HoldStart` went out and nothing has ended it yet.
     holding: bool,
-    open: bool,
     press: Option<Press>,
     /// A completed tap waiting for its partner.
     last_tap: Option<Instant>,
@@ -64,18 +81,19 @@ pub struct CoordinatorState {
 }
 
 impl CoordinatorState {
-    pub fn new(binding_id: String, hold: bool) -> Self {
-        Self { binding_id, hold, holding: false, open: false, press: None, last_tap: None, last_press: None }
+    pub fn new(binding_id: String, role: Role) -> Self {
+        Self { binding_id, role, holding: false, press: None, last_tap: None, last_press: None }
     }
 
     pub fn on_input(&mut self, input: Input, now: Instant) -> Option<Effect> {
-        // A shortcut. It disqualifies the press it landed on and the tap before
-        // it, so Ctrl+C, Ctrl+V can never add up to a gesture.
+        // A shortcut, or typing between two taps. It disqualifies the press it
+        // landed on and the tap before it, so Ctrl+C, Ctrl+V or Option+E, E can
+        // never add up to a gesture.
         //
         // The press is dropped, not flagged: the hook stops tracking the binding
         // the moment another key lands on it, so no release for this press is
         // ever delivered. Keeping it would leave a press that nothing can ever
-        // retire, and the next press — the start of a real gesture — would be
+        // retire, and the next press (the start of a real gesture) would be
         // discarded as a duplicate of it.
         if input.other_key {
             self.press = None;
@@ -83,18 +101,21 @@ impl CoordinatorState {
             return self.end_hold(false);
         }
         // An external trigger has no press and no release to pair: it is the
-        // whole gesture, delivered at once.
+        // whole gesture, or the whole edge of a hold, delivered at once.
         if input.external {
-            return input.pressed.then(|| self.toggle());
+            return match self.role {
+                Role::Toggle => input.pressed.then(|| self.double_tap()),
+                Role::Hold if input.pressed => self.start_hold(),
+                Role::Hold => self.end_hold(true),
+            };
         }
         if input.pressed {
-            let fresh = self.on_press(now);
             // Starts on the press itself, so the first word is never lost to
             // waiting out a tap.
-            (fresh && self.hold && !self.open).then(|| {
-                self.holding = true;
-                Effect::HoldStart { binding_id: self.binding_id.clone() }
-            })
+            if self.on_press(now) && self.role == Role::Hold {
+                return self.start_hold();
+            }
+            None
         } else {
             self.on_release(now);
             None
@@ -138,28 +159,31 @@ impl CoordinatorState {
         let pressed_at = press.at;
         self.press = None;
 
-        // Hands-free ends on any press of its key, so one tap is enough to stop.
-        if self.hold && self.open {
-            self.last_tap = None;
-            return Some(self.toggle());
-        }
         // Held rather than tapped, which also breaks the tap before it.
         if released_at.duration_since(pressed_at) > TAP_MAX {
             self.last_tap = None;
             return self.end_hold(true);
         }
+        if self.role == Role::Hold {
+            return self.end_hold(false);
+        }
         match self.last_tap {
             Some(first) if released_at.duration_since(first) <= DOUBLE_TAP => {
                 self.last_tap = None;
-                // The second tap's capture carries on as hands-free.
-                self.holding = false;
-                Some(self.toggle())
+                Some(self.double_tap())
             }
             _ => {
                 self.last_tap = Some(released_at);
-                self.end_hold(false)
+                None
             }
         }
+    }
+
+    fn start_hold(&mut self) -> Option<Effect> {
+        if std::mem::replace(&mut self.holding, true) {
+            return None;
+        }
+        Some(Effect::HoldStart { binding_id: self.binding_id.clone() })
     }
 
     fn end_hold(&mut self, finished: bool) -> Option<Effect> {
@@ -170,28 +194,8 @@ impl CoordinatorState {
         Some(if finished { Effect::HoldEnd { binding_id } } else { Effect::HoldCancel { binding_id } })
     }
 
-    fn toggle(&mut self) -> Effect {
-        self.open = !self.open;
-        let binding_id = self.binding_id.clone();
-        if self.open {
-            Effect::Start { binding_id }
-        } else {
-            Effect::Stop { binding_id }
-        }
-    }
-
-    /// Flow closed for a reason this state machine never saw: the orb's own
-    /// close button, the idle timer, the machine going to sleep. The gesture is
-    /// a toggle, so it can only stay honest if whoever actually closes Flow says
-    /// so — otherwise the next double-tap does the opposite of what is on screen.
-    pub fn on_closed(&mut self) {
-        self.open = false;
-    }
-
-    /// Opened or closed without the gesture: Dictate's hands-free from the orb's
-    /// mic button or by voice. Same reason as `on_closed`, both ways.
-    pub fn set_open(&mut self, open: bool) {
-        self.open = open;
+    fn double_tap(&self) -> Effect {
+        Effect::DoubleTap { binding_id: self.binding_id.clone() }
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
@@ -207,20 +211,24 @@ mod tests {
         Duration::from_millis(n)
     }
 
-    fn new() -> CoordinatorState {
-        CoordinatorState::new("flow".into(), false)
+    fn toggle() -> CoordinatorState {
+        CoordinatorState::new("flow".into(), Role::Toggle)
+    }
+
+    fn ptt() -> CoordinatorState {
+        CoordinatorState::new("ptt".into(), Role::Hold)
     }
 
     fn input(pressed: bool, other_key: bool) -> Input {
         Input { pressed, external: false, other_key }
     }
 
-    fn start() -> Option<Effect> {
-        Some(Effect::Start { binding_id: "flow".into() })
+    fn double_tap() -> Option<Effect> {
+        Some(Effect::DoubleTap { binding_id: "flow".into() })
     }
 
-    fn stop() -> Option<Effect> {
-        Some(Effect::Stop { binding_id: "flow".into() })
+    fn hold(kind: fn(String) -> Effect) -> Option<Effect> {
+        Some(kind("ptt".into()))
     }
 
     /// One tap: press, release, and the grace window closing behind it.
@@ -231,27 +239,28 @@ mod tests {
     }
 
     #[test]
-    fn two_quick_taps_open_flow() {
+    fn two_quick_taps_are_the_gesture() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         assert_eq!(tap(&mut c, t0, ms(40)), None);
-        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), double_tap());
     }
 
+    /// The renderer owns open and closed, so every gesture is the same gesture.
     #[test]
-    fn the_same_gesture_closes_it() {
+    fn the_gesture_carries_no_direction() {
         let t0 = Instant::now();
-        let mut c = new();
-        tap(&mut c, t0, ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
-        tap(&mut c, t0 + ms(1000), ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(1200), ms(40)), stop());
+        let mut c = toggle();
+        for i in 0..3u64 {
+            tap(&mut c, t0 + ms(i * 1000), ms(40));
+            assert_eq!(tap(&mut c, t0 + ms(i * 1000 + 200), ms(40)), double_tap());
+        }
     }
 
     #[test]
     fn one_tap_alone_does_nothing() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         assert_eq!(tap(&mut c, t0, ms(40)), None);
         assert_eq!(c.next_deadline(), None);
     }
@@ -259,15 +268,24 @@ mod tests {
     #[test]
     fn taps_too_far_apart_never_pair() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         tap(&mut c, t0, ms(40));
         assert_eq!(tap(&mut c, t0 + DOUBLE_TAP + ms(50), ms(40)), None);
     }
 
     #[test]
+    fn three_taps_are_one_gesture_and_a_spare_tap() {
+        let t0 = Instant::now();
+        let mut c = toggle();
+        tap(&mut c, t0, ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(150), ms(40)), double_tap());
+        assert_eq!(tap(&mut c, t0 + ms(300), ms(40)), None);
+    }
+
+    #[test]
     fn a_held_key_is_not_a_tap() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         assert_eq!(tap(&mut c, t0, TAP_MAX + ms(10)), None);
         assert_eq!(tap(&mut c, t0 + ms(600), ms(40)), None);
     }
@@ -276,7 +294,7 @@ mod tests {
     #[test]
     fn a_shortcut_never_builds_toward_the_gesture() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         c.on_input(input(true, false), t0);
         c.on_input(input(true, true), t0 + ms(20)); // Ctrl+C
         c.on_input(input(false, false), t0 + ms(60));
@@ -285,40 +303,45 @@ mod tests {
         assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), None);
     }
 
-    /// The bug this was written for: after Ctrl+C the hook stops reporting the
-    /// binding as pressed, so the press that the shortcut landed on never gets a
-    /// release. Holding on to it swallowed the whole next gesture.
+    /// After Ctrl+C the hook stops reporting the binding as pressed, so the
+    /// press the shortcut landed on never gets a release. Holding on to it
+    /// swallowed the whole next gesture.
     #[test]
     fn a_shortcut_does_not_swallow_the_next_gesture() {
         let t0 = Instant::now();
-        let mut c = new();
-        tap(&mut c, t0, ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
-
-        // Ctrl+C, with no release ever delivered for that press.
-        c.on_input(input(true, false), t0 + ms(1000));
-        c.on_input(input(true, true), t0 + ms(1020));
-
-        // The very next double-tap must still close Flow.
-        tap(&mut c, t0 + ms(2000), ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(2200), ms(40)), stop());
+        let mut c = toggle();
+        c.on_input(input(true, false), t0);
+        c.on_input(input(true, true), t0 + ms(20));
+        tap(&mut c, t0 + ms(1000), ms(40));
+        assert_eq!(tap(&mut c, t0 + ms(1200), ms(40)), double_tap());
     }
 
+    /// Option+E then E types é: a key between the taps is typing, not a gesture.
     #[test]
-    fn a_tap_then_a_shortcut_does_not_open_flow() {
+    fn a_key_between_the_taps_breaks_them() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         tap(&mut c, t0, ms(40));
-        c.on_input(input(true, false), t0 + ms(150));
-        c.on_input(input(true, true), t0 + ms(170));
-        c.on_input(input(false, false), t0 + ms(200));
-        assert_eq!(c.on_grace_expired(t0 + ms(250)), None);
+        c.on_input(input(false, true), t0 + ms(120));
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), None);
+    }
+
+    /// A key that lands after the release but before the grace window confirms it.
+    #[test]
+    fn a_key_inside_the_grace_window_breaks_the_tap() {
+        let t0 = Instant::now();
+        let mut c = toggle();
+        tap(&mut c, t0, ms(40));
+        c.on_input(input(true, false), t0 + ms(200));
+        c.on_input(input(false, false), t0 + ms(240));
+        c.on_input(input(false, true), t0 + ms(260));
+        assert_eq!(c.on_grace_expired(t0 + ms(290)), None);
     }
 
     #[test]
     fn auto_repeat_does_not_drum_out_taps() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         c.on_input(input(true, false), t0);
         // X11 repeats: release/press pairs inside the grace window, for a key
         // that is still physically down.
@@ -331,140 +354,137 @@ mod tests {
         assert_eq!(c.on_grace_expired(t0 + ms(450)), None);
     }
 
+    /// Windows and evdev repeat the key-down itself while a key is held.
+    #[test]
+    fn repeated_presses_are_one_press() {
+        let t0 = Instant::now();
+        let mut c = toggle();
+        c.on_input(input(true, false), t0);
+        for i in 1..10u64 {
+            c.on_input(input(true, false), t0 + ms(i * 33));
+        }
+        c.on_input(input(false, false), t0 + ms(500));
+        assert_eq!(c.on_grace_expired(t0 + ms(550)), None);
+        assert_eq!(tap(&mut c, t0 + ms(700), ms(40)), None);
+    }
+
     #[test]
     fn one_press_arriving_twice_is_still_one_press() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         c.on_input(input(true, false), t0);
         c.on_input(input(true, false), t0 + ms(10)); // inside DEBOUNCE
         c.on_input(input(false, false), t0 + ms(40));
         assert_eq!(c.on_grace_expired(t0 + ms(90)), None);
-        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
+        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), double_tap());
     }
 
     #[test]
     fn an_external_trigger_is_the_whole_gesture() {
         let t0 = Instant::now();
-        let mut c = new();
-        assert_eq!(c.on_input(Input { pressed: true, external: true, other_key: false }, t0), start());
-        assert_eq!(c.on_input(Input { pressed: true, external: true, other_key: false }, t0 + ms(10)), stop());
-    }
-
-    /// Flow closed without the gesture — the orb's button, the idle timer. The
-    /// next double-tap has to OPEN it, not close something already gone.
-    #[test]
-    fn closing_flow_another_way_leaves_the_next_gesture_opening() {
-        let t0 = Instant::now();
-        let mut c = new();
-        tap(&mut c, t0, ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(200), ms(40)), start());
-        c.on_closed();
-        tap(&mut c, t0 + ms(1000), ms(40));
-        assert_eq!(tap(&mut c, t0 + ms(1200), ms(40)), start());
+        let mut c = toggle();
+        let external = Input { pressed: true, external: true, other_key: false };
+        assert_eq!(c.on_input(external.clone(), t0), double_tap());
+        assert_eq!(c.on_input(external, t0 + ms(10)), double_tap());
     }
 
     #[test]
     fn a_pending_release_is_the_only_deadline() {
         let t0 = Instant::now();
-        let mut c = new();
+        let mut c = toggle();
         assert_eq!(c.next_deadline(), None);
         c.on_input(input(true, false), t0);
         assert_eq!(c.next_deadline(), None);
         c.on_input(input(false, false), t0 + ms(40));
         assert_eq!(c.next_deadline(), Some(t0 + ms(40) + RELEASE_GRACE));
     }
-    fn dictate() -> CoordinatorState {
-        CoordinatorState::new("dictate".into(), true)
-    }
 
-    fn effect(kind: fn(String) -> Effect) -> Option<Effect> {
-        Some(kind("dictate".into()))
-    }
-
-    fn hold_start() -> Option<Effect> {
-        effect(|binding_id| Effect::HoldStart { binding_id })
+    #[test]
+    fn a_toggle_never_reports_holds() {
+        let t0 = Instant::now();
+        let mut c = toggle();
+        assert_eq!(c.on_input(input(true, false), t0), None);
+        c.on_input(input(false, false), t0 + ms(1500));
+        assert_eq!(c.on_grace_expired(t0 + ms(1550)), None);
     }
 
     #[test]
     fn a_hold_starts_on_the_press_and_ends_on_the_release() {
         let t0 = Instant::now();
-        let mut c = dictate();
-        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        let mut c = ptt();
+        assert_eq!(c.on_input(input(true, false), t0), hold(|binding_id| Effect::HoldStart { binding_id }));
         c.on_input(input(false, false), t0 + ms(1500));
-        assert_eq!(c.on_grace_expired(t0 + ms(1550)), effect(|binding_id| Effect::HoldEnd { binding_id }));
+        assert_eq!(c.on_grace_expired(t0 + ms(1550)), hold(|binding_id| Effect::HoldEnd { binding_id }));
     }
 
+    /// An accidental brush of the key opens no utterance.
     #[test]
-    fn a_lone_tap_cancels_its_hold() {
+    fn a_tap_cancels_its_hold() {
         let t0 = Instant::now();
-        let mut c = dictate();
-        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        let mut c = ptt();
+        assert_eq!(c.on_input(input(true, false), t0), hold(|binding_id| Effect::HoldStart { binding_id }));
         c.on_input(input(false, false), t0 + ms(40));
-        assert_eq!(c.on_grace_expired(t0 + ms(90)), effect(|binding_id| Effect::HoldCancel { binding_id }));
+        assert_eq!(c.on_grace_expired(t0 + ms(90)), hold(|binding_id| Effect::HoldCancel { binding_id }));
     }
 
-    /// Right Alt is AltGr on many layouts: a character typed with it is not dictation.
+    /// No promotion to hands-free: two quick taps are two cancelled holds.
     #[test]
-    fn a_key_on_top_cancels_the_hold() {
+    fn a_double_tap_of_the_hold_key_is_two_cancelled_holds() {
         let t0 = Instant::now();
-        let mut c = dictate();
-        c.on_input(input(true, false), t0);
-        assert_eq!(c.on_input(input(true, true), t0 + ms(300)), effect(|binding_id| Effect::HoldCancel { binding_id }));
-        assert_eq!(c.next_deadline(), None);
-    }
-
-    #[test]
-    fn a_double_tap_goes_hands_free_and_one_tap_ends_it() {
-        let t0 = Instant::now();
-        let mut c = dictate();
-        assert_eq!(tap(&mut c, t0, ms(40)), effect(|binding_id| Effect::HoldCancel { binding_id }));
-        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold_start());
+        let mut c = ptt();
+        let cancel = hold(|binding_id| Effect::HoldCancel { binding_id });
+        assert_eq!(tap(&mut c, t0, ms(40)), cancel);
+        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold(|binding_id| Effect::HoldStart { binding_id }));
         c.on_input(input(false, false), t0 + ms(240));
-        assert_eq!(c.on_grace_expired(t0 + ms(290)), effect(|binding_id| Effect::Start { binding_id }));
-        // Hands-free: a press starts nothing, and its release closes it.
-        assert_eq!(c.on_input(input(true, false), t0 + ms(3000)), None);
-        c.on_input(input(false, false), t0 + ms(3040));
-        assert_eq!(c.on_grace_expired(t0 + ms(3090)), effect(|binding_id| Effect::Stop { binding_id }));
+        assert_eq!(c.on_grace_expired(t0 + ms(290)), cancel);
     }
 
     #[test]
     fn a_tap_then_a_hold_is_a_hold() {
         let t0 = Instant::now();
-        let mut c = dictate();
+        let mut c = ptt();
         tap(&mut c, t0, ms(40));
-        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold_start());
+        assert_eq!(c.on_input(input(true, false), t0 + ms(200)), hold(|binding_id| Effect::HoldStart { binding_id }));
         c.on_input(input(false, false), t0 + ms(1200));
-        assert_eq!(c.on_grace_expired(t0 + ms(1250)), effect(|binding_id| Effect::HoldEnd { binding_id }));
+        assert_eq!(c.on_grace_expired(t0 + ms(1250)), hold(|binding_id| Effect::HoldEnd { binding_id }));
+    }
+
+    /// Fn+arrow is Home: a shortcut, so the hold is given up.
+    #[test]
+    fn a_key_on_top_cancels_the_hold() {
+        let t0 = Instant::now();
+        let mut c = ptt();
+        c.on_input(input(true, false), t0);
+        assert_eq!(c.on_input(input(true, true), t0 + ms(300)), hold(|binding_id| Effect::HoldCancel { binding_id }));
+        assert_eq!(c.next_deadline(), None);
     }
 
     #[test]
     fn auto_repeat_does_not_restart_a_hold() {
         let t0 = Instant::now();
-        let mut c = dictate();
-        assert_eq!(c.on_input(input(true, false), t0), hold_start());
+        let mut c = ptt();
+        assert_eq!(c.on_input(input(true, false), t0), hold(|binding_id| Effect::HoldStart { binding_id }));
         for i in 1..6u64 {
             c.on_input(input(false, false), t0 + ms(i * 400));
             assert_eq!(c.on_input(input(true, false), t0 + ms(i * 400 + 5)), None);
         }
     }
 
-    /// The mic button opened hands-free, so the key's next tap has to close it.
     #[test]
-    fn hands_free_opened_elsewhere_closes_on_one_tap() {
+    fn an_external_hold_is_its_two_edges() {
         let t0 = Instant::now();
-        let mut c = dictate();
-        c.set_open(true);
-        assert_eq!(c.on_input(input(true, false), t0), None);
-        c.on_input(input(false, false), t0 + ms(40));
-        assert_eq!(c.on_grace_expired(t0 + ms(90)), effect(|binding_id| Effect::Stop { binding_id }));
+        let mut c = ptt();
+        let edge = |pressed| Input { pressed, external: true, other_key: false };
+        assert_eq!(c.on_input(edge(true), t0), hold(|binding_id| Effect::HoldStart { binding_id }));
+        assert_eq!(c.on_input(edge(true), t0 + ms(10)), None);
+        assert_eq!(c.on_input(edge(false), t0 + ms(900)), hold(|binding_id| Effect::HoldEnd { binding_id }));
+        assert_eq!(c.on_input(edge(false), t0 + ms(910)), None);
     }
 
     #[test]
-    fn a_toggle_binding_never_reports_holds() {
-        let t0 = Instant::now();
-        let mut c = new();
-        assert_eq!(c.on_input(input(true, false), t0), None);
-        c.on_input(input(false, false), t0 + ms(1500));
-        assert_eq!(c.on_grace_expired(t0 + ms(1550)), None);
+    fn roles_parse_from_their_names() {
+        assert_eq!("toggle".parse::<Role>(), Ok(Role::Toggle));
+        assert_eq!("hold".parse::<Role>(), Ok(Role::Hold));
+        assert!("press".parse::<Role>().is_err());
     }
 }

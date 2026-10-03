@@ -1,11 +1,15 @@
-/** A hold-to-talk effect emitted by the coordinator on the hook thread. */
+/** An effect emitted by the coordinator on the hook thread. */
 export interface HookEffect {
-  /** "start" | "stop": the double-tap opened or closed its binding's mode.
-   *  "hold_start" | "hold_end" | "hold_cancel": a binding registered for
-   *  holding was pressed, released after a hold, or let go as a tap or a chord. */
+  /** "double_tap": a toggle binding's gesture. It carries no direction: whoever
+   *  owns the mode knows whether it is open.
+   *  "hold_start" | "hold_end" | "hold_cancel": a hold binding was pressed,
+   *  released after a hold, or let go as a tap or a chord. */
   kind: string;
   bindingId?: string;
 }
+
+/** "toggle" reports two quick taps of the key, alone; "hold" reports it held (push to talk). */
+export type BindingRole = "toggle" | "hold";
 
 /** The Advanced timing of Settings > General > Typing at cursor, in ms. A field left out keeps its default
  *  (50, 200 and 8000); each is capped (1000, 5000 and 60000). */
@@ -52,22 +56,21 @@ export function shutdown(): void;
 /** The error the hook thread died with, or null while it is healthy. */
 export function hookError(): string | null;
 
-/** Watches for two quick taps of `binding`, alone, and with `hold` for it
- *  being held too. The key is never swallowed: it keeps working as itself in
- *  whatever app is in front. */
-export function registerBinding(id: string, binding: string, hold?: boolean): void;
+/** Watches `binding` in its role. A modifier is never swallowed: it keeps
+ *  working as itself in whatever app is in front. A hold binding on a key that
+ *  types (F13 to F24) is kept from the app in front. A toggle never shares a
+ *  physical key with a hold binding: it is narrowed away from it (see `narrowToggle`). */
+export function registerBinding(id: string, binding: string, role: BindingRole): void;
+/** `toggle` as the hook watches it while `hold` is the push-to-talk key ("ctrl"
+ *  beside "ctrl_right" is "ctrl_left"), or null when the hold key takes all of it. */
+export function narrowToggle(toggle: string, hold: string): string | null;
 export function unregisterBinding(id: string): void;
 /** One binding by id, or the whole hook. */
 export function suspendHook(id?: string): void;
 export function resumeHook(id?: string): void;
 
-/** Programmatic trigger: one call is the whole gesture. */
+/** Programmatic trigger: a toggle's one call is the whole gesture, a hold's `pressed` is its edge. */
 export function triggerExternal(id: string, pressed: boolean): void;
-/** Flow closed for a reason the hook never saw (its own button, an idle
- *  timeout, sleep). Keeps the toggle honest. */
-export function notifyClosed(): void;
-/** The toggle under `id` was thrown another way (the orb's mic button, a voice ask). */
-export function notifyOpen(id: string, open: boolean): void;
 
 /** Resolves once the text has landed, and rejects when it did not. Runs off
  *  the main thread: the paste receipt arrives on the main thread's run loop. */

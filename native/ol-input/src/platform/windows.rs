@@ -132,6 +132,29 @@ pub fn microphone_in_use() -> Option<bool> {
     None
 }
 
+/// Whether Right Alt is AltGr on the layout of the window in front: some
+/// character on it needs Ctrl+Alt. Layouts are per thread, so it is the
+/// foreground window's that counts. O(characters scanned) once per layout, then a lookup.
+pub fn right_alt_is_altgr() -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW};
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    static LAYOUTS: OnceLock<Mutex<HashMap<usize, bool>>> = OnceLock::new();
+    // VkKeyScanExW's high byte is the shift state a character needs: 2 Ctrl, 4 Alt.
+    const CTRL_ALT: i16 = 6;
+    let hkl = unsafe { GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), None)) };
+    let mut layouts = LAYOUTS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    *layouts.entry(hkl.0 as usize).or_insert_with(|| {
+        // Printable Latin through Latin Extended-B, and the euro sign, which
+        // between them cover what AltGr types on every European layout.
+        (0x21u16..0x250).chain([0x20AC]).any(|ch| {
+            let scan = unsafe { VkKeyScanExW(ch, hkl) };
+            scan != -1 && (scan >> 8) & CTRL_ALT == CTRL_ALT
+        })
+    })
+}
+
 pub fn secure_input_active() -> bool {
     false
 }
