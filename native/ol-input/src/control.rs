@@ -174,35 +174,6 @@ pub fn keypress(keys: &[String], times: u32) -> Result<(), String> {
     platform::key_chord(&keys.join("+"), times.clamp(1, MAX_REPEAT))
 }
 
-/// Holds the clipboard while the copy chord goes out, so an app that copies
-/// nothing is not read as having copied what was already there.
-const COPY_MARKER: &str = "\u{2063}openlive-copy\u{2063}";
-/// A copy lands within a frame or two; past this the app is not copying.
-const COPY_WAIT: Duration = Duration::from_millis(600);
-
-/// The selection in the app in front, read by copying it: for the apps whose
-/// selection the accessibility APIs cannot see. None when nothing was copied.
-/// The user's clipboard goes back, unless `timing` says to leave what a paste
-/// put there, in which case the copied text stays as a real copy would leave it.
-pub fn copy_selection(timing: Timing) -> Result<Option<String>, String> {
-    platform::guard_injection()?;
-    let saved = crate::clipboard::save();
-    crate::clipboard::set_text(COPY_MARKER)?;
-    let sent = platform::key_chord(if cfg!(target_os = "macos") { "cmd+c" } else { "ctrl+c" }, 1);
-    let deadline = Instant::now() + COPY_WAIT;
-    let mut copied = None;
-    while sent.is_ok() && copied.is_none() && Instant::now() < deadline {
-        match crate::clipboard::current_text() {
-            Some(text) if text != COPY_MARKER => copied = Some(text),
-            _ => sleep(Duration::from_millis(20)),
-        }
-    }
-    if timing.restore_clipboard || copied.is_none() {
-        crate::clipboard::restore(&saved)?;
-    }
-    sent.map(|_| copied)
-}
-
 /// Enough to take back a long dictation, short enough that a bad count cannot
 /// hold the keyboard for long.
 pub const MAX_REPEAT: u32 = 2000;

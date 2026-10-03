@@ -133,7 +133,6 @@ contextBridge.exposeInMainWorld("openlive", {
     insertPush: (session, chunk) => ipcRenderer.invoke("openlive:flow-insert-push", session, chunk),
     insertEnd: (session) => ipcRenderer.invoke("openlive:flow-insert-end", session),
     keys: (keys, times) => ipcRenderer.invoke("openlive:flow-keys", keys, times),
-    copySelection: (timing) => ipcRenderer.invoke("openlive:flow-copy-selection", timing),
     focusEditable: () => ipcRenderer.invoke("openlive:flow-focus-editable"),
     accessibleSelection: () => ipcRenderer.invoke("openlive:flow-accessible-selection"),
     secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),

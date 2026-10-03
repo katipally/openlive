@@ -315,7 +315,6 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   ipcMain.handle("openlive:flow-insert-end", guard((session) => (ownSessions.delete(session) ? undefined : load().endInsertion(session))));
   // Dictate's spoken commands and command mode: a key chord, and the selection read by copying it.
   ipcMain.handle("openlive:flow-keys", guard((keys, times) => load().keypress((Array.isArray(keys) ? keys : []).map(String), Number.isInteger(times) ? times : undefined)));
-  ipcMain.handle("openlive:flow-copy-selection", guard((timing) => load().copySelection(insertionTiming(timing))));
   // Dictate's edit by voice: the selection through the accessibility API only, never a copy.
   ipcMain.handle("openlive:flow-accessible-selection", guard(() => {
     const own = ownField();

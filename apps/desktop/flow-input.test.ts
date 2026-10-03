@@ -14,7 +14,7 @@ function load(ownField?: () => unknown, { packaged = false } = {}) {
     narrowToggle: vi.fn((toggle: string, hold: string) => (toggle === "ctrl" && hold === "ctrl_right" ? "ctrl_left" : toggle)),
     initializeInjector: vi.fn(), initializeHook: vi.fn(), hookError: vi.fn(() => null), permissionStatus: vi.fn(() => ({})),
     secureInputStatus: vi.fn(() => ({ changed: false })), shutdown: vi.fn(),
-    focusEditable: vi.fn(async () => null), accessibleSelection: vi.fn(async () => "the old line"), copySelection: vi.fn(async () => "copied"), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
+    focusEditable: vi.fn(async () => null), accessibleSelection: vi.fn(async () => "the old line"), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
   };
   stub(require.resolve("electron"), {
     app: { isPackaged: packaged, on: vi.fn() },
@@ -206,13 +206,11 @@ describe("typing into OpenLive's own window", () => {
     expect(selected({ isContentEditable: true }, "a paragraph")).toBe("a paragraph");
     expect(selected(null)).toBe("");
     expect(addon.accessibleSelection).not.toHaveBeenCalled();
-    expect(addon.copySelection).not.toHaveBeenCalled();
   });
 
-  it("asks the addon's accessibility read for every other app, never its copy", async () => {
-    const { addon, call } = load(() => null);
+  it("asks the addon's accessibility read for every other app", async () => {
+    const { call } = load(() => null);
     expect(await call("openlive:flow-accessible-selection")).toEqual({ ok: true, value: "the old line" });
-    expect(addon.copySelection).not.toHaveBeenCalled();
   });
 
   it("leaves every other app to the addon", async () => {

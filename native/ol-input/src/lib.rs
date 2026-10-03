@@ -250,30 +250,6 @@ pub fn insert_text(
     )))
 }
 
-/// Copying waits on the app to fill the clipboard, so it runs off the main thread.
-pub struct CopyTask(inject::Timing);
-
-impl napi::Task for CopyTask {
-    type Output = Option<String>;
-    type JsValue = Option<String>;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        control::copy_selection(self.0).map_err(err)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-/// The selection in the app in front, by sending the copy chord. Null when
-/// nothing was copied. The clipboard is put back as `insertion_timing` says.
-#[napi]
-pub fn copy_selection(insertion_timing: Option<InsertionTiming>) -> AsyncTask<CopyTask> {
-    inject::refresh_layout();
-    AsyncTask::new(CopyTask(timing(insertion_timing)))
-}
-
 /// Opens a streamed insertion. Chunks pushed while a paste is still in
 /// flight coalesce into the next one.
 #[napi]

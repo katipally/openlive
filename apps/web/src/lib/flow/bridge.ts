@@ -96,8 +96,6 @@ export interface FlowBridge {
   insertEnd(session: number): Promise<Guarded<void>>;
   /** A chord, as ["ctrl", "z"], its last key pressed `times` times. */
   keys(keys: string[], times?: number): Promise<Guarded<void>>;
-  /** The selection in the app in front, by sending the copy chord; null when nothing was copied. */
-  copySelection(timing?: InsertionTiming): Promise<Guarded<string | null>>;
   /** The selection in the app in front through the accessibility API alone
    *  (OpenLive's own page directly): "" for none, null where it cannot be read
    *  that way, as on Wayland. Never copies. */
