@@ -12,6 +12,7 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const { powerMonitor, net: electronNet } = require("electron");
 const flowInput = require("./flow-input.cjs");
+const { showOrb } = require("./orb-show.cjs");
 const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
@@ -814,23 +815,18 @@ function summonFlow(_e, mode) {
   flowSummoned = true;
   refreshTray();
   // The window may be up showing a call; Flow's own orb takes over from it.
-  win.webContents.send("openlive:call-orb", null);
+  if (callState) win.webContents.send("openlive:call-orb", null);
   // A gesture that closed Flow mid-hover would otherwise leave it clickable.
   setClickThrough(win, true);
-  // `showInactive` on an already-visible window emits no "show", and a summon
-  // of an open Flow is an ordinary thing (a resumed session, a new turn).
-  // A summon mid-exit cancels the hide; that "shown" brings the orb back.
+  // A summon of an open Flow is an ordinary thing (a resumed session, a new
+  // turn). A summon mid-exit cancels the hide; showOrb's "shown" brings it back.
   clearTimeout(flowHiding);
   flowHiding = null;
-  if (win.isVisible()) { win.webContents.send("openlive:flow-shown"); lastPointer = undefined; }
+  if (win.isVisible()) lastPointer = undefined;
   win.setBounds(flowBounds());
   // The orb goes over everything: other always-on-top windows, the Dock, and
-  // fullscreen apps. "floating" sits below the Dock, and macOS can drop a
-  // window's level and space membership across hide/show, so both are set
-  // again on every summon rather than trusted from creation.
-  win.setAlwaysOnTop(true, "screen-saver", 1);
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  win.showInactive();
+  // fullscreen apps. "floating" sits below the Dock.
+  showOrb(win);
 }
 
 /** The renderer plays its exit, then says so; the timeout hides it regardless. */
@@ -958,9 +954,7 @@ function syncCallOrb() {
   setClickThrough(flowWin, true);
   // Over the dock of the screen the call's window was on, not the cursor's.
   flowWin.setBounds(flowBounds(mainWin ? screen.getDisplayMatching(mainWin.getBounds()) : undefined));
-  flowWin.setAlwaysOnTop(true, "screen-saver", 1);
-  flowWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  flowWin.showInactive();
+  showOrb(flowWin);
 }
 
 // NOTE on `!mainWin`: closing the window does NOT quit on macOS (window-all-closed
