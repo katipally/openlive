@@ -95,9 +95,10 @@ General > **How you talk**:
 Esc never closes Dictate: it always goes to the app in front. Every key is
 yours to change in Settings > General, each with **Reset**; see
 [Keys](#keys). Dictate is off until you turn it on, on its home or from the
-tray. The keys are watched, never swallowed: they still reach the app in
-front. A key pressed on top of the push to talk key (Right Alt as AltGr
-typing a character) cancels the hold. On Windows, holding Alt or Win sends an
+tray. A modifier key is watched, never swallowed: it still reaches the app in
+front. An F13 to F24 key is OpenLive's alone and never reaches it (on Linux,
+only where OpenLive can write to `/dev/uinput`). A key pressed on top of the
+push to talk key (Right Alt as AltGr typing a character) cancels the hold. On Windows, holding Alt or Win sends an
 inert key with it, so letting go does not open the app's menu bar or the
 Start menu.
 

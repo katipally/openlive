@@ -32,6 +32,7 @@ Releases before 0.1.9 predate this file — see the
   with **Reset**, applied at once. No two share a physical key: beside a push
   to talk key on one side, a double tap uses the other side in push to talk,
   and a key that would leave another with none is refused with the reason.
+  An F13 to F24 key is OpenLive's alone: it never reaches the app in front.
   With Fn on a Mac, Settings says what a press of 🌐 also does and links to
   the setting that turns it off; on Windows and Linux, Right Alt warns that it
   may be AltGr.

@@ -301,8 +301,8 @@ fn apply(
 /// A modifier is never blocked. The toggles are plain modifiers the focused app
 /// uses for its own shortcuts, and the gesture is two taps of one alone:
 /// watching is enough, and swallowing it would break every shortcut on the
-/// machine. A push-to-talk key that is a real key (F13 to F24) is blocked, or
-/// every hold would also reach the app in front.
+/// machine. A key that is a real key (F13 to F24), held or double tapped, is
+/// blocked, or every press would also reach the app in front.
 fn sync(entries: &mut [Entry], suspended: bool, muted: &HashSet<String>, blocking: &Arc<Mutex<HashSet<handy_keys::Hotkey>>>) {
     let holds: Vec<Binding> = entries.iter().filter(|e| e.role == Role::Hold).map(|e| e.binding).collect();
     for entry in entries.iter_mut() {
@@ -323,8 +323,10 @@ fn sync(entries: &mut [Entry], suspended: bool, muted: &HashSet<String>, blockin
             set.extend(
                 entries
                     .iter()
-                    .filter(|e| e.role == Role::Hold && !e.binding.is_modifier_only() && !muted.contains(&e.id))
-                    .map(|e| e.binding.hotkey()),
+                    .filter(|e| !muted.contains(&e.id))
+                    .filter_map(|e| e.watched)
+                    .filter(|b| !b.is_modifier_only())
+                    .map(|b| b.hotkey()),
             );
         }
     }
@@ -647,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn a_push_to_talk_key_that_types_is_blocked_and_a_modifier_never_is() {
+    fn a_key_that_types_is_blocked_held_or_tapped_and_a_modifier_never_is() {
         let mut r = rig(no_altgr);
         r.register("flow", "ctrl", Role::Toggle);
         r.register("ptt", "fn", Role::Hold);
@@ -657,6 +659,9 @@ mod tests {
         assert_eq!(blocked, vec!["f18".parse::<Binding>().unwrap().hotkey()]);
         r.unregister("ptt");
         assert!(r.blocking.lock().unwrap().is_empty());
+        r.register("dictate", "f20", Role::Toggle);
+        let blocked: Vec<_> = r.blocking.lock().unwrap().iter().copied().collect();
+        assert_eq!(blocked, vec!["f20".parse::<Binding>().unwrap().hotkey()]);
     }
 
     /// AltGr types characters on this layout, so only Left Alt makes the gesture.
