@@ -68,6 +68,29 @@ describe("electron-builder files", () => {
   });
 });
 
+describe("the license", () => {
+  it("ships the license, the NOTICE and the third-party notices with every build", () => {
+    const builder = read("electron-builder.yml");
+    for (const f of ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES"]) {
+      expect(builder).toMatch(new RegExp(`- from: \\.\\./\\.\\./${f}\\n\\s+to: ${f}\\n`));
+      expect(existsSync(join(here, "..", "..", f)), f).toBe(true);
+    }
+  });
+
+  it("ships the generated list of bundled libraries, which pack writes after the servers and native code it reads", () => {
+    expect(read("electron-builder.yml")).toMatch(/- from: dist\/THIRD_PARTY_LICENSES\.txt\n\s+to: THIRD_PARTY_LICENSES\.txt\n/);
+    const { scripts } = JSON.parse(read("package.json"));
+    expect(scripts["pack:licenses"]).toBe("node scripts/pack-licenses.cjs");
+    const steps = scripts.pack.split(" && ");
+    const at = (step: string) => steps.indexOf(`node scripts/${step}.cjs`);
+    expect(at("pack-licenses")).toBeGreaterThan(Math.max(at("pack-web"), at("pack-agent"), at("pack-native")));
+    for (const workflow of ["ci.yml", "release.yml"]) {
+      const yml = text(join(here, "..", "..", ".github", "workflows", workflow));
+      expect(yml.split("pack:licenses").length, workflow).toBe(yml.split("pack:native").length);
+    }
+  });
+});
+
 describe("the computer-use helper", () => {
   it("ships where Electron main tells the agent to find it, on macOS, Windows and Linux", () => {
     const builder = read("electron-builder.yml");

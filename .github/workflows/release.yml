@@ -62,6 +62,7 @@ jobs:
           pnpm --filter @openlive/desktop pack:web
           pnpm --filter @openlive/desktop pack:agent
           pnpm --filter @openlive/desktop pack:native
+          pnpm --filter @openlive/desktop pack:licenses
 
       # Stamps where usage telemetry goes into the build. These are public values,
       # so repository variables, not secrets. If any of the three is unset nothing

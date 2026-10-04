@@ -2,6 +2,7 @@
   "name": "openlive",
   "version": "0.3.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@11.27.1",
   "engines": {

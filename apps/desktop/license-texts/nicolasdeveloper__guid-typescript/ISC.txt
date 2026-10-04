@@ -1,0 +1,1 @@
+guid-typescript 1.0.9 declares the ISC license in its package.json (author "nicolas"). The package ships no license file, and its source repository (https://github.com/NicolasDeveloper/guid-typescript, now snico-dev/guid-typescript) has none either, so there is no license text to reproduce.

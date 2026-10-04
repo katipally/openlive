@@ -1,7 +1,7 @@
 ---
 name: computer-use
 description: Use before operating an app on the user's computer, such as clicking, filling a field, reading a window or moving through a website in their browser.
-license: MIT
+license: Apache-2.0
 metadata:
   source: Adapted in part from Orca (https://github.com/stablyai/orca), MIT. See THIRD_PARTY_NOTICES.
 ---

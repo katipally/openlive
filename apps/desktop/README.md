@@ -88,4 +88,6 @@ telemetry/      product-usage telemetry: opt-out, packaged builds only, and sile
                 from OPENLIVE_TELEMETRY_ENDPOINT, _CLIENT_ID and _ORIGIN
 resources/web   Next standalone server (dist/web) — UI + /api settings routes
 resources/agent agent.mjs (esbuild bundle) — the /live WebSocket + tools
+resources/THIRD_PARTY_LICENSES.txt  the libraries inside the installer and their licenses,
+                written by `pack:licenses`
 ```

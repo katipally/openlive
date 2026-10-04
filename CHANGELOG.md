@@ -6,6 +6,19 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Changed
+- **Apache-2.0.** OpenLive is now licensed under Apache-2.0 instead of MIT. Copies
+  and forks keep the `NOTICE` file, and every installer now carries `LICENSE`,
+  `NOTICE` and `THIRD_PARTY_NOTICES` in its resources. 0.3.0 and earlier stay MIT
+  for anyone who already has them.
+- **Installers list the libraries inside them.** The build now writes
+  `THIRD_PARTY_LICENSES.txt`: every library bundled in the web server, the agent
+  and the native code, with its version, SPDX license, license text and NOTICE
+  text, shipped in the app's resources. The build fails on a missing license
+  text or a license outside an allowlist of permissive ones.
+- **THIRD_PARTY_NOTICES credits Orb.** The Wave Orb is ported from
+  LerSent001/orb (MIT); its notice is now reproduced as that license requires.
+
 ## [0.3.0] - 2026-10-03
 
 ### Added

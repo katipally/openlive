@@ -1516,7 +1516,7 @@ function buildMenu() {
     ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-  app.setAboutPanelOptions({ applicationName: "OpenLive", applicationVersion: app.getVersion(), copyright: "© OpenLive" });
+  app.setAboutPanelOptions({ applicationName: "OpenLive", applicationVersion: app.getVersion(), copyright: "Copyright © 2026 Yashwanth Reddy Katipally" });
 }
 
 // ── auto-update (packaged prod only; needs the published latest*.yml) ─────────

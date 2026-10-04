@@ -94,7 +94,10 @@ esbuild.build({
   // Some bundled CJS deps reference these — shim them for the ESM output.
   banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
   logLevel: "info",
-}).then(() => {
+  metafile: true,
+}).then((result) => {
+  // The libraries inlined into agent.mjs, for pack-licenses.cjs. Beside dist/agent, not in it, so it does not ship.
+  fs.writeFileSync(path.join(outdir, "..", "agent-inputs.json"), JSON.stringify(Object.keys(result.metafile.inputs).map((p) => path.resolve(p))));
   copySherpa();
   copyOrt();
   // The built-in skills, read in place beside agent.mjs (bundledSkillsDir in catalog.ts). Cleared first so a removed one does not linger.

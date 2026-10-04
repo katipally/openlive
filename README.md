@@ -16,7 +16,7 @@ Gemini Live, and OpenAI Realtime.
 
 [![Release](https://img.shields.io/github/v/release/katipally/openlive?color=2f6fed)](https://github.com/katipally/openlive/releases/latest)
 [![CI](https://github.com/katipally/openlive/actions/workflows/ci.yml/badge.svg)](https://github.com/katipally/openlive/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/katipally/openlive?color=2f6fed)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/github/license/katipally/openlive?color=2f6fed)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2f6fed.svg)](CONTRIBUTING.md)
 
 [![Download for macOS](https://img.shields.io/badge/Download-macOS-0b0b0c?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/katipally/openlive/releases/latest)
@@ -477,4 +477,6 @@ labeled in the tracker.
 
 ## License
 
-[MIT](LICENSE). Use it, change it, ship it.
+[Apache-2.0](LICENSE). Use it, change it, ship it, and keep the [NOTICE](NOTICE) with it.
+The libraries bundled in each installer, with their licenses, are listed in its
+`THIRD_PARTY_LICENSES.txt`, generated at build time.
