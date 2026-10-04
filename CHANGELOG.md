@@ -6,6 +6,8 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-03
+
 ### Changed
 - **Apache-2.0.** OpenLive is now licensed under Apache-2.0 instead of MIT. Copies
   and forks keep the `NOTICE` file, and every installer now carries `LICENSE`,
