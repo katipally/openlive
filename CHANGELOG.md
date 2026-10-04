@@ -18,6 +18,16 @@ Releases before 0.1.9 predate this file — see the
   text or a license outside an allowlist of permissive ones.
 - **THIRD_PARTY_NOTICES credits Orb.** The Wave Orb is ported from
   LerSent001/orb (MIT); its notice is now reproduced as that license requires.
+- **Flow and Dictate show how to use them as three steps.** Open, Talk and Close
+  (Start, Talk and Stop in Dictate) are tiles with your keys, instead of one
+  sentence that wrapped mid-phrase. They stack in a narrow window. How long
+  before it closes on silence is in Settings, and so is editing a selection by
+  voice.
+- **Dictate's Settings sits by its status,** like Flow's, instead of under the
+  history.
+- **Content scrolls behind the mode switch.** On the Chat, Flow and Dictate
+  homes, and in Settings, what scrolls up goes behind the switch or title bar and
+  fades there, instead of being cut at an edge.
 
 ## [0.3.0] - 2026-10-03
 

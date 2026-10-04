@@ -560,6 +560,21 @@ html.look-switching::view-transition-new(root) { animation-name: look-in; }
 }
 .openlive-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
 
+/* A scroller that runs under a bar (the mode switch, Settings' title bar): what
+   scrolls up goes behind the bar and dissolves across it, instead of ending at
+   an edge. --fade-end is where the bar ends: hidden over its top third, back to
+   full --fade-reach below it. At rest nothing sits that high, so nothing is dimmed. */
+.fade-top {
+  --fade-end: 3rem;
+  --fade-reach: 1rem;
+  mask-image: linear-gradient(to bottom, transparent calc(var(--fade-end) * 0.35), #000 calc(var(--fade-end) + var(--fade-reach)));
+}
+/* The three mode homes: the fade follows the switch and starts a little lower. */
+.fade-under-switch {
+  --fade-end: var(--mode-switch-bottom, 3rem);
+  --fade-reach: 2rem;
+}
+
 /* ─── Interaction animations ───────────────────────────────────────────────── */
 @keyframes streaming-fade {
   0% { opacity: 0.4; }

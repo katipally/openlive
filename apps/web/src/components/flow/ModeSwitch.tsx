@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 import { Mic, MessageSquare, Waves } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { MODE_LABEL, useUi, type AppMode } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { defaultPttKey } from "@openlive/flow-store/shared";
@@ -44,13 +45,14 @@ export const modeCopy = (id: AppMode) => COPY[id];
 /** Until Flow's settings are read: the default keys. */
 const DEFAULT_TALK: Talk = { mode: "handsFree", pttKey: defaultPttKey(desktopPlatform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: 30_000 };
 
+const cap = (k: string) => <Keycaps keys={hotkeyKeys(k, desktopPlatform)} label={keyName(k, desktopPlatform)} className="align-middle" />;
+
 /** How to start and close `mode`, with this person's keys and how they talk.
  *  `on`: whether Flow or Dictate is on already. */
 export function ModeStart({ mode, on = false }: { mode: AppMode; on?: boolean }) {
   const talk = useFlowConfig().config?.talk ?? DEFAULT_TALK;
   const { caps } = useFlowCapabilities();
   const keys = liveKeys(talk);
-  const cap = (k: string) => <Keycaps keys={hotkeyKeys(k, desktopPlatform)} label={keyName(k, desktopPlatform)} className="align-middle" />;
   const ptt = talk.mode === "ptt";
   const silence = talk.closeAfterSilenceMs;
   const quiet = silence === null ? "" : ` It also closes after ${silenceLabel(silence)} of silence.`;
@@ -64,6 +66,36 @@ export function ModeStart({ mode, on = false }: { mode: AppMode; on?: boolean })
   }
   return (
     <>{on ? "Click" : "Turn it on, click"} into a text box, double-tap {cap(keys.dictate)} and {ptt ? <>hold {cap(keys.ptt)} while you talk</> : "talk"}. Double-tap again to stop.{quiet}</>
+  );
+}
+/** `ModeStart` for Flow's and Dictate's homes: open, talk and close as three tiles, so
+ *  no key ever sits in a sentence that wraps. Side by side when the room allows,
+ *  stacked when it does not. Settings holds the rest (close after silence). */
+export function ModeSteps({ mode, on = false }: { mode: "flow" | "dictate"; on?: boolean }) {
+  const talk = useFlowConfig().config?.talk ?? DEFAULT_TALK;
+  const keys = liveKeys(talk);
+  const toggle = mode === "flow" ? keys.flow : keys.dictate;
+  const ptt = talk.mode === "ptt";
+  const steps = [
+    { name: mode === "flow" ? "Open" : "Start", how: "Double-tap", cue: cap(toggle) },
+    { name: "Talk", how: ptt ? "Hold" : "Hands free", cue: ptt ? cap(keys.ptt) : <Mic aria-hidden className="size-4 text-muted-foreground" /> },
+    { name: mode === "flow" ? "Close" : "Stop", how: "Double-tap", cue: cap(toggle) },
+  ];
+  return (
+    <div className="@container w-full max-w-[30rem]">
+      {!on && <p className="sr-only">Turn it on first.</p>}
+      <ol className={cn("grid list-none grid-cols-1 gap-2 transition-opacity @min-[24rem]:grid-cols-3", !on && "opacity-60")}>
+        {steps.map((s) => (
+          <li key={s.name} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface-raised/40 px-3 py-2.5 text-left @min-[24rem]:flex-col @min-[24rem]:justify-center @min-[24rem]:gap-2 @min-[24rem]:text-center">
+            <span className="flex flex-col">
+              <span className="text-label font-medium text-foreground">{s.name}</span>
+              <span className="text-caption text-faint">{s.how}</span>
+            </span>
+            {s.cue}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 /** The counter a switch to each mode counts, shared with the command palette. */

@@ -147,7 +147,7 @@ function BrainSection({ config, save }: { config: FlowConfig; save: Save }) {
   const flows = flowBrain(config, settings ?? {});
   const label = "Who answers for AI polish and edits";
   return (
-    <Section id="set-dictate-brain" title="Who answers" desc="For AI polish and edit by voice. Plain dictation never uses one.">
+    <Section id="set-dictate-brain" title="Who answers" desc="For AI polish and edit by voice: select text first, then say how to change it. Plain dictation never uses one.">
       <div className="flex flex-col gap-3">
         <ListGroup>
           <ListRow label={label} detail={own.brain.override ? "Only in Dictate. Flow is unchanged." : undefined}
