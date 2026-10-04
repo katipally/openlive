@@ -10,6 +10,8 @@
 // Exits non-zero, writing nothing, when a license text is missing or a license is
 // not on the allowlist, so a new copyleft dependency cannot reach an installer.
 // Extra licenses are opted into per build: pack-licenses.cjs --allow=MPL-2.0
+// The Rust crates are those of the platform this runs on; --target=<triple>[,<triple>]
+// lists another's instead (the Windows crates from a Mac, say).
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,7 +22,7 @@ const out = path.join(dist, "THIRD_PARTY_LICENSES.txt");
 
 const ALLOWED = new Set([
   "MIT", "ISC", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "0BSD", "BlueOak-1.0.0",
-  "CC0-1.0", "Zlib", "Unlicense", "Python-2.0", "CC-BY-4.0",
+  "CC0-1.0", "Zlib", "Unlicense", "Python-2.0", "CC-BY-4.0", "BSL-1.0", "Unicode-3.0",
   ...(process.argv.find((a) => a.startsWith("--allow=")) ?? "").slice(8).split(",").filter(Boolean),
 ]);
 
@@ -37,15 +39,22 @@ const isSharp = (p) => /(^|[/\\])(@img|sharp)([/\\]|$)/.test(p);
 const LICENSE_FILE = /^(licen[sc]e|copying|unlicense)\b/i;
 const NOTICE_FILE = /^notice\b/i;
 
+// An exception that only loosens the license it modifies.
+const EXCEPTIONS = new Set(["LLVM-exception"]);
+
 // "A OR B" passes when one side does, "A AND B" when both; AND binds tighter.
-// Anything it cannot parse (WITH exceptions, unknown ids) fails closed.
+// Anything it cannot parse (unknown ids or exceptions) fails closed.
 function permitted(expression) {
   const tok = expression.replace(/\//g, " OR ").match(/[()]|[^\s()]+/g) ?? [];
   let i = 0;
   const or = () => { let ok = and(); while (/^or$/i.test(tok[i])) { i++; ok = and() || ok; } return ok; };
   const and = () => { let ok = atom(); while (/^and$/i.test(tok[i])) { i++; ok = atom() && ok; } return ok; };
   const atom = () => {
-    if (tok[i] !== "(") return ALLOWED.has(tok[i++]);
+    if (tok[i] !== "(") {
+      let ok = ALLOWED.has(tok[i++]);
+      if (/^with$/i.test(tok[i])) { i++; ok = EXCEPTIONS.has(tok[i++]) && ok; }
+      return ok;
+    }
     i++;
     const ok = or();
     return tok[i++] === ")" && ok;
@@ -143,7 +152,8 @@ function addAgentInputs() {
 // workspace), for the platforms the installer targets: the macOS DMG is universal.
 function addCrates() {
   const host = /^host: (.+)$/m.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
-  const platforms = process.platform === "darwin" ? ["aarch64-apple-darwin", "x86_64-apple-darwin"] : [host];
+  const target = (process.argv.find((a) => a.startsWith("--target=")) ?? "").slice(9);
+  const platforms = target ? target.split(",") : process.platform === "darwin" ? ["aarch64-apple-darwin", "x86_64-apple-darwin"] : [host];
   for (const manifest of ["native/ol-input", "native/openlive-cu"]) {
     const meta = JSON.parse(execFileSync("cargo", [
       "metadata", "--format-version", "1", "--locked",
