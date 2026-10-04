@@ -1,6 +1,6 @@
 appId: com.openlive.desktop
 productName: OpenLive
-copyright: © OpenLive
+copyright: Copyright © 2026 Yashwanth Reddy Katipally
 
 directories:
   output: release
@@ -80,6 +80,17 @@ extraResources:
   # a real file on disk.
   - from: dist/ol-input
     to: ol-input
+  # Apache-2.0 asks that the license and NOTICE travel with every binary.
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+  - from: ../../THIRD_PARTY_NOTICES
+    to: THIRD_PARTY_NOTICES
+  # Written by scripts/pack-licenses.cjs, a step of `pack`: the libraries inside
+  # the installer, with their licenses.
+  - from: dist/THIRD_PARTY_LICENSES.txt
+    to: THIRD_PARTY_LICENSES.txt
 
 # ── macOS ─────────────────────────────────────────────────────────────────────
 mac:

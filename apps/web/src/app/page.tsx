@@ -165,57 +165,59 @@ export default function Home() {
             {hydrated && <DictateHome />}
           </motion.main>
         ) : (
-          <motion.main key="chat" custom={dir} {...VIEW} className="relative flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-            {/* Frameless-window drag handle: a title-bar-high strip clear of the macOS
-                traffic lights and the Windows/Linux caption buttons, both (the
-                server cannot tell which this window has). Desktop only (.desktop). Settings lives in the hero CTA row
-                below — no duplicate corner gear. The hole is the mode switch's; see
-                SwitchHole for why the strip has to cut it rather than the switch. */}
-            <div className="app-drag fixed left-traffic-lights right-window-controls top-0 z-0 h-14"><SwitchHole /></div>
+          <motion.main key="chat" custom={dir} {...VIEW} className="openlive-scroll fade-top fade-under-switch relative h-dvh overflow-y-auto">
+            <div className="relative flex min-h-full flex-col items-center justify-center px-6 py-20 text-center">
+              {/* Frameless-window drag handle: a title-bar-high strip clear of the macOS
+                  traffic lights and the Windows/Linux caption buttons, both (the
+                  server cannot tell which this window has). Desktop only (.desktop). Settings lives in the hero CTA row
+                  below — no duplicate corner gear. The hole is the mode switch's; see
+                  SwitchHole for why the strip has to cut it rather than the switch. */}
+              <div className="app-drag fixed left-traffic-lights right-window-controls top-0 z-0 h-14"><SwitchHole /></div>
 
 
-            <div ref={heroRef} className="flex max-w-full flex-col items-center gap-7">
-              <div className="ol-hero-mark"><OpenLiveMark paused={liveOpen || settingsOpen} /></div>
-              <div className="space-y-2">
-                <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
-                <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
-                  Ears, eyes, and a voice for your AI.
-                </p>
-                <p className="ol-hero-tag max-w-sm text-label leading-relaxed text-faint">
-                  {modeCopy("chat").tagline} <ModeStart mode="chat" />
-                </p>
+              <div ref={heroRef} className="flex max-w-full flex-col items-center gap-7">
+                <div className="ol-hero-mark"><OpenLiveMark paused={liveOpen || settingsOpen} /></div>
+                <div className="space-y-2">
+                  <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
+                  <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
+                    Ears, eyes, and a voice for your AI.
+                  </p>
+                  <p className="ol-hero-tag max-w-sm text-label leading-relaxed text-faint">
+                    {modeCopy("chat").tagline} <ModeStart mode="chat" />
+                  </p>
+                </div>
+                <div className="ol-hero-cta flex flex-wrap items-center justify-center gap-3">
+                  <Button variant="primary" size="lg" onClick={startNew} data-tour="new"><Plus /> New</Button>
+                  <Tooltip label="Browse and resume past conversations">
+                    <Button size="lg" onClick={() => setHistoryOpen(true)} data-tour="resume">
+                      <History /> History
+                    </Button>
+                  </Tooltip>
+                  <Tooltip label="Settings" keys={SETTINGS_KEYS}>
+                    <Button size="lg" icon onClick={openSettings} aria-label="Settings" data-tour="settings"><Settings2 /></Button>
+                  </Tooltip>
+                </div>
+                {/* Who a new conversation talks to: your API key or a coding agent. Carried
+                    into New. Beside it, whether a call would start, as Flow's and Dictate's homes say. */}
+                <div className="ol-hero-sub flex max-w-full flex-wrap items-center justify-center gap-2 text-label text-faint">
+                  <span data-tour="talk-to" className="flex min-w-0 max-w-full items-center gap-2">Who answers <AgentSelect up /></span>
+                  <ChatStatusChip />
+                </div>
               </div>
-              <div className="ol-hero-cta flex flex-wrap items-center justify-center gap-3">
-                <Button variant="primary" size="lg" onClick={startNew} data-tour="new"><Plus /> New</Button>
-                <Tooltip label="Browse and resume past conversations">
-                  <Button size="lg" onClick={() => setHistoryOpen(true)} data-tour="resume">
-                    <History /> History
-                  </Button>
-                </Tooltip>
-                <Tooltip label="Settings" keys={SETTINGS_KEYS}>
-                  <Button size="lg" icon onClick={openSettings} aria-label="Settings" data-tour="settings"><Settings2 /></Button>
-                </Tooltip>
-              </div>
-              {/* Who a new conversation talks to: your API key or a coding agent. Carried
-                  into New. Beside it, whether a call would start, as Flow's and Dictate's homes say. */}
-              <div className="ol-hero-sub flex max-w-full flex-wrap items-center justify-center gap-2 text-label text-faint">
-                <span data-tour="talk-to" className="flex min-w-0 max-w-full items-center gap-2">Who answers <AgentSelect up /></span>
-                <ChatStatusChip />
-              </div>
+
+              <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
+                <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
+                  {appVersion ? `v${appVersion}` : "dev"}
+                </a>
+              </footer>
+
+              <SpotlightTour id="home" active={!liveOpen} steps={[
+                { target: "mode", concept: "modes", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
+                { target: "talk-to", concept: "whoAnswers", title: "Pick who answers", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." },
+                { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then talk. Interrupt any time." },
+                { target: "resume", title: "Everything is saved", body: "History lists every conversation by project folder, including sessions from the agent's own CLI." },
+              ]} />
             </div>
-
-            <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
-              <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
-                {appVersion ? `v${appVersion}` : "dev"}
-              </a>
-            </footer>
-
-            <SpotlightTour id="home" active={!liveOpen} steps={[
-              { target: "mode", concept: "modes", title: "Three ways to talk", body: `${MODES.map((m) => `${m.label}: ${m.tagline}`).join(" ")} Switch here any time.` },
-              { target: "talk-to", concept: "whoAnswers", title: "Pick who answers", body: "OpenLive voice-drives the coding agent you already use, locally, under your own login. Pick one here, or keep your API key. New chats start with the default from Settings." },
-              { target: "new", title: "Start a conversation", body: "New opens the call setup: pick a project folder, check your mic, then talk. Interrupt any time." },
-              { target: "resume", title: "Everything is saved", body: "History lists every conversation by project folder, including sessions from the agent's own CLI." },
-            ]} />
           </motion.main>
         )}
       </AnimatePresence>

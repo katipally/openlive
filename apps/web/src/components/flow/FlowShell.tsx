@@ -56,12 +56,14 @@ export function FlowShell() {
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="relative flex h-dvh flex-col">
       {/* The centre of this bar belongs to the mode switch, which the page owns
-          and draws over it at the same place in every mode. */}
-      <header className={cn("relative flex h-14 shrink-0 items-center gap-3 pr-3",
+          and draws over it at the same place in every mode. The bar floats over
+          the page, so what scrolls passes behind the switch instead of ending
+          at the bar. */}
+      <header className={cn("absolute inset-x-0 top-0 flex h-14 items-center gap-3 pr-3",
         // An open session covers this bar, and a drag region under an overlay still eats its clicks.
-        isMacDesktop ? "pl-traffic-lights" : "pl-4", isDesktop && !sessionId && "app-drag")}>
+        isMacDesktop ? "pl-traffic-lights" : "pl-4", isDesktop && !sessionId && "app-drag", !isDesktop && "pointer-events-none")}>
         {isDesktop && <SwitchHole />}
       </header>
 

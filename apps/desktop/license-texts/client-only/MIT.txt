@@ -1,0 +1,1 @@
+client-only 0.0.1 declares the MIT license in its package.json. The package ships no license file, names no copyright holder and has no source repository (npm lists only a maintainer, sebmarkbage, and https://reactjs.org/ as homepage), so there is no license text to reproduce.

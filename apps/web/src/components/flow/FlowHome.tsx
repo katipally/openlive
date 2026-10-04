@@ -21,7 +21,7 @@ import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
 import { GrantPills, missingGrants } from "./GrantPills";
-import { ModeStart, modeCopy } from "./ModeSwitch";
+import { ModeSteps, modeCopy } from "./ModeSwitch";
 import { PowerPill } from "./PowerPill";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
 import { cn } from "@/lib/cn";
@@ -107,15 +107,17 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
     // list changes height (a search, a page, a delete, Select), and the hero moved
     // with it. The list scrolls in the room below the hero; only when the window
     // is too short for both does the whole page scroll.
-    <div className="openlive-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div className="openlive-scroll fade-top fade-under-switch flex min-h-0 flex-1 flex-col overflow-y-auto">
+    {/* The page's bar floats over this scroller (FlowShell), so it starts below it. */}
+    <div aria-hidden className="h-14 shrink-0" />
     <div className="mx-auto flex w-full max-w-[37.5rem] flex-1 flex-col gap-11 px-6 pt-[clamp(1rem,6dvh,4rem)]">
       <section className="flex shrink-0 flex-col items-center gap-5 text-center">
         <OpenLiveOrb size={84} pulse paused={settingsOpen} />
         <div className="space-y-2">
           <h1 className="text-display font-semibold tracking-tight">Flow</h1>
           <p className="text-callout leading-relaxed text-muted-foreground">{modeCopy("flow").tagline}</p>
-          <p className="text-label leading-relaxed text-faint"><ModeStart mode="flow" on={caps?.armed !== false} /></p>
         </div>
+        <ModeSteps mode="flow" on={caps?.armed !== false} />
         {caps && !caps.addonError && <PowerPill name="Flow" tour="flow-power" on={caps.armed} onFlip={() => flowBridge()?.setArmed(!caps.armed)} />}
         <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
           <BrainChip config={config} />
@@ -213,7 +215,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
 const CROSSFADE = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } } as const;
 
 /** Something on the status row you can press: the kit's pill. */
-function ChipButton({ onClick, tip, tour, className, children }: { onClick: () => void; tip: string; tour?: string; className?: string; children: React.ReactNode }) {
+export function ChipButton({ onClick, tip, tour, className, children }: { onClick: () => void; tip: string; tour?: string; className?: string; children: React.ReactNode }) {
   return (
     <Tooltip label={tip} className="min-w-0 max-w-full">
       <button type="button" data-tour={tour} onClick={onClick} className={cn(pill, "min-w-0 max-w-full", className)}>

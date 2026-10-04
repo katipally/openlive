@@ -329,8 +329,10 @@ export function SettingsPage() {
           })}
         </motion.nav>
 
-        {/* content — centered readable column */}
-        <main className="openlive-scroll ol-set-pane min-h-0 flex-1 overflow-y-auto">
+        {/* Content: a centered readable column. It runs up under the title bar
+            (-mt-14 and pt-14 are that bar's h-14) and fades there, so what scrolls
+            is not cut at the bar's edge. */}
+        <main className="openlive-scroll ol-set-pane fade-top relative z-10 -mt-14 min-h-0 flex-1 overflow-y-auto pt-14">
           {/* A narrow reading column that stays fluid: it fills a small window
               and stops growing past a comfortable line length. */}
           <div ref={body} className={cn("mx-auto w-full px-10 pb-12 pt-14 @max-3xl/settings:px-5 @max-3xl/settings:pt-8", Active.wide ? "max-w-[47.5rem]" : "max-w-[35rem]")}>

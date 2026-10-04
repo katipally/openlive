@@ -294,4 +294,4 @@ provider already filled in.
 
 ## License
 
-By contributing you agree that your work ships under the [MIT license](LICENSE).
+By contributing you agree that your work ships under the [Apache License 2.0](LICENSE), as section 5 of that license provides.

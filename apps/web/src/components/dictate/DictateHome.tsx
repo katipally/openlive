@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, ChevronRight, Copy, CornerDownLeft, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Copy, CornerDownLeft, Search, Settings2, Trash2 } from "lucide-react";
 import type { Dictation, FlowConfig } from "@openlive/flow-store";
-import { Button, Chip, Input, Textarea, Tooltip, groupLabel, linkClass } from "@/components/ui";
+import { Button, Chip, Input, Textarea, Tooltip, groupLabel } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
-import { ModeStart, SwitchHole, modeCopy } from "@/components/flow/ModeSwitch";
+import { ModeStart, ModeSteps, SwitchHole, modeCopy } from "@/components/flow/ModeSwitch";
 import { PowerPill } from "@/components/flow/PowerPill";
+import { ChipButton } from "@/components/flow/FlowHome";
 import { AddonCard } from "@/components/flow/AddonCard";
 import { deleteDictation, historyQuery, pendingDictationKey } from "@/lib/dictate/history";
 import { QueryState, StatusDot } from "@/components/settings/common";
@@ -63,13 +64,15 @@ export function DictateHome() {
   const dictations = useQuery({ ...historyQuery, retry: 1, enabled: !!config }).data?.items.length ?? 0;
 
   return (
-    <div className="flex h-dvh flex-col">
-      <header className={cn("relative flex h-14 shrink-0 items-center gap-3 pr-3", isMacDesktop ? "pl-traffic-lights" : "pl-4", isDesktop && "app-drag")}>
+    <div className="relative flex h-dvh flex-col">
+      {/* Floats over the page, so what scrolls passes behind the mode switch. */}
+      <header className={cn("absolute inset-x-0 top-0 flex h-14 items-center gap-3 pr-3", isMacDesktop ? "pl-traffic-lights" : "pl-4", isDesktop ? "app-drag" : "pointer-events-none")}>
         {isDesktop && <SwitchHole />}
       </header>
 
       {/* Anchored to the top like Flow's home, so the list changing height never moves the controls. */}
-      <div className="openlive-scroll flex min-h-0 flex-1 flex-col overflow-y-auto animate-fade-in">
+      <div className="openlive-scroll fade-top fade-under-switch flex min-h-0 flex-1 flex-col overflow-y-auto animate-fade-in">
+        <div aria-hidden className="h-14 shrink-0" />
         <div className="mx-auto flex w-full max-w-[37.5rem] flex-1 flex-col gap-11 px-6 pb-8 pt-[clamp(1rem,6dvh,4rem)]">
           <section className="flex shrink-0 flex-col items-center gap-5 text-center">
             <OpenLiveOrb size={84} pulse={on} paused={settingsOpen || !on} />
@@ -81,7 +84,12 @@ export function DictateHome() {
             {firstRun ? <FirstRun on={on} flip={flip} keyWords={key} caps={caps} refresh={refresh} /> : (
               <>
                 <PowerPill name="Dictate" on={on} onFlip={flip} disabled={!config} />
-                {on && <Status caps={caps} refresh={refresh} />}
+                <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
+                  {on && <Status caps={caps} refresh={refresh} />}
+                  <ChipButton onClick={() => openSettingsTab("dictate")} tip="Dictate settings" tour="dictate-settings" className="aspect-square justify-center px-0">
+                    <Settings2 aria-hidden /><span className="sr-only">Dictate settings</span>
+                  </ChipButton>
+                </div>
                 {own && <HowTo own={own} />}
               </>
             )}
@@ -91,10 +99,6 @@ export function DictateHome() {
           </section>
 
           {config && <History own={config.dictate} insertion={config.insertion} />}
-
-          <button type="button" data-tour="dictate-settings" onClick={() => openSettingsTab("dictate")} className={cn(linkClass, "inline-flex items-center gap-0.5 self-center text-label")}>
-            Settings <ChevronRight aria-hidden className="size-3.5" />
-          </button>
         </div>
       </div>
       <SpotlightTour id="dictate" active={isDesktop && onboarded && on && dictations > 0} steps={[
@@ -118,15 +122,11 @@ function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () 
   return <StatusDot tone="success">Ready</StatusDot>;
 }
 
-/** How to use it, with the person's own key, and editing a selection by voice. */
+/** How to use it, with the person's own keys. */
 function HowTo({ own }: { own: FlowConfig["dictate"] }) {
-  const { editReady } = useFlowConfig();
   return (
-    <div data-tour="dictate-howto" className="flex max-w-full flex-col items-center gap-1.5">
-      <p className="max-w-[32rem] break-words text-label leading-relaxed text-muted-foreground"><ModeStart mode="dictate" on={own.enabled} /></p>
-      <p className="max-w-[32rem] break-words text-caption text-faint">
-        {editReady ? "Select text first and say how to change it." : "Select text first to change it by voice, once Dictate's AI is set up in Settings."}
-      </p>
+    <div data-tour="dictate-howto" className="flex w-full flex-col items-center">
+      <ModeSteps mode="dictate" on={own.enabled} />
     </div>
   );
 }
