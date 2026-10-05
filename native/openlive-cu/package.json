@@ -1,6 +1,6 @@
 {
   "name": "@openlive/openlive-cu",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "private": true,
   "description": "The computer-use helper OpenLive's server drives over a local socket",
   "scripts": {

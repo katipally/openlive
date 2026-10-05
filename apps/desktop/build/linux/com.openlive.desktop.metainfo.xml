@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.openlive.desktop</id>
+  <name>OpenLive</name>
+  <summary>Voice, vision and computer use for AI</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <description>
+    <p>Talk to any AI. It talks back, sees, and gets things done. OpenLive is the open voice, vision and computer-use layer for the coding agent you already use, or for your own personal AI.</p>
+    <p>Three modes, one voice:</p>
+    <ul>
+      <li>Chat: a voice call with your AI, in the app window. It sees your camera or screen and can use your computer.</li>
+      <li>Flow: a hands-free assistant you summon from any app. It sees your screen and uses your whole computer.</li>
+      <li>Dictate: voice typing into any text box, cleaned up on this machine.</li>
+    </ul>
+    <p>Listening, speaking and turn-taking run on your own machine. Bring your own model with an API key, or drive Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode, Kiro, Pi or Hermes under your own login.</p>
+  </description>
+  <launchable type="desktop-id">openlive.desktop</launchable>
+  <url type="homepage">https://github.com/katipally/openlive</url>
+  <url type="bugtracker">https://github.com/katipally/openlive/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A live call</caption>
+      <image type="source">https://raw.githubusercontent.com/katipally/openlive/main/assets/hero.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Flow, over any app</caption>
+      <image type="source">https://raw.githubusercontent.com/katipally/openlive/main/assets/flow-home.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.3.1" date="2026-10-03"/>
+  </releases>
+</component>

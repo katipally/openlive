@@ -13,7 +13,7 @@ import { strict as assert } from "node:assert";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-const ADAPTER = "@agentclientprotocol/claude-agent-acp@0.81.2"; // keep in sync with ADAPTERS
+const ADAPTER = "@agentclientprotocol/claude-agent-acp@0.85.1"; // keep in sync with ADAPTERS
 const PROBE = "Reply with only the word pong";
 const CWD = mkdtempSync(join(tmpdir(), "openlive-persist-check-"));
 const projectsRoot = join(homedir(), ".claude", "projects");

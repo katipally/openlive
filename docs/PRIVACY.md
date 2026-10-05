@@ -1,8 +1,8 @@
 # OpenLive privacy policy
 
-Last updated: 2026-10-03.
+Last updated: 2026-10-04.
 
-This page covers the anonymous usage data the OpenLive desktop app can send to the project. It is written to be read, not skimmed past. The exact list of every event and field is in [docs/TELEMETRY.md](TELEMETRY.md), and the two pages are kept in step.
+This page covers the anonymous usage data the OpenLive desktop app can send to the project, and, in [Every outbound connection](#every-outbound-connection), every other place the app talks to over the network. It is written to be read, not skimmed past. The exact list of every event and field is in [docs/TELEMETRY.md](TELEMETRY.md), and the two pages are kept in step.
 
 ```
  your machine                                   the project
@@ -116,6 +116,32 @@ Now and then the app shows a small card in the main window asking how a session 
 ## Crash and bug detail
 
 OpenLive has no crash reporter and never uploads logs. The crash events only count that a crash happened. If you want to give detail, Settings > Privacy > Report a problem opens a GitHub issue that you write and submit yourself. It is prefilled with only your OpenLive version, your OS name and version, the provider id and the last Flow failure code. Nothing is sent until you submit it, and GitHub's own privacy policy then applies to the issue.
+
+## Every outbound connection
+
+OpenLive runs on your machine. These are all the places it can reach over the network, what goes out, when, and how to stop it. Nothing here is the project's server except the usage data in the last row.
+
+```
+ your voice ───▶ stays here (speech to text, turn-taking and text to speech are local)
+ your words ───▶ whoever answers: your API key's provider, or your coding agent's own provider
+ the rest   ───▶ the table below, each one on its own trigger
+```
+
+| Where | What goes out | When | How to turn it off |
+|---|---|---|---|
+| **Whoever answers, with an API key.** The provider you picked in Settings > Models (`api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `api.x.ai`, `api.deepseek.com`, `api.groq.com`, `api.minimax.io`, `openrouter.ai`, `api.mistral.ai`, `api.together.xyz`, `api.fireworks.ai`, `api.cerebras.ai`, `api.perplexity.ai`, `ollama.com`), or Ollama at the address you set | The transcript of what you said, your instructions and memory notes, camera or screen frames if you turned them on, and in Flow or a call that uses your computer, screenshots and tool results. The audio never goes. | Each turn | Pick Ollama on this machine, the default address. An Ollama address that is not this computer asks you first. |
+| **Whoever answers, a coding agent.** Your agent's own provider, under your own login | The same, handed to the agent on this machine; the agent then sends what it needs to its provider, under its own terms. | Each turn | Pick another agent or an API key. |
+| **A separate vision model**, if you set one in Settings > Models | The picture, so a model that cannot see has a description to read. | When a turn has a picture | Leave it unset. |
+| **The provider's model list**, the same host as above (or your Ollama address) | Your API key, in the request header, and nothing else. | When a provider's models are listed, such as in Settings > Models | Do not open the model picker. |
+| **The model catalog**, `models.dev/api.json` | Nothing about you: a plain request for a public list of model names and prices. Cached in your system's temp folder for 24 hours, and a built-in list stands in when it is offline. | When a provider's models are listed, at most once a day. Ollama on this machine never asks. | There is no switch. It works offline, with the built-in list. |
+| **Web research**, Exa's hosted search at `mcp.exa.ai`, and the pages it points at | The search words the model chose, and your Exa key if you saved one in Settings. `fetch_url` asks for a page the model chose, and refuses private and local addresses. | Only when OpenLive's `web_search` or `fetch_url` tool runs | Settings > Capabilities > **Web research** off. A coding agent keeps its own web tools, which this switch does not reach. |
+| **Connectors you added** (Settings > Capabilities) | The tool calls the AI makes to that server, and what it needs to make them. | When the AI calls one of its tools | Switch it off or remove it. |
+| **Voice model downloads**, `huggingface.co` (and its `hf.co` hosts) and `github.com` (the sherpa-onnx releases, for the native engines and voice cloning) | Only a request for the file. No audio, no text, nothing about you. In the app, the browser's WebGPU engine may also fetch its WebAssembly loader scripts from `cdn.jsdelivr.net`. | Once per model, after you agree to the size it names. They are cached. | Do not agree, or download none. Offline works once they are on the machine. |
+| **Updates**, the project's GitHub Releases | An ordinary request for the latest version file, and then the installer when there is one, which downloads by itself and asks to restart. | When the packaged app starts, then every 6 hours, and from Check for Updates | There is no switch. A build you compile yourself, and a development run, never check. |
+| **Installing and updating coding agents**, from Settings > Agents: the npm registry, and `cursor.com`, `hermes-agent.nousresearch.com` or `cli.kiro.dev` for the agents that install by script. Claude Code, Codex and Pi also fetch their pinned adapter from the npm registry the first time they start, through `npx`. | Package and script requests. Nothing about you. | When you press Install or Update, and the first time one of those three agents starts, or after its adapter has left the npm cache | Install the agent yourself. For an adapter you already have, set the `acpCommand:<agent id>` setting to its command. |
+| **Anonymous usage counts**, the project's own analytics server | The labels, counts and rounded timings listed in [TELEMETRY.md](TELEMETRY.md), under a random install ID. | Release builds only, after the first-run notice | Settings > Privacy, or `OPENLIVE_TELEMETRY=0` or `DO_NOT_TRACK=1`. |
+
+Two things open a page in your browser and send nothing themselves: **Report a problem**, which opens a GitHub issue draft you write and submit, and the links in About. A coding agent's own sign-in goes through that agent's CLI, not OpenLive.
 
 ## What this policy does not cover
 

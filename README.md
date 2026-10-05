@@ -7,12 +7,14 @@
 
 # OpenLive
 
-### The open voice and vision layer for AI agents.
+### Talk to any AI. It talks back, sees, and gets things done.
 
-Your AI can think. OpenLive gives it ears, a mouth, and eyes.
-Bring your own model, or talk to the coding agents you already use, with the whole
-voice loop running on your own machine. An open alternative to ElevenLabs Agents,
-Gemini Live, and OpenAI Realtime.
+The open voice, vision and computer-use layer for the agent you already use, or
+your own personal AI. macOS, Windows and Linux.
+
+An open alternative to voice platforms (ElevenLabs Agents, Gemini Live, OpenAI
+Realtime), to closed computer-use agents (ChatGPT Work, Claude's computer use),
+and, with Dictate, to Wispr Flow.
 
 [![Release](https://img.shields.io/github/v/release/katipally/openlive?color=2f6fed)](https://github.com/katipally/openlive/releases/latest)
 [![CI](https://github.com/katipally/openlive/actions/workflows/ci.yml/badge.svg)](https://github.com/katipally/openlive/actions/workflows/ci.yml)
@@ -33,29 +35,123 @@ https://github.com/user-attachments/assets/065775b0-0a4a-4adf-8fa7-bcf065e6337f
 
 ---
 
-## What this is
+## The gap
+
+Most AI agents have some of four abilities, not all of them, and not the same on
+every computer: they listen, or talk, or see, or use your machine. OpenLive gives
+any agent all four, the same way, on macOS, Windows and Linux. You keep your agent
+and your sessions. You do not move to a new one.
+
+What each one does on its own, and what it gets with OpenLive:
+
+| Product | Hears you | Talks back | Sees camera | Sees screen | Uses your computer | Answer prompts by voice | Mac / Win / Linux | Open source |
+|---|---|---|---|---|---|---|---|---|
+| Claude Code | Yes | No | No | Partial<sup>1</sup> | Partial<sup>1</sup> | No<sup>2</sup> | All three | No |
+| Codex (CLI) | Yes<sup>3</sup> | Yes<sup>3</sup> | No | No | No | ? | All three | Yes |
+| Cursor (agent / CLI) | Partial<sup>4</sup> | No | No | Partial<sup>5</sup> | Partial<sup>5</sup> | No<sup>2</sup> | All three | No |
+| Gemini CLI | Partial<sup>6</sup> | No | No | No | No | No<sup>2</sup> | All three | Yes |
+| GitHub Copilot CLI | Yes | No | No | Partial<sup>7</sup> | Partial<sup>7</sup> | No<sup>2</sup> | All three | No |
+| OpenCode | No | No | No | No | No | No | All three | Yes |
+| Kiro CLI | Partial<sup>8</sup> | No | No | No | No | No<sup>2</sup> | All three | No |
+| Hermes (Nous Research) | Yes | Yes | Partial<sup>9</sup> | Yes | Yes | ? | All three | Yes |
+| Pi (coding agent) | No | No | No | No | No | No | All three | Yes |
+| Wispr Flow | Yes | No | No | Partial<sup>10</sup> | No | No<sup>2</sup> | Mac, Win | No |
+| ChatGPT Work (desktop app) | Yes | Yes | No | Partial<sup>11</sup> | Partial<sup>11</sup> | ? | Partial<sup>11</sup> | No |
+| Claude Desktop (computer use) | Partial<sup>12</sup> | Partial<sup>12</sup> | No | Partial<sup>13</sup> | Partial<sup>13</sup> | ? | Partial<sup>13</sup> | No |
+| Gemini Live | Yes | Yes | Yes<sup>14</sup> | Yes<sup>14</sup> | No<sup>15</sup> | No | No<sup>14</sup> | No |
+| **Any coding agent above + OpenLive** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes**<sup>16</sup> | **Yes**<sup>17</sup> | **All three** | **Yes** |
+
+**Yes** and **No** come from each product's docs. **Partial** is a limit on OS,
+plan, preview status or surface, named in the note. **?** means the docs do not
+say. **No** means no built-in feature is documented; plugins are not counted.
+Seeing is a live camera or screen view, not an attached image. Using your computer
+means operating desktop apps: coding agents run shell commands in their own
+terminal but do not operate GUI apps unless marked.
+
+1. Computer use in the Claude Code CLI is a research preview on macOS only, for Pro and Max plans. Claude Desktop adds Windows.
+2. Voice is dictation into the prompt box. The docs describe no voice answers to permission prompts.
+3. `/voice` is a spoken conversation. It is in the Codex CLI release notes (experimental in 0.155.0, on by default in 0.156.0), not yet on the CLI docs pages.
+4. The mic is in the Cursor app's agent chat. The Cursor CLI docs do not list voice input.
+5. Cursor cloud agents drive their own virtual machine. Self-Hosted Machines can drive your own Mac or Linux desktop, not Windows.
+6. Experimental dictation, off by default (`experimental.voiceMode`).
+7. Computer use is a public preview for local sessions on macOS and Windows only.
+8. Speech to text only, and needs a `kiro-cli` build with voice compiled in.
+9. Only through the optional community `hermes-desktop-camera` plugin, which takes still photos.
+10. It reads limited text near your cursor for context while you dictate. It does not see a screen image.
+11. Voice screen context is macOS only. Computer Use is macOS and Windows. The Linux app is a preview without computer use.
+12. Voice mode is documented for Claude Desktop. The Linux beta lists dictation as unavailable and does not say whether voice mode works.
+13. Computer use is a beta for Pro and Max plans on macOS and Windows. The Linux beta does not have it.
+14. Gemini Live runs in the Android and iOS apps. The Mac and Windows apps document dictation and window sharing, not Live.
+15. Gemini's computer-driving agent, Spark, is a separate feature from Live.
+16. Linux needs one-time setup: [Linux setup](docs/FLOW.md#linux-setup).
+17. A spoken yes or no is matched in English only today.
+
+As of October 2026, from each product's own docs. Spot something out of date? [Open an issue](https://github.com/katipally/openlive/issues).
+
+<details>
+<summary>Sources</summary>
+
+- Claude Code: https://code.claude.com/docs/en/voice-dictation, https://code.claude.com/docs/en/computer-use, https://github.com/anthropics/claude-code/blob/main/LICENSE.md
+- Codex (CLI): https://learn.chatgpt.com/docs/changelog, https://github.com/openai/codex
+- Cursor: https://cursor.com/docs/agent/prompting, https://cursor.com/docs/cli/overview, https://cursor.com/docs/cloud-agent/self-hosted/computer-use
+- Gemini CLI: https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md
+- GitHub Copilot CLI: https://github.blog/changelog/2026-06-02-copilot-cli-improved-ui-rubber-duck-prompt-scheduling-and-voice-input/, https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/computer-use, https://github.com/github/copilot-cli/blob/main/LICENSE.md
+- OpenCode: https://opencode.ai/docs/, https://github.com/anomalyco/opencode/issues/4695, https://github.com/anomalyco/opencode
+- Kiro CLI: https://kiro.dev/docs/cli/voice/, https://kiro.dev/docs/getting-started/installation/, https://github.com/kirodotdev/Kiro
+- Hermes: https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode, https://hermes-agent.nousresearch.com/docs/user-guide/features/computer-use, https://hermes-agent.nousresearch.com/docs/plugins/hermes-desktop-camera, https://github.com/NousResearch/hermes-agent
+- Pi: https://github.com/earendil-works/pi/tree/main/packages/coding-agent/docs, https://github.com/earendil-works/pi
+- Wispr Flow: https://docs.wisprflow.ai/articles/2772472373-what-is-flow, https://docs.wisprflow.ai/articles/1036674442-supported-devices-and-system-requirements, https://docs.wisprflow.ai/articles/4678293671-feature-context-awareness
+- ChatGPT Work: https://learn.chatgpt.com/docs/features/voice, https://learn.chatgpt.com/docs/computer-use, https://learn.chatgpt.com/docs/linux/linux-app
+- Claude Desktop: https://support.claude.com/en/articles/10065433-install-claude-desktop, https://support.claude.com/en/articles/14128542-let-claude-use-your-computer-in-cowork, https://support.claude.com/en/articles/11101966-use-voice-mode
+- Gemini Live: https://support.google.com/gemini/answer/15274899, https://support.google.com/gemini/answer/17011627
+
+</details>
+
+OpenLive adds four things:
+
+- **Ears.** Voice activity detection, streaming speech to text and end-of-turn
+  detection, all on this machine.
+- **Mouth.** Text to speech that starts speaking before the sentence is done, in a
+  voice you pick or your own, and you can cut in at any time.
+- **Eyes.** Your camera or screen, a sharp frame on demand, and a vision model's
+  eyes for a model that cannot see.
+- **Hands.** Click, type, scroll, open apps, read and press the controls of app
+  windows, take screenshots, read the screen, run commands. It asks first, shows
+  what it is doing, Flow has a Stop button, and password managers are blocked.
 
 Wiring an AI into a real conversation is harder than it looks: voice activity
 detection, knowing when someone actually stopped talking, streaming speech-to-text,
 the model turn, streaming text-to-speech, and barge-in so you can interrupt. Then
 camera and screen on top. Hosted platforms rent you that pipeline by the minute and
-run it on their cloud.
+run it on their cloud. OpenLive is that pipeline, open and local.
 
-OpenLive is that pipeline, open and local. The listening, the speaking, and the
-watching all run on-device (WebGPU in the app, or native engines on your CPU or GPU). You pick who answers, and anyone works:
+## Who it is for
+
+**You want to talk to your coding agent, hands free.** Claude Code, Codex, Cursor,
+Gemini CLI, GitHub Copilot, OpenCode, Kiro, Pi or Hermes, under your own login.
+Not only speech in: the agent talks back out loud, can say what it is doing as it
+works, and you answer its permission prompts and questions by voice.
+
+**You want a personal AI you just talk with.** Bring an API key for the built-in
+OpenLive harness (15 providers, including Ollama running on your machine), or use
+an agent like Hermes. Have a full conversation, show it your screen, and let it
+act. You pay the model costs you would pay anyway and no per-minute audio fees.
+
+OpenLive does the listening, the speaking and the watching on this machine
+(WebGPU in the app, or native engines on your CPU or GPU). You pick who answers,
+and anyone works:
 
 - **A model you have a key for.** Anthropic, OpenAI, Google Gemini, xAI, DeepSeek,
   Groq, Ollama (fully local), MiniMax, OpenRouter, Mistral, Together, Fireworks,
-  Cerebras, Perplexity and Ollama Cloud. No per-minute audio fees; you pay only
-  the model costs you'd pay anyway.
+  Cerebras, Perplexity and Ollama Cloud.
 - **The coding agent you already use.** Claude Code, Codex, Cursor, OpenCode,
   Hermes, Gemini CLI, GitHub Copilot, Kiro, or Pi, driven locally over the
   [Agent Client Protocol](https://agentclientprotocol.com) (JSON-RPC over stdio),
   under your own login. Talk to your agent, watch it work, answer its permission
   asks by voice.
 
-Whoever answers, OpenLive is the same thing it has always been: the ears,
-mouth, and eyes around it. Nothing you say leaves the machine. The only thing that
+Whoever answers, OpenLive is the same thing around it: ears, mouth, eyes and
+hands. Nothing you say leaves the machine. The only thing that
 goes out is the final transcript (plus camera or screen frames if you turn them on),
 to whoever answers. Anonymous usage counts are separate, and off in one
 switch: see [Privacy](#privacy).
@@ -72,6 +168,50 @@ real trade. A speech-native model can overlap talk and listen in ways a cascade
 can't, but the cascade is exactly what makes "any model or agent, all local, no audio fees"
 possible.
 
+## Keep your agent, keep your sessions
+
+You do not have to migrate. OpenLive picks up the sessions you already have in
+your agent's CLI and lets you carry on talking, and what you start in OpenLive can
+go back to the CLI.
+
+```
+ agent CLI session ──▶ OpenLive History ──▶ Resume and talk
+ OpenLive call     ──▶ claude --resume        (Claude Code, verified)
+```
+
+Claude Code is the worked example. Set the project folder in OpenLive, call it,
+then run `claude --resume` in that folder and the call is in the list. Going the
+other way, History lists the sessions made in the CLIs of Claude Code, Codex,
+Cursor, OpenCode and Hermes, and GitHub Copilot's and Pi's through their own session list.
+Other agents vary, and only Claude Code is verified in both directions. The detail
+is in [docs/CHAT.md](docs/CHAT.md#sessions-and-your-agents-cli).
+
+## Everything is yours to change
+
+Every model: speech to text, text to speech, voice activity detection, turn-taking,
+the voice, the vision model and the LLM. Your keys, your instructions, your
+themes, and ten languages. Skills and MCP connectors. It is open source under
+[Apache-2.0](LICENSE) (0.3.0 and earlier stay MIT).
+
+## Platforms
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| Download | Universal DMG, macOS 13 or newer | NSIS installer, x64 | AppImage, x64 |
+| Chat, Dictate, voice loop | Yes | Yes | Yes |
+| Flow (summon from any app) | Yes | Yes | Yes<sup>1</sup> |
+| Computer use | Accessibility tree, ScreenCaptureKit, CGEvent<sup>2</sup> | UI Automation, Graphics Capture, SendInput | AT-SPI, X11 and Wayland<sup>1</sup> |
+
+<sup>1</sup> Linux depends on your desktop: the double-tap key needs the `input`
+group, typing needs one of `xdotool`, `ydotool`, `wtype`, `kwtype` or `dotool`,
+OCR needs `tesseract`, sway and Hyprland can read and press controls but not post
+clicks or keys, and Chromium and Electron apps need
+`--force-renderer-accessibility`. The full list is in
+[Linux setup](docs/FLOW.md#linux-setup).
+
+<sup>2</sup> Window pictures need macOS 14. On macOS 13 the helper still reads and
+presses controls, without the picture.
+
 ## Features
 
 Three modes, one voice. Pick **Chat**, **Flow** or **Dictate** at the top of
@@ -79,12 +219,14 @@ the window; each has its own home, its own History and its own tab in Settings,
 in the same shape.
 
 ```
- Chat     a call in the window       talk, it answers out loud, sees if you let it
- Flow     any app, over your dock    ask, it answers out loud and acts for you
+ Chat     a call in the window       talk, it answers out loud, sees, and in the
+                                     desktop app can use your computer
+ Flow     any app, over your dock    a hands-free personal agent: it sees your
+                                     screen and uses your whole computer
  Dictate  any text box               talk, your words are typed at the cursor
 ```
 
-What every mode is built on, the ears, mouth and eyes:
+What every mode is built on, the ears, mouth, eyes and hands:
 
 - **On-device voice loop.** Silero VAD, speech to text, Smart-Turn end-of-turn,
   and text to speech, all on this machine. Speech to text is Whisper on WebGPU, or
@@ -112,6 +254,13 @@ What every mode is built on, the ears, mouth and eyes:
 - **It can see.** Camera or screen frames ride each turn, and the `look` tool grabs
   a crisp hi-res frame on demand. A text-only model can borrow a separate vision
   model's eyes.
+- **It can use your computer.** In the desktop app, Flow and calls share one tool
+  set: open apps and links, click, type, press keys, scroll, drag, read the screen,
+  run commands, and operate app windows through the **OpenLive Computer Use**
+  helper (the accessibility tree first, pixels second). A call asks before each
+  action that changes something; Flow asks once. Password managers are blocked.
+  Coding agents get the same tools over a local MCP server, see
+  [For developers](#for-developers).
 - **Barge-in.** Interrupt any time and it stops mid-word, like a real conversation.
 - **Your assistant, your way.** **Assistant style** in Settings > General, your own
   instructions, applies to whoever answers, your API key's model or a coding agent. Speaking speed and spoken progress narration live
@@ -125,8 +274,10 @@ What every mode is built on, the ears, mouth and eyes:
 
 ### Chat
 
-A voice call with your AI, in the OpenLive window. The full guide is
-[docs/CHAT.md](docs/CHAT.md).
+A voice call with your AI, in the OpenLive window. Pick a project folder, choose
+who answers (your API key, or a coding agent), and talk hands free. It talks back,
+sees your camera or screen, and in the desktop app can use your computer too. The
+full guide is [docs/CHAT.md](docs/CHAT.md).
 
 - **Set up, then talk.** **New** opens the call setup: pick a project folder,
   check your mic and camera, choose who answers, and press **Start**. The
@@ -138,9 +289,14 @@ A voice call with your AI, in the OpenLive window. The full guide is
   reported by the agent itself over ACP.
 - **Sessions are the agent's own.** A call with Claude Code lands in
   `~/.claude/projects/…` where `claude --resume` finds it, and the agent's existing
-  CLI sessions show up in OpenLive's History. Resume from either side.
+  CLI sessions show up in OpenLive's History. Resuming back in the CLI is verified
+  for Claude Code only; other agents vary. See
+  [Keep your agent, keep your sessions](#keep-your-agent-keep-your-sessions).
+- **Computer use in a call.** In the desktop app, whoever answers can work your
+  computer, and asks before each action that changes something.
 - **Permission relay.** When the agent wants to run a command or edit files,
-  OpenLive speaks the question; answer by voice ("yes" / "no") or tap.
+  OpenLive speaks the question; answer by voice ("yes" / "no") or tap. A spoken
+  yes allows once, never always, and yes and no are matched in English only today.
 - **Narrated progress.** Optional, in calls and in Flow alike (Settings > Voice):
   while the agent works in silence, OpenLive speaks its plan steps out loud
   ("Step 2 of 4: refactor the store").
@@ -177,9 +333,10 @@ you.
   keeps it as you left it.
 - **What it can do.** Answer out loud, type into the app you are in, and drive the
   machine: open apps and links, click, type, scroll, take screenshots, read text on
-  screen, move and close windows, run shell commands. On macOS it operates app
-  windows through **OpenLive Computer Use**, a helper with its own grants that
-  presses controls by name rather than aiming at pixels.
+  screen, move and close windows, run shell commands. On macOS, Windows and Linux
+  it operates app windows through **OpenLive Computer Use**, a helper that
+  presses controls by name rather than aiming at pixels (on macOS it has its own
+  grants).
 - **Who answers.** The default from Settings > Models > **Who answers you**, the
   same one new chats start with, or Flow's own from Settings > Flow. **Your API
   key** uses the provider, model, and vision model from Settings > Models
@@ -200,6 +357,7 @@ you.
   Settings > Flow > Access. Windows and Linux have their own backends; on
   Linux the keys need the `input` group (X11 and Wayland alike), and until
   then the tray opens Flow, and in Push to talk a call's **Hold to talk** button works.
+  The rest of Linux setup is in [docs/FLOW.md](docs/FLOW.md#linux-setup).
 
 ![Orb states](assets/flow-orb-states.png)
 
@@ -339,6 +497,13 @@ at all; it runs under the login you already have.
 Your voice stays on your machine. The transcript, and camera or screen frames if you
 turn them on, go only to whoever answers.
 
+OpenLive makes a few other connections, each on its own trigger: the model catalog
+(models.dev), Exa web search when the web tool runs, update checks on GitHub,
+Hugging Face and GitHub for voice model downloads you agree to, npm or an install
+script when you install an agent, and the anonymous usage counts below. What goes
+out, when, and how to turn each off is one table in
+[docs/PRIVACY.md](docs/PRIVACY.md#every-outbound-connection).
+
 Separately, the desktop app shares anonymous usage counts: which features get used,
 errors and speed. Never what you say or type, your files, names, window titles,
 keys, model ids or error text.
@@ -389,6 +554,32 @@ The first start of a version with this folder moves what earlier versions kept i
 the app's data folder into it, once, and leaves a `MIGRATED.txt` behind saying where
 it went.
 
+## For developers
+
+OpenLive is an Electron app (`apps/desktop`) around a Next.js UI that holds the
+on-device voice engine (`apps/web`) and a small Hono and WebSocket agent service
+(`services/agent`), with two Rust modules for the native parts: `native/ol-input`
+(Flow's key, typing, capture, OCR) and `native/openlive-cu` (the computer-use
+helper). The model turn goes out from the agent service, which either streams a
+provider reply or drives your coding agent over ACP.
+
+What makes it a layer for any agent is one local MCP server. Every session
+publishes its tools (files, web research, memory, the computer-use helper, Flow's
+device tools) as an MCP server named `openlive`, on `127.0.0.1` behind a random
+path token, and hands it to the agent when the session starts:
+
+```
+ coding agent ──ACP (stdio)──▶ agent service ──▶ the session's tool set
+      │                                              ▲
+      └── MCP http, 127.0.0.1/mcp/<token> ───────────┘
+          tools: openlive.look, .click, .type, .read_file, .remember, ...
+```
+
+The built-in brain runs the same tool set in-process, so both see the same tools
+with the same approval. Adding an agent is one registry entry: see
+[docs/ADD_AN_AGENT.md](docs/ADD_AN_AGENT.md). How the pieces fit is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## How it works
 
 ```
@@ -417,7 +608,9 @@ Control, Control ─▶ orb ─▶ voice loop ─▶ Flow socket ─▶ your AI 
 ## Get started
 
 **Just use it:** grab the installer from the
-[latest release](https://github.com/katipally/openlive/releases/latest) and open the app.
+[latest release](https://github.com/katipally/openlive/releases/latest) (a DMG on
+macOS, an installer on Windows, an AppImage on Linux: `chmod +x` it and run) and
+open the app.
 Once installed, it opens at login; switch that off in Settings > General.
 Welcome walks you through the three modes, who answers you, what the computer has to
 allow and How you talk, then each mode shows a short tour the first time. Paste a model
@@ -436,8 +629,10 @@ pnpm install
 pnpm desktop:dev      # runs the web + agent servers and opens the app window
 ```
 
-You can also run it in a browser during development with `pnpm dev`, then open
-`localhost:3000`. Run the tests with `pnpm test`.
+The desktop app also needs Rust for its two native modules, see
+[CONTRIBUTING.md](CONTRIBUTING.md#setup). You can also run it in a browser during
+development with `pnpm dev`, then open `localhost:3000` (no computer use there).
+Run the tests with `pnpm test`.
 
 ## Repo layout
 
@@ -465,7 +660,8 @@ owner renderer), `services/agent/src/flow` and `src/live/flow-ws.ts` (the tool l
 brains, and tools), and `apps/desktop/flow-*.cjs` (the addon bridge).
 
 For how the pieces fit together (the ACP driver, the voice loop, resume, and the
-delegate/worker tool flow), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+delegate/worker tool flow), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). To
+plug in your own agent, see [docs/ADD_AN_AGENT.md](docs/ADD_AN_AGENT.md).
 For each mode, see [docs/CHAT.md](docs/CHAT.md), [docs/FLOW.md](docs/FLOW.md) and
 [docs/DICTATE.md](docs/DICTATE.md).
 

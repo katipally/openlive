@@ -17,7 +17,7 @@ const BOOT_LOOK = `try{var a=window.openlive&&window.openlive.appearance&&window
 
 export const metadata: Metadata = {
   title: "OpenLive",
-  description: "Ears, eyes, and a voice for your AI. Bring your own model or talk to your coding agents. The whole voice loop runs on your device.",
+  description: "Talk to any AI. It talks back, sees, and gets things done. Voice, vision and computer use for any AI agent, with the voice loop running on your device.",
 };
 
 /** What ui.json remembers, minus an open chat that has since been deleted:

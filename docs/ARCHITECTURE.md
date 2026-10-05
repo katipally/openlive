@@ -2,14 +2,23 @@
 
 How OpenLive fits together, and the few decisions that shape everything else.
 
+OpenLive is a voice, vision and computer-use layer around whichever AI answers:
+the voice loop and the tools are OpenLive's, the brain is a model you hold a key
+for or a coding agent you already use. The tools reach a coding agent through a
+local MCP server, `openlive` (see [How an agent gets OpenLive's
+tools](#how-an-agent-gets-openlives-tools)).
+
 For what each mode does from the user's side, see [CHAT.md](CHAT.md), [FLOW.md](FLOW.md)
 and [DICTATE.md](DICTATE.md).
 
 ## The one big idea: thick client, thin server
 
-The whole voice loop runs **on your machine, in the browser renderer**. The local
-agent server is a thin driver in front of the brain you picked — an external coding
-agent over ACP, or a chat-model provider. No audio ever crosses the wire.
+The whole voice loop runs **on your machine**: in the renderer (WebGPU) for the
+browser engines, and in the local agent service for the native engines (the
+speech to text and text to speech models that Settings > Speech engine downloads).
+The agent service is also a thin driver in front of the brain you picked: an
+external coding agent over ACP, or a chat-model provider. No audio ever leaves
+the machine.
 
 ```
 ┌──────────────────────────────── your machine ────────────────────────────────┐
@@ -25,7 +34,7 @@ agent over ACP, or a chat-model provider. No audio ever crosses the wire.
 ```
 
 The `/live` WebSocket carries text turns + JPEG frames up and streamed reply text
-down (plus permission asks, agent metadata, and control messages — see
+down (plus permission asks, agent metadata, and control messages, see
 `packages/shared/src/live-events.ts`). The browser speaks the reply sentence by
 sentence as it arrives.
 
@@ -43,27 +52,78 @@ desktop renderer; with no secret (dev), `foreignRequest` in
 and `/live` refuses a page from another site. The MCP server coding agents use
 is its own listener with a random path token and Host validation.
 
+## How an agent gets OpenLive's tools
+
+This is what makes OpenLive a layer for any agent rather than a bundle of its own.
+A call's or Flow's tool set (files, web research, the computer-use helper,
+Flow's device tools, reminders, memory, connectors) is one `ToolSet`. The
+built-in brain runs it in-process. A coding agent gets the same set over MCP,
+from a server OpenLive starts per session and names `openlive`.
+
+```
+ coding agent ──ACP (stdio)──▶ AcpAgent ──┐
+   │                                      │ session/new: mcpServers = [ openlive ]
+   └── MCP over http ──▶ 127.0.0.1:<port>/mcp/<random token>
+                              │  serveMcp (capabilities/mcp.ts), stateless
+                              ▼
+                  the session's ToolSet ── same dispatch, approval, chips
+                              │
+              ┌───────────────┼────────────────┐
+              ▼               ▼                ▼
+        files, web,     ol-input device     openlive-cu helper
+        memory, ...     tools (desktop)     (click, type, read windows)
+```
+
+- **One tool table.** `serveMcp` serves the session's own `ToolSet` through the
+  same `dispatchAll` path the built-in brain uses, so schemas, approval and the
+  chips on screen are the same for both. A tool marked `readOnly` goes out with
+  the MCP `readOnlyHint`.
+- **Local only.** The server binds `127.0.0.1` on a free port, with a random token
+  in its path and Host validation, because anything on the machine can reach a
+  loopback port and MCP has no auth of its own here. It is stateless, so an agent
+  restart, a reconnect or a second session all get the same tools.
+- **How it is handed over.** `AcpAgent` passes it in `mcpServers` on `session/new`
+  and `session/load`, next to the project's own `.mcp.json` for agents that need
+  it passed (`mcp: "passthrough"` in the registry). Agents that read `.mcp.json`
+  themselves (`mcp: "native"`) still get `openlive`. Pi's adapter drops
+  `mcpServers`, so a per-session pi extension registers it instead
+  (`mcpBridge: "piExtension"`). An agent that says it takes no http MCP is not sent
+  it, and its preamble stops listing the tools.
+- **The agent is told.** The call preamble names the server and its tools
+  (`mcp__openlive__<tool>` or `mcp.openlive.<tool>`, depending on the harness) so
+  the agent loads and calls them.
+- **Computer use rides the same pipe.** Where the helper runs, its tools replace
+  ol-input's pointer and keyboard tools in the set, so a coding agent that clicks
+  through an app is calling `openlive`, and OpenLive's input lock, approval and
+  password-manager block apply. See *Computer use* below.
+
+Adding an agent that works this way takes one registry entry:
+[ADD_AN_AGENT.md](ADD_AN_AGENT.md).
+
 ## The agent registry (`packages/shared/src/agent-registry.ts`)
 
 The **single source of agent identity**. Every agent's id, label, brand mark, ACP
 adapter command, install/uninstall recipes, login/logout commands, session-store
 location + parser, and credential probe lives in one table. The server driver, the
-API routes, the History sidebar, and every selector read it — adding an agent is one
+API routes, the History sidebar, and every selector read it. Adding an agent is one
 entry, and the whole UI (including History discovery) picks it up automatically.
 Node-only helpers (credential probing, PATH widening, terminal launch) live in
-`@openlive/shared/node`.
+`@openlive/shared/node`. To add one in a fork, follow [ADD_AN_AGENT.md](ADD_AN_AGENT.md).
 
 The npx adapter versions are **pinned** on purpose (guarded by unit tests):
-`claude-agent-acp@0.81.2` (OpenLive relies on its `_meta.claudeCode.options`
-passthrough) and `codex-acp@1.13.1`.
+`claude-agent-acp@0.85.1` (OpenLive relies on its `_meta.claudeCode.options`
+passthrough) and `codex-acp@2.1.1`.
 
 ## Driving a coding agent over ACP (`services/agent/src/agents/`)
 
 `AcpAgent` spawns the agent's ACP adapter as a child process and speaks JSON-RPC
 over stdio ("LSP for agents"). Design points:
 
-- **No faked capabilities.** OpenLive advertises no fs/terminal capabilities — a
-  voice app isn't an editor. The agent uses its own file access and asks permission
+- **No faked capabilities.** OpenLive advertises no `fs` capability: a voice app
+  isn't an editor, so the agent uses its own file access. It does advertise
+  client-hosted terminals (`terminal: true` in the registry) to 8 of the 9 agents,
+  every one but Pi, so a command runs through OpenLive and its output streams into
+  the tool card, and cancelling kills the process tree. The agent asks permission
   (via `session/request_permission`) before anything risky; the ask is spoken and
   shown as chips, answerable by voice. A "yes" or "no" to it ends the turn at
   once, with no mid-thought hold, and once the question is voiced the orb shows
@@ -124,12 +184,12 @@ over stdio ("LSP for agents"). Design points:
   with `auth_required` is reported as "not signed in" with that agent's hint.
 - **Supervision.** Every agent runs inside `AgentSupervisor`: per-turn watchdogs
   (start / first-output / stall), restart-once-then-fail, and every failure ends as
-  a *spoken* one-liner + structured error — never a session stuck listening.
+  a *spoken* one-liner + structured error, never a session stuck listening.
 - **Cleanup.** Adapters spawn in their own process group so dispose kills the whole
   `npx → node → binary` tree.
 
 History also surfaces each agent's **own** on-disk sessions
-(`apps/web/src/app/api/history/agentSessions.ts` — Claude JSONL, Codex rollouts,
+(`apps/web/src/app/api/history/agentSessions.ts`: Claude JSONL, Codex rollouts,
 Cursor meta, OpenCode/Hermes read-only sqlite), deduped against OpenLive's chats,
 so everything you did in the CLI shows up too. Gemini CLI, GitHub Copilot, Kiro and
 Pi have no on-disk parser: Copilot and Pi are listed through their own `session/list`,
@@ -211,7 +271,7 @@ One turn, end to end:
    Japanese characters are words of their own. Until a streamed piece is all in,
    its words are paced by the engine's estimated rate, and the caption on screen
    is retimed once it is (`onAgentTiming`).
-6. **Barge-in**: start talking and it stops mid-word — the client aborts the turn
+6. **Barge-in**: start talking and it stops mid-word: the client aborts the turn
    (ACP `session/cancel` for agents) and the transcript keeps only what was spoken:
    the sentences voiced, then the words of the playing one begun by the cut, as
    its caption revealed them (`cutReply`, `heardText`). The server saves the same
@@ -240,7 +300,7 @@ and the worker stays warm for the tab's life.
 **Model licenses.** Settings → Speech engine shows each engine's on its card, and Piper's
 per voice in its Model menu. Silero VAD and Moonshine: MIT. Smart-Turn:
 BSD-2-Clause. Whisper, Kokoro (browser and CPU), Kitten TTS and Matcha: Apache 2.0
-(Matcha's LJSpeech data is public domain). Supertonic, the default voice:
+(Matcha's LJSpeech data is public domain). Supertonic, the default voice for Japanese and Korean:
 [OpenRAIL-M](https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE),
 which allows commercial use but forbids some uses. Parakeet and Canary: CC BY 4.0.
 Nemotron: NVIDIA Open Model License; Nemotron 3.5: OpenMDW-1.1. Pocket TTS: CC BY
@@ -252,7 +312,7 @@ Emilia (CC BY-NC 4.0).
 
 **Restricted licenses are opt-in.** A model is open when its license is MIT,
 Apache, BSD, CC BY or looser, or OpenMDW, with no restricting qualifier; the
-exceptions, by choice, are Supertonic's OpenRAIL-M (the default voice) and the
+exceptions, by choice, are Supertonic's OpenRAIL-M (the default voice for Japanese and Korean) and the
 NVIDIA Open Model License (Nemotron English). A Piper voice is judged by its own
 data's license, not the voice it was fine-tuned from, so the CC0, CC BY and
 BSD-style ones are open (`PIPER_OPEN`). Every other model (Pocket TTS, cloned
@@ -412,7 +472,7 @@ of up to 35 s, which run alongside transcription. Not measured: real
 microphones and rooms (the conditions are simulated), languages other than
 English for the user, and children's voices.
 
-The **side talk check** (addressee detection), opt-in under Settings → Voice →
+The **side talk check** (addressee detection), opt-in under Settings → Speech engine →
 Turn-taking → Side talk (Off by default; Ignore side talk), drops a finished
 sentence said to someone else in the room, or to no one ("did you feed the
 dog?", "hang on, John, I'm on a call"). `VoiceEngine` asks the agent
@@ -492,7 +552,7 @@ in 30 turns, p50 820 ms after the pause began, 0 overlapping the user's speech.
 Not measured: the sound leaking into the mic over speakers (the eval has no
 room); the page's echo canceller hears it like the reply, at -8 dB.
 
-The **judgment log** (Settings → Side talk → "Keep a judgment log to train on",
+The **judgment log** (Settings → Speech engine → Turn-taking → Side talk → "Keep a judgment log to train on",
 off by default, shown once the check is on) keeps each judged sentence on the
 agent, in `<home>/data/addressee-log.jsonl`, for `pnpm addressee:train`: its words
 (up to 1000 characters), the last 300 characters of the reply before it, the
@@ -576,7 +636,7 @@ model's system prompt, or at the head of the turn for a coding agent over ACP.
 English adds nothing. The `/live` connect URL carries it too (`?lang=`), so the
 connect-time warm-up primes the prompt cache in it. `pickCompatible` swaps an
 engine that cannot speak a newly chosen language for one that can. In Settings →
-Voice the Language picker sits above the stages; each family is one card with a
+Voice the Language picker sets it; in Settings → Speech engine each stage's family is one card with a
 Model menu of its variants, and a family or variant that cannot speak the
 language is greyed out with the languages it can.
 
@@ -584,16 +644,16 @@ language is greyed out with the languages it can.
 
 Voice Studio does zero-shot cloning with **ZipVoice** (k2-fsa, Apache-2.0, 123M
 distilled int8) through the **sherpa-onnx Node addon**, running in the agent
-service on CPU, on the device's thread share (above), the one place in OpenLive with a native module, loaded lazily
+service on CPU, on the device's thread share (above), loaded lazily
 via `createRequire` so nothing changes for people who never use it. The reference
 recording rides every `generate()` call, so one engine instance serves every
 saved profile; `generateAsync` synthesizes on sherpa's native thread pool
 (measured ~0.22x realtime on an M-series CPU) and the engine unloads after five
 idle minutes. The model is a user-managed ~208 MB install under
 `<home>/data/models/zipvoice`, profiles are a wav + transcript under `<home>/data/voices`, and
-the renderer reaches it all through a same-origin `/api/voice` proxy — the
+the renderer reaches it all through a same-origin `/api/voice` proxy: the
 cloned audio streams back as raw Float32 PCM into the same `AudioPlayer` /
-barge-in path as the on-device engines, with Kokoro as automatic fallback.
+barge-in path as the on-device engines, with a browser voice (Kokoro, or Supertonic where Kokoro does not speak the language) as automatic fallback.
 
 ## The built-in provider brain (`services/agent/src/live/turn-runner.ts`)
 
@@ -1397,7 +1457,7 @@ models' cache and its flag (see ui.json below).
   | `disclosure` | `lib/disclosure.ts` | one boolean per remembered fold |
   | `voice` | `lib/prefs.ts` (read by `pipelineConfig.ts`, `useFlowConfig.ts`) | `pipeline`, `pttEnabled` (the talk mode's one-time migration) |
   | `sessions` | `lib/prefs.ts` (read by `useLiveSession.ts`) | `chat:<id>` `{ bind, cwd, resume }`, `agent:<id>` `{ meta, model, mode, opts }`, `recentFolders` |
-  | `onboarding` | `lib/prefs.ts` | `welcomed`, `flowOnboarded`, `tours` |
+  | `onboarding` | `lib/prefs.ts` | `welcomed`, `flowOnboarded`, `dictateOnboarded`, `tours` |
 
   The root layout reads the file on every request (`connection()`), drops an
   `openChat` that is no longer in the database, and hands it to `Providers`,
@@ -1476,6 +1536,7 @@ models' cache and its flag (see ui.json below).
 
 ```
 packages/shared    agent registry + node helpers, /live wire protocol, shared types, speech text normalization
+packages/flow-store Flow's config, sessions and screenshots under <home>/flow
 packages/harness   model adapters (Anthropic / OpenAI Responses / OpenAI Chat), model listing, effort
 packages/db        chats and messages in SQLite, small JSON stores for the rest: AES-256-GCM-encrypted keys, settings, connectors, ui.json
 ```
@@ -1487,5 +1548,5 @@ electron-builder packages the desktop app with no rebuild step.
 ## Quality gates
 
 `pnpm typecheck` (all packages) and `pnpm test` (vitest, colocated `*.test.ts`) run
-in CI on ubuntu + windows; the windows job also produces an unsigned installer to
-prove cross-platform builds stay green.
+in CI on ubuntu, macOS and Windows (and a Linux job); the mac, windows and linux jobs
+each also build an unsigned app to prove packaging stays green.

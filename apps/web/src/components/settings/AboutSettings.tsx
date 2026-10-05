@@ -37,7 +37,7 @@ export function AboutSettings() {
         <OpenLiveMark size={34} />
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="break-words text-body font-semibold text-foreground">OpenLive {version && <span className="font-normal text-muted-foreground">v{version}</span>}</p>
-          <OneLine text="Ears, eyes, and a voice for your AI." className="text-label text-muted-foreground" />
+          <OneLine text="Voice, vision and computer use for any AI agent." className="text-label text-muted-foreground" />
         </div>
       </div>
 

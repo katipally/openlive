@@ -6,6 +6,47 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Changed
+- **OpenLive is described as a voice, vision and computer-use layer for any AI
+  agent.** The README, the app's home, Welcome, About and the page description
+  now read "Talk to any AI. It talks back, sees, and gets things done." and say
+  who it is for: people who want to talk to their coding agent, and people who
+  want a personal AI to talk with. Chat's and Flow's descriptions say they can see
+  and, in the desktop app, use your computer.
+- **The README and docs say computer use is on all three systems and in calls.**
+  They had it under Flow and macOS only. Platforms are one table, with the Linux
+  setup in `docs/FLOW.md`.
+- **`docs/PRIVACY.md` lists every outbound connection:** what is sent, to whom,
+  when, and how to turn it off.
+- **Installer metadata.** The macOS screen-capture string covers operating other
+  apps' windows when you ask. The Linux AppImage carries a `GenericName`, keywords
+  and an AppStream metainfo file. Package descriptions in `package.json` match the
+  new wording.
+- **Every workspace package is at version 0.3.1.** Several lagged at 0.1.0 to
+  0.2.0.
+- **Claude Code and Codex run on newer adapters.** `claude-agent-acp` is pinned at
+  0.85.1 and `codex-acp` at 2.1.1, which bundles Codex 0.159.1. Dictate's Codex
+  rewrite is now truly read-only, since 2.x gives the `read-only` mode a read-only
+  sandbox, and Codex gains a Workspace access mode in the mode picker.
+- **`CONTRIBUTING.md` says the side talk eval's data set is not in the repo.**
+  `pnpm addressee:eval`, `addressee:train` and `addressee:simulate` need it
+  regenerated into `tools/addressee/data/`; the shipped head is unaffected.
+
+### Added
+- **`docs/ADD_AN_AGENT.md`:** how to add your own ACP agent in a fork, and how
+  `acpCommand:<id>` swaps the adapter of an agent that is already listed.
+- **`docs/ARCHITECTURE.md` explains how an agent gets OpenLive's tools** through
+  the local `openlive` MCP server.
+
+### Fixed
+- **Docs no longer say every agent's CLI can resume an OpenLive call.** Only Claude
+  Code is verified; the others vary.
+- **Docs and a comment no longer say OpenLive advertises no terminal capability.**
+  It hosts terminals for every agent but Pi.
+- **The release workflow's comments name Linux** with Mac and Windows.
+- **Installing Cursor on Windows runs Cursor's PowerShell installer.** The old
+  command fetched the shell script, which PowerShell cannot run.
+
 ## [0.3.1] - 2026-10-03
 
 ### Changed

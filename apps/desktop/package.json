@@ -1,9 +1,9 @@
 {
   "name": "@openlive/desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "license": "Apache-2.0",
-  "description": "OpenLive: live voice + vision AI assistant (desktop)",
+  "description": "Voice, vision and computer use for any AI agent",
   "author": "OpenLive",
   "main": "main.cjs",
   "scripts": {

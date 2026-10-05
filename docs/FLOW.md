@@ -1,10 +1,11 @@
 # Flow
 
-Ask your computer, from any app. Tap `Control` twice (`Ctrl` on Windows and
-Linux), say what you want, and your AI listens, answers out loud, and can act
-for you: open apps and links, click, type, scroll, read the screen, run
-commands. It works on macOS, Windows and Linux, on the same on-device voice loop
-as a call, and thinks with your API key or a coding agent you already use.
+Ask your computer, from any app. A hands-free personal agent, like Siri but
+with your own brain: tap `Control` twice (`Ctrl` on Windows and Linux), say what
+you want, and your AI listens, answers out loud, sees your screen, and acts for
+you: open apps and links, click, type, scroll, read the screen, run commands.
+It works on macOS, Windows and Linux, on the same on-device voice loop as a
+call. Its brain is your API key or a coding agent you already use.
 
 Flow is not [Dictate](DICTATE.md). Dictate is voice typing: it types what you
 say into the text box in front of you, with no AI and nothing spoken back. And it's not
@@ -21,6 +22,7 @@ say into the text box in front of you, with no AI and nothing spoken back. And i
 - [History](#history)
 - [Privacy: what goes where](#privacy-what-goes-where)
 - [Platform support](#platform-support)
+  - [Linux setup](#linux-setup)
 - [Troubleshooting](#troubleshooting)
 - [Architecture (for developers)](#architecture-for-developers)
 
@@ -213,6 +215,7 @@ answer you out loud, or do something on the machine.
 | Words | `insert_text` (types at your cursor, streamed as it is written), `read_selection`, `clipboard_read`, `clipboard_write`, `get_context` (front app, window title, selection) |
 | Seeing | `screenshot` (a display or one window), `read_screen_text` (OCR with positions), `wait` (let the screen catch up, then look again), `list_windows`, `get_window`, `camera_frame` (one frame, camera on only for that frame) |
 | Pointer and keys | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `mouse_down`, `mouse_up`, `type`, `keypress` |
+| Operating apps | `get_app_state` (a window's numbered controls and a picture of it), `list_apps`, `perform_action`, `set_value`: with the computer-use helper (see [Platform support](#platform-support)), which also takes over `screenshot` and the pointer and keys tools |
 | Windows and apps | `window_activate`, `window_move`, `window_resize`, `window_minimize`, `window_close`, `open_app`, `open_url` |
 | Commands | `shell` (runs in your home folder through your login shell, 30 second limit) |
 | OpenLive's own | `delegate` (web research by a helper that searches and reads pages), `remember` (memory shared with calls, whoever answers) |
@@ -400,7 +403,8 @@ machine can actually do, and Flow says when it cannot rather than guessing.
 | Do Not Disturb (go quiet) | Yes | No (Windows does not report Focus) | GNOME only | GNOME only |
 
 **macOS permissions.** Microphone, Accessibility (the key listener, typing,
-clicking, reading the selection) and Screen Recording (screenshots). After
+clicking, reading the selection) and Screen Recording (screenshots; macOS 15 and
+later name that pane **Screen & System Audio Recording** in System Settings). After
 granting Screen Recording, quit and reopen OpenLive: macOS gives the right to the
 app, not to the copy already running.
 
@@ -442,6 +446,34 @@ the portal shares the screen but not the keyboard and pointer, so Flow can
 read and press controls but not post clicks or keys. Pictures on Wayland need
 PipeWire (installed by default on current GNOME and KDE), and pasting needs
 `wl-clipboard`; without it Flow types the text.
+
+### Linux setup
+
+Linux depends on what the desktop and your distribution provide, so some pieces
+are yours to install, once. Flow's Access section reports what this machine can
+and cannot do, and Flow says so when it cannot rather than guessing.
+
+```
+ for                          you need
+ ───────────────────────────  ──────────────────────────────────────────────
+ the double-tap key           membership of the input group:
+                              sudo usermod -aG input $USER, then sign out and in
+ typing                       one of xdotool, ydotool, wtype, kwtype, dotool
+ clicking and scrolling       xdotool (X11) or ydotool
+ screenshots                  one of grim, spectacle, gnome-screenshot, maim, import
+ OCR (read_screen_text)       tesseract
+ reading a selection          xclip or xsel on X11, wl-clipboard on Wayland
+ pasting on Wayland           wl-clipboard
+ computer use                 accessibility switched on: Access > Computer use > Allow
+```
+
+- Until the `input` group is set up, the tray opens Flow, and in Push to talk a
+  call's **Hold to talk** button works.
+- On sway, Hyprland and other wlroots desktops Flow can read and press controls
+  but not post clicks or keys: the portal there shares the screen only.
+- Chromium-based browsers and Electron apps need
+  `--force-renderer-accessibility` before their controls show (see Computer use on Linux, above).
+- Linux ships as an x64 AppImage: download, `chmod +x`, run.
 
 ## Troubleshooting
 

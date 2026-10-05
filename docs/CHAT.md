@@ -1,9 +1,18 @@
 # Chat
 
 Talk to your AI in a call, inside the OpenLive window. You speak, it answers out
-loud, and it can see your camera or screen when you turn them on. Whoever
-answers is your API key's model or a coding agent you already use, driven
-locally under your own login. The listening and speaking run on this machine.
+loud, it can see your camera or screen when you turn them on, and in the desktop
+app it can use your computer too. Whoever answers is your API key's model or a
+coding agent you already use, driven locally under your own login. The listening
+and speaking run on this machine.
+
+```
+ you ──▶ ears (local) ──▶ your AI ──▶ mouth (local) ──▶ you
+                            │  ▲
+              eyes: camera, │  │ hands: click, type, run
+              screen        ▼  │ (desktop app, asks first)
+                         your computer
+```
 
 Chat is not [Flow](FLOW.md) or [Dictate](DICTATE.md). Flow is the same voice
 from any app, over your dock. Dictate types what you say into the text box in
@@ -12,6 +21,8 @@ front of you.
 - [Chat's home](#chats-home)
 - [Setting up a call](#setting-up-a-call)
 - [In a call](#in-a-call)
+- [Computer use in a call](#computer-use-in-a-call)
+- [Answering by voice](#answering-by-voice)
 - [How you talk](#how-you-talk)
 - [Who answers](#who-answers)
 - [History](#history)
@@ -25,7 +36,7 @@ Pick **Chat** at the top of the window.
 
 ```
            OpenLive
-   Ears, eyes, and a voice for your AI.
+   Talk to any AI. It talks back, sees, and gets things done.
    tagline · how to start
 
    [ + New ]  [ History ]  [ ⚙ ]
@@ -115,7 +126,8 @@ a cloned voice ask the same way, in place, before anything more downloads.
   checklist, and a context and cost chip. Export the transcript to Markdown
   from its header.
 - **Permission asks**: when a coding agent wants to run a command or edit a
-  file, OpenLive says the question. Answer "yes" or "no", or tap.
+  file, OpenLive says the question. Answer "yes" or "no", or tap. See
+  [Answering by voice](#answering-by-voice).
 - **Narrate agent progress** (Settings > Voice): while a coding agent works in
   silence, OpenLive says its plan steps out loud.
 - Minimise the window and the call rides on the orb above the dock (mute,
@@ -130,6 +142,55 @@ a cloned voice ask the same way, in place, before anything more downloads.
 | `H` | History |
 | `⌘E` (`Ctrl+E`) | End call |
 | `?` | Every shortcut |
+
+## Computer use in a call
+
+In the desktop app a call can work your computer, not only talk: open apps and
+links, read and click through app windows, type, press keys, scroll, drag, run
+shell commands. It is the same tool set Flow has, and it reaches whoever
+answers: your API key's model directly, and a coding agent through OpenLive's
+local `openlive` MCP server (see [ARCHITECTURE.md](ARCHITECTURE.md#how-an-agent-gets-openlives-tools)).
+
+```
+ you: "open the report and send it to Sam"
+   └─▶ OpenLive: "OpenLive wants to click in Mail. Allow it?"   ◀── you: "yes"
+```
+
+- **It asks before each action that changes something**, naming it, and you
+  answer by voice or tap. A call asks per action; Flow is the mode that takes one
+  permission up front. Reading, looking and listing run without a question.
+- **App windows go through the computer-use helper** (`OpenLive Computer Use` on
+  macOS), which reads each window's controls and presses them by name instead of
+  aiming at pixels, and reads the result back. Without it, a call uses the basic
+  screenshot, pointer and keyboard tools. Setup, grants and Linux notes are in
+  [FLOW.md](FLOW.md#platform-support).
+- **Password managers are blocked.** The helper refuses to read or operate the
+  password and keychain apps it knows of, such as 1Password, Bitwarden, KeePassXC
+  and Keychain Access, and the AI is told to leave that part to you.
+- **Switch it off** in Settings > Capabilities (the **Computer use** and
+  **Shell** groups). It switches OpenLive's own tools; a coding agent keeps its
+  own built-in ones.
+- **Not in a browser tab.** On the web build there is no computer use.
+
+## Answering by voice
+
+When whoever answers needs a yes, OpenLive says the question and takes your next
+sentence as the answer, in a call and in Flow alike:
+
+```
+ ask ──▶ spoken + shown as chips ──▶ "yes" / "no" / tap ──▶ the turn goes on
+                 │
+                 └─ no answer in 2 minutes ──▶ counted as no
+```
+
+- **Yes and no.** "Yes", "sure", "go ahead", "do it" allow it; "no", "don't",
+  "stop", "cancel" refuse it. Anything else keeps waiting for a clear answer.
+- **A spoken yes allows once.** It picks the agent's allow-once option when it
+  offers one. Allowing always is a tap, never a word.
+- **A question from the agent**, such as a choice or a form field: say the option,
+  or your answer goes into the first free-text field.
+- **English only.** Yes and no are matched against English words today. In another
+  language, tap the chip.
 
 ## How you talk
 
@@ -156,8 +217,9 @@ talk**, the tray, and the palette:
   and the rest, with the model and vision model from Settings > Models.
 - **A coding agent**: Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI,
   GitHub Copilot, Kiro or Pi, over ACP. Install and sign in from Settings >
-  Agents. A call with an agent lands in the agent's own session store, where
-  its CLI can resume it.
+  Agents. A call with an agent is saved by the agent itself, in its own session
+  store. Whether its CLI can resume it depends on the agent: see
+  [Sessions and your agent's CLI](#sessions-and-your-agents-cli).
 
 ## History
 
@@ -179,6 +241,31 @@ and as a call starts. **Clear all** asks to confirm, then deletes every kept
 conversation, and is turned off when the open one is all that's left. Both only touch conversations started in OpenLive: the
 conversation open now is never deleted, and the agents' own CLI sessions
 (Claude Code's `~/.claude/projects/…` and the like) are never touched.
+
+### Sessions and your agent's CLI
+
+Keep your agent, keep your sessions. History lists the sessions you made in an
+agent's own CLI next to OpenLive's, and **Resume** continues one inside OpenLive.
+Going the other way is verified for one agent so far.
+
+```
+ agent CLI session ──▶ History (All) ──▶ Resume in OpenLive
+ OpenLive call     ──▶ claude --resume    (Claude Code, verified)
+```
+
+- **Into OpenLive.** History reads the sessions on disk for Claude Code, Codex,
+  Cursor, OpenCode and Hermes, and asks agents that support ACP `session/list`
+  (GitHub Copilot and Pi are two) for theirs. Gemini CLI and Kiro sessions made
+  outside OpenLive do not show up. Cursor's sessions do not survive a restart of
+  the agent, so a resume of an old one may start fresh.
+- **Back to the CLI, with Claude Code as the worked example.** A call with Claude
+  Code is filed under `~/.claude/projects/` for its project folder, so `claude
+  --resume`, run in that same folder, lists it. Set the project folder in the call
+  setup first: a coding agent call does not start without one, so nothing is filed
+  under the wrong folder.
+- **Other agents vary.** Each saves the session in its own store, and OpenLive has
+  not verified that each CLI can resume one from there. Treat Claude Code as the
+  case that works and check yours.
 
 Conversations live in `~/.openlive/data/` (`%USERPROFILE%\.openlive\data\` on
 Windows). See [PRIVACY.md](PRIVACY.md).
