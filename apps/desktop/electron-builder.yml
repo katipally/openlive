@@ -126,7 +126,7 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: OpenLive listens to your microphone to hear you speak.
     NSCameraUsageDescription: OpenLive uses your camera so the assistant can see what you show it.
-    NSScreenCaptureUsageDescription: OpenLive reads your screen only when you ask the assistant to look at it.
+    NSScreenCaptureUsageDescription: OpenLive reads your screen, and the windows of other apps, only when you ask the assistant to look at them or to use them for you.
     NSAppleEventsUsageDescription: OpenLive checks whether your sound is muted and can open Terminal to sign in to a coding agent.
     # Electron 44 (Chromium) requires macOS 13+.
     LSMinimumSystemVersion: "13.0"
@@ -187,6 +187,18 @@ linux:
   executableName: openlive
   artifactName: ${productName}-${version}-linux.${ext}
   icon: build/icons
+  # Name, Exec, Icon and StartupWMClass come from electron-builder, and Comment from the
+  # package.json description. electron-builder 26 reads these under `desktop.entry`.
+  desktop:
+    entry:
+      GenericName: Voice assistant
+      Keywords: voice;assistant;ai;dictation;speech;
+  # The AppStream metainfo that app stores read. The AppImage is the app's output folder
+  # copied whole, so a file placed here ends up in usr/share/metainfo inside it. Its
+  # launchable names the desktop file electron-builder writes: <executableName>.desktop.
+  extraFiles:
+    - from: build/linux/com.openlive.desktop.metainfo.xml
+      to: usr/share/metainfo/com.openlive.desktop.metainfo.xml
   # The computer-use helper, beside the app's resources, as on Windows. Inside
   # the AppImage it runs from the mounted image; Electron main names it to the
   # agent as OPENLIVE_CU_HELPER.

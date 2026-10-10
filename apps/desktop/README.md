@@ -1,13 +1,21 @@
 # OpenLive Desktop (Electron)
 
-The low-latency OpenLive as a native macOS + Windows app. It runs the web + agent
-servers locally (warm, persistent WebSocket — no cold starts, no network hop) and
-shows the UI in its own window. The voice models run in the renderer
-(Chromium/WebGPU); the LLM call goes out from the local agent.
+The low-latency OpenLive as a native app for macOS, Windows and Linux. It runs the
+web + agent servers locally (warm, persistent WebSocket, no cold starts, no network
+hop) and shows the UI in its own window. The voice models run in the renderer
+(Chromium/WebGPU) or, for the native engines, in the local agent; the LLM call goes
+out from the local agent.
 
-No native modules: settings/keys/chats are stored as small JSON files and
-node:sqlite (AES-256-GCM for keys) in `~/.openlive` (`<repo>/data` in dev), so
-packaging is clean. Chromium's own files stay in the app's user-data dir.
+Two Rust modules ship with it, built by `pnpm native:build` (and by `pnpm run pack`)
+for the platform you build on, so a Rust toolchain is needed to build from source:
+
+- `native/ol-input`, a Node addon: Flow's global key, typing, capture, OCR and input.
+- `native/openlive-cu`, the computer-use helper the agent drives over a local socket:
+  its own app on macOS, an executable on Windows and Linux.
+
+Settings, keys and chats are stored as small JSON files and node:sqlite (AES-256-GCM
+for keys) in `~/.openlive` (`<repo>/data` in dev). Chromium's own files stay in the
+app's user-data dir.
 
 ## Develop
 
@@ -29,13 +37,15 @@ free loopback port when that one is busy; the window is told which at launch.
 ```bash
 pnpm desktop:build:mac    # → apps/desktop/release/OpenLive-<ver>-mac.dmg (universal)
 pnpm desktop:build:win    # → NSIS installer (run this on Windows / CI)
+pnpm desktop:build:linux  # → AppImage, x64 (run this on Linux / CI)
 ```
 
-> Build the Windows target on Windows (or CI). Building the NSIS installer from
-> macOS needs extra tooling (wine); it's simplest to run `desktop:build:win` on a
-> Windows machine or a GitHub Actions `windows-latest` runner.
+> Build each target on its own OS (or CI): the native modules are compiled for the
+> machine that builds them. Building the NSIS installer from macOS needs extra
+> tooling (wine); it's simplest to run `desktop:build:win` on a Windows machine or a
+> GitHub Actions `windows-latest` runner, and `desktop:build:linux` on `ubuntu-latest`.
 
-An unsigned build (for local testing) — skips code signing:
+An unsigned build (for local testing) skips code signing:
 
 ```bash
 CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @openlive/desktop exec electron-builder --mac dmg
@@ -45,7 +55,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @openlive/desktop exec electron-
 
 electron-builder signs and notarizes automatically when your credentials are in
 the environment and your **Developer ID Application** certificate is in your login
-keychain. These are *your* Apple credentials — set them yourself; they never go
+keychain. These are *your* Apple credentials, so set them yourself; they never go
 in the repo.
 
 1. **Certificate** (one-time): in Xcode → Settings → Accounts → Manage
@@ -55,12 +65,8 @@ in the repo.
 2. **App-specific password**: appleid.apple.com → Sign-In & Security → App-Specific
    Passwords → generate one for notarization.
 3. **Team ID**: developer.apple.com/account → Membership → Team ID.
-4. Enable notarization — add to `electron-builder.yml` under `mac:`
-   ```yaml
-   mac:
-     notarize:
-       teamId: "YOURTEAMID"
-   ```
+4. Notarization needs no config: electron-builder 26 notarizes whenever the
+   variables in step 5 are set (`mac.notarize: false` turns it off).
 5. Build with the creds exported:
    ```bash
    export APPLE_ID="you@example.com"
@@ -86,8 +92,9 @@ splash.html     loading screen shown until the web server answers
 telemetry/      product-usage telemetry: opt-out, packaged builds only, and silent unless
                 telemetry-config.json exists. `pack:telemetry` stamps that git-ignored file
                 from OPENLIVE_TELEMETRY_ENDPOINT, _CLIENT_ID and _ORIGIN
-resources/web   Next standalone server (dist/web) — UI + /api settings routes
-resources/agent agent.mjs (esbuild bundle) — the /live WebSocket + tools
+resources/web   Next standalone server (dist/web): UI + /api settings routes
+resources/agent agent.mjs (esbuild bundle): the /live WebSocket + tools
+dist/ol-input, dist/computer-use  the staged native modules (`pack:native`)
 resources/THIRD_PARTY_LICENSES.txt  the libraries inside the installer and their licenses,
                 written by `pack:licenses`
 ```

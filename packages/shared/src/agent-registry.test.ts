@@ -1,6 +1,6 @@
 // Guards the agent registry — the single source of agent identity everything
 // (driver, API routes, UI) reads. The claude pin test is load-bearing: OpenLive
-// relies on claude-agent-acp@0.81.2's `_meta.claudeCode.options` passthrough, and
+// relies on claude-agent-acp@0.85.1's `_meta.claudeCode.options` passthrough, and
 // a drifted pin silently breaks native session persistence / `claude --resume`.
 import assert from "node:assert";
 import { test } from "vitest";
@@ -23,8 +23,8 @@ test("every agent id has a complete registry entry", () => {
 });
 
 test("the npx adapter PINS are intact (byte-identical)", () => {
-  assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.81.2");
-  assert.equal(adapterCommand("codex"), "npx -y @agentclientprotocol/codex-acp@1.13.1");
+  assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.85.1");
+  assert.equal(adapterCommand("codex"), "npx -y @agentclientprotocol/codex-acp@2.1.1");
 });
 
 test("hermes runs through its launcher, and Install uses the official installer", () => {
@@ -103,6 +103,11 @@ test("npm-installed new agents use their real packages; kiro uses its official i
     assert.match(String(shell), /cli\.kiro\.dev\/install/);
   }
   assert.equal(AGENT_REGISTRY.kiro.uninstall, undefined, "no documented headless uninstaller");
+});
+
+test("cursor installs through its documented one-liners, the Windows one on the win32 script", () => {
+  assert.equal(AGENT_REGISTRY.cursor.install?.posixShell, "curl https://cursor.com/install -fsS | bash");
+  assert.equal(AGENT_REGISTRY.cursor.install?.winShell, "irm 'https://cursor.com/install?win32=true' | iex");
 });
 
 test("copilot reads .mcp.json itself, and pi's adapter takes no client terminal", () => {

@@ -23,11 +23,11 @@ import { Keycaps, Segmented } from "@/components/ui";
 const COPY = {
   chat: {
     tagline: "A voice call with your AI.",
-    body: "Talk back and forth with your API key's model or a coding agent like Claude Code. Share screen or camera, interrupt any time, resume later.",
+    body: "Talk with your API key's model or a coding agent like Claude Code. It talks back, sees your camera or screen, and in the desktop app can use your computer. Interrupt any time, resume later.",
   },
   flow: {
     tagline: "Ask your computer, from any app.",
-    body: "Your AI listens, answers out loud, and can act for you: open apps, click, type, run commands. Thinks with your API key or a coding agent.",
+    body: "Your AI listens, answers out loud, sees your screen, and acts for you: open apps, click, type, run commands. Thinks with your API key or a coding agent.",
   },
   dictate: {
     tagline: "Voice typing into any text box.",

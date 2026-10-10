@@ -105,7 +105,7 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
             <div className="flex flex-col gap-3">
               <OpenLiveMark size={48} />
               <h1 className="text-title-lg font-semibold tracking-tight">Welcome to OpenLive</h1>
-              <p className="text-body leading-relaxed text-muted-strong">Ears, eyes, and a voice for your AI. Three ways to use it, switched at the top of the window:</p>
+              <p className="text-body leading-relaxed text-muted-strong">Talk to any AI. It talks back, sees, and gets things done. Three ways to use it, switched at the top of the window:</p>
             </div>
             <ul className="flex flex-col gap-3">
               {MODES.map((m) => (

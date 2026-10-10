@@ -97,7 +97,7 @@ export interface AgentDef {
 }
 
 // Codex's tools as features, each switched off; checked with `codex -c ... features
-// list` against codex 0.156.1, the one codex-acp 1.13.1 bundles. Its config takes
+// list` against codex 0.159.1, the one codex-acp 2.1.1 bundles. Its config takes
 // dotted keys, as `-c` does.
 const CODEX_NO_TOOLS = {
   ...Object.fromEntries(["shell_tool", "unified_exec", "multi_agent", "apps", "plugins", "browser_use", "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "skill_search", "tool_suggest", "sleep_tool"].map((f) => [`features.${f}`, false])),
@@ -110,7 +110,7 @@ const CODEX_NO_TOOLS = {
 // The npx adapters are PINNED: an unpinned `npx -y` silently floats to whatever
 // ships next. claude-agent-acp because OpenLive relies on its
 // `_meta.claudeCode.options` passthrough (native session persistence +
-// system-prompt append, read against 0.81.2's source); codex-acp so a release
+// system-prompt append, read against 0.85.1's source); codex-acp so a release
 // can't change the call under the user. Bump both deliberately.
 export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
   "claude-code": {
@@ -118,7 +118,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Claude Code",
     brand: { color: "#D97757" },
     logoSrc: "/agents/claude.svg",
-    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"] },
+    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.85.1"] },
     bins: ["claude"],
     install: { npm: "@anthropic-ai/claude-code" },
     uninstall: { npm: "@anthropic-ai/claude-code" },
@@ -148,7 +148,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     label: "Codex",
     brand: {},
     logoSrc: "/agents/codex.svg",
-    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp@1.13.1"] },
+    adapter: { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp@2.1.1"] },
     bins: ["codex"],
     install: { npm: "@openai/codex" },
     uninstall: { npm: "@openai/codex" },
@@ -176,7 +176,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // No npm package or uninstaller — a curl script installs into ~/.local/bin.
     install: {
       posixShell: "curl https://cursor.com/install -fsS | bash",
-      winShell: "irm https://cursor.com/install -useb | iex",
+      winShell: "irm 'https://cursor.com/install?win32=true' | iex",
     },
     uninstall: {
       posixShell: "rm -f ~/.local/bin/agent ~/.local/bin/cursor-agent && echo 'Removed cursor-agent from ~/.local/bin.'",

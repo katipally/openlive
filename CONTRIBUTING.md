@@ -6,11 +6,12 @@ that way on purpose. This guide gets you running and shows where things live.
 ## Setup
 
 You need Node 22.13 or newer and pnpm (the repo pins the version in
-`package.json`). Flow's input addon (`native/ol-input`) is Rust, so the desktop
+`package.json`). Flow's input addon (`native/ol-input`) and the computer-use
+helper (`native/openlive-cu`) are Rust, so the desktop
 app also needs Rust from [rustup.rs](https://rustup.rs) plus a C toolchain: the
 Xcode Command Line Tools on macOS, the Visual Studio Build Tools ("Desktop
 development with C++") on Windows, `build-essential` or equivalent on Linux.
-`pnpm desktop:dev` builds the addon when it is missing or its sources changed
+`pnpm desktop:dev` builds both when missing or when their sources changed
 (a no-op otherwise); `pnpm native:build` does the same on its own.
 
 ```bash
@@ -42,6 +43,7 @@ pnpm addressee:simulate # a simulated judgment log, for checking the training (m
 pnpm converse:eval    # listening sounds over scripted calls, see below (macOS)
 pnpm desktop:build:mac # build the macOS app locally
 pnpm desktop:build:win # build the Windows installer (run on Windows)
+pnpm desktop:build:linux # build the Linux AppImage (run on Linux)
 ```
 
 ## Where things live
@@ -57,6 +59,10 @@ packages/harness model adapters (Anthropic / OpenAI Responses / OpenAI Chat), mo
 packages/shared  the agent registry (single source of agent identity), wire
                  protocol, shared types
 packages/db      the store: keys, settings, chats, connectors, memory
+native/ol-input  Rust Node addon: Flow's global key, typing, capture, OCR and input
+native/openlive-cu Rust computer-use helper: reads and operates app windows through
+                 the accessibility tree, driven by services/agent/src/computer over a
+                 local socket (its own app on macOS so its grants are its own)
 packages/shared/src/home  where every file lives (~/.openlive), and the one-time move into it
 tools/voice-regress voice continuity check against one-go renders (pnpm voice:regress),
                  and the voice engine bake-off (pnpm voice:bakeoff)
@@ -67,10 +73,13 @@ tools/converse    scripted calls through the real turn-taking, for listening
                  sounds (pnpm converse:eval)
 ```
 
-The voice loop (VAD, STT, end-of-turn, TTS — Kokoro, Supertonic, or a cloned
-voice — and barge-in) is in `apps/web/src/lib/live`. The model turn goes out from
+The voice loop (VAD, STT, end-of-turn, TTS with Kokoro, Supertonic, or a cloned
+voice, and barge-in) is in `apps/web/src/lib/live`. The model turn goes out from
 `services/agent`, which either streams a provider reply or drives a coding agent
 (Claude Code, Codex, Cursor, OpenCode, Hermes, Gemini CLI, GitHub Copilot, Kiro, Pi) over ACP as a child process.
+Coding agents get OpenLive's tools, computer use included, over a loopback MCP
+server named `openlive` (`services/agent/src/capabilities/mcp.ts`). To add your own
+agent, see [docs/ADD_AN_AGENT.md](docs/ADD_AN_AGENT.md).
 
 ### Your dev data
 
@@ -132,6 +141,13 @@ skipped with a message.
 
 ## Side talk eval
 
+> The synthetic data set is not in the repo yet (`tools/addressee/data/` is
+> git-ignored and nothing generates it), so `addressee:eval`, `addressee:train`
+> and `addressee:simulate` fail with ENOENT until you regenerate it there as
+> `train.en.json` and `test.en.json` (`{ "rows": [["to" | "side", speaker, reply, said, tag], ...] }`)
+> and `test.multi.json` (`{ "langs": { "<lang>": [same rows] } }`). The shipped head in
+> `packages/shared/src/speech/addressee-head.ts` is unaffected.
+
 `pnpm addressee:eval` measures the side talk check: the sentence embedding
 model, through the agent's own worker, with a logistic head fitted on
 `tools/addressee/data/train.en.json` and the context rules of
@@ -152,7 +168,7 @@ The model downloads into `ADDRESSEE_CACHE` or the OS cache dir under
 `openlive-addressee`, checked against pinned SHA-256 sums.
 
 `pnpm addressee:train` fits a head on the training split plus the judgment log
-the agent keeps when Settings → Voice → Turn-taking → Side talk → "Keep a
+the agent keeps when Settings → Speech engine → Turn-taking → Side talk → "Keep a
 judgment log to train on" is on (docs/ARCHITECTURE.md). It reads the log and
 the downloaded model from the agent's home (`OPENLIVE_HOME`, else the
 default), prints the log's out-of-fold numbers for the shipped head and the new

@@ -1,9 +1,9 @@
 name: Release
 
-# Push a tag like v0.1.0 → fully automatic release. Builds the Mac + Windows
-# installers on their native runners, uploads them to a draft GitHub Release named
-# after the tag, then (once BOTH succeed) publishes it so it's downloadable. No
-# manual step. If either build fails the release stays a draft (nothing goes live).
+# Push a tag like v0.1.0 → fully automatic release. Builds the Mac, Windows and
+# Linux installers on their native runners, uploads them to a draft GitHub Release
+# named after the tag, then (once ALL succeed) publishes it so it's downloadable. No
+# manual step. If any build fails the release stays a draft (nothing goes live).
 on:
   push:
     tags: ['v*']
@@ -109,7 +109,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Both platforms uploaded their assets to the draft release. Flip it to
+  # Every platform uploaded its assets to the draft release. Flip it to
   # published (and mark it "Latest") so it's downloadable. Runs only if every
   # build succeeded, so a half-built release never goes public.
   publish:

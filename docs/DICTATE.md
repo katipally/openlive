@@ -118,7 +118,7 @@ Start menu.
   Tab gives up, **Reset** goes back to the default. A change applies at once,
   no restart.
 - A double-tap key is one modifier (Control, Option or Alt, Shift, Command or
-  Win), on either side or one side, or F13 to F24. Push to talk is one key
+  Win), on either side or one side, Fn on macOS, or F13 to F24. Push to talk is one key
   that types nothing: one side of a modifier, Fn on macOS, or F13 to F24.
 - No two of them share a physical key. Where push to talk holds one side of a
   double-tap key (Right Ctrl beside Flow's Ctrl, say), that double tap uses the
@@ -189,7 +189,7 @@ text box in focus there (or a disabled or read-only one) the words are copied
 instead, as anywhere else.
 
 Closing Dictate puts things back as they were before it opened. With Flow
-closed, the microphone closes at once and the orb goes after the Undo offer,
+closed, the microphone closes at once and the orb goes back with it,
 so talk after the close never opens Flow. With Flow open, Flow listens again.
 Either way, a sentence still being said or transcribed at the close is
 dropped, not typed and not sent to Flow.
@@ -238,15 +238,15 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
 ```
 
 - Who answers is the same as Flow unless **Who answers for AI polish and
-  commands** is set to **Its own**: your API key or a coding agent. An API model is offered no tools; a
+  edits** is set to **Its own**: your API key or a coding agent. An API model is offered no tools; a
   coding agent is started with none of OpenLive's, none of its own where its
   launch can turn them off (Claude Code, Codex, Gemini CLI, OpenCode; Copilot
   loses shell, writes and the web), and every permission it asks for is
   refused. A coding agent is kept warm between dictations (let go after
   5 quiet minutes or 20 rewrites) and is started on the key press, so the
   first rewrite does not wait on a cold start where it can help it.
-- The rewrite is typed as it streams in. The orb stays on **Cleaning up** and
-  counts the words in.
+- The rewrite is typed as it streams in. The orb shows **Polishing** until it is
+  done, then the word count.
 - Nothing said is lost. A failure, an empty answer or 25 seconds with no words
   types the cleaned-up words instead, and the strip says so. A rewrite that
   stops partway (an error, or the 25 seconds run out) keeps what it typed,
@@ -280,7 +280,7 @@ Select text in any app, and with Dictate open, say what to change.
   selection, and Settings > Dictate > Commands says **Needs Dictate's AI**.
 - A failure, or 45 seconds without an answer, changes nothing and says why.
 - A selection over 20,000 characters (or 64 KB once sent) is not sent: the orb
-  says "Selection too long for a command."
+  says "Selection too long to edit."
 
 ## Words: dictionary and snippets
 

@@ -33,8 +33,9 @@ import { AGENT_CANCELLED } from "../turn.js";
 // (JSON-RPC over LOCAL stdio — "LSP for agents"). We spawn the agent's ACP adapter
 // as a child process and talk to it; nothing leaves the machine except what the
 // agent itself sends to its OWN provider, under the user's OWN login. We advertise
-// NO fs/terminal capabilities: a voice app isn't an editor, so the agent uses its
-// own file access and asks us (via request_permission) before doing anything risky.
+// NO fs capability (a voice app isn't an editor, so the agent uses its own file
+// access) but DO host terminals for every agent whose registry entry says so (all
+// but Pi). The agent asks us (via request_permission) before doing anything risky.
 //
 // Which adapter each agent uses (and the claude version PIN OpenLive relies
 // on) lives in the shared AGENT_REGISTRY; overridable per-agent via the
@@ -76,7 +77,7 @@ export function callPreamble(hosted: string[]): string {
 // Other agents have no such channel, so they keep the first-turn preamble.
 // A toolless session (Dictate's rewrite) gets no built-in tool (`tools: []`), no MCP
 // server but the ones passed (none), and is not saved for `claude --resume`
-// (claude-agent-sdk's Options, read against adapter 0.81.2).
+// (claude-agent-sdk's Options, read against adapter 0.85.1).
 const buildClaudeMeta = (text: string, hosted: string[], toolless = false) => ({
   claudeCode: {
     options: {

@@ -180,7 +180,7 @@ export default function Home() {
                 <div className="space-y-2">
                   <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
                   <p className="ol-hero-tag max-w-sm text-callout leading-relaxed text-muted-foreground">
-                    Ears, eyes, and a voice for your AI.
+                    Talk to any AI. It talks back, sees, and gets things done.
                   </p>
                   <p className="ol-hero-tag max-w-sm text-label leading-relaxed text-faint">
                     {modeCopy("chat").tagline} <ModeStart mode="chat" />

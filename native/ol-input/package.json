@@ -1,8 +1,8 @@
 {
   "name": "@openlive/ol-input",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "private": true,
-  "description": "Global hold-to-talk hook and text insertion for OpenLive Flow",
+  "description": "Global key hook, typing, screen capture, OCR, pointer and keyboard input, and window control for OpenLive",
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
