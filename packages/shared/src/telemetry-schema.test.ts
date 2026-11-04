@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   AGENT_IDS,
   LANGUAGE_CODES,
+  modelFamilyOf,
   telemetrySchema as schema,
   type FeatureCounterKey,
   type TelemetryEventName,
@@ -16,8 +17,8 @@ const events = schema.events as unknown as Loose;
 const facts = schema.facts as unknown as Record<string, { event: string; props: Record<string, Spec> }>;
 
 describe("telemetry schema contents", () => {
-  it("has the 31 events, 43 counters and 4 fact scopes of the catalog", () => {
-    expect(Object.keys(events)).toHaveLength(31);
+  it("has the 33 events, 43 counters and 4 fact scopes of the catalog", () => {
+    expect(Object.keys(events)).toHaveLength(33);
     expect(schema.counters).toHaveLength(43);
     expect(Object.keys(facts).sort()).toEqual(["agent_call", "agent_flow", "call_renderer", "flow_owner"]);
   });
@@ -194,5 +195,27 @@ describe("telemetry types", () => {
     // @ts-expect-error a fact prop the scope does not fold
     const noFact: TelemetryFactProps<"flow_owner"> = { turns: 1 };
     expect([ok, badStep, missing, extra, noFact]).toHaveLength(5);
+  });
+});
+
+describe("the model a session ran on", () => {
+  it("rides the Flow and call summaries as a family from a closed list, never an id", () => {
+    const families = events.flow_session!.props.brain_model!.values!;
+    expect(families).toEqual(["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"]);
+    expect(events.call_session!.props.brain_model!.values).toEqual(families);
+    expect(facts.agent_flow!.props.brain_model).toMatchObject({ values: families, fold: "last" });
+    expect(facts.agent_call!.props.brain_model).toMatchObject({ values: families, fold: "last" });
+  });
+
+  it("reduces an id or a name to its family, 'other' for the rest, and nothing for no model", () => {
+    expect(["claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "Opus 4.8 (1M context)"].map(modelFamilyOf))
+      .toEqual(["haiku", "sonnet", "opus", "fable", "opus"]);
+    expect(["gpt-5-mini", "gemini-2.5-pro", "llama3.2", "qwen3-coder:480b-cloud", "MiniMax-M3", "default", "my-private-finetune"].map(modelFamilyOf))
+      .toEqual(["gpt", "gemini", "llama", "qwen", "minimax", "other", "other"]);
+    expect([undefined, null, "", "  "].map(modelFamilyOf)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("names a Dictate that could not start, beside the other failures", () => {
+    expect(events.dictate_failure!.props.code!.values).toContain("models_missing");
   });
 });

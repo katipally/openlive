@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PERMISSION_CANCELLED } from "../agents/types.ts";
 import {
-  askOutcome, permissionFact, toolGroup, toolTally, reportBrainError, reportException, reportReply, reportTurnError, TurnTimer,
+  askOutcome, modelFact, permissionFact, toolGroup, toolTally, reportBrainError, reportException, reportReply, reportTurnError, TurnTimer,
   type PermissionOutcome,
 } from "./facts.ts";
 import { limits } from "./limits.ts";
@@ -166,6 +166,23 @@ describe("brain errors", () => {
     reportBrainError("flow", {}, "other");
     expect(events("brain_error")).toEqual([{ surface: "flow", class: "other", http_class: "none" }]);
     expect(facts("flow")).toHaveLength(2);
+  });
+});
+
+describe("the model family of a session", () => {
+  const meta = { currentModelId: "default", models: [{ id: "default", name: "Default (Opus 4.8)" }, { id: "haiku", name: "Haiku" }] };
+
+  it("comes from the model chosen, else the one the coding agent reports, never the id", () => {
+    expect(modelFact("claude-sonnet-5-5")).toEqual({ brain_model: "sonnet" });
+    expect(modelFact("", meta)).toEqual({ brain_model: "opus" });
+    expect(modelFact("haiku", meta)).toEqual({ brain_model: "haiku" });
+    expect(modelFact("my-private-finetune")).toEqual({ brain_model: "other" });
+  });
+
+  it("is left out when no model is known", () => {
+    expect(modelFact("")).toEqual({});
+    expect(modelFact(undefined, null)).toEqual({});
+    expect(modelFact("", { currentModelId: null, models: [] })).toEqual({});
   });
 });
 

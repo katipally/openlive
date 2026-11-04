@@ -19,7 +19,7 @@ import { narrationEnabled, wrapEmitWithNarration, createCommentaryGate } from ".
 import { hostedBy } from "../agents/mcp-config.js";
 import { createBoundAgent, setBoundAgent, boundAgent, agentCwd, PERMISSION_CANCELLED, type Agent, type AgentId, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption, type ReplayMessage } from "../agents/index.js";
 import { emitFact, type AgentFactProps } from "../telemetry/emit.js";
-import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent, type PermissionOutcome } from "../telemetry/facts.js";
+import { askOutcome, brainOf, modelFact, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent, type PermissionOutcome } from "../telemetry/facts.js";
 import { resolveLive } from "../providers.js";
 import { log } from "../log.js";
 import { cancelledText, sentAside } from "../turn.js";
@@ -414,7 +414,7 @@ export class LiveSession {
       const ownFailed = own.filter((b) => b.call.status === "failed").length;
       const answered = !ac.signal.aborted && !turnStats.failed;
       emitFact("call", {
-        ...this.brain(), turns: 1, lang: lang ?? "en", agent_start_ms: this.agentStartMs, ...(this.resumed && { resumed: this.resumed }),
+        ...this.brain(), ...this.modelFamily(), turns: 1, lang: lang ?? "en", agent_start_ms: this.agentStartMs, ...(this.resumed && { resumed: this.resumed }),
         ...(own.length && { agent_tools: own.length }), ...(ownFailed && { agent_tools_failed: ownFailed }),
         ...turnStats.timer.timings(answered),
       });
@@ -608,6 +608,13 @@ export class LiveSession {
   private brain(): BrainIdent {
     if (this.boundId) return brainOf("acp", this.boundId);
     try { return brainOf("api", resolveLive().provider.id); }
+    catch { return {}; }
+  }
+
+  /** The family of the model answering this call; nothing when it cannot be told. */
+  private modelFamily() {
+    if (this.boundId) return modelFact("", this.lastMeta);
+    try { return modelFact(resolveLive().model); }
     catch { return {}; }
   }
 

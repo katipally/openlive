@@ -33,9 +33,15 @@
     },
     "app_active_day": {
       "props": {
-        "first_surface": { "k": "enum", "values": ["main_window", "flow", "call", "tray"] }
+        "first_surface": { "k": "enum", "values": ["main_window", "flow", "call", "dictate", "tray"] }
       },
       "limit": { "perDay": 1 }
+    },
+    "surface_active": {
+      "props": {
+        "surface": { "k": "enum", "values": ["chat", "flow", "dictate"] }
+      },
+      "limit": { "perDayPerKey": 1, "dayKey": ["surface"] }
     },
     "app_updated": {
       "props": {
@@ -64,6 +70,7 @@
       "props": {
         "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "opt": true },
+        "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "opt": true },
         "duration_s": { "k": "int", "max": 86400 },
         "ended_by": { "k": "enum", "values": ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"] },
         "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "opt": true },
@@ -124,6 +131,7 @@
       "props": {
         "brain_kind": { "k": "enum", "values": ["api", "acp"], "opt": true },
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "opt": true },
+        "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "opt": true },
         "duration_s": { "k": "int", "max": 86400 },
         "ended_by": { "k": "enum", "values": ["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"] },
         "start_result": { "k": "enum", "values": ["ok", "mic_denied", "start_failed"], "opt": true },
@@ -190,7 +198,7 @@
     },
     "dictate_failure": {
       "props": {
-        "code": { "k": "enum", "values": ["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long"] }
+        "code": { "k": "enum", "values": ["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing"] }
       },
       "limit": { "dedupeMs": 600000, "dedupeKey": ["code"] }
     },
@@ -305,6 +313,13 @@
         "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
       },
       "limit": { "perDayPerKey": 3, "dayKey": ["setting"] }
+    },
+    "capability_changed": {
+      "props": {
+        "kind": { "k": "enum", "values": ["memory", "skill", "connector", "tool"] },
+        "action": { "k": "enum", "values": ["add", "enable", "disable", "remove", "connect"] }
+      },
+      "limit": { "perDayPerKey": 3, "dayKey": ["kind", "action"] }
     },
     "tray_action": {
       "props": {
@@ -481,6 +496,7 @@
       "props": {
         "brain_kind": { "k": "enum", "values": ["api", "acp"], "fold": "last" },
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "fold": "last" },
+        "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "fold": "last" },
         "turns": { "k": "int", "max": 999, "fold": "sum" },
         "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },
         "steered": { "k": "int", "max": 999, "fold": "sum" },
@@ -526,6 +542,7 @@
       "props": {
         "brain_kind": { "k": "enum", "values": ["api", "acp"], "fold": "last" },
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "fold": "last" },
+        "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "fold": "last" },
         "turns": { "k": "int", "max": 999, "fold": "sum" },
         "interrupted": { "k": "int", "max": 999, "fold": "sum" },
         "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },

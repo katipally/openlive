@@ -433,6 +433,67 @@ describe("sendBestEffort", () => {
   });
 });
 
+describe("drain", () => {
+  it("sends the queue oldest first without waiting for the pace, and empties it", async () => {
+    const s = make();
+    for (const a of ["open", "new_call", "quit"]) s.queue.append(rec(a));
+    await s.sender.drain(1500);
+    expect(s.tracks().map((c) => c.action)).toEqual(["open", "new_call", "quit"]);
+    expect(s.queue.size()).toBe(0);
+  });
+
+  it("keeps what the server did not take, and stops at the first failure", async () => {
+    const s = make();
+    for (const a of ["open", "new_call", "quit"]) s.queue.append(rec(a));
+    s.script.push({ status: 200 }, { status: 500 });
+    await s.sender.drain(1500);
+    expect(s.tracks()).toHaveLength(2);
+    expect(s.queue.size()).toBe(2);
+    expect(s.queue.peek().rec.p.action).toBe("new_call");
+  });
+
+  it("gives up at the deadline on a send that never answers and leaves it queued", async () => {
+    const s = make();
+    s.queue.append(rec("open"));
+    s.queue.append(rec("quit"));
+    s.post.mockImplementationOnce(() => new Promise(() => {}));
+    const done = vi.fn();
+    void s.sender.drain(1500).then(done);
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(done).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toHaveBeenCalled();
+    expect(s.queue.size()).toBe(2);
+  });
+
+  it("sends nothing while the gate is shut, and starts no timer of its own to send later", async () => {
+    const s = make();
+    s.queue.append(rec("open"));
+    s.flags.gate = false;
+    await s.sender.drain(1500);
+    expect(s.calls).toHaveLength(0);
+    expect(s.queue.size()).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("lets a send already under way finish first, so one event is not sent twice", async () => {
+    const s = make();
+    s.queue.append(rec("open"));
+    s.queue.append(rec("quit"));
+    let answer: (r: { status: number }) => void = () => {};
+    s.post.mockImplementationOnce(async (req: any) => { s.calls.push({ at: Date.now(), type: "track", action: "open", req }); return new Promise((resolve) => { answer = resolve as typeof answer; }); });
+    s.sender.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    s.sender.stop();
+    const drained = s.sender.drain(1500);
+    await vi.advanceTimersByTimeAsync(10);
+    answer({ status: 200 });
+    await drained;
+    expect(s.calls.map((c) => c.action)).toEqual(["open", "quit"]);
+    expect(s.queue.size()).toBe(0);
+  });
+});
+
 describe("classify and retryAfterMs", () => {
   it("sorts a status into what to do next", () => {
     expect(classify({ status: 200 })).toBe("ok");

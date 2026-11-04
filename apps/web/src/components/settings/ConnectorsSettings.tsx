@@ -7,6 +7,7 @@ import type { ConnectorImportSource, ConnectorWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
+import { telemetry } from "@/lib/telemetry";
 import { cn } from "@/lib/cn";
 import {
   STATUS, bulkTools, draftOf, editPatch, initialPicks, monogram, pickKey, pickedItems, secretPatch, signInPollMs, signInsPollMs, transportLine,
@@ -69,7 +70,7 @@ export function ConnectorsSettings() {
     const byId = new Map(list?.map((c) => [c.id, c]));
     const done = [...signIns.keys()].filter((id) => { const c = byId.get(id); return !c || c.status === "connected"; });
     if (!done.length) return;
-    for (const id of done) { const c = byId.get(id); if (c) toast(`Signed in to ${c.name}.`, "info"); }
+    for (const id of done) { const c = byId.get(id); if (c) { toast(`Signed in to ${c.name}.`, "info"); telemetry.track("capability_changed", { kind: "connector", action: "connect" }); } }
     setSignIns((m) => new Map([...m].filter(([id]) => !done.includes(id))));
   }, [signIns, list]);
 
@@ -77,7 +78,12 @@ export function ConnectorsSettings() {
     const tab = isDesktop ? null : window.open("", "_blank");
     try {
       const r = await api.startConnectorSignIn(c.id);
-      if ("connector" in r) { tab?.close(); put(r.connector); return; }
+      if ("connector" in r) {
+        tab?.close();
+        put(r.connector);
+        if (r.connector.status === "connected") telemetry.track("capability_changed", { kind: "connector", action: "connect" });
+        return;
+      }
       openPage(r.authorizationUrl, tab);
       setSignIns((m) => new Map(m).set(c.id, { url: r.authorizationUrl, since: Date.now() }));
     } catch (e) {
@@ -267,11 +273,11 @@ function ConnectorRow({ c, put, refresh, onSignIn, waiting }: {
       <RowHead name={c.name} line={transportLine(c.transport)} status={<StatusDot tone={status.dot}>{status.text}</StatusDot>}
         problem={c.status === "error" ? c.error : undefined} action={action}
         count={c.tools.length ? `${c.tools.length} ${c.tools.length === 1 ? "tool" : "tools"}${off ? ` · ${off} off` : ""}` : "No tools yet"}
-        on={c.enabled} onFlip={() => flip({ ...c, enabled: !c.enabled }, () => api.setConnectorEnabled(c.id, !c.enabled), `Couldn’t turn ${c.name} ${c.enabled ? "off" : "on"}.`)}
+        on={c.enabled} onFlip={() => flip({ ...c, enabled: !c.enabled }, () => api.setConnectorEnabled(c.id, !c.enabled).then((r) => { telemetry.track("capability_changed", { kind: "connector", action: c.enabled ? "disable" : "enable" }); return r; }), `Couldn’t turn ${c.name} ${c.enabled ? "off" : "on"}.`)}
         open={open} onOpen={() => setOpen(!open)} bodyId={bodyId} more={busy ? [] : [
           ...(c.signedIn ? [{ label: "Sign out", icon: LogOut, run: () => void run("signout", () => api.signOutConnector(c.id), `Couldn’t sign out of ${c.name}.`) }] : []),
           ...(editing ? [] : [{ label: "Edit", icon: Pencil, run: () => { setEditing(true); setOpen(true); } }]),
-          { label: "Remove", icon: Trash2, confirm: "Remove it?", run: () => void run("remove", () => api.removeConnector(c.id), `Couldn’t remove ${c.name}.`) },
+          { label: "Remove", icon: Trash2, confirm: "Remove it?", run: () => void run("remove", () => api.removeConnector(c.id).then((r) => { telemetry.track("capability_changed", { kind: "connector", action: "remove" }); return r; }), `Couldn’t remove ${c.name}.`) },
         ]} />
 
       {waiting && c.status !== "connected" && (
@@ -450,6 +456,7 @@ function AddPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
     try {
       const r = await api.addConnector(body);
       if (r.warnings.length) toast(r.warnings.join(" "), "info");
+      telemetry.track("capability_changed", { kind: "connector", action: "add" });
       onDone();
     } catch (e) { setError(msg(e)); }
     finally { setBusy(false); }
@@ -568,6 +575,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
     try {
       const r = await api.importConnectors(items);
       const n = r.connectors.length;
+      if (n) telemetry.track("capability_changed", { kind: "connector", action: "add" });
       toast(`Imported ${n} ${n === 1 ? "connector" : "connectors"}.${r.skipped.length ? ` Skipped ${r.skipped.map((s) => `${s.name} (${s.reason})`).join(", ")}.` : ""}`, "info");
       onDone();
     } catch (e) { toast(`Couldn’t import. ${msg(e)}`); }

@@ -40,6 +40,9 @@
  *                           feature_usage counters and app_quit (via: tray_menu | app_menu | update_restart |
  *                           no_tray | os_shutdown | boot_failed | other, uptime is measured here), and writes
  *                           state. Safe to call twice.
+ *   flushOnQuit(ms)         After onQuit on a clean quit: a promise that sends the queue, oldest first, until it is empty,
+ *                           one send fails or ms pass, or null when sharing is off, the notice is owed or the queue is
+ *                           empty. Only what the server took leaves the queue; the rest goes on the next launch.
  *   resume()                The quit onQuit announced did not happen (a failed update restart): sending starts
  *                           again, app_quit included. No-op when no quit was announced.
  *
@@ -47,8 +50,9 @@
  *   track(name, props)      Any event of schema.json. Validated, deduped and capped there; a bad prop is
  *                           dropped, a bad required prop drops the event. onboarding_step also gets
  *                           hours_since_first_open, and is sent once per install.
- *   markActiveDay(surface)  app_active_day at most once per local day: "main_window" | "flow" | "call" | "tray".
- *                           Call at the four first-real-action sites, never for a login launch alone.
+ *   markActiveDay(surface)  app_active_day at most once per local day: "main_window" | "flow" | "call" | "dictate" | "tray".
+ *                           Also surface_active, once per local day for each of "call" (chat), "flow" and "dictate".
+ *                           Call at the first-real-action sites, never for a login launch alone.
  *   reportOnboardingStep(step)   Same as track("onboarding_step", { step }).
  *   reportReadiness(props)  flow_readiness_changed. props: { to, perm_accessibility?, perm_post_events?,
  *                           perm_screen?, perm_microphone?, linux_session? }. `from` is the last reported
@@ -112,7 +116,7 @@ const KNOWN_FILES = ["once.json", "window-state.json", "appearance.json", path.j
 // Who may send what. A process can only report events that are its own.
 const RENDERER_EVENTS = new Set([
   "flow_failure_card", "onboarding_step", "setting_changed", "agent_action_result", "lobby_blocked",
-  "voice_models_result", "renderer_error",
+  "voice_models_result", "renderer_error", "dictate_session", "dictate_failure", "capability_changed",
 ]);
 const RENDERER_SCOPES = new Set(["flow_owner", "call_renderer"]);
 const AGENT_EVENTS = new Set([
@@ -120,6 +124,8 @@ const AGENT_EVENTS = new Set([
 ]);
 const AGENT_STEPS = new Set(["first_agent_start_ok", "flow_consent_granted", "first_flow_reply", "first_call_reply", "activated"]);
 const AGENT_SCOPES = new Map([["flow", "agent_flow"], ["call", "agent_call"]]);
+// markActiveDay's surface to the surface_active label; the main window and tray are no surface of use.
+const SURFACE_USED = { call: "chat", flow: "flow", dictate: "dictate" };
 
 const minute = (ms) => new Date(Math.floor(ms / 60_000) * 60_000).toISOString();
 const isRecord = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -140,7 +146,7 @@ const ASYNC = new Set(["setEnabled"]);
 const METHODS = [
   "start", "track", "getStatus", "setEnabled", "openFlow", "closeFlow",
   "openCall", "closeCall", "handleAgentMessage", "handleRendererMessage", "markActiveDay", "reportOnboardingStep",
-  "reportReadiness", "onQuit", "resume", "feedbackNext", "setFeedback",
+  "reportReadiness", "onQuit", "flushOnQuit", "resume", "feedbackNext", "setFeedback",
 ];
 
 function inert({ appVersion = "", platform = process.platform, osMajor = "" }) {
@@ -188,6 +194,7 @@ function build(deps) {
   let startedAt = now();
   let bucketDay = localDay(startedAt);
   let activeDay = "";
+  const surfaceDay = {};
   let readiness = data.reportedReadiness;
 
   const noticeSeen = () => data.noticeSeenAt !== null;
@@ -342,8 +349,14 @@ function build(deps) {
 
   // Only in memory: limits persists the once-a-day cap when the event is released, so a quit before the notice loses nothing.
   function markActiveDay(surface) {
+    if (!data.enabled) return;
     const day = localDay(now());
-    if (!data.enabled || activeDay === day) return;
+    const used = SURFACE_USED[surface];
+    if (used && surfaceDay[used] !== day) {
+      surfaceDay[used] = day;
+      submit("surface_active", { surface: used });
+    }
+    if (activeDay === day) return;
     activeDay = day;
     feedback.activeToday();
     submit("app_active_day", { first_surface: surface });
@@ -370,6 +383,11 @@ function build(deps) {
     quitting = true;
     state.save();
     sender.stop();
+  }
+
+  /** After onQuit, on a clean quit: a promise for sending what is queued for up to `ms`, or null when there is nothing to send. */
+  function flushOnQuit(ms) {
+    return data.enabled && noticeSeen() && queue.size() ? sender.drain(ms) : null;
   }
 
   /** A quit that was announced did not happen (an update restart that failed): carry on as a running app. */
@@ -425,6 +443,7 @@ function build(deps) {
     reportOnboardingStep: (step) => track("onboarding_step", { step }),
     reportReadiness,
     onQuit,
+    flushOnQuit,
     resume,
     feedbackNext: () => feedback.next(),
     setFeedback: (allowed) => feedback.allow(!!allowed),
@@ -432,4 +451,4 @@ function build(deps) {
   return Object.fromEntries(Object.entries(api).map(([name, fn]) => [name, ASYNC.has(name) ? safeAsync(fn) : safe(fn)]));
 }
 
-module.exports = { createTelemetry };
+module.exports = { createTelemetry, RENDERER_EVENTS };

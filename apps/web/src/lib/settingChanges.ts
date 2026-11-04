@@ -1,7 +1,7 @@
 import { telemetrySchema, type TelemetryEventProps } from "@openlive/shared";
 import { isLoopbackUrl } from "@openlive/harness/registry";
 import type { FlowConfig } from "@openlive/flow-store";
-import { dictateBrain, flowBrain, historyKeep } from "@openlive/flow-store/shared";
+import { dictateBrain, flowBrain, historyKeep, type FlowBrain } from "@openlive/flow-store/shared";
 import { activeTurnPreset, loadPipelineConfig, onPipelineConfig, turnPresetOf, type PipelineConfig } from "./live/pipelineConfig";
 import { telemetry } from "./telemetry";
 import { sttFamilyOf, ttsFamilyOf } from "./telemetryIds";
@@ -79,6 +79,11 @@ export function serverChanges(before: Rec, after: Rec): Change[] {
     const agent = agentOf(after.defaultAgent);
     out.push({ setting: "default_brain", value: agent ? "acp" : "api", subject: agent ?? "none" });
   }
+  // Picking another agent resets its model, which is no choice of a model.
+  const defaultAgent = agentOf(after.defaultAgent);
+  if (changed("defaultAgentModel") && !changed("defaultAgent") && defaultAgent) {
+    out.push({ setting: "agent_model", value: "changed", subject: defaultAgent });
+  }
   if (changed("liveEffort")) out.push({ setting: "api_effort", value: EFFORTS.find((e) => e === after.liveEffort) ?? "auto" });
   if (changed("ollamaBaseUrl")) {
     out.push({ setting: "ollama_address", value: !after.ollamaBaseUrl ? "default" : isLoopbackUrl(after.ollamaBaseUrl) ? "local" : "remote" });
@@ -120,12 +125,17 @@ const SILENCES = new Map<number | null, "30s" | "90s" | "5m" | "never">([[30_000
 export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known ?? {}): Change[] {
   const out: Change[] = [];
   const flip = (setting: Change["setting"], x: boolean, y: boolean) => { if (x !== y) out.push({ setting, value: onOff(y) }); };
+  const agentModelChange = (x: FlowBrain, y: FlowBrain) => {
+    const agent = y.kind === "acp" && x.agentId === y.agentId && x.agentModel !== y.agentModel ? agentOf(y.agentId) : undefined;
+    if (agent) out.push({ setting: "agent_model", value: "changed", subject: agent });
+  };
   flip("flow_own_brain", a.brain.override, b.brain.override);
   const from = flowBrain(a, settings);
   const to = flowBrain(b, settings);
   if (from.kind !== to.kind || from.agentId !== to.agentId) {
     out.push({ setting: "flow_brain", value: to.kind, subject: (to.kind === "acp" && agentOf(to.agentId)) || "none" });
   }
+  if (a.brain.override && b.brain.override) agentModelChange(from, to);
   flip("flow_speak_replies", a.voice.speakReplies, b.voice.speakReplies);
   flip("flow_own_wait", a.voice.turnOverride === true, b.voice.turnOverride === true);
   const t0 = a.voice.turn;
@@ -148,6 +158,7 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   if (b.dictate.brain.override && (was.kind !== now.kind || was.agentId !== now.agentId)) {
     out.push({ setting: "dictate_brain", value: now.kind, subject: (now.kind === "acp" && agentOf(now.agentId)) || "none" });
   }
+  if (a.dictate.brain.override && b.dictate.brain.override) agentModelChange(was, now);
   if (a.talk.flowKey !== b.talk.flowKey) out.push({ setting: "flow_key", value: toggleKeyOf(b.talk.flowKey) });
   if (a.talk.dictateKey !== b.talk.dictateKey) out.push({ setting: "dictate_key", value: toggleKeyOf(b.talk.dictateKey) });
   if (a.dictate.history !== b.dictate.history) out.push({ setting: "dictate_history_keep", value: b.dictate.history });

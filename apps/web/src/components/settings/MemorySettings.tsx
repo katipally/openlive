@@ -6,6 +6,7 @@ import { Brain, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { NOTE_MAX_CHARS, type MemoryWire, type NoteWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { telemetry } from "@/lib/telemetry";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/historyList";
 import { budgetMeter, budgetSegments, filterNotes, noteProblem } from "@/lib/memory";
@@ -24,7 +25,7 @@ export function MemoryClearAll() {
   const n = data?.notes.length ?? 0;
   if (!n) return null;
   const clear = async () => {
-    try { qc.setQueryData(memoryQuery.queryKey, await api.clearNotes()); }
+    try { qc.setQueryData(memoryQuery.queryKey, await api.clearNotes()); telemetry.track("capability_changed", { kind: "memory", action: "remove" }); }
     catch (e) { toast(`Couldn’t clear memory. ${msg(e)}`); }
   };
   return <MoreMenu label="More for Memory" actions={[{ label: "Clear all", icon: Trash2, confirm: `Clear all ${n}?`, run: () => void clear() }]} />;
@@ -110,7 +111,7 @@ function AddNote({ notes, full, onSaved }: { notes: readonly NoteWire[]; full: b
     if (!ready || busy) return;
     setError("");
     setBusy(true);
-    try { onSaved(await api.addNote(text)); setText(""); }
+    try { onSaved(await api.addNote(text)); setText(""); telemetry.track("capability_changed", { kind: "memory", action: "add" }); }
     catch (e) { setError(msg(e)); }
     finally { setBusy(false); }
   };
@@ -132,7 +133,7 @@ function AddNote({ notes, full, onSaved }: { notes: readonly NoteWire[]; full: b
 function NoteRow({ n, all, put }: { n: NoteWire; all: readonly NoteWire[]; put: (m: MemoryWire) => void }) {
   const [editing, setEditing] = useState(false);
   const remove = async () => {
-    try { put(await api.removeNote(n.id)); }
+    try { put(await api.removeNote(n.id)); telemetry.track("capability_changed", { kind: "memory", action: "remove" }); }
     catch (e) { toast(`Couldn’t delete that note. ${msg(e)}`); }
   };
   if (editing) return <div className="py-3"><Editor n={n} all={all} onSaved={(m) => { put(m); setEditing(false); }} onCancel={() => setEditing(false)} /></div>;

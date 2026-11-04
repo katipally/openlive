@@ -26,7 +26,7 @@ OpenLive can share anonymous usage data with the project: which features get use
 
 Every field is one of four things: a label from a fixed list on this page, true or false, a number with a cap, or an app version. There is no free text field, so a sentence you said or typed cannot end up in an event. The app checks each event against this list before it stores it, and drops anything that does not match.
 
-The provider or coding agent you picked goes out as a fixed id such as `anthropic` or `claude-code`. The model is never named.
+The provider or coding agent you picked goes out as a fixed id such as `anthropic` or `claude-code`. The model is never named: a session reports only its family, such as `sonnet`, from the [list below](#model-families).
 
 ## When sending starts
 
@@ -67,7 +67,7 @@ Every install gets a random, readable name, so its usage can be found and follow
 
 Every event carries the [common properties](#common-properties) below, the install ID (as the profile ID, with a device ID made from it), and a timestamp rounded down to the minute. The app sends nothing but these events: there is no separate sign-up or registration request.
 
-Events wait in a small queue on disk, `telemetry-queue.jsonl` beside the state file (about 500 events or 256 KB at most, oldest dropped first), so a restart or a spell offline loses little. They are sent slowly, at most two a second. The first send waits a random 15 to 60 seconds after the first-run notice appears, so there is time to turn sharing off before anything goes out. On later launches it waits a random 0 to 60 seconds.
+Events wait in a small queue on disk, `telemetry-queue.jsonl` beside the state file (about 500 events or 256 KB at most, oldest dropped first), so a restart or a spell offline loses little. They are sent slowly, at most two a second. The first send waits a random 15 to 60 seconds after the first-run notice appears, so there is time to turn sharing off before anything goes out. On later launches it waits a random 0 to 60 seconds. When you quit, the app tries for up to 1.5 seconds to send what is still waiting, then quits either way; what the server did not take stays in the queue for the next launch.
 
 ## Where events go, and location
 
@@ -166,13 +166,23 @@ Limit: at most 1 per launch.
 
 ### `app_active_day`
 
-The first real action of each local day: focusing the OpenLive window, opening Flow, opening the window from the tray or dock, or starting a call. A launch at login with no interaction does not count. The date itself is not sent.
+The first real action of each local day: focusing the OpenLive window, opening Flow, using Dictate, opening the window from the tray or dock, or starting a call. A launch at login with no interaction does not count. The date itself is not sent.
 
 Limit: at most 1 per day.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `first_surface` | Where that first action happened. | `main_window`, `flow`, `call`, `tray` | always |
+| `first_surface` | Where that first action happened. | `main_window`, `flow`, `call`, `dictate`, `tray` | always |
+
+### `surface_active`
+
+The first time each day that you use Chat (a call in the window), Flow or Dictate, sent when that use starts. It counts which of the three features you reach for, so a day of only Dictate or only Flow shows up as that. A launch at login with no interaction does not count. The date itself is not sent.
+
+Limit: at most 1 per day for each `surface`.
+
+| Property | Meaning | Values | Sent |
+| --- | --- | --- | --- |
+| `surface` | Which feature you started using: `chat` is a call in the window. | `chat`, `flow`, `dictate` | always |
 
 ### `app_updated`
 
@@ -223,6 +233,7 @@ Limit: none.
 | --- | --- | --- | --- |
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
+| `brain_model` | The family of the model that answered, from the model you picked or the one the coding agent reported using. Never the model id or version. | one of the [model families](#model-families) | sometimes |
 | `duration_s` | How long the orb was open, in seconds. | whole number, 0 to 86400 | always |
 | `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (Close after silence ran out), `disarmed` (Flow was switched off on its home), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `dictate_opened` (Dictate was opened over it), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `dictate_opened`, `quit`, `other` | always |
 | `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (Start Flow in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
@@ -289,6 +300,7 @@ Limit: none.
 | --- | --- | --- | --- |
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
+| `brain_model` | The family of the model that answered, from the model you picked or the one the coding agent reported using. Never the model id or version. | one of the [model families](#model-families) | sometimes |
 | `duration_s` | How long the call lasted, in seconds. | whole number, 0 to 86400 | always |
 | `ended_by` | What ended it: `end_button` (the End button or its shortcut), `orb_end` (End on the orb), `window_closed`, `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `start_failed`, `switched_chat`, `app_quit`, or `other`. | `end_button`, `orb_end`, `window_closed`, `sleep_or_lock`, `start_failed`, `switched_chat`, `app_quit`, `other` | always |
 | `start_result` | How the start went: `ok`, `mic_denied` (microphone access was refused), or `start_failed`. | `ok`, `mic_denied`, `start_failed` | sometimes |
@@ -397,7 +409,7 @@ Limit: the same `code` is not sent again within 10 minutes.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `code` | What went wrong: `no_mic` (the microphone did not open), `not_written` (the words could not be written down), `insert_failed` (it could not be typed or copied), `polish_late` (AI polish did not answer in time, so the cleaned-up words went in), `polish_cut` (AI polish stopped partway), `command_failed` (an edit by voice got no answer), `keys_failed` (a spoken command's key could not be pressed), or `too_long` (the selection was too long to edit). | `no_mic`, `not_written`, `insert_failed`, `polish_late`, `polish_cut`, `command_failed`, `keys_failed`, `too_long` | always |
+| `code` | What went wrong: `no_mic` (the microphone did not open), `not_written` (the words could not be written down), `insert_failed` (it could not be typed or copied), `polish_late` (AI polish did not answer in time, so the cleaned-up words went in), `polish_cut` (AI polish stopped partway), `command_failed` (an edit by voice got no answer), `keys_failed` (a spoken command's key could not be pressed), `too_long` (the selection was too long to edit), or `models_missing` (the voice models are not downloaded, so Dictate asked for them instead of opening). | `no_mic`, `not_written`, `insert_failed`, `polish_late`, `polish_cut`, `command_failed`, `keys_failed`, `too_long`, `models_missing` | always |
 
 ### `crash_detected`
 
@@ -608,6 +620,17 @@ Limit: at most 3 per day for each `setting`.
 | `subject` | For a setting tied to a provider or a coding agent, which one. `none` when there is none. | `none`, or one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
 | `from` | Which screen the change was made from. | `onboarding`, `settings`, `call_setup`, `flow_home`, `other` | sometimes |
 
+### `capability_changed`
+
+When you add, switch on or off, remove or sign in to something under Settings > Memory, Skills, Connectors or Tools, after it worked. Only which kind of thing and what you did are sent, never its name, text or address.
+
+Limit: at most 3 per day for each combination of `kind` and `action`.
+
+| Property | Meaning | Values | Sent |
+| --- | --- | --- | --- |
+| `kind` | What it was: a memory note, a skill, a connector you added, or one of OpenLive's own tool groups. Web search by Exa is the Web research tool group, so its switch counts as `tool` wherever Settings shows it. | `memory`, `skill`, `connector`, `tool` | always |
+| `action` | What you did: `add` includes creating and importing, `enable` and `disable` are a switch, `remove` includes clearing all memory, `connect` is finishing a connector's sign-in. | `add`, `enable`, `disable`, `remove`, `connect` | always |
+
 ### `tray_action`
 
 When you click an item in the tray or menu bar menu.
@@ -729,7 +752,7 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `ollama_address` | Where Ollama runs: the default, another address on this computer, or a remote one. The address is never sent. | `default`, `local`, `remote` | none |
 | `agent_hidden` | A coding agent hidden from or shown in the lists. | `on`, `off` | agent id |
 | `provider_key` | A provider key added or removed. The key is never sent. | `added`, `removed` | provider id |
-| `agent_model` | The model for a coding agent changed. The model id is never sent. | `changed` | agent id |
+| `agent_model` | The model for a coding agent changed, in the call setup or under Advanced in Settings > Models, Flow or Dictate. Picking another agent, which resets its model, does not count. The model id is never sent. | `changed` | agent id |
 | `language` | The session language. | one of the [languages](#languages) | none |
 | `stt_family` | The speech-to-text engine family. | one of the [speech-to-text families](#speech-to-text-families) | none |
 | `tts_family` | The text-to-speech engine family. `clone` is your own cloned voice. | one of the [text-to-speech families](#text-to-speech-families) | none |
@@ -772,6 +795,10 @@ The Values cells link here for the long lists.
 ### Coding agent ids
 
 `claude-code`, `codex`, `cursor`, `opencode`, `hermes`, `gemini`, `copilot`, `kiro`, `pi`
+
+### Model families
+
+`haiku`, `sonnet`, `opus`, `fable`, `gpt`, `gemini`, `llama`, `qwen`, `deepseek`, `mistral`, `minimax`, `grok`, `other`. A model id or name is matched against this list on your computer and only the match goes out, never the id, its version or anything you typed. `other` covers any model not on the list.
 
 ### Languages
 

@@ -350,6 +350,9 @@ keys, model ids or error text.
 ```
 
 - Builds you run from source, and any build without release settings, send nothing.
+- Which of Chat, Flow and Dictate you use each day is counted, and so is adding, switching,
+  removing or signing in to a memory, skill, connector or tool, as a plain kind and action.
+  Never its name or text.
 - Turning it off in the app sends one last anonymous event saying so, then nothing.
 - The install ID is random, not tied to you, your hardware or an account.
   So is the readable name made from it, like `swift-otter-1a2b3c4d`: nobody types it, and

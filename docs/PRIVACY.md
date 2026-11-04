@@ -1,6 +1,6 @@
 # OpenLive privacy policy
 
-Last updated: 2026-10-03.
+Last updated: 2026-11-04.
 
 This page covers the anonymous usage data the OpenLive desktop app can send to the project. It is written to be read, not skimmed past. The exact list of every event and field is in [docs/TELEMETRY.md](TELEMETRY.md), and the two pages are kept in step.
 
@@ -23,10 +23,10 @@ This page covers the anonymous usage data the OpenLive desktop app can send to t
 
 ## What is collected
 
-- **Feature use.** Which screens and features were used, as counts, and how a session went: how long, how many turns, whether a tool was used, how it ended.
+- **Feature use.** Which screens and features were used, as counts, and how a session went: how long, how many turns, whether a tool was used, how it ended. Once a day, which of Chat, Flow and Dictate you started using. When you add, switch on or off, remove or sign in to a memory note, skill, connector or tool group, only which kind and which of those you did, never its name, text or address.
 - **Errors and speed.** The kind of failure (as a fixed label, never the message), crashes counted as crashes, and rounded timings such as how long a reply took to start.
 - **Setup and first use.** Which first-run steps were reached, which settings were changed to which fixed value, and whether a download or install worked.
-- **Your setup, in broad strokes.** The app version, your OS family and major version, your CPU type, and which provider or coding agent you picked as a fixed id. Never the model, never a key.
+- **Your setup, in broad strokes.** The app version, your OS family and major version, your CPU type, and which provider or coding agent you picked as a fixed id, and the family of the model that answered (such as `sonnet` or `gpt`). Never the model id or version, never a key.
 - **An install ID and a name.** A random ID made on your computer, and a readable name derived from it, like `swift-otter-1a2b3c4d`. They are there so the project can count active installs and see whether people come back. They are not derived from your hardware, account, name or network, and turning sharing off deletes them.
 - **Answers to feedback prompts.** A thumbs up or down, one of five fixed reasons, or a 0 to 10 score, when you choose to answer. See [Feedback prompts](#feedback-prompts).
 - **A timestamp** on each event, rounded down to the minute.

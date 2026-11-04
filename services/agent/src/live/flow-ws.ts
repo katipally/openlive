@@ -18,7 +18,7 @@ import { AcpAgent } from "../agents/acp-agent.js";
 import { AgentSupervisor } from "../agents/supervisor.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type Agent, type AgentMeta, type ElicitationAnswer, type ElicitationAsk, type PermissionAskOption } from "../agents/index.js";
 import { emitEvent, emitFact } from "../telemetry/emit.js";
-import { askOutcome, brainOf, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent } from "../telemetry/facts.js";
+import { askOutcome, brainOf, modelFact, permissionFact, toolTally, reportReply, reportTurnError, TurnTimer, type Brain as BrainIdent } from "../telemetry/facts.js";
 import { isAgentId } from "@openlive/shared";
 import { runFlow } from "../flow/loop.js";
 import { buildFlowAcpPreamble } from "../flow/prompt.js";
@@ -142,6 +142,12 @@ export const brainMeta = (cfg: FlowConfig, live: () => ResolvedLive = resolveLiv
 /** The brain as telemetry names it; nothing when settings cannot say. */
 const flowIdent = (cfg: FlowConfig): BrainIdent => {
   try { const { kind, id } = brainMeta(cfg); return brainOf(kind === "acp" ? "acp" : "api", id); }
+  catch { return {}; }
+};
+
+/** The family of the model answering a turn; nothing when settings cannot say. */
+const flowModel = (cfg: FlowConfig, agent: AgentMeta | null) => {
+  try { return modelFact(brainMeta(cfg).model, agent); }
   catch { return {}; }
 };
 
@@ -446,7 +452,7 @@ export class FlowLiveSession {
       if (!aborted) reportTurnError("flow", this.ident, { code, message });
     } finally {
       emitFact("flow", {
-        ...this.ident, turns: 1, consent: this.consented, agent_start_ms: this.agentStartMs, ...(this.lang && { lang: this.lang }),
+        ...this.ident, ...flowModel(cfg, this.agentMeta), turns: 1, consent: this.consented, agent_start_ms: this.agentStartMs, ...(this.lang && { lang: this.lang }),
         ...(this.quiet && { quiet_turns: 1 }), ...timer.timings(finished),
       });
       if (finished) reportReply("flow");

@@ -6,6 +6,35 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Added
+- **Usage counts for each surface and for capabilities.** Two new anonymous events:
+  `surface_active` (the first use each day of Chat, Flow or Dictate) and
+  `capability_changed` (adding, switching, removing or signing in to a memory note,
+  skill, connector or tool group, as a kind and an action, never a name or text).
+  Both are listed in `docs/TELEMETRY.md` and the privacy policy.
+- **Which model family answered.** Flow and call summaries carry `brain_model`, a
+  fixed family (`haiku`, `sonnet`, `opus`, `fable`, `gpt` and a few more, else
+  `other`), never a model id or version.
+
+### Fixed
+- **A Dictate that cannot start says why.** When the voice models are not downloaded,
+  Dictate asks for them instead of opening and now sends `dictate_failure` with
+  `models_missing`, where it sent only an empty session.
+- **A changed model in Settings is counted.** Picking a coding agent's model under
+  Advanced in Settings > Models, Flow or Dictate sends `setting_changed`
+  `agent_model`, like the call setup already did.
+- **A clean quit sends its last events.** The usage counts and `app_quit` were left
+  in the queue until the next launch, so they were lost for anyone who did not come
+  back. Quitting now tries to send them for up to 1.5 seconds and never waits longer;
+  anything not taken stays queued.
+- **Dictate sessions and failures reach the usage data.** `dictate_session` and
+  `dictate_failure` were sent by the app but dropped before they were stored. A
+  test now fails if any event the window sends is not allowed through.
+- **A day of only Dictate counts as an active day.** `app_active_day` now has a
+  `dictate` surface, and Dictate sets it like Flow and calls do.
+- **A restart or shutdown on macOS and Linux is no longer read as a crash** on the
+  next launch.
+
 ## [0.3.1] - 2026-10-03
 
 ### Changed
