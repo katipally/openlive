@@ -104,9 +104,9 @@ export async function* streamAnthropic(opts: {
   if (req.tools.length) body.tools = toTools(req.tools, quirks?.noCacheControl)
   if (req.tools.length && req.toolChoice) body.tool_choice = { type: req.toolChoice }
   // Extended thinking. The accepted form differs by model (see anthropicThinkingForm):
-  // current models (Opus 4.6+, Sonnet 4.6/5, Fable 5) take adaptive thinking +
+  // current models (Opus 4.6+, Sonnet 4.6+, Haiku 5+, Fable 5) take adaptive thinking +
   // output_config.effort; pre-4.6 models take {type:"enabled",budget_tokens}; and
-  // models with NO thinking channel (Haiku 4.5 — the default live rec — and older)
+  // models with NO thinking channel (Haiku 4.5 and older)
   // reject BOTH and must get neither, or they 400. MiniMax (noThinking) ignores
   // these — its M2.x reasoning is always-on.
   if (req.effort && !quirks?.noThinking) {

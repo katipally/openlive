@@ -13,7 +13,7 @@ export interface LiveModelRec {
 
 export const LIVE_MODEL_RECS: Record<string, LiveModelRec[]> = {
   anthropic: [
-    { model: "claude-haiku-4-5", label: "Haiku 4.5", note: "~600ms first token, vision, natural short replies", vision: true, default: true },
+    { model: "claude-haiku-5-5", label: "Haiku 5.5", note: "fastest Claude, vision, natural short replies", vision: true, default: true },
   ],
   openai: [
     { model: "gpt-5-mini", label: "GPT-5 mini", note: "fast, multimodal, cheap", vision: true, default: true },

@@ -79,7 +79,7 @@ describe("resolveApiMode", () => {
 
   it("runs the chosen model, and a recommendation when none is chosen", () => {
     expect(resolveApiMode({ liveProviderId: "ollama", liveModel: "qwen3:8b" }, []).model).toBe("qwen3:8b")
-    expect(resolveApiMode({ liveProviderId: "anthropic" }, []).model).toBe("claude-haiku-4-5")
+    expect(resolveApiMode({ liveProviderId: "anthropic" }, []).model).toBe("claude-haiku-5-5")
     expect(resolveApiMode({ liveModel: "stray" }, [row("groq", true)]).model).not.toBe("stray")
   })
 

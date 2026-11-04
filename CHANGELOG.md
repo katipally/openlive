@@ -16,6 +16,12 @@ Releases before 0.1.9 predate this file — see the
   fixed family (`haiku`, `sonnet`, `opus`, `fable`, `gpt` and a few more, else
   `other`), never a model id or version.
 
+### Changed
+- **The current Claude lineup.** Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1
+  are the built-in Anthropic models, with Opus 5.5 as the default. Haiku 5.5 replaces
+  Haiku 4.5 as the recommended model for calls, and now gets the effort setting, which
+  Haiku 4.5 could not take.
+
 ### Fixed
 - **A Dictate that cannot start says why.** When the voice models are not downloaded,
   Dictate asks for them instead of opening and now sends `dictate_failure` with
