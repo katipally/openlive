@@ -22,6 +22,12 @@ export function splitResult(log: string): { log: string; result?: ActionResult }
   return m && STREAMED.has(m[1]!) ? { log: log.slice(0, m.index), result: m[1] as ActionResult } : { log };
 }
 
+/** Installs in a row that ended in anything but `ok`; past this the card hands over the command to run by hand. */
+export const INSTALL_TRIES = 2;
+
+/** The count after one more install ended in `result`. Pure. */
+export const installFailures = (before: number, result: ActionResult): number => (result === "ok" ? 0 : before + 1);
+
 /** One agent action's outcome, as closed codes and a duration. Never the log, the command or a path. */
 export function trackAgentAction(id: string, action: ActionKind, result: ActionResult, startedAt: number): void {
   if (isAgentId(id)) telemetry.track("agent_action_result", { agent_id: id, action, result, duration_s: Math.round((Date.now() - startedAt) / 1000) });
@@ -29,12 +35,14 @@ export function trackAgentAction(id: string, action: ActionKind, result: ActionR
 
 interface State {
   runs: Record<string, Run>;                          // by agent id
+  failures: Record<string, number>;                   // consecutive failed installs, by agent id
   run: (id: string, action: ActionKind) => Promise<void>;
   clear: (id: string) => void;
 }
 
 export const useAgentActions = create<State>((set, get) => ({
   runs: {},
+  failures: {},
   clear: (id) => set((s) => { const runs = { ...s.runs }; delete runs[id]; return { runs }; }),
   run: async (id, action) => {
     if (get().runs[id]?.running) return; // already running for this agent
@@ -60,6 +68,7 @@ export const useAgentActions = create<State>((set, get) => ({
       const result = done.result ?? "error"; // no marker: the request never got an answer
       set((s) => { const cur = s.runs[id]; return cur ? { runs: { ...s.runs, [id]: { ...cur, log: done.log, result, running: false } } } : {}; });
       trackAgentAction(id, action, result, startedAt);
+      if (action === "install") set((s) => ({ failures: { ...s.failures, [id]: installFailures(s.failures[id] ?? 0, result) } }));
       if (action === "install" && result === "ok") telemetry.track("onboarding_step", { step: "first_agent_install_ok" });
     }
   },

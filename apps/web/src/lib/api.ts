@@ -25,7 +25,7 @@ export interface AppSettings {
   chatHistory?: string;
 }
 
-export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
+export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; installCommand?: string; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
 
 /** The computer-use helper's own grants, separate from OpenLive's: macOS asks for them by its name. */
 export interface ComputerGrant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string; detail?: string }

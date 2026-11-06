@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Download, Trash2, LogIn, LogOut, Loader2, ArrowUpCircle, Copy, Eye, EyeOff, Search, Bot } from "lucide-react";
 import { api, type AgentStatus } from "@/lib/api";
 import { AgentIcon } from "@/components/live/AgentIcon";
-import { useAgentActions, trackAgentAction, type ActionKind } from "@/lib/agentActions";
+import { useAgentActions, trackAgentAction, INSTALL_TRIES, type ActionKind } from "@/lib/agentActions";
 import { telemetry } from "@/lib/telemetry";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
@@ -91,6 +91,7 @@ function AgentCard({ a }: { a: AgentStatus }) {
   const qc = useQueryClient();
   const run = useAgentActions((s) => s.runs[a.id]);
   const start = useAgentActions((s) => s.run);
+  const failures = useAgentActions((s) => s.failures[a.id] ?? 0);
   const [open, setOpen] = useState(false);
   const [waiting, setWaiting] = useState<{ action: ActionKind; startedAt: number } | null>(null);
   // An install or sign-in just ended, so the next time this agent reads Ready is its first.
@@ -161,8 +162,16 @@ function AgentCard({ a }: { a: AgentStatus }) {
     }] : []),
   ];
 
+  const copyInstall = () => {
+    void navigator.clipboard.writeText(a.installCommand!)
+      .then(() => toast("Command copied. Paste it into any terminal."))
+      .catch(() => toast(a.installCommand!));
+  };
+
   let action: ReactNode = null;
-  if (!a.installed && a.canInstall) {
+  if (!a.installed && a.canInstall && failures >= INSTALL_TRIES && a.installCommand && !busy) {
+    action = <Button variant="secondary" size="sm" onClick={copyInstall}><Copy /> Copy install command</Button>;
+  } else if (!a.installed && a.canInstall) {
     action = <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>{spin("install", Download)} Install</Button>;
   } else if (a.installed && a.credState !== "ready") {
     action = (
@@ -206,6 +215,13 @@ function AgentCard({ a }: { a: AgentStatus }) {
       {waiting && a.credState !== "ready" && (
         <p className="flex items-center gap-1.5 text-caption text-muted-foreground">
           <Loader2 className="size-3 shrink-0 animate-spin" /> Finish in the terminal. This updates by itself.
+        </p>
+      )}
+
+      {!a.installed && failures >= INSTALL_TRIES && !busy && (
+        <p className="flex flex-wrap items-center gap-x-2 text-caption text-muted-foreground">
+          Install failed {failures} times. The output below says why; you can run the command yourself in a terminal.
+          <Button variant="ghost" size="sm" onClick={() => start(a.id, "install")}>Try again</Button>
         </p>
       )}
 

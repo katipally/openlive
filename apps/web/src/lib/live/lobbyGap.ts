@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import type { TelemetryEventProps } from "@openlive/shared";
+import { isAgentId } from "@openlive/shared";
+import type { AgentStatus } from "../api";
 import { telemetry } from "../telemetry";
 import { useLiveStore } from "./liveStore";
 import type { DownloadPlan } from "./weights";
@@ -27,6 +29,10 @@ export function lobbyGap(s: LobbyState): LobbyGap | null {
   if (s.modelsMissing) return "models_not_downloaded";
   return s.micGap ? "no_mic" : null;
 }
+
+/** A coding agent that is installed, signed in and not hidden: a brain that needs no API key. Pure. */
+export const readyAgent = (rows: AgentStatus[] | undefined): AgentStatus | undefined =>
+  rows?.find((r) => isAgentId(r.id) && r.installed && r.credState === "ready" && !r.hidden);
 
 export type OfferStep = "checking" | "ask" | "offline" | "downloading" | "failed";
 

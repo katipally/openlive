@@ -41,6 +41,14 @@ Releases before 0.1.9 predate this file — see the
   ready" on every launch. Only builds the release workflow marks run the updater now, and
   `OPENLIVE_NO_UPDATES=1` turns it off for any build. Check for Updates says updates are
   off for this build.
+- **The lobby fixes what blocks Start right where it blocks.** With no project folder,
+  or one that no longer exists, a Pick a folder button opens the folder picker in place.
+  With no API key, the key field is in the lobby, and a coding agent that is already
+  signed in is offered instead.
+- **Installing Cursor on Windows works.** The script it ran was the bash one, which
+  PowerShell cannot run; it now fetches Cursor's Windows installer. A failed install
+  names a missing administrator right (Kiro) or a missing npm (Codex), and after two
+  failures in a row the card hands over the command to run in a terminal.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is

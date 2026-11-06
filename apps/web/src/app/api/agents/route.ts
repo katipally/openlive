@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { AGENT_LIST, agentVersion } from "@openlive/shared";
 import { widenedPath, evalCredProbe, readJsonHome, type CredState } from "@openlive/shared/node";
 import { getSetting } from "@openlive/db";
+import { installDisplay } from "./agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +77,7 @@ export async function GET() {
       // opening a terminal automatically is blocked (macOS Automation).
       loginCommand: (process.platform === "win32" && a.winLogin) || a.login,
       canInstall: !!a.install,
+      installCommand: installDisplay(a, process.platform === "win32"),
       canUninstall: !!a.uninstall,
       canLogout: !!a.logout,
       // Update = rerun the headless install recipe (@latest for npm; the curl
