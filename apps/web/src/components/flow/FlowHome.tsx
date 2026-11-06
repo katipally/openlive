@@ -20,6 +20,8 @@ import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
+import { InputAccessFix } from "./InputAccessFix";
+import { inputFix } from "@/lib/flow/failure";
 import { GrantPills, missingGrants } from "./GrantPills";
 import { ModeSteps, modeCopy } from "./ModeSwitch";
 import { PowerPill } from "./PowerPill";
@@ -139,7 +141,9 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
             <Settings2 aria-hidden /><span className="sr-only">Flow settings</span>
           </ChipButton>
         </div>
-        {hookError && <p className="max-w-full break-words text-caption text-destructive-text">{hookError}</p>}
+        {hookError && (inputFix(caps?.inputAccess)
+          ? <InputAccessFix access={caps?.inputAccess} onRetry={onRetry} />
+          : <p className="max-w-full break-words text-caption text-destructive-text">{hookError}</p>)}
         {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} user="flow" onRetry={onRetry} />}
       </section>
 

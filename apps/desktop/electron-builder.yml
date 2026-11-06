@@ -25,6 +25,7 @@ files:
   - main.cjs
   - preload.cjs
   - flow-input.cjs
+  - linux-input.cjs
   - flow-runtime.cjs
   - look.cjs
   - external-url.cjs

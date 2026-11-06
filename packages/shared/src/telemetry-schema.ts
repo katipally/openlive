@@ -49,6 +49,8 @@ const FAILURE_CODES = [
 ] as const;
 const QUIET_REASONS = ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"] as const;
 const LINUX_SESSIONS = ["x11", "wayland", "n/a"] as const;
+/** Why Flow's key listener could not start on Linux (apps/desktop/linux-input.cjs). */
+const HOOK_REASONS = ["not_in_group", "needs_relogin", "no_devices", "sandboxed", "other"] as const;
 const ON_OFF = ["on", "off"] as const;
 const HISTORY_KEEPS = ["off", "day", "week", "month", "forever"] as const;
 /** The key groups Flow and Dictate double-tap by name; any one side or spare key is "other". */
@@ -416,6 +418,7 @@ const events = {
       hours_since_first_open: opt(dec(99999, 1)),
       tour_exit: opt(en(["done", "skipped", "left"])),
       tour_step: opt(int(9, { min: 1 })),
+      hook_reason: opt(en(HOOK_REASONS)),
     },
     limit: { oncePerValueOf: "step" },
   },

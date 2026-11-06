@@ -5,7 +5,8 @@ const require = createRequire(import.meta.url);
 
 /** flow-input.cjs against stand-ins for electron and for the ol-input addon. */
 const track = vi.fn();
-function load(ownField?: () => unknown, { packaged = false } = {}) {
+function load(ownField?: () => unknown, { packaged = false, access = null as string | null } = {}) {
+  const seen = { access };
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const stub = (path: string, exports: unknown) => {
     require.cache[path] = { id: path, filename: path, loaded: true, children: [], paths: [], path: "", exports } as unknown as NodeJS.Module;
@@ -23,13 +24,15 @@ function load(ownField?: () => unknown, { packaged = false } = {}) {
     shell: {},
   });
   stub(require.resolve("../../native/ol-input"), addon);
+  stub(require.resolve("./linux-input.cjs"), { inputAccess: () => seen.access });
   const mod = require.resolve("./flow-input.cjs");
   delete require.cache[mod];
   const flowInput = require(mod);
   const effects: unknown[] = [];
-  flowInput.install((e: unknown) => effects.push(e), () => null, { reportOnboardingStep: vi.fn(), track }, ownField);
+  const telemetry = { reportOnboardingStep: vi.fn(), track };
+  flowInput.install((e: unknown) => effects.push(e), () => null, telemetry, ownField);
   const call = (name: string, ...args: unknown[]) => handlers.get(name)!({}, ...args);
-  return { flowInput, addon, call, handlers, effects };
+  return { flowInput, addon, call, handlers, effects, telemetry, seen };
 }
 
 describe("typing at cursor's settings on their way to the addon", () => {
@@ -304,5 +307,39 @@ describe("a permission prompt's outcome", () => {
     addon.requestScreenRecording = vi.fn(() => true);
     await flowInput.request("screen");
     expect(events()).toEqual([["os_permission_request", "screen", true]]);
+  });
+});
+
+describe("the key listener on Linux without access to /dev/input", () => {
+  it("does not start, says why, and reports the reason", async () => {
+    const { flowInput, addon, call, telemetry } = load(undefined, { access: "not_in_group" });
+    expect(await call("openlive:flow-init")).toMatchObject({ ok: false, error: expect.stringContaining("input group") });
+    expect(addon.initializeHook).not.toHaveBeenCalled();
+    expect(flowInput.hookFailure()).toContain("input group");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", { hook_reason: "not_in_group" });
+  });
+
+  it("starts once the check passes, from Check again", async () => {
+    const { addon, call, seen } = load(undefined, { access: "needs_relogin" });
+    await call("openlive:flow-init");
+    expect(addon.initializeHook).not.toHaveBeenCalled();
+    expect(await call("openlive:flow-input-recheck")).toEqual({ ok: true, value: "needs_relogin" });
+    seen.access = "ok";
+    expect(await call("openlive:flow-input-recheck")).toEqual({ ok: true, value: "ok" });
+    expect(addon.initializeHook).toHaveBeenCalledOnce();
+  });
+
+  it("reports other when access looked fine and the listener still failed", async () => {
+    const { addon, call, telemetry } = load(undefined, { access: "ok" });
+    addon.initializeHook.mockImplementation(() => { throw new Error("evdev broke"); });
+    await call("openlive:flow-init");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", { hook_reason: "other" });
+  });
+
+  it("sends no reason off Linux", async () => {
+    const { addon, call, telemetry } = load();
+    addon.initializeHook.mockImplementation(() => { throw new Error("tap died"); });
+    await call("openlive:flow-init");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", undefined);
   });
 });
