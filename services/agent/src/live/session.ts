@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { SseEvent, MessageBlock, LiveServerMsg } from "@openlive/shared";
-import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, toolSummary, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
+import { LIVE_TAG, liveClientMsgSchema, agentLabel, classifyError, startReasonOf, toolSummary, withReplyLanguage, type AgentMetaWire, type LanguageCode } from "@openlive/shared";
 import { createChat, addMessage, updateMessageContent, listMessages, renameChat, getSetting, setSetting, setChatContext, deleteChatsBefore } from "@openlive/db";
 import { historyKeep, KEEP_MS } from "@openlive/flow-store/shared";
 import type { Message } from "@openlive/harness";
@@ -598,9 +598,10 @@ export class LiveSession {
       })
       .catch((e) => {
         if (this.closed) return;
-        const event = { type: "error" as const, message: `Couldn't start ${id}: ${String((e as Error)?.message ?? e)}`, code: classifyError(e, "agent_start_failed") };
+        const text = String((e as Error)?.message ?? e);
+        const event = { type: "error" as const, message: startReasonOf(e) ? text : `Couldn't start ${id}: ${text}`, code: classifyError(e, "agent_start_failed") };
         this.send({ t: "sse", event });
-        reportTurnError("call", this.brain(), event);
+        reportTurnError("call", this.brain(), { ...event, startReason: startReasonOf(e) });
       });
   }
 

@@ -380,7 +380,7 @@ What broke, as a kind and never as text.
 
 When a turn fails, in a call or in Flow. Only the kind of failure is sent, never the message. Starting a coding agent just to list its models does not count.
 
-Limit: the same `class` and `brain_id` is not sent again within 5 minutes.
+Limit: the same `class` and `brain_id` and `start_reason` is not sent again within 5 minutes.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
@@ -390,6 +390,7 @@ Limit: the same `class` and `brain_id` is not sent again within 5 minutes.
 | `class` | The kind of failure. Values starting with `agent_` are coding agent failures, the rest are model provider failures. | `no_key`, `no_model`, `auth`, `model_not_found`, `quota`, `rate_limited`, `unreachable`, `server_error`, `bad_request`, `stream_error`, `other`, `agent_no_folder`, `agent_start_failed`, `agent_start_timeout`, `agent_no_output`, `agent_stalled`, `agent_crashed`, `agent_rejected`, `agent_refused` | always |
 | `recovered` | For a coding agent: true when OpenLive restarted it and it came back. | true or false | sometimes |
 | `http_class` | `4xx` or `5xx` when the provider answered with an HTTP error, otherwise `none`. | `4xx`, `5xx`, `none` | sometimes |
+| `start_reason` | For a coding agent that would not start: a coarse reason read from its exit code and what it printed, never the text. | `not_installed`, `auth_needed`, `personal_account`, `outdated`, `timeout`, `exited` | sometimes |
 
 ### `flow_failure_card`
 

@@ -1,4 +1,4 @@
-import { classifyError, httpClassOf, modelFamilyOf, SUPERVISED_CLASSES, type ErrorClass, type HttpClass, type TelemetryEventProps } from "@openlive/shared";
+import { classifyError, httpClassOf, modelFamilyOf, SUPERVISED_CLASSES, type ErrorClass, type HttpClass, type StartReason, type TelemetryEventProps } from "@openlive/shared";
 import { PERMISSION_CANCELLED } from "../agents/types.js";
 import { emitEvent, emitFact, type AgentFactProps } from "./emit.js";
 import { limits } from "./limits.js";
@@ -92,10 +92,10 @@ export function permissionFact(surface: Surface, outcome: PermissionOutcome): vo
 const ERROR_DEDUPE_MS = 5 * 60_000;
 
 /** The count always rides the session fact; the event goes out once per class and brain per 5 minutes. */
-export function reportBrainError(surface: Surface, brain: Brain, cls: ErrorClass, opts: { http?: HttpClass; recovered?: boolean } = {}): void {
+export function reportBrainError(surface: Surface, brain: Brain, cls: ErrorClass, opts: { http?: HttpClass; recovered?: boolean; startReason?: StartReason } = {}): void {
   emitFact(surface, { errors: 1 });
-  if (!limits.window(`${cls}|${brain.brain_id ?? ""}`, ERROR_DEDUPE_MS)) return;
-  emitEvent("brain_error", { surface, class: cls, ...brain, http_class: opts.http ?? "none", ...(opts.recovered !== undefined && { recovered: opts.recovered }) });
+  if (!limits.window(`${cls}|${brain.brain_id ?? ""}|${opts.startReason ?? ""}`, ERROR_DEDUPE_MS)) return;
+  emitEvent("brain_error", { surface, class: cls, ...brain, http_class: opts.http ?? "none", ...(opts.recovered !== undefined && { recovered: opts.recovered }), ...(opts.startReason && { start_reason: opts.startReason }) });
 }
 
 /**
@@ -103,10 +103,10 @@ export function reportBrainError(surface: Surface, brain: Brain, cls: ErrorClass
  * else the class of the words. A supervised coding agent reports its own
  * incidents, with whether its restart worked, so those are left to it.
  */
-export function reportTurnError(surface: Surface, brain: Brain, e: { code?: ErrorClass; message: string }): void {
+export function reportTurnError(surface: Surface, brain: Brain, e: { code?: ErrorClass; message: string; startReason?: StartReason }): void {
   const cls = e.code ?? classifyError(e.message);
   if (SUPERVISED_CLASSES.has(cls)) return;
-  reportBrainError(surface, brain, cls, { http: httpClassOf(cls) });
+  reportBrainError(surface, brain, cls, { http: httpClassOf(cls), startReason: e.startReason });
 }
 
 // ── activation ──────────────────────────────────────────────────────────────

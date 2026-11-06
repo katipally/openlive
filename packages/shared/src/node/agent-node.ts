@@ -57,6 +57,13 @@ export function widenedPath(): string {
     .join(delimiter);
 }
 
+/** Whether `cmd` resolves on `path` (a command with a separator is checked as given). Windows tries PATHEXT, where the shims live. */
+export function commandOnPath(cmd: string, path: string): boolean {
+  const exts = process.platform === "win32" ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""];
+  const dirs = /[\\/]/.test(cmd) ? [""] : path.split(delimiter);
+  return dirs.some((d) => exts.some((e) => existsSync(join(d, cmd + e))));
+}
+
 export type CredState = "ready" | "login_required" | "unknown";
 
 /** Evaluate a registry credential probe — read-only, best-effort, never throws.

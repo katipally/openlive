@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { WebSocket } from "ws";
 import { toolSummary, type FlowContentWire, type LanguageCode, type LiveServerMsg, type ToolCallState } from "@openlive/shared";
-import { classifyError, flowContextSchema, liveClientMsgSchema } from "@openlive/shared";
+import { classifyError, flowContextSchema, liveClientMsgSchema, startReasonOf } from "@openlive/shared";
 import { FlowSession as FlowStoreSession, flowBrain, keepSessions, loadSession, readFlowConfig, sessionPath, updateFlowConfig, type DefaultBrainSettings, type FlowConfig } from "@openlive/flow-store";
 import { getAllSettings } from "@openlive/db";
 import { AcpBrain, LocalBrain } from "../flow/brain.js";
@@ -449,7 +449,7 @@ export class FlowLiveSession {
       const code = classifyError(e, this.ident.brain_kind === "acp" ? "agent_start_failed" : "other");
       this.send({ t: "flow", event: { type: "error", message, aborted, code }, turn: this.replyTurn });
       this.send({ t: "flow", event: { type: "done", reason: aborted ? "aborted" : "error" }, turn: this.replyTurn });
-      if (!aborted) reportTurnError("flow", this.ident, { code, message });
+      if (!aborted) reportTurnError("flow", this.ident, { code, message, startReason: startReasonOf(e) });
     } finally {
       emitFact("flow", {
         ...this.ident, ...flowModel(cfg, this.agentMeta), turns: 1, consent: this.consented, agent_start_ms: this.agentStartMs, ...(this.lang && { lang: this.lang }),

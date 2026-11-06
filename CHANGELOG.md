@@ -53,6 +53,7 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **A coding agent that will not start says why.** Gemini CLI, OpenCode, Hermes and the rest now check their binary before launching and report a missing install, a sign-in or setup that is needed (with the agent's own command), an out-of-date CLI, a start that timed out, or a Gemini personal Google account that Google no longer lets in (with the `GEMINI_API_KEY` fix). `brain_error` gains `start_reason`, one of those kinds, never the text.
 - **Chat's voice chip follows the speech engine.** Changing the engine, model or language
   in Settings now updates "Download voice models" or "Ready" on Chat's home at once, not
   after a reload.
