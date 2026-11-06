@@ -680,21 +680,30 @@ pub fn accessible_selection() -> AsyncTask<SelectionTask> {
 /// Asking the focused app can wait on it, so it runs off the main thread.
 pub struct FocusTask;
 
+#[napi(object)]
+pub struct FocusInfo {
+    pub editable: Option<bool>,
+    pub secure: bool,
+    pub before: Option<String>,
+}
+
 impl napi::Task for FocusTask {
-    type Output = Option<bool>;
-    type JsValue = Option<bool>;
+    type Output = focus::Focus;
+    type JsValue = FocusInfo;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(focus::editable())
+        Ok(focus::read())
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
+        Ok(FocusInfo { editable: output.editable, secure: output.secure, before: output.before })
     }
 }
 
-/// Whether the focused element takes typed text. Null when the platform or
-/// the app will not say, which is not the same as no.
+/// The focused element: whether it takes typed text (absent when the platform
+/// or the app will not say, which is not the same as no), whether it is a
+/// password field, and the text before the caret (absent for a password field
+/// and where it cannot be read).
 #[napi]
 pub fn focus_editable() -> AsyncTask<FocusTask> {
     AsyncTask::new(FocusTask)

@@ -26,6 +26,7 @@ Releases before 0.1.9 predate this file — see the
   same window (never copied ones), so it keeps the casing and does not repeat what is
   already there. Speech engine hints for the dictionary were checked per engine and none
   can take them yet; docs/DICTATE.md says why.
+- **Dictate stays out of password fields and spaces its words by what is before the cursor.** In a password field it types nothing, copies nothing, sends nothing to AI polish and keeps no history, and says so on the orb. Elsewhere it adds a space only where one belongs: not at the start of a field or line, after a space, or after an opening bracket or quote. AI polish is also told what comes before the cursor.
 - **Telemetry says why an update check or a model request failed.** `update_result`
   gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
   checks that worked. `brain_error` gains `http_status` and a `reason` for a refused

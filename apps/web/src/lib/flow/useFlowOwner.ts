@@ -22,7 +22,7 @@ import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
-import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Typing } from "@/lib/dictate/run";
+import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Focus, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { recentFor, rememberDictation } from "@/lib/dictate/recent";
@@ -673,10 +673,19 @@ export function useFlowOwner(): void {
       if (!dictate.isOpen()) void talk.toggleDictate();
     };
 
+    /** One read of the focus per utterance. Where the app will not show the text
+     *  before the caret, the window is named so Dictate can fall back on its own last words there. */
+    const readFocus = async (): Promise<Focus> => {
+      const f = valueOr(await api.focusEditable(), null);
+      const read = { editable: f?.editable ?? null, secure: f?.secure === true, before: f?.before ?? null };
+      if (read.before !== null || read.secure || read.editable === false) return read;
+      const front = valueOr(await api.device("foreground", {}), null) as { id?: number } | null;
+      return { ...read, windowId: front?.id };
+    };
     /** Typing at the cursor. None where the focused element is plainly not a
      *  text box; where the platform cannot tell, it types as it always did. */
-    const openTyping = async (): Promise<Typing | null> => {
-      if (valueOr(await api.focusEditable(), null) === false) return null;
+    const openTyping = async (f: Focus): Promise<Typing | null> => {
+      if (f.editable === false) return null;
       const ins = settings.current?.insertion;
       const session = valueOr(await api.insertBegin(ins?.method, ins), -1);
       if (session < 0) return null;
@@ -706,6 +715,7 @@ export function useFlowOwner(): void {
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? "heard",
       dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
+      focus: readFocus,
       typing: openTyping,
       copy: copyDictation,
       // What was still being said or transcribed is dropped, and with Flow closed

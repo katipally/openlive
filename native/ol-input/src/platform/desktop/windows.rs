@@ -23,6 +23,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationTextPattern, IUIAutomationValuePattern,
+    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character,
     UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -42,6 +43,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::capture::{Bitmap, Display};
+use crate::focus::{Focus, BEFORE_MAX};
 use crate::control::Button;
 use crate::coords::{ScreenPoint, Shot};
 use crate::ocr::ShotBox;
@@ -421,19 +423,48 @@ pub fn open_url(url: &str) -> Result<(), String> {
     shell_execute("open", url)
 }
 
-pub fn focus_editable() -> Option<bool> {
+/// The text before the caret: the selection's range collapsed to its start,
+/// then stretched back by up to `BEFORE_MAX` characters.
+fn text_before_caret(pattern: &windows::core::IUnknown) -> Option<String> {
+    unsafe {
+        let text: IUIAutomationTextPattern = pattern.cast().ok()?;
+        let ranges = text.GetSelection().ok()?;
+        if ranges.Length().ok()? < 1 {
+            return None;
+        }
+        let caret = ranges.GetElement(0).ok()?.Clone().ok()?;
+        caret
+            .MoveEndpointByRange(TextPatternRangeEndpoint_End, &caret, TextPatternRangeEndpoint_Start)
+            .ok()?;
+        caret
+            .MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -(BEFORE_MAX as i32))
+            .ok()?;
+        Some(crate::focus::tail(&caret.GetText(-1).ok()?.to_string()))
+    }
+}
+
+pub fn focus_read() -> Focus {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).ok()?;
-        let focused = automation.GetFocusedElement().ok()?;
+        let Ok(automation): Result<IUIAutomation, _> = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL) else {
+            return Focus::default();
+        };
+        let Ok(focused) = automation.GetFocusedElement() else {
+            return Focus::default();
+        };
         let control = focused.CurrentControlType().ok().map(|c| c.0);
         let writable = focused
             .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
             .and_then(|value| value.CurrentIsReadOnly())
             .ok()
             .map(|read_only| !read_only.as_bool());
-        let text = focused.GetCurrentPattern(UIA_TextPatternId).is_ok();
-        crate::focus::uia(control, writable, text)
+        let pattern = focused.GetCurrentPattern(UIA_TextPatternId).ok();
+        let secure = focused.CurrentIsPassword().map(|yes| yes.as_bool()).unwrap_or(false);
+        let before = match &pattern {
+            Some(pattern) if !secure => text_before_caret(pattern),
+            _ => None,
+        };
+        Focus { editable: crate::focus::uia(control, writable, pattern.is_some()), secure, before }
     }
 }
 

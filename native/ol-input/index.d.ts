@@ -212,8 +212,9 @@ export function selectedText(): string | null;
  *  API (AX, UI Automation, AT-SPI on X11): "" for none, null where it cannot
  *  be read that way. Never copies, and never reads Linux's PRIMARY. */
 export function accessibleSelection(): Promise<string | null>;
-/** Whether the focused element takes typed text. Null when the platform or the app will not say. */
-export function focusEditable(): Promise<boolean | null>;
+/** The focused element. `editable` is absent when the platform or the app will not say. `secure` is a password field (macOS: also any unreadable element while Secure Event Input is on), whose text is never read. `before` is up to 320 characters before the caret, absent where it cannot be read. */
+export interface FocusInfo { editable?: boolean; secure: boolean; before?: string }
+export function focusEditable(): Promise<FocusInfo>;
 /** Lets the process `pid` raise a window, which Windows only allows the process in front. False elsewhere, and when refused. */
 export function allowSetForegroundWindow(pid: number): boolean;
 /** macOS: a click on the window with this native handle never activates OpenLive. False elsewhere, and when it cannot be done. */
