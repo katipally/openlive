@@ -16,6 +16,10 @@ Releases before 0.1.9 predate this file — see the
   `dictate_session` gains `empty`, `cancelled`, and `latency_ms_p50` and `latency_ms_p90`
   (speech end to the first character in, to 50 ms). `dictate_failure` gains
   `secure_field` and `mic_silent`. Counts and times only, never text.
+- **Dictate says when to speak.** In push to talk the orb stays on Getting ready until the
+  microphone really gives sound, then plays a soft tone, and a lower one when you let go.
+  A mic that stays silent (300 ms built-in, 2.5 s Bluetooth, 1 s otherwise) ends the hold with
+  a note. Nothing said before the tone is lost. Turn the tones off in Settings > Dictate > Sounds.
 - **Flow and Dictate each have their own microphone, and Flow its own speaker.**
   Settings > Flow has Microphone and Speaker, and Settings > Dictate has Microphone.
   Each starts on the system default, follows devices plugged in or out, and goes back
