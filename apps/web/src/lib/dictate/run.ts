@@ -194,8 +194,8 @@ export function createDictate(ports: DictatePorts) {
   // never lets the next one land first.
   let work: Promise<unknown> = Promise.resolve();
   // This session's numbers, for its report; null before one opened.
-  let tally: (Omit<DictateReport, "ms" | "ended"> & { at: number }) | null = null;
-  const count = (k: Exclude<keyof Omit<DictateReport, "ms" | "ended">, "latency">, n = 1) => { if (tally) tally[k] += n; };
+  let tally: (Omit<DictateReport, "ms" | "ended" | "latency"> & { at: number }) | null = null;
+  const count = (k: keyof Omit<DictateReport, "ms" | "ended" | "latency">, n = 1) => { if (tally) tally[k] += n; };
   // Speech end to first character in, per dictation, bounded.
   let samples: number[] = [];
   // When the utterance now being typed ended; null once its first character is in.

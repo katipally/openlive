@@ -23,11 +23,11 @@ describe("telemetry schema contents", () => {
     expect(Object.keys(facts).sort()).toEqual(["agent_call", "agent_flow", "call_renderer", "flow_owner"]);
   });
 
-  it("lists 43 web onboarding steps (seven tours) and the main and agent steps", () => {
+  it("lists 44 web onboarding steps (seven tours) and the main and agent steps", () => {
     const steps = events.onboarding_step!.props.step!.values!;
     expect(steps.filter((s) => s.startsWith("tour_closed_"))).toHaveLength(7);
-    expect(steps).toHaveLength(52);
-    expect(new Set(steps).size).toBe(52);
+    expect(steps).toHaveLength(53);
+    expect(new Set(steps).size).toBe(53);
     for (const s of ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "flow_consent_granted", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "first_lobby_open"]) {
       expect(steps).toContain(s);
     }
