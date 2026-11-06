@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use crate::capture::{Bitmap, Display};
 use crate::control::Button;
 use crate::coords::{ScreenPoint, Shot};
+use crate::focus::Focus;
 use crate::ocr::ShotBox;
 use crate::platform::linux::{is_wayland, which};
 use crate::window::WindowInfo;
@@ -349,9 +350,12 @@ pub fn selected_text() -> Option<String> {
 }
 
 /// Asks AT-SPI for the focused accessible of the active window, through the
-/// GObject bindings most desktops ship: one line, its role name and whether it
-/// is EDITABLE. Prints nothing where it cannot tell.
+/// GObject bindings most desktops ship: its role name and whether it is
+/// EDITABLE, then "\n=" and up to 320 characters before the caret when its
+/// Text interface says (never for a password field). Prints nothing where it
+/// cannot tell.
 const ATSPI_FOCUS: &str = r#"
+import sys
 import gi
 gi.require_version("Atspi", "2.0")
 from gi.repository import Atspi
@@ -364,7 +368,16 @@ for app in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count
             rule = Atspi.MatchRule.new(Atspi.StateSet.new([S.FOCUSED]), M, {}, M, [], M, [], M, False)
             found = win.get_collection_iface().get_matches(rule, Atspi.CollectionSortOrder.CANONICAL, 1, True)
             if found:
-                print(found[0].get_role_name() + "\t" + str(int(found[0].get_state_set().contains(S.EDITABLE))))
+                role = found[0].get_role_name()
+                sys.stdout.write(role + "\t" + str(int(found[0].get_state_set().contains(S.EDITABLE))))
+                text = found[0].get_text_iface() if role != "password text" else None
+                if text:
+                    try:
+                        at = text.get_caret_offset()
+                        if at >= 0:
+                            sys.stdout.write("\n=" + text.get_text(max(0, at - 320), at))
+                    except Exception:
+                        pass
             raise SystemExit
 "#;
 
@@ -406,10 +419,20 @@ pub fn accessible_selection() -> Option<String> {
     atspi(ATSPI_SELECTION)?.strip_prefix('=').map(str::to_owned)
 }
 
-pub fn focus_editable() -> Option<bool> {
-    let out = atspi(ATSPI_FOCUS)?;
-    let (role, editable) = out.trim().split_once('\t')?;
-    crate::focus::atspi(role, editable == "1")
+pub fn focus_read() -> Focus {
+    let Some(out) = atspi(ATSPI_FOCUS) else {
+        return Focus::default();
+    };
+    let (head, rest) = out.split_once('\n').unwrap_or((out.as_str(), ""));
+    let Some((role, editable)) = head.trim().split_once('\t') else {
+        return Focus::default();
+    };
+    let secure = crate::focus::atspi_secure(role);
+    Focus {
+        editable: crate::focus::atspi(role, editable == "1"),
+        secure,
+        before: rest.strip_prefix('=').filter(|_| !secure).map(crate::focus::tail),
+    }
 }
 
 /// What `script` prints, run by the system python3, or None when it cannot

@@ -497,11 +497,29 @@ One microphone, one engine, one orb, so the two take turns:
 - **Tray**: main reads and writes Dictate's switch through `/api/flow/config`,
   the windows' own route, then tells the owner renderer and the main window
   (`openlive:flow-settings-changed`) so the key and the screens follow.
-- **Focus**: ol-input's `focusEditable()` reads the focused element (AX role
-  and settable AXValue or AXSelectedTextRange; UIA control type, ValuePattern
-  and TextPattern; AT-SPI role and EDITABLE through python3's GObject bindings,
-  given up on after 800 ms). The verdicts are pure functions in
-  `native/ol-input/src/focus.rs`; `null` means it could not tell, and types.
+- **Focus**: ol-input's `focusEditable()` reads the focused element once per
+  utterance (AX role and settable AXValue or AXSelectedTextRange; UIA control
+  type, ValuePattern and TextPattern; AT-SPI role and EDITABLE through
+  python3's GObject bindings, given up on after 800 ms) and returns
+  `{ editable, secure, before }`. The verdicts are pure functions in
+  `native/ol-input/src/focus.rs`; an absent `editable` means it could not
+  tell, and types.
+- **Password fields**: `secure` is AXSubrole `AXSecureTextField` (macOS; with
+  Secure Event Input on, an element whose role cannot be read counts as
+  secure), UIA `IsPassword` (Windows) or the AT-SPI `password text` role
+  (Linux). A secure field's text is never read. Dictate then types nothing,
+  copies nothing, sends nothing to AI polish and writes no history row; the
+  strip says "Password field. Dictate won't type here." and the session
+  reports `dictate_failure` with `secure_field`. Insert again refuses the same way.
+- **Spacing**: `before` is up to 320 characters before the caret (AX
+  AXSelectedTextRange and AXStringForRange; UIA TextPattern; AT-SPI Text).
+  `needsSpace` (`apps/web/src/lib/dictate/spacing.ts`) gives dictated words one
+  leading space unless that text is empty, ends in whitespace (a newline
+  included) or ends in an opening bracket or quote. Where an app will not say
+  (Electron and Chromium often hide it), Dictate uses the end of what it last
+  typed, only in the same window; otherwise it follows its earlier words in
+  the session with a space, as it always did. `before` also goes to AI polish
+  as `context.before`.
 - **Close**: Dictate's `release` port drops what the engine is still hearing
   or transcribing (`VoiceEngine.discard()`) and, with Flow closed, stops the
   engine, which stops every microphone track.
