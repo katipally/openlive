@@ -25,6 +25,8 @@ Releases before 0.1.9 predate this file — see the
   `other`), never a model id or version.
 
 ### Changed
+- **Agent Client Protocol SDK 2.x.** Coding agents are driven through
+  `@agentclientprotocol/sdk` 2.4.0 (was 1.5.0). Behavior is unchanged.
 - **The current Claude lineup.** Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1
   are the built-in Anthropic models, with Opus 5.5 as the default. Haiku 5.5 replaces
   Haiku 4.5 as the recommended model for calls, and now gets the effort setting, which

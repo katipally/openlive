@@ -217,27 +217,27 @@ test("outside a turn only a request-scoped elicitation is shown, unnumbered, and
 
 /** A stub ACP agent that takes no images: it logs each prompt and answers "One. Two. Three." */
 async function stubAgent() {
-  const sdk = pathToFileURL(createRequire(import.meta.url).resolve("@agentclientprotocol/sdk")).href;
+  const sdk = pathToFileURL(createRequire(import.meta.url).resolve("@agentclientprotocol/sdk/unstable")).href;
   const log = join(dir, "prompts.jsonl");
   const stub = join(dir, "stub-agent.mjs");
   writeFileSync(stub, `
     import { appendFileSync } from "node:fs";
     import { Readable, Writable } from "node:stream";
-    import { AgentSideConnection, ndJsonStream } from ${JSON.stringify(sdk)};
+    import { agent, methods, ndJsonStream } from ${JSON.stringify(sdk)};
     const stream = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
-    new AgentSideConnection((conn) => ({
-      initialize: async () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }),
-      newSession: async () => ({ sessionId: "s1" }),
-      loadSession: async () => ({}),
-      authenticate: async () => ({}),
-      cancel: async () => {},
-      prompt: async (p) => {
+    agent()
+      .onRequest(methods.agent.initialize, () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }))
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s1" }))
+      .onRequest(methods.agent.session.load, () => ({}))
+      .onRequest(methods.agent.authenticate, () => ({}))
+      .onNotification(methods.agent.session.cancel, () => {})
+      .onRequest(methods.agent.session.prompt, async ({ params: p, client }) => {
         appendFileSync(${JSON.stringify(log)}, JSON.stringify(p.prompt[0].text) + "\\n");
         if (p.prompt[0].text.includes("slowly")) await new Promise((r) => setTimeout(r, 300));
-        await conn.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: "One. Two. Three." } } });
+        await client.notify(methods.client.session.update, { sessionId: p.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: "One. Two. Three." } } });
         return { stopReason: "end_turn" };
-      },
-    }), stream);
+      })
+      .connect(stream);
   `);
   await setSetting("acpCommand:codex", `${process.execPath} ${stub}`);
   const prompts = () => readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as string);
