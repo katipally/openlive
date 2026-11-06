@@ -1,3 +1,4 @@
+import { brainErrorReason } from "@openlive/shared"
 import type { ChatRequest, ProviderEvent, ProviderInfo } from "./types"
 import { streamAnthropic } from "./anthropic"
 import { streamOpenAIResponses } from "./openai-responses"
@@ -12,7 +13,9 @@ export * from "./registry"
 /** Models that refused a request carrying tools and answered the same one without, so later turns skip tools. */
 const noTools = new Set<string>()
 
-const refusedAsBadRequest = (e: unknown) => e instanceof Error && /^HTTP 400\b/.test(e.message)
+/** A 400 that tools may have caused. A context overflow or a missing model would pass or fail without tools for other reasons. */
+const refusedAsBadRequest = (e: unknown) =>
+  e instanceof Error && /^HTTP 400\b/.test(e.message) && !["context_length", "model_not_found"].includes(brainErrorReason(e))
 
 /** Dispatch a streaming chat request to the right wire adapter: Anthropic
  *  (/messages), OpenAI Responses (/responses), or OpenAI Chat (/chat/completions). */

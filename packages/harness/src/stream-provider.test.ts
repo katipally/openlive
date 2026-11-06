@@ -52,6 +52,18 @@ describe("streamProvider without tools", () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
+  it("does not retry a context overflow or a missing model, and keeps tools on for the next turn", async () => {
+    const overflow = () => new Response("the input length exceeds the context length", { status: 400 })
+    const fetch = vi.fn().mockResolvedValueOnce(overflow()).mockResolvedValueOnce(new Response("model 'm' not found", { status: 400 })).mockImplementation(async () => ok())
+    vi.stubGlobal("fetch", fetch)
+    const p = provider("retry-e", "openai-chat")
+    await expect(run(p, req("m"))).rejects.toThrow(/context length/)
+    await expect(run(p, req("m"))).rejects.toThrow(/not found/)
+    expect(toolsSent(fetch)).toEqual([1, 1])
+    await run(p, req("m"))
+    expect(toolsSent(fetch)).toEqual([1, 1, 1])
+  })
+
   it("covers the Responses protocol too", async () => {
     const done = () => new Response('data: {"type":"response.completed","response":{}}\n\n', { status: 200 })
     const fetch = vi.fn().mockResolvedValueOnce(refuse()).mockImplementation(async () => done())
