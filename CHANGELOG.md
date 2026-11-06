@@ -6,6 +6,8 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-06
+
 ### Added
 - **Dictate's first run is easier to leave and to come back to, and telemetry says where
   people stop.** Both cards have a Later button that puts setup off with no question
