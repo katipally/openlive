@@ -20,10 +20,14 @@ export interface FlowHealth {
   hookError: string | null;
   /** Why the ol-input addon did not load at all, when it did not. */
   addonError: string | null;
+  /** Linux only: what reading /dev/input showed before the listener was armed. */
+  inputAccess?: InputAccess | null;
   /** An installed app rather than a dev checkout: decides how the addon is fixed. */
   packaged: boolean;
   /** A provider with a usable key resolved. */
   brainReady: boolean;
+  /** The name of a coding agent that is installed and signed in, when Flow could switch to it. */
+  readyAgent?: string | null;
   online: boolean;
   /** The on-device voice weights are already downloaded. */
   modelsCached: boolean;
@@ -32,6 +36,21 @@ export interface FlowHealth {
   /** Its size from the hub's listing; null when that could not be read. */
   downloadBytes: number | null;
 }
+
+/** What main read from /dev/input on Linux (apps/desktop/linux-input.cjs). */
+export type InputAccess = "ok" | "not_in_group" | "needs_relogin" | "no_devices" | "sandboxed" | "other";
+
+export const INPUT_GROUP_COMMAND = "sudo usermod -aG input $USER";
+
+const INPUT_FIXES: Partial<Record<InputAccess, { title: string; detail: string; command?: string }>> = {
+  not_in_group: { title: "Flow can't read your keyboard", detail: "Linux keeps keyboards behind the input group. Add yourself to it, then sign out and back in.", command: INPUT_GROUP_COMMAND },
+  needs_relogin: { title: "Sign out and back in", detail: "You're in the input group, but this login session started before that. Sign out and back in, then check again." },
+  no_devices: { title: "No keyboard found", detail: "OpenLive sees no keyboard under /dev/input. Check that one is connected and that /dev/input is available to this session." },
+  sandboxed: { title: "A sandbox is hiding the keyboard", detail: "Flatpak and Snap keep apps away from /dev/input. Run the OpenLive AppImage outside a sandbox." },
+};
+
+/** The words and the one command for a Linux key listener that cannot read the keyboard. Null when the cause is unknown. */
+export const inputFix = (a: InputAccess | null | undefined) => (a ? INPUT_FIXES[a] ?? null : null);
 
 const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes the input group: run `sudo usermod -aG input $USER`, sign out and back in, then try again.";
 
@@ -43,6 +62,8 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
   if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged, "flow"), actionLabel: "Try again" };
   if (h.hookError) {
     // Linux reads keys from /dev/input on X11 and Wayland alike, which takes the input group.
+    const fix = h.platform === "linux" ? inputFix(h.inputAccess) : null;
+    if (fix) return { code: "hook_failed", title: fix.title, detail: fix.command ? `${fix.detail} Run \`${fix.command}\`.` : fix.detail, actionLabel: "Try again" };
     const detail = h.platform === "linux" ? `${h.hookError.replace(/[.!?]?$/, ".")} ${LINUX_INPUT_FIX}` : h.hookError;
     return { code: "hook_failed", title: "Flow's key listener stopped", detail, actionLabel: "Try again" };
   }
@@ -51,7 +72,7 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       code: "no_accessibility",
       title: "Flow hears you, but can't type for you",
       detail: `${h.platform === "darwin" ? "macOS hasn't given OpenLive Accessibility access" : "Your system hasn't given OpenLive input access"}, so nothing can be typed. Your words are still here.`,
-      actionLabel: "Open settings",
+      actionLabel: h.platform === "darwin" ? "Allow Accessibility" : "Allow input access",
     };
   }
   if (h.secureInput) {
@@ -66,8 +87,9 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       code: "no_provider",
       title: "Nothing is set to answer yet",
       detail: "Flow needs your API key, or a coding agent to answer. Nothing was sent anywhere.",
-      actionLabel: "Choose one",
-      settings: "flow",
+      actionLabel: h.readyAgent ? `Use ${h.readyAgent}` : "Add an API key",
+      fix: h.readyAgent ? "use_agent" : "add_key",
+      alts: [...(h.readyAgent ? [{ id: "add_key" as const, label: "Add an API key" }] : []), { id: "pick_brain", label: "Pick a brain" }],
     };
   }
   if (!h.online) {

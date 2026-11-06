@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addonProblem, deriveFailure, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
+import { addonProblem, deriveFailure, inputFix, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
@@ -62,6 +62,22 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
   });
 
+  it("says the exact fix for what /dev/input showed, and keeps the generic one when it is unknown", () => {
+    const stopped = { ...HEALTHY, platform: "linux", hookError: "permission denied" };
+    const missing = deriveFailure({ ...stopped, inputAccess: "not_in_group" });
+    expect(missing?.title).toBe("Flow can't read your keyboard");
+    expect(missing?.detail).toContain("`sudo usermod -aG input $USER`");
+    const relogin = deriveFailure({ ...stopped, inputAccess: "needs_relogin" });
+    expect(relogin?.detail).toMatch(/Sign out and back in/);
+    expect(relogin?.detail).not.toContain("usermod");
+    expect(deriveFailure({ ...stopped, inputAccess: "no_devices" })?.detail).toContain("/dev/input");
+    expect(deriveFailure({ ...stopped, inputAccess: "sandboxed" })?.detail).toContain("AppImage");
+    expect(deriveFailure({ ...stopped, inputAccess: "other" })?.detail).toContain("input group");
+    expect(deriveFailure({ ...stopped, platform: "win32", inputAccess: "not_in_group" })?.detail).toBe("permission denied");
+    expect(inputFix("ok")).toBeNull();
+    expect(inputFix(null)).toBeNull();
+  });
+
   it("asks before the download, naming what it fetches, how big and where it is kept", () => {
     const missing = { ...HEALTHY, modelsCached: false, downloadBytes: 212_400_000 };
     const offer = deriveFailure(missing);
@@ -100,7 +116,6 @@ describe("turnFailure", () => {
   });
 
   it("opens the settings page the card's own words name", () => {
-    expect(deriveFailure({ ...HEALTHY, brainReady: false })?.settings).toBe("flow");
     const key = turnFailure("No API key for OpenAI. Add one in Settings > Models.");
     expect(key.detail).toContain("Settings > Models");
     expect(key.settings).toBe("models");
@@ -224,5 +239,23 @@ describe("forOrb", () => {
   it("never shows it on Dictate's orb with Flow closed, during the session or as it goes", () => {
     expect(forOrb(dictating, false)).toEqual({ ...dictating, failure: null });
     expect(forOrb({ ...dictating, dictate: null }, false).failure).toBeNull();
+  });
+});
+
+describe("the no brain card", () => {
+  const none = { ...HEALTHY, brainReady: false };
+  it("offers the signed-in agent first, then a key, then the picker", () => {
+    const f = deriveFailure({ ...none, readyAgent: "Claude Code" });
+    expect(f).toMatchObject({ code: "no_provider", actionLabel: "Use Claude Code", fix: "use_agent" });
+    expect(f?.alts?.map((a) => a.id)).toEqual(["add_key", "pick_brain"]);
+  });
+  it("leads with a key when no agent is ready", () => {
+    const f = deriveFailure(none);
+    expect(f).toMatchObject({ actionLabel: "Add an API key", fix: "add_key" });
+    expect(f?.alts?.map((a) => a.id)).toEqual(["pick_brain"]);
+  });
+  it("names the permission to allow for the platform", () => {
+    expect(deriveFailure({ ...HEALTHY, accessibility: false })?.actionLabel).toBe("Allow Accessibility");
+    expect(deriveFailure({ ...HEALTHY, platform: "linux", accessibility: false })?.actionLabel).toBe("Allow input access");
   });
 });

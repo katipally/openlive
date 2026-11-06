@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { spawn } from "node:child_process";
 import { widenedPath } from "@openlive/shared/node";
 import type { TelemetryEventProps } from "@openlive/shared";
-import { actionCommand, agentById, type Action } from "../agents";
+import { actionCommand, agentById, installHint, type Action } from "../agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,11 +48,12 @@ export async function POST(req: Request) {
   const child = spawn(spec.cmd, spec.args, { shell: useShell, env: { ...process.env, PATH: widenedPath() } });
   const enc = new TextEncoder();
   let sawEacces = false;
+  let output = "";
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let done = false;
       const push = (s: string) => { try { controller.enqueue(enc.encode(s)); } catch { /* closed */ } };
-      const watch = (s: string) => { if (/EACCES|EPERM|permission denied/i.test(s)) sawEacces = true; return s; };
+      const watch = (s: string) => { output += s; if (/EACCES|EPERM|permission denied/i.test(s)) sawEacces = true; return s; };
       const finish = (result: Result) => {
         if (done) return;
         done = true;
@@ -71,6 +72,8 @@ export async function POST(req: Request) {
         const eacces = spec.cmd === "npm" && code !== 0 && sawEacces;
         if (eacces) push(NPM_EACCES_HELP);
         if (spec.terminal && code !== 0) push(terminalHelp(spec.display));
+        const hint = code !== 0 && !spec.terminal && !eacces ? installHint(output, process.platform === "win32") : null;
+        if (hint) push(hint);
         push(
           spec.terminal && code === 0
             ? "\n✓ Continues in the terminal window that opened. Finish there; the status updates by itself.\n"

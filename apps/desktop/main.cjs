@@ -21,8 +21,12 @@ const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
 const { trayTemplate, orbOwner } = require("./tray-menu.cjs");
 const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
+const { classifyPrevExit } = require("./prev-exit.cjs");
+const { nextRestartDelay } = require("./service-restart.cjs");
+const { ignoreGpuBlocklist } = require("./gpu-flags.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
+const { updatesOffReason } = require("./update-gate.cjs");
 const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
@@ -43,10 +47,10 @@ process.on("unhandledRejection", (e) => { console.error("[main] unhandled reject
 // The on-device voice models (Whisper STT, Kokoro TTS) run on WebGPU. If it's
 // unavailable the app falls back to CPU/WASM, which is several times slower and
 // makes the conversation feel laggy. Expose WebGPU + don't let a blocklisted GPU
-// silently drop us to software. Must be set before app is ready.
+// silently drop us to software (see gpu-flags.cjs for when that is not safe). Must be set
+// before app is ready.
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
 app.commandLine.appendSwitch("enable-features", "WebGPU");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
 
 const DEV = process.env.ELECTRON_DEV === "1";
 // Dev ports match `pnpm desktop:dev`, apart from the installed app's. In prod the
@@ -101,6 +105,12 @@ const PATHS = home.layout(HOME);
 if (app.isPackaged) home.migrateHome(HOME, { from: path.join(app.getPath("userData"), "data"), userData: app.getPath("userData") });
 home.privateDir(PATHS.state);
 const stateFile = (name) => path.join(PATHS.state, name);
+
+const gpuStateFile = () => stateFile("gpu-state.json");
+let gpuState = null;
+try { gpuState = JSON.parse(fs.readFileSync(gpuStateFile(), "utf8")); } catch { /* no GPU crash recorded */ }
+const gpuBlocklistKept = !ignoreGpuBlocklist({ platform: process.platform, state: gpuState, version: app.getVersion() });
+if (!gpuBlocklistKept) app.commandLine.appendSwitch("ignore-gpu-blocklist");
 
 const telemetry = createTelemetry({
   stateDir: PATHS.state,
@@ -215,15 +225,18 @@ function portFree(port) {
 // if this process was force-killed (Windows especially: children outlive the parent).
 const pidFile = () => stateFile("server-pids.json");
 function recordServerPids() {
+  if (sessionEnded) return; // the session's end emptied the file; a child exiting with it must not refill it
   try { fs.writeFileSync(pidFile(), JSON.stringify(children.map((c) => c.pid).filter(Boolean))); } catch { /* best-effort */ }
 }
-/** True when the last run left pids behind: it did not get to shut down cleanly. */
+/** How the last run ended (see prev-exit.cjs), reaping what it left running. */
 function reapRecordedPids() {
-  let pids = [];
-  try { pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return false; }
-  for (const pid of pids) if (alive(pid)) { console.error(`[main] reaping stale server pid ${pid}`); killTree(pid, "SIGKILL"); }
+  let pids = [], writtenAtMs = 0;
+  try { writtenAtMs = fs.statSync(pidFile()).mtimeMs; pids = JSON.parse(fs.readFileSync(pidFile(), "utf8")); } catch { return "clean"; }
+  const prevExit = classifyPrevExit({ pids, alive, writtenAtMs, bootAtMs: Date.now() - os.uptime() * 1000 });
+  // After a restart the pids can belong to unrelated programs: never kill those.
+  if (prevExit === "killed") for (const pid of pids) if (alive(pid)) { console.error(`[main] reaping stale server pid ${pid}`); killTree(pid, "SIGKILL"); }
   try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
-  return pids.length > 0;
+  return prevExit;
 }
 
 // Make both ports bindable before we spawn, or explain why we can't. Reap our own
@@ -231,9 +244,10 @@ function reapRecordedPids() {
 // ours. A foreign app on the agent's port just moves the agent; on the web port it
 // gets ONE clear message (respawning can't fix that; issue #6's "web service keeps
 // crashing" loop was exactly this case).
-let uncleanPrevExit = false;
+let prevExit = "clean";
 async function ensurePortsFree() {
-  uncleanPrevExit = reapRecordedPids();
+  prevExit = reapRecordedPids();
+  if (prevExit !== "clean") console.error(`[main] previous exit: ${prevExit}`);
   for (const port of [AGENT_PORT, WEB_PORT]) {
     const h = portHolder(port);
     if (h && h.ours) { console.error(`[main] killing stale ${h.name} (pid ${h.pid}) on port ${port}`); killTree(h.pid, "SIGKILL"); }
@@ -265,7 +279,7 @@ async function ensurePortsFree() {
 // that sets its title (Next's server does) registers as a second foreground app
 // with its own Dock tile, while the Helper these run under is LSUIElement. They
 // also die with this process.
-const restarts = {}; // name → { count, first }
+const restarts = {}; // name → { count } (service-restart.cjs)
 const serviceLabel = (name) => `${app.getName()} ${name}`;
 const OWN_SERVICES = new Set(["agent", "web"].map(serviceLabel));
 // Windows lets only the process in front raise a window, and that is this one
@@ -323,15 +337,24 @@ function spawnServer(name, scriptRel, env) {
       dialog.showErrorBox("OpenLive can't start", `Port ${port} is being used by another program${h.name ? ` (${h.name})` : ""}. Close it and relaunch OpenLive.`);
       return;
     }
-    const r = (restarts[name] ||= { count: 0, first: Date.now() });
-    if (Date.now() - r.first > 60000) { r.count = 0; r.first = Date.now(); } // reset the window
-    if (++r.count > 5) {
+    const r = (restarts[name] ||= { count: 0 });
+    const delay = nextRestartDelay(r, Date.now() - spawnedAt);
+    if (delay === null) {
       crashed("gave_up", r.count);
-      dialog.showErrorBox("OpenLive stopped", `The ${name} service keeps crashing. Relaunch the app; if it keeps happening, check that nothing else is using ports ${AGENT_PORT} and ${WEB_PORT}, and please attach any console output to a GitHub issue.`);
+      void dialog.showMessageBox(mainWin ?? undefined, {
+        type: "error", buttons: ["Retry", "Quit OpenLive"], defaultId: 0, cancelId: 1,
+        message: "OpenLive stopped",
+        detail: `The ${name} service keeps crashing. Retry starts it again. If it keeps happening, check that nothing else is using ports ${AGENT_PORT} and ${WEB_PORT}, and attach any console output to a GitHub issue.`,
+      }).then(({ response }) => {
+        if (app.isQuitting) return;
+        if (response !== 0) return quitApp("other");
+        r.count = 0;
+        spawnServer(name, scriptRel, env);
+      });
       return;
     }
     crashed("respawning", r.count);
-    setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, 500);
+    setTimeout(() => { if (!app.isQuitting) spawnServer(name, scriptRel, env); }, delay);
   });
   children.push(child);
   return child;
@@ -643,7 +666,6 @@ function createMainWindow() {
     refreshTray();
     // DevTools available via View menu / Cmd+Opt+I — not auto-opened (it covered the UI).
   });
-  mainWin.on("session-end", onSessionEnd);
   // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
   // has to re-read this (its "Open OpenLive" is now the only way back).
   // Flow is ambient: it belongs to the machine, not to this window. Closing or
@@ -769,7 +791,6 @@ function createOwnerWindow() {
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
   // Loaded means the web server answers, so Dictate's state can be read for the tray.
   ownerWin.webContents.on("did-finish-load", () => void syncFlowSettings());
-  ownerWin.on("session-end", onSessionEnd);
   ownerWin.on("closed", () => { ownerWin = null; });
   return ownerWin;
 }
@@ -878,7 +899,7 @@ async function expandFlow(to) {
   if (mainWin && !mainWin.isDestroyed()) {
     // A window created just now has no page listening yet; the ask waits for it.
     const wc = mainWin.webContents;
-    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings$/.test(to) ? to : "");
+    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings(#[a-z0-9-]+)?$/.test(to) ? to : "");
     if (wc.isLoading()) wc.once("did-finish-load", show); else show();
   }
 }
@@ -1372,6 +1393,9 @@ function wirePowerEvents() {
   // Logout / restart / shutdown (macOS, Linux) must never be held up by
   // before-quit's close-to-menu-bar. Windows skips before-quit for these anyway.
   powerMonitor.on("shutdown", onSessionEnd);
+  // Every window, not just the two that exist once boot is done: a login-item launch can be
+  // logged off while still starting.
+  app.on("browser-window-created", (_e, win) => win.on("session-end", onSessionEnd));
 }
 
 // Windows ends the session on logoff, restart and shutdown without before-quit, and gives
@@ -1456,6 +1480,9 @@ function wireCrashReports() {
   app.on("child-process-gone", (_e, details) => {
     const reason = crashReason(details?.reason);
     if (!reason || app.isQuitting || OWN_SERVICES.has(details.name) || OWN_SERVICES.has(details.serviceName)) return;
+    if (details.type === "GPU") {
+      try { writeAtomic(fs, gpuStateFile(), JSON.stringify({ crashedIn: app.getVersion() })); } catch { /* best-effort */ }
+    }
     telemetry.track("crash_detected", { source: childSource(details.type), reason, target: "none", exit_code: exitCode(details.exitCode) });
   });
 }
@@ -1546,12 +1573,17 @@ function buildMenu() {
 // electron-builder.yml). A newer version auto-downloads, then prompts to restart;
 // "Later" still installs on the next quit. NOTE: macOS auto-update requires the
 // app to be SIGNED — set the Apple secrets in the release workflow, or updates
-// silently no-op on Mac even though the release is published fine.
+// silently no-op on Mac even though the release is published fine. Only builds the
+// release workflow marked (release-build.json) update: a local build would download the
+// release into the installed app's caches, then fail the signature check. OPENLIVE_NO_UPDATES=1 turns it off too.
 let updater = null;         // the electron-updater singleton, once initialised
 let manualCheck = false;    // a menu-driven check reports "up to date" out loud
+let updatesOff = null;      // why the updater did not start in a packaged app, for the menu check
 
 function initAutoUpdate() {
   if (DEV || !app.isPackaged) return;
+  updatesOff = updatesOffReason({ env: process.env, releaseBuild: fs.existsSync(path.join(__dirname, "release-build.json")) });
+  if (updatesOff) { console.log("[updater] off:", updatesOff); return; }
   try { ({ autoUpdater: updater } = require("electron-updater")); } catch { return; }
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true; // if they pick "Later", install on next quit
@@ -1600,7 +1632,7 @@ function initAutoUpdate() {
 
 // Menu-driven "Check for Updates…" — reports the result (up to date / downloading).
 function checkForUpdatesNow() {
-  if (!updater) { if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: "Updates aren't available in this build", detail: "Auto-update runs only in the installed (packaged) app." }); return; }
+  if (!updater) { if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: updatesOff ? "Updates are off for this build" : "Updates aren't available in this build", detail: updatesOff || "Auto-update runs only in the installed (packaged) app." }); return; }
   manualCheck = true;
   updater.checkForUpdates().catch((e) => console.error("[updater] manual check:", e?.message || e));
 }
@@ -1612,7 +1644,9 @@ function reportLaunch(launchKind, bootResult, startedAt) {
     boot_result: bootResult,
     ...(bootResult === "ok" && { boot_ms: Date.now() - startedAt }),
     agent_port_moved: !DEV && AGENT_PORT !== AGENT_PORT_PREFERRED,
-    prev_exit_clean: !uncleanPrevExit,
+    prev_exit: prevExit,
+    prev_exit_clean: prevExit === "clean" || prevExit === "os_restart",
+    ...(gpuBlocklistKept && { gpu_blocklist_kept: true }),
     login_item: loginItem(),
     linux_session: linuxSession(process.platform, ORB_POINTER),
     look,
@@ -1666,7 +1700,7 @@ async function boot() {
   if (hidden && process.platform === "darwin") app.dock.hide();
   if (!hidden) createSplash();
   const started = await startServers();
-  if (uncleanPrevExit) telemetry.track("crash_detected", { source: "main_previous_run", reason: "unclean_exit", target: "none" });
+  if (prevExit === "killed" || prevExit === "unknown") telemetry.track("crash_detected", { source: "main_previous_run", reason: "unclean_exit", target: "none" });
   if (!started) { reportLaunch(launchKind, "ports_blocked", startedAt); quitApp("boot_failed"); return; } // ensurePortsFree already explained why
   const ok = await waitForServers();
   if (!ok) {

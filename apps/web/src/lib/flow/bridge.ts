@@ -1,4 +1,5 @@
 import type { FlowCloseReason, FlowContextWire, TelemetryEventProps } from "@openlive/shared";
+import type { InputAccess } from "./failure";
 import type { QuietSignals } from "./quiet";
 import type { FlowSettingsPage } from "./types";
 
@@ -45,6 +46,8 @@ export interface FlowCapabilities {
   permissions: FlowPermissions | null;
   secureInput: SecureInputStatus | null;
   hookError: string | null;
+  /** Linux only: what /dev/input allowed, read once per session. Null elsewhere. */
+  inputAccess: InputAccess | null;
   /** Why the ol-input addon could not be loaded at all (not built, or will not
    *  load). Set instead of `hookError`: there is no hook to have stopped. */
   addonError: string | null;
@@ -109,6 +112,8 @@ export interface FlowBridge {
   context(): Promise<Guarded<FlowContextWire>>;
   signals(): Promise<Guarded<QuietSignals>>;
   capabilities(): Promise<Guarded<FlowCapabilities>>;
+  /** Linux: reads /dev/input anew and starts the key listener when it opens. Absent on a build from before it. */
+  recheckInput?(): Promise<Guarded<InputAccess | null>>;
   /** One perception or control call into the addon, named by `fn`. */
   device(fn: string, args: unknown): Promise<Guarded<unknown>>;
   warmOcr(): Promise<Guarded<void>>;
@@ -132,7 +137,7 @@ export interface FlowBridge {
   visible?(): Promise<boolean>;
   /** Bring the OpenLive window up on Flow, from the orb's full-screen control,
    *  or on the settings page where a failure's fix lives. */
-  expand(to?: `${FlowSettingsPage}-settings`): void;
+  expand(to?: `${FlowSettingsPage}-settings` | `${FlowSettingsPage}-settings#${string}`): void;
   /** The main window's side of `expand`: show Flow, because that is where the
    *  person already was. */
   onShow?(cb: (to: string) => void): () => void;

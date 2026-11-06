@@ -311,6 +311,12 @@ export function FlowOrb() {
                     {ask.failure.actionLabel}
                   </button>
                 )}
+                {ask.failure.alts?.map((a) => (
+                  <button key={a.id} onClick={() => cmd({ t: "flowFix", code: ask.failure!.code, fix: a.id })}
+                    className={cn(PILL_BTN, "border border-border bg-card text-foreground hover:bg-foreground/10")}>
+                    {a.label}
+                  </button>
+                ))}
                 <button onClick={() => cmd({ t: "flowCancel" })}
                   className={cn(PILL_BTN, "border border-border bg-card text-foreground hover:bg-foreground/10")}>
                   {dictating || ask.failure.dictate ? "Close Dictate" : "Close Flow"}

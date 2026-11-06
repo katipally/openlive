@@ -7,6 +7,11 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Telemetry says where Welcome and Flow sessions stop.** `onboarding_step` gains
+  `welcome_step_2`, `welcome_step_3` and `welcome_step_4`, the first time each Welcome
+  step is reached. `flow_session` gains `speech_starts` (how often the microphone heard
+  you begin to speak) and a `models_missing` value for `ready`, so a Flow open that
+  could not listen for want of the voice models is no longer blank.
 - **Flow and Dictate can hear with their own speech engine, and Flow can speak with
   its own voice.** Settings > Flow has Hearing and voice, and Settings > Dictate has
   Hearing, each set to Same as Chat or Its own, with the same engine, model and Whisper
@@ -23,8 +28,22 @@ Releases before 0.1.9 predate this file — see the
 - **Which model family answered.** Flow and call summaries carry `brain_model`, a
   fixed family (`haiku`, `sonnet`, `opus`, `fable`, `gpt` and a few more, else
   `other`), never a model id or version.
+- **Flow offers its voice models during setup.** Flow's first run and its home now show
+  what the voice models are, how big, and where they are kept, with a Download button
+  and progress that carries on if you leave the screen. The home chip reads Needs voice
+  models until they are in. Flow's own speech engine is what is checked, and nothing
+  is offered when a native engine needs no browser weights. The card on the orb stays
+  as the fallback.
+- **One step out of "nothing is set to answer".** Flow's orb card and home now offer
+  Use <coding agent> when one is installed and signed in, Add an API key (opens the key
+  field), and Pick a brain. Switching to the agent re-checks at once, so Flow can be
+  summoned straight away.
 
 ### Changed
+- **Agent Client Protocol SDK 2.x.** Coding agents are driven through
+  `@agentclientprotocol/sdk` 2.4.0 (was 1.5.0). Behavior is unchanged.
+- **Allowing Accessibility from the orb asks the system.** The card's button now makes the
+  permission request and re-checks, instead of only restarting the key listener.
 - **The current Claude lineup.** Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1
   are the built-in Anthropic models, with Opus 5.5 as the default. Haiku 5.5 replaces
   Haiku 4.5 as the recommended model for calls, and now gets the effort setting, which
@@ -34,6 +53,49 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **Chat's voice chip follows the speech engine.** Changing the engine, model or language
+  in Settings now updates "Download voice models" or "Ready" on Chat's home at once, not
+  after a reload.
+- **An unclean last exit leaves a line in the log.** A start after a crash, a force quit
+  or a restart notes `previous exit:` with how it ended, and nothing else.
+- **A local build no longer updates itself.** It downloaded the latest release into the
+  installed app's update caches, failed the signature check, and showed "OpenLive x is
+  ready" on every launch. Only builds the release workflow marks run the updater now, and
+  `OPENLIVE_NO_UPDATES=1` turns it off for any build. Check for Updates says updates are
+  off for this build.
+- **The lobby fixes what blocks Start right where it blocks.** With no project folder,
+  or one that no longer exists, a Pick a folder button opens the folder picker in place.
+  With no API key, the key field is in the lobby, and a coding agent that is already
+  signed in is offered instead.
+- **Installing Cursor on Windows works.** The script it ran was the bash one, which
+  PowerShell cannot run; it now fetches Cursor's Windows installer. A failed install
+  names a missing administrator right (Kiro) or a missing npm (Codex), and after two
+  failures in a row the card hands over the command to run in a terminal.
+- **A restart, logoff or shutdown of the computer is no longer counted as a crash.**
+  The next launch took any leftover server pid for a crash, which flagged 35% of
+  installs, mostly Windows. It now tells a restart of the computer (`os_restart`) from
+  a force quit (`killed`) and a run that left no trace (`unknown`), a logoff mid-start
+  ends the session cleanly, and pids from before a restart are never killed.
+  `app_launch` gains `prev_exit`; `prev_exit_clean` stays and counts a restart as clean.
+- **Windows graphics driver crashes no longer repeat.** OpenLive overrode Chromium's GPU
+  blocklist on every launch, which forced drivers it distrusts. After a GPU process crash
+  on Windows it keeps the blocklist for that version, and voice models run on the CPU
+  there. `app_launch` gains `gpu_blocklist_kept`.
+- **A crashing local server no longer leaves a dead app.** The restart budget was five
+  tries in three seconds. It now backs off over about 30 seconds, starts over once a
+  server has run for a minute, and when it does give up it asks Retry or Quit.
+- **Permission prompts now report whether they were granted.** `os_permission_request`
+  read the status the moment the system prompt appeared, so `granted_now` was almost
+  always false (no microphone prompt on macOS ever recorded true). It now waits for the
+  outcome, up to two minutes. Permission data from earlier releases under-reports grants.
+- **Flow's key listener on Linux says exactly why it cannot start, and how to fix it.**
+  Before arming, OpenLive now checks whether it can open `/dev/input` and tells
+  apart a user outside the `input` group, a group added but not yet signed back in,
+  no keyboard devices, and a Flatpak or Snap sandbox. Flow's setup, Flow's home and
+  Dictate's home show the one fix (with a copy button for
+  `sudo usermod -aG input $USER`) and a Check again that starts the listener on
+  success. `onboarding_step` gains `hook_reason` on `flow_hook_failed`: `not_in_group`,
+  `needs_relogin`, `no_devices`, `sandboxed` or `other`.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is

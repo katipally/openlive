@@ -157,7 +157,9 @@ Limit: at most 1 per launch.
 | `boot_result` | `ok`, `ports_blocked` when another program held a port OpenLive needs, or `servers_timeout` when its local servers did not come up in time. | `ok`, `ports_blocked`, `servers_timeout` | always |
 | `boot_ms` | Time from the app starting until both local servers answered, to 100 ms. Only sent after a good start. | whole number, 0 to 600000, rounded to 100 | sometimes |
 | `agent_port_moved` | True when the local agent server had to use a different port than usual. | true or false | sometimes |
-| `prev_exit_clean` | False when the previous run did not exit cleanly. | true or false | sometimes |
+| `prev_exit` | How the previous run ended: `clean`, `os_restart` (the computer restarted, shut down or lost power), `killed` (OpenLive was ended while its servers kept running), or `unknown` (it left no trace of a normal quit). | `clean`, `os_restart`, `killed`, `unknown` | sometimes |
+| `prev_exit_clean` | False when the previous run ended as `killed` or `unknown`. A restart of the computer counts as clean. | true or false | sometimes |
+| `gpu_blocklist_kept` | True when OpenLive kept Chromium's graphics blocklist because the graphics process crashed on this version. Only sent when true; voice models then run on the CPU. | true or false | sometimes |
 | `login_item` | Whether OpenLive is set to open at login. | true or false | sometimes |
 | `linux_session` | The display server on Linux. `n/a` on other systems. | `x11`, `wayland`, `n/a` | sometimes |
 | `look` | The window look in use. | `glass`, `flat` | sometimes |
@@ -237,7 +239,7 @@ Limit: none.
 | `duration_s` | How long the orb was open, in seconds. | whole number, 0 to 86400 | always |
 | `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (Close after silence ran out), `disarmed` (Flow was switched off on its home), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `dictate_opened` (Dictate was opened over it), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `dictate_opened`, `quit`, `other` | always |
 | `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (Start Flow in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
-| `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `mic_failed` | sometimes |
+| `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), `models_missing` (the voice models are not downloaded yet), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `models_missing`, `mic_failed` | sometimes |
 | `ready_ms` | Time from the open gesture until the microphone was ready, to 10 ms. | whole number, 0 to 600000, rounded to 10 | sometimes |
 | `turns` | Finished turns: Flow heard you, worked and answered. | whole number, 0 to 999 | always |
 | `acted` | True when Flow acted on the computer: typed, pressed keys, moved the pointer or clicked, moved a window, opened an app or link, or ran a shell command. Worked out from the tool counts below, so it is always sent. | true or false | always |
@@ -246,6 +248,7 @@ Limit: none.
 | `steered` | Times you spoke while Flow was still working, and it folded the new sentence into the same turn. | whole number, 0 to 999 | sometimes |
 | `quiet_turns` | Turns answered as text on screen instead of aloud, because Flow chose to stay quiet. | whole number, 0 to 999 | sometimes |
 | `stops` | Times you pressed Stop. | whole number, 0 to 999 | sometimes |
+| `speech_starts` | Times the microphone heard you start to speak, whether or not Flow went on to answer. | whole number, 0 to 999 | sometimes |
 | `barge_ins` | Times you spoke over Flow's voice to interrupt it. | whole number, 0 to 999 | sometimes |
 | `top_quiet_reason` | Why Flow stayed quiet most often: a meeting or call, another app using the microphone, Do Not Disturb, a muted output, or the Speak replies setting being off. `none` when no turn was quiet. | `none`, `meeting`, `mic_busy`, `dnd`, `output_muted`, `off` | sometimes |
 | `tool_calls` | Tool calls Flow's brain made. Each counts once, whichever brain answered. | whole number, 0 to 999 | sometimes |
@@ -413,7 +416,7 @@ Limit: the same `code` is not sent again within 10 minutes.
 
 ### `crash_detected`
 
-When one of OpenLive's windows or helper processes crashes, and on the next launch after a run that did not exit cleanly. A normal quit is not a crash. `unclean_exit` also shows up after a force quit or a power loss.
+When one of OpenLive's windows or helper processes crashes, and on the next launch after a run that did not exit cleanly. A normal quit is not a crash. `unclean_exit` shows up after a force quit or a run that left no trace; a restart or shutdown of the computer is not counted.
 
 Limit: at most 3 per launch.
 
@@ -434,8 +437,8 @@ Limit: at most 12 per launch.
 | --- | --- | --- | --- |
 | `service` | Which server. | `agent`, `web` | always |
 | `exit_code` | The exit code, or -1 when it is not known. | whole number, -1 to 999 | sometimes |
-| `respawn_n` | Which restart attempt this was within a minute. | whole number, 0 to 99 | sometimes |
-| `outcome` | `respawning` (OpenLive restarts it), `gave_up` (it crashed too often), or `port_taken_by_other` (another program now holds its port). | `respawning`, `gave_up`, `port_taken_by_other` | always |
+| `respawn_n` | Which restart attempt this was in a row, counted again once the server has run for a minute. | whole number, 0 to 99 | sometimes |
+| `outcome` | `respawning` (OpenLive restarts it), `gave_up` (it crashed six times in a row, and OpenLive asked whether to retry), or `port_taken_by_other` (another program now holds its port). | `respawning`, `gave_up`, `port_taken_by_other` | always |
 | `uptime_s` | How long the server had been running, in seconds. | whole number, 0 to 604800 | sometimes |
 
 ### `main_exception`
@@ -528,14 +531,14 @@ Limit: at most 6 per launch.
 
 ### `os_permission_request`
 
-When OpenLive asks the operating system for a permission Flow needs.
+When OpenLive asks the operating system for a permission Flow needs. Sent when the outcome is known, up to two minutes after the prompt; quitting before then sends nothing.
 
 Limit: at most 3 per day for each `permission`.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
 | `permission` | Which permission: `post_events` is sending key presses and clicks. | `accessibility`, `microphone`, `screen`, `post_events` | always |
-| `granted_now` | The answer at the moment of the prompt, not the state afterwards. On macOS the accessibility and screen answers are usually false, because the grant is not reported at once. The real state shows in [`flow_readiness_changed`](#flow_readiness_changed). | true or false | always |
+| `granted_now` | Whether the permission was granted after the prompt: sent as soon as the system reports a grant (or, for the microphone, a refusal), else as false once two minutes pass with no grant. Releases before this fix read the status at the moment of the prompt, which is almost always false on macOS, so earlier data under-reports grants. The state later on shows in [`flow_readiness_changed`](#flow_readiness_changed). | true or false | always |
 | `asked_from` | Which screen asked. | `onboarding`, `flow_settings`, `flow_home`, `other` | sometimes |
 
 ## Setup and first use events
@@ -554,6 +557,7 @@ Limit: once per install for each `step`.
 | `hours_since_first_open` | Hours since the install first ran, to 0.1. | number, 0 to 99999, rounded to 0.1 | sometimes |
 | `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside. A tour that was left shows again the next time its screen does; only `done` and `skipped` count it as seen. | `done`, `skipped`, `left` | sometimes |
 | `tour_step` | On a `tour_closed_` step: the tour step showing when it ended, counting from 1. On `welcome_done` and `welcome_skipped`: the furthest of Welcome's steps reached. | whole number, 1 to 9 | sometimes |
+| `hook_reason` | On `flow_hook_failed` only, on Linux: why the key listener could not start. `not_in_group` is a user outside the `input` group, `needs_relogin` is the group added but this login session started before it, `no_devices` is no keyboard device under `/dev/input`, `sandboxed` is Flatpak or Snap blocking it, `other` is anything else. | `not_in_group`, `needs_relogin`, `no_devices`, `sandboxed`, `other` | sometimes |
 
 ### `flow_consent_result`
 
@@ -886,6 +890,9 @@ The Values cells link here for the long lists.
 | `first_mode_switch` | You switched between Chat, Flow and Dictate for the first time. |
 | `first_shortcuts_sheet` | The keyboard shortcuts sheet was opened for the first time. |
 | `welcome_shown` | Welcome, the first run of the whole app, was shown. |
+| `welcome_step_2` | Welcome's second step, Who answers you, was reached. |
+| `welcome_step_3` | Welcome's third step, Let it hear and type, was reached. |
+| `welcome_step_4` | Welcome's last step, How you talk, was reached. |
 | `welcome_done` | Welcome was finished, with `tour_step` its furthest step. |
 | `welcome_skipped` | Welcome was skipped, with `tour_step` its furthest step. |
 | `welcome_try_chat` | Welcome's last step opened Chat. |

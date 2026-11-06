@@ -12,6 +12,7 @@ const text = (file: string) => readFileSync(file, "utf8").replace(/\r\n/g, "\n")
 const read = (rel: string) => text(join(here, rel));
 const schema = require("./telemetry/schema.json");
 const { stamp } = require("./scripts/pack-telemetry.cjs");
+const { mark } = require("./scripts/pack-release-marker.cjs");
 
 /** The entries under electron-builder.yml's top-level `files:`, comments and blank lines skipped. */
 function packagedFiles(): Set<string> {
@@ -136,8 +137,8 @@ describe("hook sites", () => {
   });
 
   it("report only onboarding steps and active-day surfaces the schema lists", () => {
-    const steps = all(/reportOnboardingStep\("([a-z_]+)"\)/g);
-    expect(steps.sort()).toEqual(["first_call", "first_device_action", "first_flow_summon", "flow_hook_failed", "flow_hook_started"]);
+    const steps = all(/reportOnboardingStep\("([a-z_]+)"[,)]/g);
+    expect(steps.sort()).toEqual(["first_call", "first_device_action", "first_flow_summon", "flow_hook_failed", "flow_hook_failed", "flow_hook_started"]);
     for (const step of steps) expect(schema.events.onboarding_step.props.step.values, step).toContain(step);
     const surfaces = all(/markActiveDay\("([a-z_]+)"\)/g);
     expect(new Set(surfaces)).toEqual(new Set(schema.events.app_active_day.props.first_surface.values));
@@ -235,5 +236,44 @@ describe("pack-telemetry", () => {
     expect(scripts["pack:telemetry"]).toContain("pack-telemetry.cjs");
     expect(scripts.pack).toContain("pack-telemetry.cjs");
     expect(text(join(here, "..", "..", ".gitignore")).split("\n")).toContain("apps/desktop/telemetry-config.json");
+  });
+});
+
+describe("pack-release-marker", () => {
+  const dirs: string[] = [];
+  const target = () => {
+    const dir = mkdtempSync(join(tmpdir(), "openlive-pack-release-"));
+    dirs.push(dir);
+    return join(dir, "release-build.json");
+  };
+  afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+  it("marks only when OPENLIVE_RELEASE_BUILD is 1", () => {
+    for (const env of [{}, { OPENLIVE_RELEASE_BUILD: "" }, { OPENLIVE_RELEASE_BUILD: "0" }, { OPENLIVE_RELEASE_BUILD: "true" }]) {
+      const file = target();
+      expect(mark(env, file)).toBe(false);
+      expect(existsSync(file)).toBe(false);
+    }
+    const file = target();
+    expect(mark({ OPENLIVE_RELEASE_BUILD: "1" }, file)).toBe(true);
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("removes a stale mark from an earlier release build", () => {
+    const file = target();
+    mark({ OPENLIVE_RELEASE_BUILD: "1" }, file);
+    expect(mark({}, file)).toBe(false);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("runs in `pack`, ships in the asar, stays out of git, and only the release workflow sets it", () => {
+    const scripts = JSON.parse(read("package.json")).scripts;
+    expect(scripts["pack:release-marker"]).toContain("pack-release-marker.cjs");
+    expect(scripts.pack).toContain("pack-release-marker.cjs");
+    expect(packagedFiles()).toContain("release-build.json");
+    expect(text(join(here, "..", "..", ".gitignore")).split("\n")).toContain("apps/desktop/release-build.json");
+    const release = text(join(here, "..", "..", ".github", "workflows", "release.yml"));
+    expect(release).toMatch(/pack:release-marker\n\s+env:\n\s+OPENLIVE_RELEASE_BUILD: "1"/);
+    expect(text(join(here, "..", "..", ".github", "workflows", "ci.yml"))).not.toContain("OPENLIVE_RELEASE_BUILD");
   });
 });

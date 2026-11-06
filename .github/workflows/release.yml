@@ -74,6 +74,13 @@ jobs:
           OPENLIVE_TELEMETRY_CLIENT_ID: ${{ vars.OPENLIVE_TELEMETRY_CLIENT_ID }}
           OPENLIVE_TELEMETRY_ORIGIN: ${{ vars.OPENLIVE_TELEMETRY_ORIGIN }}
 
+      # Only a build marked here runs the auto-updater. A local build is signed with
+      # another identity, so it could not install the update it downloads.
+      - name: Mark as a release build
+        run: pnpm --filter @openlive/desktop pack:release-marker
+        env:
+          OPENLIVE_RELEASE_BUILD: "1"
+
       # Apple's notary service is intermittently flaky (returns empty/unexpected
       # results). Retry a few times so a transient notarization blip doesn't fail
       # the whole release; electron-builder overwrites its own assets on republish.

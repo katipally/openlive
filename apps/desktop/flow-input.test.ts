@@ -4,7 +4,9 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 /** flow-input.cjs against stand-ins for electron and for the ol-input addon. */
-function load(ownField?: () => unknown, { packaged = false } = {}) {
+const track = vi.fn();
+function load(ownField?: () => unknown, { packaged = false, access = null as string | null } = {}) {
+  const seen = { access };
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const stub = (path: string, exports: unknown) => {
     require.cache[path] = { id: path, filename: path, loaded: true, children: [], paths: [], path: "", exports } as unknown as NodeJS.Module;
@@ -22,13 +24,15 @@ function load(ownField?: () => unknown, { packaged = false } = {}) {
     shell: {},
   });
   stub(require.resolve("../../native/ol-input"), addon);
+  stub(require.resolve("./linux-input.cjs"), { inputAccess: () => seen.access });
   const mod = require.resolve("./flow-input.cjs");
   delete require.cache[mod];
   const flowInput = require(mod);
   const effects: unknown[] = [];
-  flowInput.install((e: unknown) => effects.push(e), () => null, { reportOnboardingStep: vi.fn() }, ownField);
+  const telemetry = { reportOnboardingStep: vi.fn(), track };
+  flowInput.install((e: unknown) => effects.push(e), () => null, telemetry, ownField);
   const call = (name: string, ...args: unknown[]) => handlers.get(name)!({}, ...args);
-  return { flowInput, addon, call, handlers, effects };
+  return { flowInput, addon, call, handlers, effects, telemetry, seen };
 }
 
 describe("typing at cursor's settings on their way to the addon", () => {
@@ -258,5 +262,84 @@ describe("a key listener that never started", () => {
     addon.initializeHook.mockImplementation(() => { throw new Error("no input access"); });
     expect(flowInput.revive()).toBe("stopped");
     expect(flowInput.hookFailure()).toBe("no input access");
+  });
+});
+
+describe("a permission prompt's outcome", () => {
+  const events = () => track.mock.calls.map(([name, props]) => [name, props.permission, props.granted_now]);
+
+  it("counts the grant that lands after the prompt, not the status at the prompt", async () => {
+    vi.useFakeTimers();
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestMicrophone = vi.fn(() => "undetermined");
+    addon.permissionStatus.mockReturnValue({ microphone: "undetermined" });
+    await flowInput.request("microphone", "onboarding");
+    expect(track).not.toHaveBeenCalled();
+    addon.permissionStatus.mockReturnValue({ microphone: "granted" });
+    vi.advanceTimersByTime(1000);
+    expect(events()).toEqual([["os_permission_request", "microphone", true]]);
+    vi.advanceTimersByTime(200_000);
+    expect(track).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("counts a refused microphone as soon as it is, and an unanswered accessibility prompt as not granted at the window's end", async () => {
+    vi.useFakeTimers();
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestMicrophone = vi.fn(() => "undetermined");
+    addon.requestAccessibility = vi.fn(() => false);
+    addon.permissionStatus.mockReturnValue({ microphone: "undetermined", accessibility: false });
+    await flowInput.request("microphone");
+    await flowInput.request("accessibility");
+    addon.permissionStatus.mockReturnValue({ microphone: "denied", accessibility: false });
+    vi.advanceTimersByTime(1000);
+    expect(events()).toEqual([["os_permission_request", "microphone", false]]);
+    vi.advanceTimersByTime(120_000);
+    expect(events()).toEqual([["os_permission_request", "microphone", false], ["os_permission_request", "accessibility", false]]);
+    vi.useRealTimers();
+  });
+
+  it("counts a prompt answered at once without waiting", async () => {
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestScreenRecording = vi.fn(() => true);
+    await flowInput.request("screen");
+    expect(events()).toEqual([["os_permission_request", "screen", true]]);
+  });
+});
+
+describe("the key listener on Linux without access to /dev/input", () => {
+  it("does not start, says why, and reports the reason", async () => {
+    const { flowInput, addon, call, telemetry } = load(undefined, { access: "not_in_group" });
+    expect(await call("openlive:flow-init")).toMatchObject({ ok: false, error: expect.stringContaining("input group") });
+    expect(addon.initializeHook).not.toHaveBeenCalled();
+    expect(flowInput.hookFailure()).toContain("input group");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", { hook_reason: "not_in_group" });
+  });
+
+  it("starts once the check passes, from Check again", async () => {
+    const { addon, call, seen } = load(undefined, { access: "needs_relogin" });
+    await call("openlive:flow-init");
+    expect(addon.initializeHook).not.toHaveBeenCalled();
+    expect(await call("openlive:flow-input-recheck")).toEqual({ ok: true, value: "needs_relogin" });
+    seen.access = "ok";
+    expect(await call("openlive:flow-input-recheck")).toEqual({ ok: true, value: "ok" });
+    expect(addon.initializeHook).toHaveBeenCalledOnce();
+  });
+
+  it("reports other when access looked fine and the listener still failed", async () => {
+    const { addon, call, telemetry } = load(undefined, { access: "ok" });
+    addon.initializeHook.mockImplementation(() => { throw new Error("evdev broke"); });
+    await call("openlive:flow-init");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", { hook_reason: "other" });
+  });
+
+  it("sends no reason off Linux", async () => {
+    const { addon, call, telemetry } = load();
+    addon.initializeHook.mockImplementation(() => { throw new Error("tap died"); });
+    await call("openlive:flow-init");
+    expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", undefined);
   });
 });

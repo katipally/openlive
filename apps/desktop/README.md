@@ -86,6 +86,8 @@ splash.html     loading screen shown until the web server answers
 telemetry/      product-usage telemetry: opt-out, packaged builds only, and silent unless
                 telemetry-config.json exists. `pack:telemetry` stamps that git-ignored file
                 from OPENLIVE_TELEMETRY_ENDPOINT, _CLIENT_ID and _ORIGIN
+release-build.json  marks a build the release workflow made (`pack:release-marker`, git-ignored).
+                Only a marked build runs the auto-updater; OPENLIVE_NO_UPDATES=1 turns it off too
 resources/web   Next standalone server (dist/web) — UI + /api settings routes
 resources/agent agent.mjs (esbuild bundle) — the /live WebSocket + tools
 resources/THIRD_PARTY_LICENSES.txt  the libraries inside the installer and their licenses,

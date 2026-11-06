@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { heldGap, HELD_MS, lobbyGap, offerStep, type LobbyState } from "./lobbyGap";
+import type { AgentStatus } from "../api";
+import { heldGap, HELD_MS, lobbyGap, offerStep, readyAgent, type LobbyState } from "./lobbyGap";
 
 const clear: LobbyState = { modelsMissing: false, agentGap: null, needFolder: false, folderGap: false, keyGap: false, micGap: false };
 const gap = (over: Partial<LobbyState>) => lobbyGap({ ...clear, ...over });
@@ -64,5 +65,20 @@ describe("held gap", () => {
 
   it("is none when no gap is showing, however long", () => {
     expect(heldGap({ gap: null, since: 0 }, 1e9)).toBeNull();
+  });
+});
+
+describe("a brain that needs no key", () => {
+  const row = (over: Partial<AgentStatus>) => ({ id: "codex", label: "Codex", installed: true, credState: "ready", hidden: false, ...over }) as AgentStatus;
+
+  it("is the first coding agent that is installed, signed in and shown", () => {
+    const rows = [row({ id: "cursor", installed: false }), row({ id: "gemini", credState: "login_required" }), row({ id: "pi", hidden: true }), row({ id: "kiro" }), row({ id: "claude-code" })];
+    expect(readyAgent(rows)?.id).toBe("kiro");
+  });
+
+  it("is none before the probe answers, or when no agent is ready", () => {
+    expect(readyAgent(undefined)).toBeUndefined();
+    expect(readyAgent([row({ installed: false })])).toBeUndefined();
+    expect(readyAgent([row({ credState: "unknown" }), row({ id: "nope" })])).toBeUndefined();
   });
 });

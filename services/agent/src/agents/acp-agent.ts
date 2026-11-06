@@ -2,8 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-import type { AgentCapabilities, AvailableCommand, Client, RequestPermissionRequest, RequestPermissionResponse, SessionConfigOption, SessionInfo, SessionModeState, SessionNotification, SessionUpdate } from "@agentclientprotocol/sdk";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk/unstable";
+import type { AgentCapabilities, AvailableCommand, ClientApp, ClientContext, ContentBlock, McpServer, SessionConfigOption, SessionInfo, SessionModeState, SessionUpdate } from "@agentclientprotocol/sdk/unstable";
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import {
@@ -145,7 +145,7 @@ function adapterFor(id: AgentId, cwd?: string): { command: string; args: string[
 export class AcpAgent implements Agent {
   readonly id: AgentId;
   private child: ChildProcessWithoutNullStreams | null = null;
-  private conn: ClientSideConnection | null = null;
+  private conn: ClientContext | null = null;
   private sessionId = "";
   private seedText = "";
   private cutNote = "";
@@ -270,7 +270,7 @@ export class AcpAgent implements Agent {
     this.alive = true;
 
     const stream = ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>);
-    this.conn = new ClientSideConnection((_agent) => this.clientHandler(), stream);
+    this.conn = this.clientApp().connect(stream).agent;
 
     try {
       await Promise.race([this.handshake(cfg.cwd), died]);
@@ -298,7 +298,7 @@ export class AcpAgent implements Agent {
    *  failure falls back to a fresh session SILENTLY (see below — resume-fail is a
    *  common, benign case, and the original session stays on disk / in History). */
   private async handshake(cwd: string): Promise<void> {
-    const init = await this.conn!.initialize({
+    const init = await this.conn!.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       // fs stays false by design (no editor = no unsaved buffers to serve), but
       // we DO host terminals (registry-gated per agent): commands run through
@@ -337,7 +337,8 @@ export class AcpAgent implements Agent {
     // don't read it themselves ("native" agents would double-register).
     // Hosted servers ride along for every agent that accepts them: they are not in
     // the project's file, so a native-MCP agent cannot double-register them.
-    const mcpServers = [
+    // Typed so request() keeps its typed overload (McpServerWire alone drops it to unknown).
+    const mcpServers: McpServer[] = [
       ...(this.bridge ? [] : this.hosted),
       ...(quirks.mcp === "passthrough" && !this.opts.toolless ? readProjectMcpServers(cwd, init) : []),
     ];
@@ -350,7 +351,7 @@ export class AcpAgent implements Agent {
     if (this.opts.resumeSessionId && canResume && !(this.opts.replay && canLoad)) {
       try {
         this.sessionId = this.opts.resumeSessionId;
-        this.reportMeta(await this.conn!.resumeSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
+        this.reportMeta(await this.conn!.request(methods.agent.session.resume, { sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
         resumed = true;
         how = "resumed";
         this.seedText = "";
@@ -370,7 +371,7 @@ export class AcpAgent implements Agent {
       this.sessionId = this.opts.resumeSessionId;
       this.replaying = true;
       try {
-        const r = await this.conn!.loadSession({ sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
+        const r = await this.conn!.request(methods.agent.session.load, { sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
         this.replaying = false;
         this.reportMeta(r);
         resumed = true;
@@ -397,7 +398,7 @@ export class AcpAgent implements Agent {
       }
     }
     if (!resumed) {
-      const r = await this.conn!.newSession({ cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
+      const r = await this.conn!.request(methods.agent.session.new, { cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }
@@ -449,14 +450,14 @@ export class AcpAgent implements Agent {
     try {
       if (!this.modelConfigId) {
         // The SDK has no typed call for the legacy method.
-        await this.conn.extMethod("session/set_model", { sessionId: this.sessionId, modelId });
+        await this.conn.request("session/set_model", { sessionId: this.sessionId, modelId });
         this.meta = { ...this.meta, currentModelId: modelId };
         this.opts.onMeta?.(this.meta);
         return;
       }
       // The response carries the FULL new config state (changing one option can
       // affect others) — fold it in rather than optimistically patching one field.
-      const res = await this.conn.setSessionConfigOption({ sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
+      const res = await this.conn.request(methods.agent.session.setConfigOption, { sessionId: this.sessionId, configId: this.modelConfigId, value: modelId });
       if (res?.configOptions) this.applyConfig(res.configOptions);
       else this.meta = { ...this.meta, currentModelId: modelId };
       this.opts.onMeta?.(this.meta);
@@ -466,7 +467,7 @@ export class AcpAgent implements Agent {
   async setMode(modeId: string): Promise<void> {
     if (!this.conn || !this.sessionId) return;
     try {
-      await this.conn.setSessionMode({ sessionId: this.sessionId, modeId });
+      await this.conn.request(methods.agent.session.setMode, { sessionId: this.sessionId, modeId });
       this.meta = { ...this.meta, currentModeId: modeId };
       this.opts.onMeta?.(this.meta);
     } catch (e) { log.error(`agent:${this.id}`, `setMode(${modeId}) failed:`, e); }
@@ -476,7 +477,7 @@ export class AcpAgent implements Agent {
   async setOption(optionId: string, valueId: string): Promise<void> {
     if (!this.conn || !this.sessionId) return;
     try {
-      const res = await this.conn.setSessionConfigOption(this.booleanIds.has(optionId)
+      const res = await this.conn.request(methods.agent.session.setConfigOption, this.booleanIds.has(optionId)
         ? { sessionId: this.sessionId, configId: optionId, type: "boolean", value: valueId === BOOL_ON }
         : { sessionId: this.sessionId, configId: optionId, value: valueId });
       if (res?.configOptions) this.applyConfig(res.configOptions);
@@ -486,9 +487,9 @@ export class AcpAgent implements Agent {
   }
 
   /** ACP client surface: session updates → SseEvents; permission asks → the user. */
-  private clientHandler(): Client {
-    return {
-      sessionUpdate: async (n: SessionNotification): Promise<void> => {
+  private clientApp(): ClientApp {
+    return client()
+      .onNotification(methods.client.session.update, async ({ params: n }) => {
         if (n.sessionId !== this.sessionId) return;
         const u = n.update;
         // During a session/load the agent replays the WHOLE prior conversation as
@@ -584,8 +585,8 @@ export class AcpAgent implements Agent {
           default:
             return; // user echoes, plan_update (unstable) — nothing to render
         }
-      },
-      requestPermission: async (req: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
+      })
+      .onRequest(methods.client.session.requestPermission, async ({ params: req }) => {
         // The agent only asks when its own ACP mode requires it (the user picks that
         // mode before the call — e.g. "always ask" vs "accept edits" vs "bypass"), so
         // OpenLive just relays the ask. ALL options pass through with their real
@@ -625,33 +626,33 @@ export class AcpAgent implements Agent {
         // up with its own status update, the later merge simply wins.
         if (toolCallId && String(picked.kind).startsWith("reject")) await this.settleToolStatus(toolCallId, "rejected");
         return { outcome: { outcome: "selected", optionId: picked.optionId } };
-      },
+      })
 
       // ── client-hosted terminals (terminal/*) ────────────────────────────
-      createTerminal: async (p) => {
+      .onRequest(methods.client.terminal.create, async ({ params: p }) => {
         this.assertSession(p.sessionId);
         return this.terminals.create(p);
-      },
-      terminalOutput: async (p) => {
+      })
+      .onRequest(methods.client.terminal.output, async ({ params: p }) => {
         this.assertSession(p.sessionId);
         return this.terminals.output(p.terminalId);
-      },
-      waitForTerminalExit: async (p) => {
+      })
+      .onRequest(methods.client.terminal.waitForExit, async ({ params: p }) => {
         this.assertSession(p.sessionId);
         const exit = await this.terminals.waitForExit(p.terminalId);
         return { exitCode: exit.exitCode, signal: exit.signal };
-      },
-      killTerminal: async (p) => {
+      })
+      .onRequest(methods.client.terminal.kill, async ({ params: p }) => {
         this.assertSession(p.sessionId);
         this.terminals.kill(p.terminalId);
-      },
-      releaseTerminal: async (p) => {
+      })
+      .onRequest(methods.client.terminal.release, async ({ params: p }) => {
         this.assertSession(p.sessionId);
         this.terminals.release(p.terminalId);
-      },
+      })
 
       // ── elicitations: login URLs + input forms ────────────────────────────
-      createElicitation: async (req) => {
+      .onRequest(methods.client.elicitation.create, async ({ params: req }) => {
         const ask = this.opts.askElicitation;
         if (!ask) return { action: "decline" };
         // The union's custom-mode arm ({mode: string}) defeats TS narrowing —
@@ -665,12 +666,11 @@ export class AcpAgent implements Agent {
           return ask({ mode: "form", message: r.message, schema: r.requestedSchema, requestScoped });
         }
         return { action: "decline" }; // unknown future mode — refuse cleanly, never hang
-      },
-      completeElicitation: async (n) => {
+      })
+      .onNotification(methods.client.elicitation.complete, async ({ params: n }) => {
         // The agent noticed the URL flow finished (OAuth landed) — settle our card.
         this.opts.completeElicitation?.(String(n.elicitationId));
-      },
-    };
+      });
   }
 
   /** Terminal calls for a session we don't own are protocol errors, not silence. */
@@ -794,16 +794,16 @@ export class AcpAgent implements Agent {
     this.toolsNote = "";
 
     // Interleave the frames as image blocks so the agent sees the camera/screen.
-    const prompt: PromptBlock[] = [{ type: "text", text: body }];
+    const prompt: ContentBlock[] = [{ type: "text", text: body }];
     if (this.supportsImages) for (const f of frames) prompt.push({ type: "image", data: f.data, mimeType: f.mime });
     return this.prompt(prompt, emit, signal);
   }
 
-  private async prompt(prompt: PromptBlock[], emit: Emit, signal: AbortSignal): Promise<void> {
+  private async prompt(prompt: ContentBlock[], emit: Emit, signal: AbortSignal): Promise<void> {
     if (!this.conn) return;
     this.turnEmit = emit;
     const onAbort = () => {
-      void this.conn?.cancel({ sessionId: this.sessionId }).catch(() => {});
+      void this.conn?.notify(methods.agent.session.cancel, { sessionId: this.sessionId }).catch(() => {});
       // Barge-in kills running commands too — a canceled turn must not leave a
       // test suite churning. Buffers stay valid for late terminal/output reads.
       this.terminals.killAll();
@@ -813,7 +813,7 @@ export class AcpAgent implements Agent {
       // Awaiting the prompt also waits out a barge-in: after we send session/cancel
       // the agent still resolves this with stopReason "cancelled" (per spec), so the
       // turn is fully settled before the finally drains the next utterance.
-      const res = await this.conn.prompt({ sessionId: this.sessionId, prompt });
+      const res = await this.conn.request(methods.agent.session.prompt, { sessionId: this.sessionId, prompt });
       switch (res.stopReason) {
         case "refusal": await emit({ type: "error", message: `${labelFor(this.id)} refused this request.`, code: "agent_refused" }); break;
         case "max_tokens": await emit({ type: "text_delta", text: " …(I hit the response length limit — say “continue” to keep going.)" }); break;
@@ -853,7 +853,7 @@ export class AcpAgent implements Agent {
     // out empty pages, and a cursor seen twice would loop forever.
     const seen = new Set<string>();
     do {
-      const r = await this.conn.listSessions({ ...(cwd ? { cwd } : {}), ...(cursor ? { cursor } : {}) });
+      const r = await this.conn.request(methods.agent.session.list, { ...(cwd ? { cwd } : {}), ...(cursor ? { cursor } : {}) });
       out.push(...sessionsFromAcp(r.sessions));
       cursor = r.nextCursor;
       if (cursor) { if (seen.has(cursor)) break; seen.add(cursor); }
@@ -933,7 +933,6 @@ function deltaFromAcp(u: {
 
 const MAX_LIST_PAGES = 10;
 
-type PromptBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
 /** The JSON-RPC code ACP gives auth_required. */
 const AUTH_REQUIRED = -32000;

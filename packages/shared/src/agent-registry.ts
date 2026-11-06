@@ -174,9 +174,10 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDef> = {
     // Cursor renamed its binary `cursor-agent` → `agent`; both land on PATH.
     bins: ["agent", "cursor-agent"],
     // No npm package or uninstaller — a curl script installs into ~/.local/bin.
+    // Windows has its own script: plain /install serves the bash one, which iex rejects.
     install: {
       posixShell: "curl https://cursor.com/install -fsS | bash",
-      winShell: "irm https://cursor.com/install -useb | iex",
+      winShell: "irm 'https://cursor.com/install?win32=true' | iex",
     },
     uninstall: {
       posixShell: "rm -f ~/.local/bin/agent ~/.local/bin/cursor-agent && echo 'Removed cursor-agent from ~/.local/bin.'",

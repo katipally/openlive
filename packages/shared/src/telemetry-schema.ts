@@ -49,10 +49,13 @@ const FAILURE_CODES = [
 ] as const;
 const QUIET_REASONS = ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"] as const;
 const LINUX_SESSIONS = ["x11", "wayland", "n/a"] as const;
+/** Why Flow's key listener could not start on Linux (apps/desktop/linux-input.cjs). */
+const HOOK_REASONS = ["not_in_group", "needs_relogin", "no_devices", "sandboxed", "other"] as const;
 const ON_OFF = ["on", "off"] as const;
 const HISTORY_KEEPS = ["off", "day", "week", "month", "forever"] as const;
 /** The key groups Flow and Dictate double-tap by name; any one side or spare key is "other". */
 const TOGGLE_KEYS = ["ctrl", "option", "shift", "command", "fn", "other"] as const;
+const FLOW_READY = ["ok", "no_brain", "models_missing", "mic_failed"] as const;
 const FEEDBACK_REASONS = ["wrong_answer", "too_slow", "misheard_me", "didnt_do_it", "other"] as const;
 const VERSION = "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$";
 
@@ -64,7 +67,7 @@ const WEB_STEPS = [
   "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume",
   "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message",
   "first_mode_switch", "first_shortcuts_sheet",
-  "welcome_shown", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate",
+  "welcome_shown", "welcome_step_2", "welcome_step_3", "welcome_step_4", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate",
   "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation",
 ] as const;
 const MAIN_STEPS = [
@@ -194,7 +197,9 @@ const events = {
       boot_result: en(["ok", "ports_blocked", "servers_timeout"]),
       boot_ms: opt(int(600000, { step: 100 })),
       agent_port_moved: opt(bool),
+      prev_exit: opt(en(["clean", "os_restart", "killed", "unknown"])),
       prev_exit_clean: opt(bool),
+      gpu_blocklist_kept: opt(bool),
       login_item: opt(bool),
       linux_session: opt(en(LINUX_SESSIONS)),
       look: opt(en(["glass", "flat"])),
@@ -238,7 +243,7 @@ const events = {
       duration_s: SECONDS,
       ended_by: flowEndedBy,
       opened_by: opt(en(["gesture", "carry_on", "tray_new", "late_speech"])),
-      ready: opt(en(["ok", "no_brain", "mic_failed"])),
+      ready: opt(en(FLOW_READY)),
       ready_ms: opt(MS),
       turns: COUNT,
       acted: bool,
@@ -247,6 +252,7 @@ const events = {
       steered: opt(COUNT),
       quiet_turns: opt(COUNT),
       stops: opt(COUNT),
+      speech_starts: opt(COUNT),
       barge_ins: opt(COUNT),
       top_quiet_reason: opt(en(QUIET_REASONS)),
       tool_calls: opt(COUNT),
@@ -414,6 +420,7 @@ const events = {
       hours_since_first_open: opt(dec(99999, 1)),
       tour_exit: opt(en(["done", "skipped", "left"])),
       tour_step: opt(int(9, { min: 1 })),
+      hook_reason: opt(en(HOOK_REASONS)),
     },
     limit: { oncePerValueOf: "step" },
   },
@@ -518,9 +525,10 @@ const facts = {
     event: "flow_session",
     props: {
       opened_by: last(en(["gesture", "carry_on", "tray_new", "late_speech"])),
-      ready: last(en(["ok", "no_brain", "mic_failed"])),
+      ready: last(en(FLOW_READY)),
       ready_ms: last(MS),
       stops: sum(COUNT),
+      speech_starts: sum(COUNT),
       barge_ins: sum(COUNT),
       top_quiet_reason: last(en(QUIET_REASONS)),
       failure_cards: sum(COUNT),

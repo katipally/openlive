@@ -154,6 +154,18 @@ describe("permission requests", () => {
     expect(map.permissionGranted("screen", false)).toBe(false);
     expect(map.permissionGranted("postEvents", "granted")).toBe(false);
   });
+  it("reads where a prompt stands from the status after it", () => {
+    expect(map.permissionOutcome("microphone", { microphone: "granted" })).toBe(true);
+    expect(map.permissionOutcome("microphone", { microphone: "denied" })).toBe(false);
+    expect(map.permissionOutcome("microphone", { microphone: "restricted" })).toBe(false);
+    expect(map.permissionOutcome("microphone", { microphone: "undetermined" })).toBeNull();
+    expect(map.permissionOutcome("microphone", {})).toBeNull();
+    expect(map.permissionOutcome("accessibility", { accessibility: true })).toBe(true);
+    expect(map.permissionOutcome("accessibility", { accessibility: false })).toBeNull();
+    expect(map.permissionOutcome("screen", { screenRecording: true })).toBe(true);
+    expect(map.permissionOutcome("postEvents", { postEvents: true })).toBe(true);
+    expect(map.permissionOutcome("postEvents", undefined)).toBeNull();
+  });
   it("keeps only the screens the schema names", () => {
     for (const from of values("os_permission_request", "asked_from")) expect(map.askedFrom(from)).toBe(from);
     expect(map.askedFrom("orb_fix")).toBeUndefined();

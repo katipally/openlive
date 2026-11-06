@@ -19,6 +19,8 @@ export interface OwnerFact {
   ready?: NonNullable<Fact["ready"]>;
   readyMs?: number;
   stops: number;
+  /** Times the microphone heard speech begin, whether or not a turn followed. */
+  speechStarts: number;
   bargeIns: number;
   fixes: number;
   failureCards: number;
@@ -33,7 +35,7 @@ export interface OwnerFact {
 }
 
 export const openFact = (openedBy: OpenedBy, mark: number): OwnerFact => ({
-  openedBy, mark, stops: 0, bargeIns: 0, fixes: 0, failureCards: 0, lastFailure: "none",
+  openedBy, mark, stops: 0, speechStarts: 0, bargeIns: 0, fixes: 0, failureCards: 0, lastFailure: "none",
   lostSilence: 0, lostLink: 0, linkDrops: 0, micLost: 0, permByVoice: 0, quiet: {},
 });
 
@@ -83,6 +85,7 @@ export const ownerFactProps = (f: OwnerFact, speech: Fact): Fact => ({
   ...(f.ready && { ready: f.ready }),
   ...(f.readyMs !== undefined && { ready_ms: roundMs(f.readyMs) }),
   stops: f.stops,
+  speech_starts: f.speechStarts,
   barge_ins: f.bargeIns,
   top_quiet_reason: topQuietReason(f.quiet),
   failure_cards: f.failureCards,

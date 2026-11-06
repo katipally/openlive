@@ -26,6 +26,7 @@ import { SharedSettings } from "@/components/settings/SharedSettings";
 import { SurfaceSpeech } from "@/components/settings/SurfaceSpeech";
 import { clearFlowSessions, refreshFlowSessions, useFlowSessionCount } from "@/lib/flow/sessions";
 import { AddonCard } from "./AddonCard";
+import { InputAccessFix } from "./InputAccessFix";
 
 // The Flow tab of Settings: only what Flow does that Chat does not, plus rows
 // that show the shared settings Flow follows and go to them. Every control
@@ -190,6 +191,7 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
   const menuSlot = (!micOk && !!settings("microphone")) || (!inputOk && !!settings("accessibility")) || (!screenOk && !!settings("screen"));
 
   return (
+    <div className="flex flex-col gap-3">
     <ListGroup>
       {error && (
         <ListRow label={<StatusDot tone="danger">{error}</StatusDot>}>
@@ -217,6 +219,8 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
           run: () => save({ consent: consent ? { granted: false, at: "" } : { granted: true, at: new Date().toISOString() } }),
         }} keep menuSlot={menuSlot} />
     </ListGroup>
+    {caps?.hookError && <InputAccessFix access={caps.inputAccess} onRetry={refresh} />}
+    </div>
   );
 }
 

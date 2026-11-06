@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { splitResult, useAgentActions } from "./agentActions";
+import { INSTALL_TRIES, installFailures, splitResult, useAgentActions } from "./agentActions";
 
 const track = vi.fn();
 const stream = (text: string) => vi.fn(async () => new Response(text));
 
 beforeEach(() => {
   track.mockReset();
-  useAgentActions.setState({ runs: {} });
+  useAgentActions.setState({ runs: {}, failures: {} });
   vi.stubGlobal("window", { openlive: { telemetry: { track } } });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -66,5 +66,23 @@ describe("running an agent action", () => {
     vi.stubGlobal("fetch", stream("[result ok]\n"));
     await useAgentActions.getState().run("not-an-agent", "install");
     expect(track.mock.calls.filter(([name]) => name === "agent_action_result")).toEqual([]);
+  });
+});
+
+describe("failed installs in a row", () => {
+  it("count up on anything but ok, and reset on ok", () => {
+    expect(installFailures(0, "failed")).toBe(1);
+    expect(installFailures(1, "npm_eacces")).toBe(2);
+    expect(installFailures(5, "ok")).toBe(0);
+  });
+
+  it("are kept per agent across runs, and cleared by a good install", async () => {
+    vi.stubGlobal("fetch", stream("boom\n[exit 1]\n[result failed]\n"));
+    await useAgentActions.getState().run("cursor", "install");
+    await useAgentActions.getState().run("cursor", "install");
+    expect(useAgentActions.getState().failures.cursor).toBe(INSTALL_TRIES);
+    vi.stubGlobal("fetch", stream("ok\n[exit 0]\n[result ok]\n"));
+    await useAgentActions.getState().run("cursor", "install");
+    expect(useAgentActions.getState().failures.cursor).toBe(0);
   });
 });

@@ -8,7 +8,7 @@ import { Button, Input, SidePanelHeader, sidePanel, Tooltip, notice } from "@/co
 import { api } from "@/lib/api";
 import { useLiveStore, type DeviceOpt } from "@/lib/live/liveStore";
 import { hasWebGPU, voiceDownloadPlan, type ModelProgress } from "@/lib/live/models";
-import { lobbyGap, offerStep, useLobbyBlocked } from "@/lib/live/lobbyGap";
+import { lobbyGap, offerStep, readyAgent, useLobbyBlocked } from "@/lib/live/lobbyGap";
 import { aboutSize, listed, planModels, WEIGHTS_WHERE, type DownloadPlan } from "@/lib/live/weights";
 import { brainIdOf } from "@/lib/telemetryIds";
 import { loadPipelineConfig, isNativeVariant } from "@/lib/live/pipelineConfig";
@@ -20,13 +20,14 @@ import { ModelQuickPick } from "./ModelQuickPick";
 import { AgentQuickPick, agentLabel } from "./AgentControls";
 import { Section, Field, Picker, AutoControl, ThinkNote, THINK_HINT, HowItRuns, SwitchField } from "./SetupControls";
 import { agentSummary, optLabel, switchValues } from "@/lib/live/howItRuns";
-import { setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
+import { setConversationBind, setConversationFolder, setConversationModel, setConversationMode, setConversationOption, recentFolders, cachedAgentMeta } from "@/lib/live/useLiveSession";
 import { useUi } from "@/lib/uiStore";
 import { useApiModeChoice } from "@/lib/live/useApiModeChoice";
 import { animateAll, EXIT, FADE, GENTLE, useMotionTokens } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 import { isDesktop, isMacDesktop, basename, bridge, SETTINGS_KEYS } from "@/lib/platform";
 import { BUILTIN_PROVIDERS } from "@openlive/harness/registry";
+import { ProviderKeyField } from "@/components/settings/ProviderKeyField";
 import { SpotlightTour } from "@/components/SpotlightTour";
 import { log } from "@/lib/log";
 import { toast } from "@/lib/toast";
@@ -71,7 +72,7 @@ export function Lobby(props: LobbyProps) {
   // Readiness of the picked coding agent: catch "not installed / signed out"
   // HERE, before Start fails with a spoken error — first-run users otherwise
   // never discover Settings → Agents.
-  const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!boundAgent, refetchOnWindowFocus: true });
+  const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, refetchOnWindowFocus: true });
   const agentRow = boundAgent ? agentRows?.find((r) => r.id === boundAgent) : undefined;
   const agentGap = agentRow && !agentRow.installed ? "install" : agentRow?.credState === "login_required" ? "signin" : null;
   // The folder must actually EXIST — a deleted/renamed/typo'd path used to sail
@@ -94,6 +95,8 @@ export function Lobby(props: LobbyProps) {
     lobbyGap({ modelsMissing: !modelsDownloaded, agentGap, needFolder, folderGap, keyGap, micGap }),
     boundAgent ? "acp" : "api", brainIdOf(boundAgent ?? choice.providerId),
   );
+  const chatId = useUi((s) => s.activeChatId);
+  const keyless = keyGap ? readyAgent(agentRows) : undefined;
   const openSettings = () => { leaveVia("settings"); onOpenSettings(); };
   const root = useRef<HTMLDivElement>(null);
 
@@ -174,9 +177,15 @@ export function Lobby(props: LobbyProps) {
     </button>
   );
   const keyNotice = keyGap && provDef && (
-    <button onClick={() => { leaveVia("settings"); useUi.getState().openSettingsTab("models"); }} className={cn(notice("warning", true), "items-center py-1.5 font-medium")}>
-      <Wrench aria-hidden /> No API key for {provDef.name}. Add one in Settings
-    </button>
+    <div className="flex w-full max-w-[24rem] flex-col gap-2 rounded-lg bg-secondary p-3 text-left shadow-rim">
+      <p className="break-words text-label font-medium text-foreground">No API key for {provDef.name}. Paste one to start.</p>
+      <ProviderKeyField kind={provDef.id} />
+      {keyless && (
+        <Button variant="ghost" size="sm" className="self-start" onClick={() => setConversationBind(chatId, keyless.id as AgentId)}>
+          Or talk to {keyless.label}, no key needed
+        </Button>
+      )}
+    </div>
   );
   const engineRows = missing.map((m) => ({ name: engineName(m.id, engines), bytes: variantStatus(engines, m.id)?.sizeBytes ?? 0 }));
   const offerText = (plan: DownloadPlan) => {
@@ -222,11 +231,14 @@ export function Lobby(props: LobbyProps) {
       {/* Pre-call verification: every gap that would break the call is surfaced HERE,
           before Start, and before any download: not as a confusing failure after. */}
       {agentNotice}
-      {!agentGap && needFolder && <p className="text-caption text-faint">Pick a project folder above to start.</p>}
+      {!agentGap && needFolder && (bridge
+        ? <Button variant="secondary" size="sm" onClick={() => pickFolder(chatId)}><FolderOpen /> Pick a project folder to start</Button>
+        : <p className="text-caption text-faint">Pick a project folder above to start.</p>)}
       {folderGap && (
-        <p className={cn(notice("danger"), "max-w-[20rem] py-1.5")}>
-          That folder doesn&apos;t exist anymore. Pick a different one.
-        </p>
+        <div className="flex max-w-[20rem] flex-col items-center gap-2">
+          <p className={cn(notice("danger"), "py-1.5")}>That folder doesn&apos;t exist anymore. Pick a different one.</p>
+          {bridge && <Button variant="secondary" size="sm" onClick={() => pickFolder(chatId)}><FolderOpen /> Pick a folder</Button>}
+        </div>
       )}
       {keyNotice}
       {micGap && <p className="text-caption text-arc-text">No microphone detected. Connect one so the call can hear you.</p>}
@@ -310,6 +322,11 @@ export function Lobby(props: LobbyProps) {
   );
 }
 
+async function pickFolder(chatId: string) {
+  if (!bridge) return;
+  try { const p = await bridge("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { log.error("lobby", "pick_folder:", e); toast("Couldn\u2019t open the folder picker."); }
+}
+
 // Compact project-folder picker: a label row with Browse on the right, recent
 // folders as one-line chips beneath. REQUIRED for a coding agent (its file-access
 // scope); optional for the built-in assistant.
@@ -317,7 +334,6 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
   const chatId = useUi((s) => s.activeChatId);
   const recents = recentFolders().slice(0, 3).filter((f) => f !== cwd);
   const b = bridge;
-  const browse = async () => { if (!b) return; try { const p = await b("pick_folder"); if (p) setConversationFolder(chatId, p); } catch (e) { log.error("lobby", "pick_folder:", e); toast("Couldn\u2019t open the folder picker."); } };
   return (
     <div className="flex flex-col gap-2">
       <div className="flex min-h-control-sm flex-wrap items-center justify-between gap-2">
@@ -325,7 +341,7 @@ function WorkspaceField({ cwd, name, required }: { cwd: string; name: string; re
           {required ? <>Project folder <span className="text-danger">*</span></> : <>Project folder <span className="font-normal text-faint">(optional)</span></>}
         </p>
         {b && !cwd && (
-          <Button variant="ghost" size="sm" onClick={browse} aria-label={`Choose a folder for ${name}`}>
+          <Button variant="ghost" size="sm" onClick={() => pickFolder(chatId)} aria-label={`Choose a folder for ${name}`}>
             <FolderOpen /> Browse&hellip;
           </Button>
         )}
