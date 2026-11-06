@@ -226,8 +226,14 @@ const events = {
       to_version: opt(str(VERSION, 20)),
       manual: opt(bool),
       error_kind: opt(en(["feed_missing", "asset_missing", "signature_invalid", "network", "other"])),
+      http_status: opt(int(599, { min: 100 })),
+      reason: opt(en(["offline", "dns", "timeout", "not_found", "rate_limited", "other"])),
     },
-    limit: { perDayPerKey: 1, dayKey: ["stage", "error_kind", "manual"] },
+    limit: { perDayPerKey: 1, dayKey: ["stage", "error_kind", "manual", "reason"] },
+  },
+  update_check_ok: {
+    props: { update_available: bool },
+    limit: { perDayPerKey: 1, dayKey: ["update_available"] },
   },
   app_quit: {
     props: {
@@ -337,6 +343,8 @@ const events = {
       recovered: opt(bool),
       http_class: opt(en(["4xx", "5xx", "none"])),
       start_reason: opt(en(["not_installed", "auth_needed", "personal_account", "outdated", "timeout", "exited"])),
+      http_status: opt(int(599, { min: 100 })),
+      reason: opt(en(["tools_unsupported", "context_length", "model_not_found", "other"])),
     },
     limit: { dedupeMs: 300000, dedupeKey: ["class", "brain_id", "start_reason"] },
   },
