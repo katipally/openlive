@@ -83,6 +83,17 @@ const permissionName = (what) => (Object.hasOwn(PERMISSIONS, what) ? PERMISSIONS
 /** Whether a permission prompt's answer means granted: the microphone answers with a status, the rest with a boolean. */
 const permissionGranted = (what, answer) => (what === "microphone" ? answer === "granted" : answer === true);
 
+const STATUS_KEYS = { accessibility: "accessibility", screen: "screenRecording", postEvents: "postEvents" };
+
+/** Where a permission stands in the addon's status after its prompt: true once granted, false once the person
+ *  refused (only the microphone says so), null while it is still open. The other grants never report a refusal,
+ *  so they stay null until given. */
+function permissionOutcome(what, status) {
+  if (!status || typeof status !== "object") return null;
+  if (what === "microphone") return status.microphone === "granted" ? true : status.microphone === "undetermined" || !MIC_STATES.has(status.microphone) ? null : false;
+  return status[STATUS_KEYS[what]] === true ? true : null;
+}
+
 const ASKED_FROM = new Set(["onboarding", "flow_settings", "flow_home", "other"]);
 
 /** The screen a permission request came from, or undefined when a renderer names anything else. */
@@ -102,5 +113,5 @@ const powerSignal = (event, endOnLock) => (!Object.hasOwn(POWER_SIGNALS, event) 
 
 module.exports = {
   osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession,
-  permissionFacts, permissionName, permissionGranted, askedFrom, flowEndReason, powerSignal,
+  permissionFacts, permissionName, permissionGranted, permissionOutcome, askedFrom, flowEndReason, powerSignal,
 };

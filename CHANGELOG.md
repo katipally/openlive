@@ -34,6 +34,10 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **Permission prompts now report whether they were granted.** `os_permission_request`
+  read the status the moment the system prompt appeared, so `granted_now` was almost
+  always false (no microphone prompt on macOS ever recorded true). It now waits for the
+  outcome, up to two minutes. Permission data from earlier releases under-reports grants.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is

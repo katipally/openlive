@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 /** flow-input.cjs against stand-ins for electron and for the ol-input addon. */
+const track = vi.fn();
 function load(ownField?: () => unknown, { packaged = false } = {}) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const stub = (path: string, exports: unknown) => {
@@ -26,7 +27,7 @@ function load(ownField?: () => unknown, { packaged = false } = {}) {
   delete require.cache[mod];
   const flowInput = require(mod);
   const effects: unknown[] = [];
-  flowInput.install((e: unknown) => effects.push(e), () => null, { reportOnboardingStep: vi.fn() }, ownField);
+  flowInput.install((e: unknown) => effects.push(e), () => null, { reportOnboardingStep: vi.fn(), track }, ownField);
   const call = (name: string, ...args: unknown[]) => handlers.get(name)!({}, ...args);
   return { flowInput, addon, call, handlers, effects };
 }
@@ -258,5 +259,50 @@ describe("a key listener that never started", () => {
     addon.initializeHook.mockImplementation(() => { throw new Error("no input access"); });
     expect(flowInput.revive()).toBe("stopped");
     expect(flowInput.hookFailure()).toBe("no input access");
+  });
+});
+
+describe("a permission prompt's outcome", () => {
+  const events = () => track.mock.calls.map(([name, props]) => [name, props.permission, props.granted_now]);
+
+  it("counts the grant that lands after the prompt, not the status at the prompt", async () => {
+    vi.useFakeTimers();
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestMicrophone = vi.fn(() => "undetermined");
+    addon.permissionStatus.mockReturnValue({ microphone: "undetermined" });
+    await flowInput.request("microphone", "onboarding");
+    expect(track).not.toHaveBeenCalled();
+    addon.permissionStatus.mockReturnValue({ microphone: "granted" });
+    vi.advanceTimersByTime(1000);
+    expect(events()).toEqual([["os_permission_request", "microphone", true]]);
+    vi.advanceTimersByTime(200_000);
+    expect(track).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("counts a refused microphone as soon as it is, and an unanswered accessibility prompt as not granted at the window's end", async () => {
+    vi.useFakeTimers();
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestMicrophone = vi.fn(() => "undetermined");
+    addon.requestAccessibility = vi.fn(() => false);
+    addon.permissionStatus.mockReturnValue({ microphone: "undetermined", accessibility: false });
+    await flowInput.request("microphone");
+    await flowInput.request("accessibility");
+    addon.permissionStatus.mockReturnValue({ microphone: "denied", accessibility: false });
+    vi.advanceTimersByTime(1000);
+    expect(events()).toEqual([["os_permission_request", "microphone", false]]);
+    vi.advanceTimersByTime(120_000);
+    expect(events()).toEqual([["os_permission_request", "microphone", false], ["os_permission_request", "accessibility", false]]);
+    vi.useRealTimers();
+  });
+
+  it("counts a prompt answered at once without waiting", async () => {
+    track.mockClear();
+    const { flowInput, addon } = load();
+    addon.requestScreenRecording = vi.fn(() => true);
+    await flowInput.request("screen");
+    expect(events()).toEqual([["os_permission_request", "screen", true]]);
   });
 });
