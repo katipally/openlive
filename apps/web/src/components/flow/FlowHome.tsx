@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { ImageIcon, Loader2, MoreHorizontal, Search, Settings2 } from "lucide-react";
 import { menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Checkbox, groupLabel, ConfirmButton, Badge, dotTone } from "@/components/ui";
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
-import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
+import { useFlowVoiceSetup } from "@/lib/flow/useVoiceSetup";
+import { readyAgent } from "@/lib/flow/setup";
+import { api } from "@/lib/api";
 import { flowBrain } from "@openlive/flow-store/shared";
 import { useAnswerLine, useDefaultBrain } from "@/components/settings/WhoAnswers";
 import {
@@ -21,6 +24,7 @@ import { featureUsed } from "@/lib/featureUse";
 import { clock, dayLabel, duration } from "@/lib/flow/format";
 import { AddonCard } from "./AddonCard";
 import { GrantPills, missingGrants } from "./GrantPills";
+import { VoiceModelsCard } from "./VoiceModelsCard";
 import { ModeSteps, modeCopy } from "./ModeSwitch";
 import { PowerPill } from "./PowerPill";
 import { FlowSessionModal, RenameInput, RUNNING_TIP } from "./FlowSessionModal";
@@ -41,7 +45,8 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
   /** Re-reads `caps`, for the addon card's "Try again". */
   onRetry: () => void;
 }) {
-  const { config } = useFlowConfig();
+  const { config, save } = useFlowConfig();
+  const voiceSetup = useFlowVoiceSetup(config);
   const qc = useQueryClient();
   const [typed, setTyped] = useState("");
   const [query, setQuery] = useState("");
@@ -81,6 +86,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
   const missing = caps?.armed && !hookError ? missingGrants(caps) : [];
   const all = deletable.length > 0 && deletable.every((s) => picked.has(s.id));
   const hasPower = !!caps && !caps.addonError;
+  const voiceGap = voiceSetup.step !== "reading" && voiceSetup.step !== "ready";
   const hasStatus = missing.length > 0 || (!!caps?.armed && !caps.addonError);
   // Only the controls on screen right now get a step.
   const tour: TourStep[] = [
@@ -124,11 +130,11 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           {missing.length ? <GrantPills mode="flow" tour="flow-status" missing={missing} refresh={onRetry} /> : caps?.armed && !caps.addonError && (
             <Tooltip label={hookError} className="flex min-w-0 max-w-full">
               <span data-tour="flow-status" className="flex min-w-0 max-w-full">
-                <Chip dot={armed ? "success" : hookError ? "danger" : "muted"}>
+                <Chip dot={armed && !voiceGap ? "success" : hookError ? "danger" : armed ? "arc" : "muted"}>
                   <AnimatePresence mode="popLayout" initial={false}>
-                    <motion.span key={hookError ? "stopped" : armed ? "ready" : "waiting"} transition={fade}
+                    <motion.span key={hookError ? "stopped" : armed ? (voiceGap ? "models" : "ready") : "waiting"} transition={fade}
                       initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                      {hookError ? "Key listener stopped" : armed ? "Ready" : "Not ready yet"}
+                      {hookError ? "Key listener stopped" : armed ? (voiceGap ? "Needs voice models" : "Ready") : "Not ready yet"}
                     </motion.span>
                   </AnimatePresence>
                 </Chip>
@@ -140,6 +146,10 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           </ChipButton>
         </div>
         {hookError && <p className="max-w-full break-words text-caption text-destructive-text">{hookError}</p>}
+        <div className="flex w-full flex-col gap-3">
+          <BrainSetup config={config} save={save} />
+          <VoiceModelsCard setup={voiceSetup} />
+        </div>
         {caps?.addonError && <AddonCard error={caps.addonError} packaged={caps.packaged} user="flow" onRetry={onRetry} />}
       </section>
 
@@ -255,6 +265,28 @@ function BrainChip({ config }: { config: ReturnType<typeof useFlowConfig>["confi
       <span className="min-w-0 truncate">{line.ready === false ? `${line.name} \u00b7 ${line.detail}` : line.name}</span>
       {line.ready !== null && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotTone(line.ready ? "success" : "arc"))} />}
     </ChipButton>
+  );
+}
+
+/** Nothing set to answer: the ways out sit right here, and settings only where a choice is needed. */
+function BrainSetup({ config, save }: { config: ReturnType<typeof useFlowConfig>["config"]; save: (patch: FlowConfigPatch) => void }) {
+  const openSettingsTab = useUi((s) => s.openSettingsTab);
+  const { settings, pick } = useDefaultBrain();
+  const line = useAnswerLine(config && settings ? flowBrain(config, settings) : null);
+  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: line.ready === false });
+  if (line.ready !== false) return null;
+  const agent = readyAgent(agents.data);
+  const own = { kind: "acp" as const, agentId: agent?.id ?? "", agentModel: "", agentEffort: "" };
+  return (
+    <div role="group" aria-label="Who answers" className="flex flex-col gap-2 rounded-lg bg-card px-4 py-3 text-left shadow-card">
+      <span className="break-words text-body font-medium">Nothing is set to answer yet</span>
+      <span className="break-words text-label text-muted-strong">Flow needs your API key, or a coding agent to answer.</span>
+      <div className="flex flex-wrap items-center gap-2">
+        {agent && <Button variant="primary" size="sm" onClick={() => (config?.brain.override ? save({ brain: own }) : pick(own))}>Use {agent.label}</Button>}
+        <Button variant={agent ? "secondary" : "primary"} size="sm" onClick={() => openSettingsTab("models", { anchor: "set-models-provider" })}>Add an API key</Button>
+        <Button variant="ghost" size="sm" onClick={() => openSettingsTab("flow", { anchor: "set-flow-brain" })}>Pick a brain</Button>
+      </div>
+    </div>
   );
 }
 

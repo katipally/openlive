@@ -90,8 +90,8 @@ export default function Home() {
     // what the person was already in, and on the settings page the fix is on.
     flowBridge()?.onShow?.((to) => {
       useUi.getState().setMode("flow");
-      const tab = /^([a-z]+)-settings$/.exec(to)?.[1];
-      if (tab) useUi.getState().openSettingsTab(tab);
+      const [, tab, anchor] = /^([a-z]+)-settings(?:#([a-z0-9-]+))?$/.exec(to) ?? [];
+      if (tab) useUi.getState().openSettingsTab(tab, anchor ? { anchor } : undefined);
     });
   }, []);
 

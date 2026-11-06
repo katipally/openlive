@@ -24,6 +24,8 @@ export interface FlowHealth {
   packaged: boolean;
   /** A provider with a usable key resolved. */
   brainReady: boolean;
+  /** The name of a coding agent that is installed and signed in, when Flow could switch to it. */
+  readyAgent?: string | null;
   online: boolean;
   /** The on-device voice weights are already downloaded. */
   modelsCached: boolean;
@@ -51,7 +53,7 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       code: "no_accessibility",
       title: "Flow hears you, but can't type for you",
       detail: `${h.platform === "darwin" ? "macOS hasn't given OpenLive Accessibility access" : "Your system hasn't given OpenLive input access"}, so nothing can be typed. Your words are still here.`,
-      actionLabel: "Open settings",
+      actionLabel: h.platform === "darwin" ? "Allow Accessibility" : "Allow input access",
     };
   }
   if (h.secureInput) {
@@ -66,8 +68,9 @@ export function deriveFailure(h: FlowHealth): FlowFailure | null {
       code: "no_provider",
       title: "Nothing is set to answer yet",
       detail: "Flow needs your API key, or a coding agent to answer. Nothing was sent anywhere.",
-      actionLabel: "Choose one",
-      settings: "flow",
+      actionLabel: h.readyAgent ? `Use ${h.readyAgent}` : "Add an API key",
+      fix: h.readyAgent ? "use_agent" : "add_key",
+      alts: [...(h.readyAgent ? [{ id: "add_key" as const, label: "Add an API key" }] : []), { id: "pick_brain", label: "Pick a brain" }],
     };
   }
   if (!h.online) {

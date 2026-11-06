@@ -12,7 +12,9 @@ import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { flowOnboardingOpen } from "@/lib/settingChanges";
 import { telemetry } from "@/lib/telemetry";
 import { SkipSetup } from "@/components/SkipSetup";
+import { useFlowVoiceSetup } from "@/lib/flow/useVoiceSetup";
 import { AccessRows } from "./FlowSettings";
+import { VoiceModelsCard } from "./VoiceModelsCard";
 import { FlowCanvas } from "./FlowCanvas";
 import { ModeStart, SwitchHole, modeCopy } from "./ModeSwitch";
 
@@ -42,6 +44,7 @@ export function FlowOnboarding({ onDone, config, save }: {
   const finish = (how: "flow_onboarding_done" | "flow_onboarding_skipped") => { telemetry.track("onboarding_step", { step: how }); onDone(); };
   // Skipped, setup never comes back on its own, so Skip asks first, as Welcome's does.
   const [asking, setAsking] = useState(false);
+  const voiceSetup = useFlowVoiceSetup(config);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -66,6 +69,7 @@ export function FlowOnboarding({ onDone, config, save }: {
           </p>
         </div>
         <AccessRows config={config} save={save} askedFrom="onboarding" />
+        <VoiceModelsCard setup={voiceSetup} />
         <details className="group">
           <summary className={cn("cursor-pointer list-none text-label [&::-webkit-details-marker]:hidden", linkClass)}>
             What OpenLive never does

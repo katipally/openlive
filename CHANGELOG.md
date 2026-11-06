@@ -28,8 +28,20 @@ Releases before 0.1.9 predate this file — see the
 - **Which model family answered.** Flow and call summaries carry `brain_model`, a
   fixed family (`haiku`, `sonnet`, `opus`, `fable`, `gpt` and a few more, else
   `other`), never a model id or version.
+- **Flow offers its voice models during setup.** Flow's first run and its home now show
+  what the voice models are, how big, and where they are kept, with a Download button
+  and progress that carries on if you leave the screen. The home chip reads Needs voice
+  models until they are in. Flow's own speech engine is what is checked, and nothing
+  is offered when a native engine needs no browser weights. The card on the orb stays
+  as the fallback.
+- **One step out of "nothing is set to answer".** Flow's orb card and home now offer
+  Use <coding agent> when one is installed and signed in, Add an API key (opens the key
+  field), and Pick a brain. Switching to the agent re-checks at once, so Flow can be
+  summoned straight away.
 
 ### Changed
+- **Allowing Accessibility from the orb asks the system.** The card's button now makes the
+  permission request and re-checks, instead of only restarting the key listener.
 - **The current Claude lineup.** Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1
   are the built-in Anthropic models, with Opus 5.5 as the default. Haiku 5.5 replaces
   Haiku 4.5 as the recommended model for calls, and now gets the effort setting, which

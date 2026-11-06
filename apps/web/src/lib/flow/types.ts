@@ -37,9 +37,17 @@ export interface FlowFailure {
   actionLabel?: string;
   /** The settings page that action opens, when the fix lives in settings. */
   settings?: FlowSettingsPage;
+  /** What the action does when it is one of the brain fixes rather than the failure's own. */
+  fix?: FlowFixId;
+  /** Other ways out, each a button beside the action. */
+  alts?: { id: FlowFixId; label: string }[];
   /** Raised as Dictate starts, so the card's close button names Dictate. */
   dictate?: true;
 }
+
+/** The ways out of having nothing to answer with: switch to a coding agent that is
+ *  ready, add an API key, or pick who answers. */
+export type FlowFixId = "use_agent" | "add_key" | "pick_brain";
 
 /** The settings pages a failure's fix can live on. */
 export type FlowSettingsPage = "models" | "flow" | "agents";

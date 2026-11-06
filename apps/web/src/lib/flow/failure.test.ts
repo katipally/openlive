@@ -100,7 +100,6 @@ describe("turnFailure", () => {
   });
 
   it("opens the settings page the card's own words name", () => {
-    expect(deriveFailure({ ...HEALTHY, brainReady: false })?.settings).toBe("flow");
     const key = turnFailure("No API key for OpenAI. Add one in Settings > Models.");
     expect(key.detail).toContain("Settings > Models");
     expect(key.settings).toBe("models");
@@ -224,5 +223,23 @@ describe("forOrb", () => {
   it("never shows it on Dictate's orb with Flow closed, during the session or as it goes", () => {
     expect(forOrb(dictating, false)).toEqual({ ...dictating, failure: null });
     expect(forOrb({ ...dictating, dictate: null }, false).failure).toBeNull();
+  });
+});
+
+describe("the no brain card", () => {
+  const none = { ...HEALTHY, brainReady: false };
+  it("offers the signed-in agent first, then a key, then the picker", () => {
+    const f = deriveFailure({ ...none, readyAgent: "Claude Code" });
+    expect(f).toMatchObject({ code: "no_provider", actionLabel: "Use Claude Code", fix: "use_agent" });
+    expect(f?.alts?.map((a) => a.id)).toEqual(["add_key", "pick_brain"]);
+  });
+  it("leads with a key when no agent is ready", () => {
+    const f = deriveFailure(none);
+    expect(f).toMatchObject({ actionLabel: "Add an API key", fix: "add_key" });
+    expect(f?.alts?.map((a) => a.id)).toEqual(["pick_brain"]);
+  });
+  it("names the permission to allow for the platform", () => {
+    expect(deriveFailure({ ...HEALTHY, accessibility: false })?.actionLabel).toBe("Allow Accessibility");
+    expect(deriveFailure({ ...HEALTHY, platform: "linux", accessibility: false })?.actionLabel).toBe("Allow input access");
   });
 });

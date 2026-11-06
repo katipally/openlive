@@ -1,5 +1,5 @@
 import type { LivePhase, PendingPermission } from "./liveStore";
-import type { FlowFailureCode, FlowSnapshot } from "@/lib/flow/types";
+import type { FlowFailureCode, FlowFixId, FlowSnapshot } from "@/lib/flow/types";
 
 // Wire shape between a renderer that runs a voice pipeline (Flow's owner, or the
 // main window during a call) and the desktop orb window, relayed through the
@@ -35,7 +35,7 @@ export type PanelCmd =
   // `flowFix` is the one action a failure state offers; `flowSendAside` sends
   // the sentence the side talk check dropped. `dictateToggle` is the orb's mic
   // button: hands-free Dictate on, or off. `dictateUndo` takes back what Dictate just typed.
-  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowFix"; code: FlowFailureCode } | { t: "flowSendAside" } | { t: "dictateToggle" } | { t: "dictateUndo" };
+  | { t: "flowCancel" } | { t: "flowStop" } | { t: "flowFix"; code: FlowFailureCode; fix?: FlowFixId } | { t: "flowSendAside" } | { t: "dictateToggle" } | { t: "dictateUndo" };
 
 /** A live call as the orb shows it while the main window is out of sight. */
 export interface CallOrbState { muted: boolean; startedAt: number }

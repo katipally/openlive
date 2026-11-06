@@ -878,7 +878,7 @@ async function expandFlow(to) {
   if (mainWin && !mainWin.isDestroyed()) {
     // A window created just now has no page listening yet; the ask waits for it.
     const wc = mainWin.webContents;
-    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings$/.test(to) ? to : "");
+    const show = () => wc.send("openlive:flow-show", /^[a-z]+-settings(#[a-z0-9-]+)?$/.test(to) ? to : "");
     if (wc.isLoading()) wc.once("did-finish-load", show); else show();
   }
 }
