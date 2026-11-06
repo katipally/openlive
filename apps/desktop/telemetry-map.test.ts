@@ -8,6 +8,33 @@ const { validateCommon, validateEvent } = require("./telemetry/validate.cjs");
 
 const values = (event: string, prop: string): string[] => schema.events[event].props[prop].values;
 
+describe("updaterFailure", () => {
+  const f = (e: unknown) => map.updaterFailure(e);
+  it("takes the status from a field, an HTTP_ERROR code or the updater's message", () => {
+    expect(f({ statusCode: 503 })).toEqual({ http_status: 503, reason: "other" });
+    expect(f({ response: { statusCode: 404 } })).toEqual({ http_status: 404, reason: "not_found" });
+    expect(f({ code: "HTTP_ERROR_429" })).toEqual({ http_status: 429, reason: "rate_limited" });
+    expect(f(new Error('404 "Not Found" Headers: {} https://example.com/x'))).toEqual({ http_status: 404, reason: "not_found" });
+  });
+  it("classifies a transport failure when there is no status", () => {
+    expect(f({ code: "ENOTFOUND" })).toEqual({ reason: "dns" });
+    expect(f(new Error("net::ERR_NAME_NOT_RESOLVED"))).toEqual({ reason: "dns" });
+    expect(f({ code: "ETIMEDOUT" })).toEqual({ reason: "timeout" });
+    expect(f(new Error("net::ERR_CONNECTION_TIMED_OUT"))).toEqual({ reason: "timeout" });
+    expect(f({ code: "ECONNREFUSED" })).toEqual({ reason: "offline" });
+    expect(f(new Error("net::ERR_INTERNET_DISCONNECTED"))).toEqual({ reason: "offline" });
+    expect(f({ code: "ERR_UPDATER_LATEST_VERSION_NOT_FOUND" })).toEqual({ reason: "not_found" });
+  });
+  it("never returns text and survives odd input", () => {
+    expect(f(new Error("failed at /Users/someone/app.asar"))).toEqual({ reason: "other" });
+    for (const odd of [null, undefined, 5, "x", { statusCode: 99999 }]) expect(f(odd)).toEqual({ reason: "other" });
+  });
+  it("answers only with values the schema lists", () => {
+    const reasons = [{ code: "ENOTFOUND" }, { code: "ETIMEDOUT" }, { code: "ECONNRESET" }, { statusCode: 404 }, { statusCode: 429 }, null].map((e) => f(e).reason);
+    for (const r of reasons) expect(values("update_result", "reason")).toContain(r);
+  });
+});
+
 describe("osMajor", () => {
   it("is the macOS major, however the version is written", () => {
     expect(map.osMajor("darwin", "15.6.1", "24.6.0")).toBe("15");

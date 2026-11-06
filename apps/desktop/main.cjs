@@ -27,7 +27,7 @@ const { ignoreGpuBlocklist } = require("./gpu-flags.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
 const { updatesOffReason } = require("./update-gate.cjs");
-const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
+const { osMajor, updaterErrorKind, updaterFailure, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
 // The app keeps running after one, so the heads-up is a silent notification,
@@ -1590,11 +1590,13 @@ function initAutoUpdate() {
   updater.on("checking-for-update", () => console.log("[updater] checking…"));
   updater.on("update-available", (i) => {
     console.log("[updater] update available:", i?.version);
+    telemetry.track("update_check_ok", { update_available: true });
     telemetry.track("update_result", { stage: "available", to_version: i?.version, manual: manualCheck });
     manualCheck = false;
   });
   updater.on("update-not-available", () => {
     console.log("[updater] up to date");
+    telemetry.track("update_check_ok", { update_available: false });
     if (!manualCheck) return;
     manualCheck = false;
     telemetry.track("update_result", { stage: "up_to_date", manual: true });
@@ -1623,7 +1625,7 @@ function initAutoUpdate() {
     console.error("[updater]", e?.message || e);
     quitFlushed = false;
     telemetry.resume(); // an install that fails after "Restart now" leaves the app running
-    telemetry.track("update_result", { stage: "failed", error_kind: updaterErrorKind(e), manual: manualCheck });
+    telemetry.track("update_result", { stage: "failed", error_kind: updaterErrorKind(e), ...updaterFailure(e), manual: manualCheck });
     if (manualCheck) { manualCheck = false; if (mainWin) dialog.showMessageBox(mainWin, { type: "warning", message: "Couldn't check for updates", detail: String(e?.message || e) }); }
   });
   updater.checkForUpdates().catch(() => {});
