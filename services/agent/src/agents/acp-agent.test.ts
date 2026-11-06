@@ -145,8 +145,12 @@ test("a start that fails carries its class, so nobody has to read its words, and
   assert.equal(await classOf({ cwd: join(cwd, "not-there") }), "agent_no_folder");
   adapter.command = "definitely-not-a-command-openlive";
   assert.equal(await classOf({}), "agent_start_failed");
+  await assert.rejects(agent().a.start(new AbortController().signal), /isn't installed\. Install it from Settings/);
   adapter.command = `${process.execPath} -e process.exit(3)`;
   assert.equal(await classOf({}), "agent_start_failed");
+  await assert.rejects(agent().a.start(new AbortController().signal), /exited before connecting \(code 3\)/);
+  adapter.command = `${process.execPath} -e process.exit(127)`;
+  await assert.rejects(agent().a.start(new AbortController().signal), /isn't installed/);
   // A probe (the model list, the session list) starts agents too: only a session reports its failures.
   assert.deepEqual(sent, []);
 }, 20_000);
@@ -239,13 +243,13 @@ test("auth_required from session/new reads as a sign-in instruction, not a proto
   flagged("--auth-required");
   const err = await agent().a.start(new AbortController().signal).then(() => null, (e: Error & { errorClass?: string }) => e);
   assert.equal(err?.errorClass, "agent_start_failed");
-  assert.match(err!.message, /isn't signed in[\s\S]*signed in/);
+  assert.match(err!.message, /needs you to sign in: run `.+` in a terminal/);
 }, 20_000);
 
 test("a start that fails while the adapter still runs leaves no process behind", async () => {
   const pidFile = join(cwd, "adapter.pid");
   flagged(`--auth-required --pid-file=${pidFile}`);
-  await assert.rejects(agent().a.start(new AbortController().signal), /isn't signed in/);
+  await assert.rejects(agent().a.start(new AbortController().signal), /needs you to sign in/);
   const pid = Number(readFileSync(pidFile, "utf8"));
   const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
   await until(() => !alive());

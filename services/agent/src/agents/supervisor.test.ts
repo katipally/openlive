@@ -11,7 +11,7 @@ const noAsk = async () => "deny"; // the supervisor's askPermission arg — unus
 
 test("a start that never resolves rejects on the deadline instead of hanging forever", async () => {
   const sup = new AgentSupervisor(() => agent({ start: () => new Promise(() => {}) }) as any, noAsk, { startMs: 50 });
-  await assert.rejects(sup.start(new AbortController().signal), /didn't become ready/);
+  await assert.rejects(sup.start(new AbortController().signal), /didn't answer within 0.05s/);
 });
 
 test("a start that fails or times out disposes the agent, so no adapter process is left running", async () => {
@@ -19,7 +19,7 @@ test("a start that fails or times out disposes the agent, so no adapter process 
   const failing = new AgentSupervisor(() => agent({ start: async () => { throw new Error("no"); }, dispose: async () => { disposed++; } }) as any, noAsk);
   await assert.rejects(failing.start(new AbortController().signal), /no/);
   const hung = new AgentSupervisor(() => agent({ start: () => new Promise(() => {}), dispose: async () => { disposed++; } }) as any, noAsk, { startMs: 50 });
-  await assert.rejects(hung.start(new AbortController().signal), /didn't become ready/);
+  await assert.rejects(hung.start(new AbortController().signal), /didn't answer within 0.05s/);
   assert.equal(disposed, 2);
 });
 

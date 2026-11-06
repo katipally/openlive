@@ -342,10 +342,11 @@ const events = {
       ]),
       recovered: opt(bool),
       http_class: opt(en(["4xx", "5xx", "none"])),
+      start_reason: opt(en(["not_installed", "auth_needed", "personal_account", "outdated", "timeout", "exited"])),
       http_status: opt(int(599, { min: 100 })),
       reason: opt(en(["tools_unsupported", "context_length", "model_not_found", "other"])),
     },
-    limit: { dedupeMs: 300000, dedupeKey: ["class", "brain_id"] },
+    limit: { dedupeMs: 300000, dedupeKey: ["class", "brain_id", "start_reason"] },
   },
   flow_failure_card: {
     props: {
