@@ -730,6 +730,8 @@ export function useFlowOwner(): void {
           duration_s: Math.min(86400, Math.round(r.ms / 1000)), ended_by: r.ended, dictations: n(r.dictations), words: wordsBucket(r.words),
           ...(r.copied && { copied: n(r.copied) }), ...(r.failed && { failed: n(r.failed) }), ...(r.polished && { polished: n(r.polished) }),
           ...(r.edits && { edits: n(r.edits) }), ...(r.commands && { commands: n(r.commands) }), ...(r.snippets && { snippets: n(r.snippets) }),
+          ...(r.empty && { empty: n(r.empty) }), ...(r.cancelled && { cancelled: n(r.cancelled) }),
+          ...(r.latency && { latency_ms_p50: r.latency.p50, latency_ms_p90: r.latency.p90 }),
           talk_mode: talkMode() === "ptt" ? "ptt" : "hands_free", ...(lang && { lang }),
         });
       },
