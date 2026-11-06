@@ -7,6 +7,11 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Telemetry says where Welcome and Flow sessions stop.** `onboarding_step` gains
+  `welcome_step_2`, `welcome_step_3` and `welcome_step_4`, the first time each Welcome
+  step is reached. `flow_session` gains `speech_starts` (how often the microphone heard
+  you begin to speak) and a `models_missing` value for `ready`, so a Flow open that
+  could not listen for want of the voice models is no longer blank.
 - **Flow and Dictate can hear with their own speech engine, and Flow can speak with
   its own voice.** Settings > Flow has Hearing and voice, and Settings > Dictate has
   Hearing, each set to Same as Chat or Its own, with the same engine, model and Whisper

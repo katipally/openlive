@@ -14,7 +14,7 @@ describe("topQuietReason", () => {
 describe("ownerFactProps", () => {
   it("sends every count, zero included, so an average over sessions is not skewed", () => {
     expect(ownerFactProps(openFact("gesture", 0), {})).toEqual({
-      opened_by: "gesture", stops: 0, barge_ins: 0, top_quiet_reason: "none", failure_cards: 0, fixes_clicked: 0, last_failure: "none",
+      opened_by: "gesture", stops: 0, speech_starts: 0, barge_ins: 0, top_quiet_reason: "none", failure_cards: 0, fixes_clicked: 0, last_failure: "none",
       lost_silence: 0, lost_link: 0, link_drops: 0, mic_lost: 0, perm_by_voice: 0,
     });
   });
@@ -28,13 +28,19 @@ describe("ownerFactProps", () => {
 
   it("rounds the readiness time to 10 ms and carries what the open recorded", () => {
     const f = openFact("carry_on", 4);
-    Object.assign(f, { ready: "ok", readyMs: 1234.5, stops: 2, bargeIns: 1, failureCards: 1, lastFailure: "offline", linkDrops: 3, permByVoice: 1 });
+    Object.assign(f, { ready: "ok", readyMs: 1234.5, stops: 2, speechStarts: 3, bargeIns: 1, failureCards: 1, lastFailure: "offline", linkDrops: 3, permByVoice: 1 });
     f.quiet = { meeting: 2 };
     const props = ownerFactProps(f, { v2v_ms_p50: 900, v2v_turns: 5, webgpu: true });
     expect(props).toMatchObject({
-      opened_by: "carry_on", ready: "ok", ready_ms: 1230, stops: 2, barge_ins: 1, top_quiet_reason: "meeting",
+      opened_by: "carry_on", ready: "ok", ready_ms: 1230, stops: 2, speech_starts: 3, barge_ins: 1, top_quiet_reason: "meeting",
       failure_cards: 1, last_failure: "offline", link_drops: 3, perm_by_voice: 1, v2v_ms_p50: 900, v2v_turns: 5, webgpu: true,
     });
+  });
+
+  it("names a session that could not listen for want of voice models", () => {
+    const f = openFact("gesture", 0);
+    f.ready = "models_missing";
+    expect(ownerFactProps(f, {})).toMatchObject({ ready: "models_missing", speech_starts: 0 });
   });
 
   it("starts each open from nothing", () => {

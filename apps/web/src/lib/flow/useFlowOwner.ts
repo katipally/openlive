@@ -372,6 +372,7 @@ export function useFlowOwner(): void {
     /** Hands-free, the user started talking: the silence starts over, and an
      *  utterance Dictate takes reads the selection it begins on. */
     const onSpeechStart = () => {
+      if (summoned.current) fact.speechStarts++;
       if (dictate.active()) dictate.speechStart();
       talk.speechStart();
     };
@@ -419,6 +420,7 @@ export function useFlowOwner(): void {
       // Nothing to hear with until the download is agreed to: the offer stays
       // up instead, and the microphone stays closed.
       if (weightsMissing) {
+        fact.ready = "models_missing";
         setPhase("error");
         teardownMic();
         talk.armSilence();
