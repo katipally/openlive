@@ -73,7 +73,7 @@ interface FlowSettings {
   talk: FlowConfig["talk"];
   brain: FlowConfig["brain"];
   insertion: FlowConfig["insertion"];
-  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride" | "stt" | "tts">;
+  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride" | "stt" | "tts" | "micId" | "speakerId">;
   dictate: FlowConfig["dictate"];
 }
 
@@ -305,6 +305,7 @@ export function useFlowOwner(): void {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string; editReady: boolean };
         settings.current = body.config;
+        engine.current?.setSpeaker(body.config.voice.speakerId);
         // Dictate turned off closes a session still open: its key is no longer watched.
         if (!body.config.dictate.enabled) dictate.yield("turned_off");
         talk.modeChanged();
@@ -320,6 +321,13 @@ export function useFlowOwner(): void {
     // The microphone is held only while Flow or Dictate is open, and in push to
     // talk only while the key is down: Flow has no wake word and never listens
     // while it is closed.
+    // The surface that is open picks its microphone. A saved device that is gone
+    // is only preferred, so the system default opens instead of failing. A new
+    // pick takes hold the next time the microphone is opened, never mid-capture.
+    const openMic = () => {
+      const id = dictate.isOpen() ? settings.current?.dictate.micId : settings.current?.voice.micId;
+      return navigator.mediaDevices.getUserMedia({ audio: id ? { ...MIC, deviceId: { ideal: id } } : MIC });
+    };
     const ensureEngine = async () => {
       if (engine.current) return;
       if (starting.current) return starting.current;
@@ -352,7 +360,8 @@ export function useFlowOwner(): void {
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
         }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
         eng.setGate(talkMode() === "ptt");
-        try { await eng.start(() => navigator.mediaDevices.getUserMedia({ audio: MIC })); }
+        eng.setSpeaker(settings.current?.voice.speakerId ?? "");
+        try { await eng.start(openMic); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
           // opens a new mic rather than reusing this one.
@@ -370,7 +379,7 @@ export function useFlowOwner(): void {
     const recoverMic = async (eng: VoiceEngine) => {
       try {
         // Push to talk opens it only at the next press, so it is tried now and let go.
-        if (talkMode() === "ptt") (await navigator.mediaDevices.getUserMedia({ audio: MIC })).getTracks().forEach((t) => t.stop());
+        if (talkMode() === "ptt") (await openMic()).getTracks().forEach((t) => t.stop());
         if (engine.current !== eng) return;
         await eng.reopen();
       } catch (e) {

@@ -203,6 +203,13 @@ test("a surface's own engines survive a write, and anything malformed gives way 
   expect(bad.dictate.stt).toEqual({ override: false, variant: "", whisperSize: "" });
 });
 
+test("each surface keeps its own microphone, Flow its speaker, and a bad value is the system default", () => {
+  const cfg = parseFlowConfig({ voice: { micId: "m1", speakerId: "s1" }, dictate: { micId: "m2" } });
+  expect([cfg.voice.micId, cfg.voice.speakerId, cfg.dictate.micId]).toEqual(["m1", "s1", "m2"]);
+  const bad = parseFlowConfig({ voice: { micId: 3, speakerId: null }, dictate: { micId: [] } });
+  expect([bad.voice.micId, bad.voice.speakerId, bad.dictate.micId]).toEqual(["", "", ""]);
+});
+
 test("a decided override survives a write, and a v7 file is not migrated again", () => {
   const on = parseFlowConfig({ version: 7, brain: { override: true, kind: "acp", agentId: "codex" }, voice: { turnOverride: true } });
   expect(parseFlowConfig(on)).toEqual(on);
