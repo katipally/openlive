@@ -56,6 +56,9 @@ export interface FlowConfig {
   };
   voice: {
     speakReplies: boolean;
+    /** The microphone and speaker Flow uses, as the browser names them. "" is the system default. */
+    micId: string;
+    speakerId: string;
     autoQuiet: { meetingApps: boolean; micContention: boolean; systemDnd: boolean; apps: string[] };
     /** Flow's own wait for the rest of a sentence before answering the half it
      *  has, used only while `turnOverride` is on; off, Flow waits as Chat does
@@ -107,6 +110,8 @@ export interface FlowConfig {
     polish: { enabled: boolean; tone: DictateTone };
     /** Dictate types what it hears and never speaks, so it has no voice of its own. */
     stt: SpeechInPick;
+    /** The microphone Dictate uses, as the browser names it. "" is the system default. */
+    micId: string;
     commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
     words: string[];
     snippets: { trigger: string; text: string }[];
@@ -123,6 +128,8 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
   brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
   voice: {
     speakReplies: true,
+    micId: "",
+    speakerId: "",
     autoQuiet: { meetingApps: true, micContention: true, systemDnd: true, apps: [] },
     turn: { threshold: 0.65, holdMs: 6000, redemptionMs: 800 },
     turnOverride: false,
@@ -138,6 +145,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
     polish: { enabled: false, tone: "natural" },
     stt: { override: false, variant: "", whisperSize: "" },
+    micId: "",
     commands: { enter: true, newLine: true, newParagraph: true, undo: true, stop: true },
     words: [],
     snippets: [],
@@ -273,6 +281,8 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
     voice: {
       ...voice,
       speakReplies: bool(voice.speakReplies, d.voice.speakReplies),
+      micId: str(voice.micId, d.voice.micId),
+      speakerId: str(voice.speakerId, d.voice.speakerId),
       autoQuiet: {
         ...autoQuiet,
         meetingApps: bool(autoQuiet.meetingApps, d.voice.autoQuiet.meetingApps),
@@ -335,6 +345,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       },
       polish: { ...polish, enabled: bool(polish.enabled, dd.polish.enabled), tone: one(polish.tone, TONES, dd.polish.tone) },
       stt: speechIn(dictateStt, dd.stt),
+      micId: str(dictate.micId, dd.micId),
       commands: {
         ...commands,
         enter: bool(commands.enter, dd.commands.enter),
