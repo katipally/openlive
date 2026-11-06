@@ -7,6 +7,15 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Dictate's first run is easier to leave and to come back to, and telemetry says where
+  people stop.** Both cards have a Later button that puts setup off with no question
+  asked and leaves Dictate as it is. Closing the window mid-way resumes on the same
+  card. `onboarding_step` gains `dictate_onboarding_step_2`, and `tour_step` on
+  `dictate_onboarding_done` and `dictate_onboarding_skipped` is the furthest card.
+- **Telemetry measures Dictate's speed and its empty and cancelled dictations.**
+  `dictate_session` gains `empty`, `cancelled`, and `latency_ms_p50` and `latency_ms_p90`
+  (speech end to the first character in, to 50 ms). `dictate_failure` gains
+  `secure_field` and `mic_silent`. Counts and times only, never text.
 - **Telemetry says why an update check or a model request failed.** `update_result`
   gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
   checks that worked. `brain_error` gains `http_status` and a `reason` for a refused

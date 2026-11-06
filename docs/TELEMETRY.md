@@ -381,6 +381,10 @@ Limit: none.
 | `edits` | Selections edited by voice. | whole number, 0 to 999 | sometimes |
 | `commands` | Spoken commands said, such as "press enter". | whole number, 0 to 999 | sometimes |
 | `snippets` | Snippets typed. | whole number, 0 to 999 | sometimes |
+| `empty` | Dictations where no words were heard, so nothing was typed. | whole number, 0 to 999 | sometimes |
+| `cancelled` | Push-to-talk holds that were cancelled, so their words went nowhere. | whole number, 0 to 999 | sometimes |
+| `latency_ms_p50` | Median time from you finishing speaking to the first character going in, over the session's dictations, to 50 ms. | whole number, 0 to 30000, rounded to 50 | sometimes |
+| `latency_ms_p90` | The same, at the 90th percentile. | whole number, 0 to 30000, rounded to 50 | sometimes |
 | `talk_mode` | How you talk: hands-free or push to talk. | `hands_free`, `ptt` | sometimes |
 | `lang` | The session language. | one of the [languages](#languages) | sometimes |
 
@@ -427,7 +431,7 @@ Limit: the same `code` is not sent again within 10 minutes.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
-| `code` | What went wrong: `no_mic` (the microphone did not open), `not_written` (the words could not be written down), `insert_failed` (it could not be typed or copied), `polish_late` (AI polish did not answer in time, so the cleaned-up words went in), `polish_cut` (AI polish stopped partway), `command_failed` (an edit by voice got no answer), `keys_failed` (a spoken command's key could not be pressed), `too_long` (the selection was too long to edit), or `models_missing` (the voice models are not downloaded, so Dictate asked for them instead of opening). | `no_mic`, `not_written`, `insert_failed`, `polish_late`, `polish_cut`, `command_failed`, `keys_failed`, `too_long`, `models_missing` | always |
+| `code` | What went wrong: `no_mic` (the microphone did not open), `not_written` (the words could not be written down), `insert_failed` (it could not be typed or copied), `polish_late` (AI polish did not answer in time, so the cleaned-up words went in), `polish_cut` (AI polish stopped partway), `command_failed` (an edit by voice got no answer), `keys_failed` (a spoken command's key could not be pressed), `too_long` (the selection was too long to edit), `models_missing` (the voice models are not downloaded, so Dictate asked for them instead of opening), `secure_field` (the cursor was in a password field, so nothing was typed), or `mic_silent` (the microphone opened but sent no sound before the timeout). | `no_mic`, `not_written`, `insert_failed`, `polish_late`, `polish_cut`, `command_failed`, `keys_failed`, `too_long`, `models_missing`, `secure_field`, `mic_silent` | always |
 
 ### `crash_detected`
 
@@ -571,7 +575,7 @@ Limit: once per install for each `step`.
 | `step` | Which step. | one of the [onboarding steps](#onboarding-steps) | always |
 | `hours_since_first_open` | Hours since the install first ran, to 0.1. | number, 0 to 99999, rounded to 0.1 | sometimes |
 | `tour_exit` | On a `tour_closed_` step only: how the tour ended. `done` is the Done button on the last step, `skipped` is Skip, the close button or Escape, confirmed, and `left` is the screen changing under it: the control it points at went away, the whole screen closed, or a click outside. A tour that was left shows again the next time its screen does; only `done` and `skipped` count it as seen. | `done`, `skipped`, `left` | sometimes |
-| `tour_step` | On a `tour_closed_` step: the tour step showing when it ended, counting from 1. On `welcome_done` and `welcome_skipped`: the furthest of Welcome's steps reached. | whole number, 1 to 9 | sometimes |
+| `tour_step` | On a `tour_closed_` step: the tour step showing when it ended, counting from 1. On `welcome_done` and `welcome_skipped`: the furthest of Welcome's steps reached. On `dictate_onboarding_done` and `dictate_onboarding_skipped`: the furthest of Dictate's first-run cards reached. | whole number, 1 to 9 | sometimes |
 | `hook_reason` | On `flow_hook_failed` only, on Linux: why the key listener could not start. `not_in_group` is a user outside the `input` group, `needs_relogin` is the group added but this login session started before it, `no_devices` is no keyboard device under `/dev/input`, `sandboxed` is Flatpak or Snap blocking it, `other` is anything else. | `not_in_group`, `needs_relogin`, `no_devices`, `sandboxed`, `other` | sometimes |
 
 ### `flow_consent_result`
@@ -914,6 +918,7 @@ The Values cells link here for the long lists.
 | `welcome_try_flow` | Welcome's last step opened Flow. |
 | `welcome_try_dictate` | Welcome's last step opened Dictate. |
 | `dictate_onboarding_shown` | Dictate's first-run cards were shown. |
-| `dictate_onboarding_done` | Dictate's first run was finished. |
-| `dictate_onboarding_skipped` | Dictate's first run was skipped. |
+| `dictate_onboarding_step_2` | Dictate's second card, Try it here, was reached. |
+| `dictate_onboarding_done` | Dictate's first run was finished, with `tour_step` its furthest card. |
+| `dictate_onboarding_skipped` | Dictate's first run was put off with Later, with `tour_step` its furthest card. |
 | `first_dictation` | A dictation went in for the first time. |

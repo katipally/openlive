@@ -59,6 +59,15 @@ describe("telemetry schema contents", () => {
     expect(events.telemetry_disabled!.props.days_since_first_open).toMatchObject({ k: "int", max: 999 });
   });
 
+  it("measures Dictate's speed, empty and cancelled dictations, and names its two new failures", () => {
+    const { props } = events.dictate_session!;
+    for (const p of ["empty", "cancelled"]) expect(props[p], p).toMatchObject({ k: "int", max: 999, opt: true });
+    for (const p of ["latency_ms_p50", "latency_ms_p90"]) expect(props[p], p).toMatchObject({ k: "int", max: 30000, step: 50, opt: true });
+    expect(events.dictate_failure!.props.code!.values).toEqual(expect.arrayContaining(["secure_field", "mic_silent"]));
+    expect(events.dictate_failure!.limit).toMatchObject({ dedupeKey: ["code"] });
+    expect(events.onboarding_step!.props.step!.values).toContain("dictate_onboarding_step_2");
+  });
+
   it("lists no value that no code path sends", () => {
     expect(events.crash_detected!.props.reason!.values).not.toContain("dump_found");
     expect(events.os_permission_request!.props.asked_from!.values).not.toContain("orb_fix");

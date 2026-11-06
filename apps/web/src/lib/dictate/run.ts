@@ -1,4 +1,5 @@
 import { cleanup, countWords, type CleanupRules } from "./cleanup";
+import { latencyPercentiles, SAMPLE_CAP } from "./sessionStats";
 import { applyDictionary, snippetFor, spokenCommand, type Snippet, type SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
@@ -49,6 +50,10 @@ export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polis
 export interface DictateReport {
   ms: number; ended: DictateEnd; dictations: number; words: number; copied: number; failed: number;
   polished: number; edits: number; commands: number; snippets: number;
+  /** Dictations with no words heard, and holds cancelled. */
+  empty: number; cancelled: number;
+  /** Speech end to first character in, over the session's dictations; null with none. */
+  latency: { p50: number; p90: number } | null;
 }
 
 /** How many words a session typed, as its report buckets it. */
@@ -174,7 +179,17 @@ export function createDictate(ports: DictatePorts) {
   let work: Promise<unknown> = Promise.resolve();
   // This session's numbers, for its report; null before one opened.
   let tally: (Omit<DictateReport, "ms" | "ended"> & { at: number }) | null = null;
-  const count = (k: keyof Omit<DictateReport, "ms" | "ended">, n = 1) => { if (tally) tally[k] += n; };
+  const count = (k: Exclude<keyof Omit<DictateReport, "ms" | "ended">, "latency">, n = 1) => { if (tally) tally[k] += n; };
+  // Speech end to first character in, per dictation, bounded.
+  let samples: number[] = [];
+  // When the utterance now being typed ended; null once its first character is in.
+  let spokeAt: number | null = null;
+  const firstChar = () => {
+    if (spokeAt !== null && samples.length < SAMPLE_CAP) samples.push(performance.now() - spokeAt);
+    spokeAt = null;
+  };
+  // A hold's speech ended when the key came up, before the engine handed its words over.
+  let releasedAt: number | null = null;
   const NOTES: [string, DictateFailure][] = [[NO_MIC, "no_mic"], [NOT_WRITTEN, "not_written"], [FAILED, "insert_failed"], [POLISH_LATE, "polish_late"],
     [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"]];
 
@@ -196,9 +211,11 @@ export function createDictate(ports: DictatePorts) {
     if (holding) ports.dropHold();
     if (open && tally) {
       const { at, ...n } = tally;
-      ports.report?.({ ...n, ms: Date.now() - at, ended: why });
+      ports.report?.({ ...n, ms: Date.now() - at, ended: why, latency: latencyPercentiles(samples) });
     }
     tally = null;
+    samples = [];
+    spokeAt = releasedAt = null;
     open = false;
     holding = false;
     began = null;
@@ -216,7 +233,7 @@ export function createDictate(ports: DictatePorts) {
     typed = 0;
     began = null;
     d = null;
-    tally = { at: Date.now(), dictations: 0, words: 0, copied: 0, failed: 0, polished: 0, edits: 0, commands: 0, snippets: 0 };
+    tally = { at: Date.now(), dictations: 0, words: 0, copied: 0, failed: 0, polished: 0, edits: 0, commands: 0, snippets: 0, empty: 0, cancelled: 0 };
     set({ ready: ports.ready() });
     opening = ports.listen().then((heard) => {
       const ok = heard === true;
@@ -270,6 +287,7 @@ export function createDictate(ports: DictatePorts) {
     const typing = await ports.typing();
     if (typing) {
       await typing.push(text);
+      firstChar();
       if (await typing.end()) return "typed";
     }
     return (await ports.copy(text)) ? "copied" : "failed";
@@ -305,6 +323,7 @@ export function createDictate(ports: DictatePorts) {
         const typing = await opened;
         if (!typing) return;
         await typing.push((sent ? "" : space) + text);
+        firstChar();
         sent += text;
         set({ inserted: countWords(sent) });
       });
@@ -349,7 +368,7 @@ export function createDictate(ports: DictatePorts) {
     const spoken = english ? spokenCommand(text, s.commands) : null;
     const said = spoken ? spoken.before : text;
     const clean = applyDictionary(cleanup(said, s.rules, s.lang), s.words);
-    if (!clean && !spoken) { set({ partial: "" }); return; }
+    if (!clean && !spoken) { count("empty"); set({ partial: "" }); return; }
     set({ phase: "processing", partial: clean });
     const snippet = snippetFor(clean, s.snippets);
     let final = snippet ?? clean;
@@ -423,12 +442,13 @@ export function createDictate(ports: DictatePorts) {
     async holdEnd() {
       if (!holding) return;
       const up = performance.now();
+      releasedAt = up;
       if (!(await opening)) { holding = false; return; }
       set({ phase: "processing" });
       const ended = await ports.endHold(performance.now() - up);
       holding = false;
       if (!open) return;
-      if (ended !== "heard") { began = null; set({ phase: "idle", partial: "", editing: false, note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH }); }
+      if (ended !== "heard") { began = null; releasedAt = null; if (ended !== "lost") count("empty"); set({ phase: "idle", partial: "", editing: false, note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH }); }
       // The engine hands the words over without waiting for them to be typed.
       await work;
     },
@@ -437,6 +457,7 @@ export function createDictate(ports: DictatePorts) {
       if (!holding) return;
       holding = false;
       began = null;
+      count("cancelled");
       if (await opening) {
         discarding = true;
         try { await ports.endHold(0); } finally { discarding = false; }
@@ -480,10 +501,13 @@ export function createDictate(ports: DictatePorts) {
       if (discarding) return true;
       if (!open) return false;
       const s = ports.settings();
+      const ended = releasedAt ?? performance.now();
+      releasedAt = null;
       const how = (began ?? Promise.resolve("")).then(async (before) => ({ before, as: await editsSelection(before) }));
       began = null;
       const run = work.then(async () => {
         const { before, as } = await how;
+        spokeAt = ended;
         if (as === "edit") return edit(text, before, s);
         if (as === "type" && d?.editing) set({ editing: false });
         await dictation(text, s);
