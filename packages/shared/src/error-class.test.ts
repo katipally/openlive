@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_ERROR_CLASSES, API_ERROR_CLASSES, ClassedError, classifyError, ERROR_CLASSES, errorClassSchema, httpClassOf,
+  AGENT_ERROR_CLASSES, API_ERROR_CLASSES, BRAIN_ERROR_REASONS, brainErrorReason, httpStatus, ClassedError, classifyError, ERROR_CLASSES, errorClassSchema, httpClassOf,
   SUPERVISED_CLASSES, supervisorClass, type ErrorClass,
 } from "./error-class";
 import { liveServerMsgSchema, flowEventSchema } from "./live-events";
@@ -108,5 +108,26 @@ describe("supervisorClass", () => {
     for (const o of [{ timedOut: true, sawOutput: false }, { timedOut: true, sawOutput: true }, { timedOut: false, sawOutput: false }]) {
       expect(SUPERVISED_CLASSES.has(supervisorClass(o))).toBe(true);
     }
+  });
+});
+
+describe("brainErrorReason and httpStatus", () => {
+  it("reads Ollama's tools refusal, a context overflow and a missing model", () => {
+    expect(brainErrorReason(http(400, '{"error":{"message":"registry.ollama.ai/library/gemma:2b does not support tools"}}'))).toBe("tools_unsupported");
+    expect(brainErrorReason(http(400, "the input length exceeds the context length"))).toBe("context_length");
+    expect(brainErrorReason(http(400, "model 'x' not found"))).toBe("model_not_found");
+    expect(brainErrorReason(http(404, ""))).toBe("model_not_found");
+    expect(brainErrorReason(http(400, "bad json"))).toBe("other");
+    expect(brainErrorReason(undefined)).toBe("other");
+  });
+
+  it("answers only with values the schema lists", () => {
+    expect([...BRAIN_ERROR_REASONS]).toEqual([...telemetrySchema.events.brain_error.props.reason.values]);
+  });
+
+  it("reads the status an adapter threw, wherever the caller's words put it", () => {
+    expect(httpStatus(http(400, "x"))).toBe(400);
+    expect(httpStatus(new Error("That didn't go through: HTTP 502: bad"))).toBe(502);
+    expect(httpStatus(new Error("nothing"))).toBeUndefined();
   });
 });

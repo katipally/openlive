@@ -1,3 +1,4 @@
+import { brainErrorReason } from "@openlive/shared"
 import type { ChatRequest, ProviderEvent, ProviderInfo } from "./types"
 import { streamAnthropic } from "./anthropic"
 import { streamOpenAIResponses } from "./openai-responses"
@@ -9,6 +10,13 @@ export * from "./catalog"
 export * from "./models"
 export * from "./registry"
 
+/** Models that refused a request carrying tools and answered the same one without, so later turns skip tools. */
+const noTools = new Set<string>()
+
+/** A 400 that tools may have caused. A context overflow or a missing model would pass or fail without tools for other reasons. */
+const refusedAsBadRequest = (e: unknown) =>
+  e instanceof Error && /^HTTP 400\b/.test(e.message) && !["context_length", "model_not_found"].includes(brainErrorReason(e))
+
 /** Dispatch a streaming chat request to the right wire adapter: Anthropic
  *  (/messages), OpenAI Responses (/responses), or OpenAI Chat (/chat/completions). */
 export function streamProvider(
@@ -19,7 +27,34 @@ export function streamProvider(
 ): AsyncGenerator<ProviderEvent> {
   if (provider.protocol === "anthropic")
     return streamAnthropic({ baseURL: provider.baseURL, apiKey, req, signal, quirks: provider.quirks })
-  if (provider.protocol === "openai-chat")
-    return streamOpenAIChat({ baseURL: provider.baseURL, apiKey, req, signal })
-  return streamOpenAIResponses({ baseURL: provider.baseURL, apiKey, req, signal })
+  return streamOpenAICompatible(provider, apiKey, req, signal)
 }
+
+/** A server that cannot take tools (an Ollama model without them answers 400) still answers the turn: the
+ *  request is retried once without them, before anything has streamed, and the model is remembered for the session. */
+async function* streamOpenAICompatible(
+  provider: ProviderInfo,
+  apiKey: string | undefined,
+  req: ChatRequest,
+  signal: AbortSignal,
+): AsyncGenerator<ProviderEvent> {
+  const stream = (r: ChatRequest) =>
+    provider.protocol === "openai-chat"
+      ? streamOpenAIChat({ baseURL: provider.baseURL, apiKey, req: r, signal })
+      : streamOpenAIResponses({ baseURL: provider.baseURL, apiKey, req: r, signal })
+  const key = `${provider.baseURL}|${req.model}`
+  const bare: ChatRequest = { ...req, tools: [], toolChoice: undefined }
+  if (!req.tools.length || noTools.has(key)) return yield* stream(bare)
+  let started = false
+  try {
+    for await (const ev of stream(req)) {
+      started = true
+      yield ev
+    }
+  } catch (e) {
+    if (started || !refusedAsBadRequest(e)) throw e
+    yield* stream(bare)
+    noTools.add(key)
+  }
+}
+

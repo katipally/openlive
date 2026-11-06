@@ -34,10 +34,16 @@ const messageOf = (e: unknown): string => {
 };
 
 /** The status an adapter's `HTTP <status>: <body>` error carries, first of any, so a caller's own words in front do not hide it. */
-function httpStatus(e: unknown): number | undefined {
+export function httpStatus(e: unknown): number | undefined {
   const m = /\bHTTP (\d{3})\b/.exec(messageOf(e));
   return m ? Number(m[1]) : undefined;
 }
+
+const TOOLS_UNSUPPORTED = /does not support tools|tools? (?:are |is )?(?:not supported|unsupported)/i;
+const CONTEXT_LENGTH = /context[ _](?:length|window)|maximum context|too many tokens|prompt is too long|input length exceeds/i;
+
+export const BRAIN_ERROR_REASONS = ["tools_unsupported", "context_length", "model_not_found", "other"] as const;
+export type BrainErrorReason = (typeof BRAIN_ERROR_REASONS)[number];
 
 const QUOTA = /quota|billing|credit|insufficient[_ ](funds|balance)/i;
 const NETWORK = /could not reach|fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET|ETIMEDOUT|socket hang up|network/i;
@@ -87,3 +93,11 @@ const CLIENT_ERRORS: ReadonlySet<ErrorClass> = new Set(["auth", "model_not_found
 
 /** The HTTP family a class comes from. Asked of the class, since the status is gone once a message is reworded for the person. */
 export const httpClassOf = (cls: ErrorClass): HttpClass => (cls === "server_error" ? "5xx" : CLIENT_ERRORS.has(cls) ? "4xx" : "none");
+
+/** A coarse why for a request the provider refused, from the words providers use. The text itself is never kept. */
+export function brainErrorReason(e: unknown): BrainErrorReason {
+  const text = messageOf(e);
+  if (TOOLS_UNSUPPORTED.test(text)) return "tools_unsupported";
+  if (CONTEXT_LENGTH.test(text)) return "context_length";
+  return NO_MODEL.test(text) || httpStatus(e) === 404 ? "model_not_found" : "other";
+}
