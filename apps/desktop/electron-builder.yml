@@ -40,6 +40,9 @@ files:
   - window-state.cjs
   - login-item.cjs
   - update-gate.cjs
+  - prev-exit.cjs
+  - service-restart.cjs
+  - gpu-flags.cjs
   # Product-usage telemetry: every runtime file of telemetry/, not its tests. A file
   # missing here is a "Cannot find module" at launch (packaging.test.ts checks).
   - telemetry/aggregator.cjs

@@ -157,7 +157,9 @@ Limit: at most 1 per launch.
 | `boot_result` | `ok`, `ports_blocked` when another program held a port OpenLive needs, or `servers_timeout` when its local servers did not come up in time. | `ok`, `ports_blocked`, `servers_timeout` | always |
 | `boot_ms` | Time from the app starting until both local servers answered, to 100 ms. Only sent after a good start. | whole number, 0 to 600000, rounded to 100 | sometimes |
 | `agent_port_moved` | True when the local agent server had to use a different port than usual. | true or false | sometimes |
-| `prev_exit_clean` | False when the previous run did not exit cleanly. | true or false | sometimes |
+| `prev_exit` | How the previous run ended: `clean`, `os_restart` (the computer restarted, shut down or lost power), `killed` (OpenLive was ended while its servers kept running), or `unknown` (it left no trace of a normal quit). | `clean`, `os_restart`, `killed`, `unknown` | sometimes |
+| `prev_exit_clean` | False when the previous run ended as `killed` or `unknown`. A restart of the computer counts as clean. | true or false | sometimes |
+| `gpu_blocklist_kept` | True when OpenLive kept Chromium's graphics blocklist because the graphics process crashed on this version. Only sent when true; voice models then run on the CPU. | true or false | sometimes |
 | `login_item` | Whether OpenLive is set to open at login. | true or false | sometimes |
 | `linux_session` | The display server on Linux. `n/a` on other systems. | `x11`, `wayland`, `n/a` | sometimes |
 | `look` | The window look in use. | `glass`, `flat` | sometimes |
@@ -413,7 +415,7 @@ Limit: the same `code` is not sent again within 10 minutes.
 
 ### `crash_detected`
 
-When one of OpenLive's windows or helper processes crashes, and on the next launch after a run that did not exit cleanly. A normal quit is not a crash. `unclean_exit` also shows up after a force quit or a power loss.
+When one of OpenLive's windows or helper processes crashes, and on the next launch after a run that did not exit cleanly. A normal quit is not a crash. `unclean_exit` shows up after a force quit or a run that left no trace; a restart or shutdown of the computer is not counted.
 
 Limit: at most 3 per launch.
 
@@ -434,8 +436,8 @@ Limit: at most 12 per launch.
 | --- | --- | --- | --- |
 | `service` | Which server. | `agent`, `web` | always |
 | `exit_code` | The exit code, or -1 when it is not known. | whole number, -1 to 999 | sometimes |
-| `respawn_n` | Which restart attempt this was within a minute. | whole number, 0 to 99 | sometimes |
-| `outcome` | `respawning` (OpenLive restarts it), `gave_up` (it crashed too often), or `port_taken_by_other` (another program now holds its port). | `respawning`, `gave_up`, `port_taken_by_other` | always |
+| `respawn_n` | Which restart attempt this was in a row, counted again once the server has run for a minute. | whole number, 0 to 99 | sometimes |
+| `outcome` | `respawning` (OpenLive restarts it), `gave_up` (it crashed six times in a row, and OpenLive asked whether to retry), or `port_taken_by_other` (another program now holds its port). | `respawning`, `gave_up`, `port_taken_by_other` | always |
 | `uptime_s` | How long the server had been running, in seconds. | whole number, 0 to 604800 | sometimes |
 
 ### `main_exception`
