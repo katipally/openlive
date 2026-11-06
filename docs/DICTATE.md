@@ -376,6 +376,7 @@ where the switch is. Then three subtabs:
     Speech engine.
   - **Cleanup**: the five rules, with a live example of what they do.
   - **AI polish**: on or off, and its tone.
+  - **Microphone**: the system default, or one device for Dictate alone. A device that is gone falls back to the default, and a new pick applies the next time the microphone opens.
   - **Sounds**: the start and stop tones of a push to talk hold, on by default.
   - **History**: how long to keep dictations, **Clear all**, and a link to the
     list on Dictate's home.
