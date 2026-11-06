@@ -7,10 +7,10 @@ import type { AgentCapabilities, AvailableCommand, ClientApp, ClientContext, Con
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import {
-  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, resolveAgentModel, toolKindSchema,
+  AGENT_REGISTRY, AgentStartError, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, resolveAgentModel, startFailure, startReason, toolKindSchema,
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
-import { widenedPath } from "@openlive/shared/node";
+import { commandOnPath, widenedPath } from "@openlive/shared/node";
 import { layout, resolveHome } from "@openlive/shared/home";
 import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
@@ -215,6 +215,8 @@ export class AcpAgent implements Agent {
     const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
     if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length) this.bridge = piBridge(http);
     const toolless = this.opts.toolless ? toollessLaunch(this.id) : { args: [], env: {} };
+    const path = widenedPath();
+    if (!commandOnPath(cfg.command, path)) throw startFailure(this.id, "not_installed", { command: cfg.command });
     const child = spawn(cfg.command, [...cfg.args, ...toolless.args], {
       cwd: cfg.cwd,
       // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
@@ -224,7 +226,7 @@ export class AcpAgent implements Agent {
       shell: isWin,
       env: {
         ...process.env,
-        PATH: widenedPath(),
+        PATH: path,
         // Per-agent env quirks live in the registry. Claude's entry:
         // CLAUDE_CODE_ENTRYPOINT="claude-vscode" — the CLI's /resume picker HIDES
         // sessions stamped with an SDK entrypoint, and "claude-vscode" is the
@@ -256,11 +258,13 @@ export class AcpAgent implements Agent {
     let ready = false;
     let exitCode: number | null = null;
     const died = new Promise<never>((_, reject) => {
-      child.once("error", (e) => reject(new ClassedError(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`, "agent_start_failed")));
+      child.once("error", (e) => reject((e as NodeJS.ErrnoException).code === "ENOENT"
+        ? startFailure(this.id, "not_installed", { command: cfg.command })
+        : new ClassedError(`Couldn't run "${cfg.command}": ${e.message}. Is ${labelFor(this.id)} installed?`, "agent_start_failed")));
       child.once("exit", (code) => {
         this.alive = false;
         exitCode = code;
-        if (!ready) reject(new ClassedError(startError(this.id, code, stderr), "agent_start_failed"));
+        if (!ready) reject(exitFailure(this.id, code, stderr, cfg.command));
         else if (code) log.error(`agent:${this.id}`, `${cfg.command} exited ${code}`);
       });
     });
@@ -280,9 +284,12 @@ export class AcpAgent implements Agent {
       // story (exit + stderr + per-agent hint), not the transport's.
       const dead = await Promise.race([died.catch(() => true), new Promise<false>((r) => setTimeout(() => r(false), 500))]);
       // ACP's auth_required: the agent runs but has no login. OpenLive signs agents in
-      // through their own CLI, never through `authenticate`.
-      const why = dead || !this.alive ? new ClassedError(startError(this.id, exitCode, stderr), "agent_start_failed")
-        : (e as { code?: number } | null)?.code === AUTH_REQUIRED ? new ClassedError(`${labelFor(this.id)} isn't signed in (${extractAcpError(e)}). ${AGENT_REGISTRY[this.id].startHint}`, "agent_start_failed")
+      // through their own CLI, never through `authenticate`. Gemini reports a refused personal account as an ACP error, not on stderr, so both are read.
+      const said = e instanceof AgentStartError ? stderr : `${stderr}\n${extractAcpError(e)}`;
+      const reason = startReason(said, exitCode);
+      const why = dead || !this.alive ? exitFailure(this.id, exitCode, said, cfg.command)
+        : reason === "personal_account" ? startFailure(this.id, reason)
+        : (e as { code?: number } | null)?.code === AUTH_REQUIRED || reason === "auth_needed" ? startFailure(this.id, "auth_needed", { tail: `(${extractAcpError(e)})` })
         : e;
       // A start that failed leaves no adapter behind: its whole process tree goes.
       await this.dispose();
@@ -1007,9 +1014,10 @@ function extractAcpError(e: unknown): string {
   return raw;
 }
 
-/** A clean, actionable error when an agent process dies before the ACP handshake.
- *  The per-agent hint lives in the shared registry (`startHint`). */
-function startError(id: AgentId, code: number | null, stderr: string): string {
+/** A clean, actionable error when an agent process dies before the ACP handshake:
+ *  the reason picks the words (see startMessage), the agent's last lines ride along. */
+export function exitFailure(id: AgentId, code: number | null, stderr: string, command: string) {
+  const reason = startReason(stderr, code);
   const tail = stderr.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(-240);
-  return `${labelFor(id)} exited before connecting${code != null ? ` (code ${code})` : ""}. ${AGENT_REGISTRY[id].startHint}${tail ? ` — ${tail}` : ""}`;
+  return startFailure(id, reason, { command, code, tail: tail && reason !== "personal_account" ? `— ${tail}` : undefined });
 }

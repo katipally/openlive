@@ -1,5 +1,5 @@
 import type { Message } from "@openlive/harness";
-import { agentLabel, ClassedError, supervisorClass } from "@openlive/shared";
+import { agentLabel, startFailure, supervisorClass } from "@openlive/shared";
 import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentId, AskPermission, TurnInput } from "./types.js";
 import { emitFact } from "../telemetry/emit.js";
@@ -167,7 +167,7 @@ export class AgentSupervisor implements Agent {
 
   private withStartTimeout<T>(p: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new ClassedError(`agent "${this.id}" didn't become ready within ${this.t.startMs / 1000}s`, "agent_start_timeout")), this.t.startMs);
+      const timer = setTimeout(() => reject(startFailure(this.id, "timeout", { seconds: this.t.startMs / 1000 })), this.t.startMs);
       p.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
     });
   }

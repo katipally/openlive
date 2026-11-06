@@ -221,10 +221,11 @@
         "class": { "k": "enum", "values": ["no_key", "no_model", "auth", "model_not_found", "quota", "rate_limited", "unreachable", "server_error", "bad_request", "stream_error", "other", "agent_no_folder", "agent_start_failed", "agent_start_timeout", "agent_no_output", "agent_stalled", "agent_crashed", "agent_rejected", "agent_refused"] },
         "recovered": { "k": "bool", "opt": true },
         "http_class": { "k": "enum", "values": ["4xx", "5xx", "none"], "opt": true },
+        "start_reason": { "k": "enum", "values": ["not_installed", "auth_needed", "personal_account", "outdated", "timeout", "exited"], "opt": true },
         "http_status": { "k": "int", "max": 599, "min": 100, "opt": true },
         "reason": { "k": "enum", "values": ["tools_unsupported", "context_length", "model_not_found", "other"], "opt": true }
       },
-      "limit": { "dedupeMs": 300000, "dedupeKey": ["class", "brain_id"] }
+      "limit": { "dedupeMs": 300000, "dedupeKey": ["class", "brain_id", "start_reason"] }
     },
     "flow_failure_card": {
       "props": {
