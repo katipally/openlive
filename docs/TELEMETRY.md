@@ -397,7 +397,7 @@ Limit: the same `code` is not sent again within 10 minutes.
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
 | `code` | What went wrong. See [failure codes](#failure-codes). The card's title and detail are never sent. | one of the [failure codes](#failure-codes) | always |
-| `origin` | Where the failure was found: `health` (the readiness check), `turn` (a failed turn), `mic`, `lost_answer`, or `link`. | `health`, `turn`, `mic`, `lost_answer`, `link` | sometimes |
+| `origin` | Where the failure was found: `health` (the readiness check), `turn` (a failed turn), `mic`, `lost_answer`, `link`, or `tray` (the menu-bar Start Flow found the key listener down or not allowed). | `health`, `turn`, `mic`, `lost_answer`, `link`, `tray` | sometimes |
 | `brain_kind` | `api` for a model provider, `acp` for a coding agent. | `api`, `acp` | sometimes |
 | `brain_id` | Which provider or coding agent. Never the model. | one of the [provider ids](#provider-ids) or [coding agent ids](#coding-agent-ids) | sometimes |
 
@@ -765,6 +765,10 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `flow_brain` | Who answers in Flow: your API key or a coding agent. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
 | `flow_speak_replies` | Flow speaks its replies, on or off. | `on`, `off` | none |
 | `flow_own_wait` | Use a different pace for Flow, on or off. | `on`, `off` | none |
+| `flow_own_stt` | Flow has its own speech-to-text, on or off. | `on`, `off` | none |
+| `flow_stt_family` | The speech-to-text engine family Flow hears with, while it has its own. Never the model or size. | one of the [speech-to-text families](#speech-to-text-families) | none |
+| `flow_own_voice` | Flow has its own voice, on or off. | `on`, `off` | none |
+| `flow_tts_family` | The text-to-speech engine family Flow speaks with, while it has its own. Never the voice. | one of the [text-to-speech families](#text-to-speech-families) | none |
 | `flow_quiet_meeting` | Stay quiet during meetings, on or off. | `on`, `off` | none |
 | `flow_quiet_mic` | Stay quiet when another app uses the microphone, on or off. | `on`, `off` | none |
 | `flow_quiet_dnd` | Stay quiet during Do Not Disturb, on or off. | `on`, `off` | none |
@@ -777,6 +781,8 @@ These are the settings `setting_changed` can report, with the values each one ca
 | `dictate_polish` | AI polish, on or off. | `on`, `off` | none |
 | `dictate_tone` | AI polish's tone. | `natural`, `casual`, `formal` | none |
 | `dictate_own_brain` | Dictate has its own choice of who answers, on or off. | `on`, `off` | none |
+| `dictate_own_stt` | Dictate has its own speech-to-text, on or off. | `on`, `off` | none |
+| `dictate_stt_family` | The speech-to-text engine family Dictate hears with, while it has its own. Never the model or size. | one of the [speech-to-text families](#speech-to-text-families) | none |
 | `dictate_brain` | Who answers for Dictate's AI polish and edits, while it has its own: your API key or a coding agent. The subject is the coding agent, when it is one. | `api`, `acp` | agent id |
 | `flow_key` | The key double-tapped to open Flow: a key group by name, or `other` for one side of a key or a spare key, never which. | `ctrl`, `option`, `shift`, `command`, `fn`, `other` | none |
 | `dictate_key` | The key double-tapped to open Dictate, reported as `flow_key` is. | `ctrl`, `option`, `shift`, `command`, `fn`, `other` | none |

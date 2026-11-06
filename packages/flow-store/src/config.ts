@@ -22,6 +22,14 @@ const TALK_MODES = ["handsFree", "ptt"] as const;
 /** The choices "Close after silence" offers, besides never. */
 export const SILENCE_CHOICES_MS = [30_000, 90_000, 300_000] as const;
 
+/** A surface's own speech-to-text, used only while `override` is on; off, it
+ *  hears with what Chat does. `variant` names the engine's model as the voice
+ *  pipeline does ("" until picked), `whisperSize` Whisper's size. Checked
+ *  against the engines this build has where the renderer applies it, not here. */
+export interface SpeechInPick { override: boolean; variant: string; whisperSize: string }
+/** A surface's own voice, the same way: the engine's model and the voice id ("" is the engine's own pick). */
+export interface SpeechOutPick { override: boolean; variant: string; voice: string }
+
 export interface FlowConfig {
   version: number;
   insertion: {
@@ -60,6 +68,8 @@ export interface FlowConfig {
     /** null: not decided yet, for a config from before the wait was shared.
      *  Only the renderer holds Chat's wait to compare with, so it decides. */
     turnOverride: boolean | null;
+    stt: SpeechInPick;
+    tts: SpeechOutPick;
   };
   /** The one permission Flow ever takes: the person said, once, that it may act
    *  on this machine. Nothing is asked per tool, per tier or per call. */
@@ -95,6 +105,8 @@ export interface FlowConfig {
     cleanup: { punctuation: boolean; fillers: boolean; backtrack: boolean; lists: boolean; numbers: boolean };
     brain: FlowConfig["brain"];
     polish: { enabled: boolean; tone: DictateTone };
+    /** Dictate types what it hears and never speaks, so it has no voice of its own. */
+    stt: SpeechInPick;
     commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
     words: string[];
     snippets: { trigger: string; text: string }[];
@@ -114,6 +126,8 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     autoQuiet: { meetingApps: true, micContention: true, systemDnd: true, apps: [] },
     turn: { threshold: 0.65, holdMs: 6000, redemptionMs: 800 },
     turnOverride: false,
+    stt: { override: false, variant: "", whisperSize: "" },
+    tts: { override: false, variant: "", voice: "" },
   },
   consent: { granted: false, at: "" },
   talk: { mode: "handsFree", pttKey: defaultPttKey(process.platform), flowKey: "ctrl", dictateKey: "option", closeAfterSilenceMs: 30_000 },
@@ -123,6 +137,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     cleanup: { punctuation: true, fillers: true, backtrack: true, lists: true, numbers: true },
     brain: { override: false, kind: "api", agentId: "", agentModel: "", agentEffort: "" },
     polish: { enabled: false, tone: "natural" },
+    stt: { override: false, variant: "", whisperSize: "" },
     commands: { enter: true, newLine: true, newParagraph: true, undo: true, stop: true },
     words: [],
     snippets: [],
@@ -203,6 +218,13 @@ function silenceFrom(ms: unknown): number | null | undefined {
   return SILENCE_CHOICES_MS.reduce((best, c) => (Math.abs(c - ms) < Math.abs(best - ms) ? c : best));
 }
 
+const speechIn = (raw: Record<string, unknown>, d: SpeechInPick): SpeechInPick => ({
+  ...raw,
+  override: bool(raw.override, d.override),
+  variant: str(raw.variant, d.variant),
+  whisperSize: str(raw.whisperSize, d.whisperSize),
+});
+
 /** Never throws. Anything unrecognised falls back to its default, and any key
  *  this build does not know about is carried through untouched. */
 export function parseFlowConfig(raw: unknown): FlowConfig {
@@ -218,12 +240,15 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
   const voice = obj(o.voice);
   const autoQuiet = obj(voice.autoQuiet);
   const turn = obj(voice.turn);
+  const voiceStt = obj(voice.stt);
+  const voiceTts = obj(voice.tts);
   const consent = obj(o.consent);
   const talk = obj(o.talk);
   const dictate = obj(o.dictate);
   const cleanup = obj(dictate.cleanup);
   const dictateBrain = obj(dictate.brain);
   const polish = obj(dictate.polish);
+  const dictateStt = obj(dictate.stt);
   const commands = obj(dictate.commands);
   const dd = d.dictate;
   return {
@@ -264,6 +289,13 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         redemptionMs: clamp(num(turn.redemptionMs, d.voice.turn.redemptionMs), 200, 1500),
       },
       turnOverride: voice.turnOverride === null ? null : bool(voice.turnOverride, d.voice.turnOverride as boolean),
+      stt: speechIn(voiceStt, d.voice.stt),
+      tts: {
+        ...voiceTts,
+        override: bool(voiceTts.override, d.voice.tts.override),
+        variant: str(voiceTts.variant, d.voice.tts.variant),
+        voice: str(voiceTts.voice, d.voice.tts.voice),
+      },
     },
     // A grant with no date is still a grant, but a date with no grant is not:
     // the stamp is what the settings screen shows back to the person.
@@ -302,6 +334,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
         agentEffort: str(dictateBrain.agentEffort, dd.brain.agentEffort),
       },
       polish: { ...polish, enabled: bool(polish.enabled, dd.polish.enabled), tone: one(polish.tone, TONES, dd.polish.tone) },
+      stt: speechIn(dictateStt, dd.stt),
       commands: {
         ...commands,
         enter: bool(commands.enter, dd.commands.enter),

@@ -5,7 +5,7 @@ import { toolSummary, type ErrorClass, type FlowCloseReason, type FlowContextWir
 import { LiveClient, type PermissionOption, type ToolBridgeOp } from "@/lib/live/liveClient";
 import { VoiceEngine, type EnginePhase } from "@/lib/live/voiceEngine";
 import { agreeToDownload, downloadAsk, loadModels, modelsCached, modelsMatchConfig, onDownloadAsk, voiceDownloadPlan, type DownloadAsk } from "@/lib/live/models";
-import { loadPipelineConfig } from "@/lib/live/pipelineConfig";
+import { loadPipelineConfig, setSurfaceVoice } from "@/lib/live/pipelineConfig";
 import { downloadPlan, planModels } from "@/lib/live/weights";
 import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
 import { agentToolLabel, toolActive } from "@/lib/live/toolMeta";
@@ -26,6 +26,7 @@ import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
+import { surfaceVoice } from "./voice";
 import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, sessionModelsOffer, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
@@ -69,7 +70,7 @@ interface FlowSettings {
   talk: FlowConfig["talk"];
   brain: FlowConfig["brain"];
   insertion: FlowConfig["insertion"];
-  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride">;
+  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride" | "stt" | "tts">;
   dictate: FlowConfig["dictate"];
 }
 
@@ -734,6 +735,10 @@ export function useFlowOwner(): void {
       holding: publishTalk,
     });
 
+    // Whose engines the models, the downloads and the microphone follow: Dictate's
+    // while it is open or its download is, else Flow's.
+    setSurfaceVoice(() => surfaceVoice(settings.current, dictate.isOpen() || (fetching && afterModels === "dictate") ? "dictate" : "flow"));
+
     // ── the Flow socket ───────────────────────────────────────────────────
     const onFlowEvent = (e: FlowEventWire) => {
       if (turnActive.current) armAnswerWatchdog();
@@ -1021,6 +1026,7 @@ export function useFlowOwner(): void {
       // the snapshot would keep the next one from ever summoning the orb.
       dictate.yield();
       patch({ dictate: null });
+      setSurfaceVoice(null);
       clearInterval(bands);
       clearInterval(armWatch);
       window.removeEventListener("online", online);

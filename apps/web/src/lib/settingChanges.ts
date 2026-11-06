@@ -2,7 +2,7 @@ import { telemetrySchema, type TelemetryEventProps } from "@openlive/shared";
 import { isLoopbackUrl } from "@openlive/harness/registry";
 import type { FlowConfig } from "@openlive/flow-store";
 import { dictateBrain, flowBrain, historyKeep, type FlowBrain } from "@openlive/flow-store/shared";
-import { activeTurnPreset, loadPipelineConfig, onPipelineConfig, turnPresetOf, type PipelineConfig } from "./live/pipelineConfig";
+import { activeTurnPreset, loadPipelineConfig, onPipelineConfig, turnPresetOf, variantInfo, type PipelineConfig } from "./live/pipelineConfig";
 import { telemetry } from "./telemetry";
 import { sttFamilyOf, ttsFamilyOf } from "./telemetryIds";
 import { useUi } from "./uiStore";
@@ -101,6 +101,10 @@ export function seedServerSettings<T extends Rec>(s: T): T {
   known = { ...s };
   return s;
 }
+/** The model saved for `agent` as the default, when it is the default agent; the last settings the server said. */
+export function savedDefaultModel(agent: string): string | undefined {
+  return known?.defaultAgent === agent ? known.defaultAgentModel || undefined : undefined;
+}
 /** The settings after a write. Anything that differs from the last known state is reported. */
 export function serverSettingsChanged<T extends Rec>(s: T): T {
   if (known) serverChanges(known, s).forEach(reportSetting);
@@ -121,8 +125,10 @@ const TOGGLES = telemetrySchema.settings.flow_key.values;
 const toggleKeyOf = (k: string) => TOGGLES.find((v) => v === k) ?? "other";
 const SILENCES = new Map<number | null, "30s" | "90s" | "5m" | "never">([[30_000, "30s"], [90_000, "90s"], [300_000, "5m"], [null, "never"]]);
 
-/** Pure, but for the default Flow follows, which is the server settings last known unless given. */
-export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known ?? {}): Change[] {
+type Own = { override: boolean; variant: string };
+
+/** Pure, but for the default Flow follows (the server settings last known unless given) and the shared engines (the saved pipeline). */
+export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known ?? {}, pipeline: PipelineConfig = loadPipelineConfig()): Change[] {
   const out: Change[] = [];
   const flip = (setting: Change["setting"], x: boolean, y: boolean) => { if (x !== y) out.push({ setting, value: onOff(y) }); };
   const agentModelChange = (x: FlowBrain, y: FlowBrain) => {
@@ -137,6 +143,18 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   }
   if (a.brain.override && b.brain.override) agentModelChange(from, to);
   flip("flow_speak_replies", a.voice.speakReplies, b.voice.speakReplies);
+  // A surface's own engines: the switch, and the family it runs on while it has its own. Never the model, size or voice.
+  const sttFamily = (p: Own) => sttFamilyOf(p.override ? variantInfo(p.variant)?.family.id : pipeline.stt.family);
+  const ttsFamily = (p: Own) => ttsFamilyOf(p.override ? variantInfo(p.variant)?.family.id : pipeline.tts.family);
+  const hears = (setting: "flow_stt_family" | "dictate_stt_family", x: Own, y: Own) => {
+    const family = sttFamily(y);
+    if (y.override && family && family !== sttFamily(x)) out.push({ setting, value: family });
+  };
+  flip("flow_own_stt", a.voice.stt.override, b.voice.stt.override);
+  hears("flow_stt_family", a.voice.stt, b.voice.stt);
+  flip("flow_own_voice", a.voice.tts.override, b.voice.tts.override);
+  const spoken = ttsFamily(b.voice.tts);
+  if (b.voice.tts.override && spoken && spoken !== ttsFamily(a.voice.tts)) out.push({ setting: "flow_tts_family", value: spoken });
   flip("flow_own_wait", a.voice.turnOverride === true, b.voice.turnOverride === true);
   const t0 = a.voice.turn;
   const t1 = b.voice.turn;
@@ -152,6 +170,8 @@ export function flowChanges(a: FlowConfig, b: FlowConfig, settings: Rec = known 
   flip("dictate_polish", a.dictate.polish.enabled, b.dictate.polish.enabled);
   if (a.dictate.polish.tone !== b.dictate.polish.tone) out.push({ setting: "dictate_tone", value: b.dictate.polish.tone });
   flip("dictate_own_brain", a.dictate.brain.override, b.dictate.brain.override);
+  flip("dictate_own_stt", a.dictate.stt.override, b.dictate.stt.override);
+  hears("dictate_stt_family", a.dictate.stt, b.dictate.stt);
   const was = dictateBrain(a, settings);
   const now = dictateBrain(b, settings);
   // Following Flow, Dictate's brain moves with it, and flow_brain already said so.

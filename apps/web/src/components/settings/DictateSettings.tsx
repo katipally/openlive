@@ -20,6 +20,7 @@ import { ModeOnLine, QueryState, StatusDot } from "./common";
 import { DictateWords } from "./DictateWords";
 import { DictateHistory } from "./DictateHistory";
 import { SharedSettings } from "./SharedSettings";
+import { SurfaceSpeech } from "./SurfaceSpeech";
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "./WhoAnswers";
 
 // The Dictate tab configures; Dictate's home is where it is switched on and
@@ -106,6 +107,7 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
 
       <BrainSection config={config} save={save} />
       <SharedSettings id="set-dictate-shared" insertion={config.insertion} speaks={false} />
+      <SurfaceSpeech id="set-dictate-speech" surface="dictate" config={config} save={save} />
 
       <Section id="set-dictate-cleanup" title="Cleanup" desc="On this machine, instantly.">
         <div className="flex flex-col gap-3">
