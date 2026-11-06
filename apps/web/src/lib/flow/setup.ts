@@ -1,11 +1,5 @@
-import { isAgentId } from "@openlive/shared";
-import type { AgentStatus } from "../api";
 import { offerStep, type OfferStep } from "../live/lobbyGap";
 import type { DownloadPlan } from "../live/weights";
-
-/** A coding agent that is installed, signed in and not hidden: a brain that needs no API key. Pure. */
-export const readyAgent = (rows: AgentStatus[] | undefined): AgentStatus | undefined =>
-  rows?.find((r) => isAgentId(r.id) && r.installed && r.credState === "ready" && !r.hidden);
 
 export type VoiceSetupStep = OfferStep | "reading" | "ready";
 

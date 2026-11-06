@@ -79,5 +79,6 @@ describe("a brain that needs no key", () => {
   it("is none before the probe answers, or when no agent is ready", () => {
     expect(readyAgent(undefined)).toBeUndefined();
     expect(readyAgent([row({ installed: false })])).toBeUndefined();
+    expect(readyAgent([row({ credState: "unknown" }), row({ id: "nope" })])).toBeUndefined();
   });
 });

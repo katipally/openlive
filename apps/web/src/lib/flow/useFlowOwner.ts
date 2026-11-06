@@ -28,7 +28,7 @@ import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
 import { surfaceVoice } from "./voice";
-import { readyAgent } from "./setup";
+import { readyAgent } from "@/lib/live/lobbyGap";
 import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, sessionModelsOffer, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";

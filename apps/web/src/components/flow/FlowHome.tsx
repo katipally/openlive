@@ -8,7 +8,7 @@ import { menuItem, menuPanel, useMenu, Button, Tooltip, Input, Chip, pill, Check
 import { OpenLiveOrb } from "@/components/OpenLiveOrb";
 import { useFlowConfig, type FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { useFlowVoiceSetup } from "@/lib/flow/useVoiceSetup";
-import { readyAgent } from "@/lib/flow/setup";
+import { readyAgent } from "@/lib/live/lobbyGap";
 import { api } from "@/lib/api";
 import { flowBrain } from "@openlive/flow-store/shared";
 import { useAnswerLine, useDefaultBrain } from "@/components/settings/WhoAnswers";
