@@ -57,9 +57,17 @@
         "stage": { "k": "enum", "values": ["available", "downloaded", "restart_now", "restart_later", "up_to_date", "failed"] },
         "to_version": { "k": "str", "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$", "max": 20, "opt": true },
         "manual": { "k": "bool", "opt": true },
-        "error_kind": { "k": "enum", "values": ["feed_missing", "asset_missing", "signature_invalid", "network", "other"], "opt": true }
+        "error_kind": { "k": "enum", "values": ["feed_missing", "asset_missing", "signature_invalid", "network", "other"], "opt": true },
+        "http_status": { "k": "int", "max": 599, "min": 100, "opt": true },
+        "reason": { "k": "enum", "values": ["offline", "dns", "timeout", "not_found", "rate_limited", "other"], "opt": true }
       },
-      "limit": { "perDayPerKey": 1, "dayKey": ["stage", "error_kind", "manual"] }
+      "limit": { "perDayPerKey": 1, "dayKey": ["stage", "error_kind", "manual", "reason"] }
+    },
+    "update_check_ok": {
+      "props": {
+        "update_available": { "k": "bool" }
+      },
+      "limit": { "perDayPerKey": 1, "dayKey": ["update_available"] }
     },
     "app_quit": {
       "props": {
@@ -212,7 +220,9 @@
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "opt": true },
         "class": { "k": "enum", "values": ["no_key", "no_model", "auth", "model_not_found", "quota", "rate_limited", "unreachable", "server_error", "bad_request", "stream_error", "other", "agent_no_folder", "agent_start_failed", "agent_start_timeout", "agent_no_output", "agent_stalled", "agent_crashed", "agent_rejected", "agent_refused"] },
         "recovered": { "k": "bool", "opt": true },
-        "http_class": { "k": "enum", "values": ["4xx", "5xx", "none"], "opt": true }
+        "http_class": { "k": "enum", "values": ["4xx", "5xx", "none"], "opt": true },
+        "http_status": { "k": "int", "max": 599, "min": 100, "opt": true },
+        "reason": { "k": "enum", "values": ["tools_unsupported", "context_length", "model_not_found", "other"], "opt": true }
       },
       "limit": { "dedupeMs": 300000, "dedupeKey": ["class", "brain_id"] }
     },

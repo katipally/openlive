@@ -37,6 +37,30 @@ function updaterErrorKind(e) {
   return typeof e?.message === "string" && e.message.startsWith("net::") ? "network" : "other";
 }
 
+const DNS = /^(ENOTFOUND|EAI_AGAIN)$|ERR_NAME_NOT_RESOLVED/;
+const TIMEOUT = /^(ETIMEDOUT|ESOCKETTIMEDOUT|ECONNABORTED)$|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT|timed? ?out/i;
+const OFFLINE = /^(ECONN[A-Z]+|ENETUNREACH|EHOSTUNREACH|EPIPE)$|ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ERR_CONNECTION_|ERR_NETWORK/;
+
+/** `{ http_status?, reason }` for a failed update check: the status an updater error carries (a field, an
+ *  `HTTP_ERROR_nnn` code, or electron-updater's `nnn "text"` message), else a coarse reason from its code and
+ *  message. The message and any URL in it are read here and never kept. */
+function updaterFailure(e) {
+  const code = typeof e?.code === "string" ? e.code : "";
+  const message = typeof e?.message === "string" ? e.message : "";
+  const field = e?.statusCode ?? e?.response?.statusCode;
+  const found = Number.isInteger(field) ? field : Number((/^HTTP_ERROR_(\d{3})$/.exec(code) ?? /^(\d{3})\b/.exec(message) ?? /\bHTTP (\d{3})\b/.exec(message))?.[1]);
+  const http_status = found >= 100 && found <= 599 ? found : undefined;
+  const probe = `${code} ${message.slice(0, 200)}`;
+  const reason =
+    http_status === 404 || FEED_MISSING.has(code) || ASSET_MISSING.has(code) ? "not_found"
+    : http_status === 429 || /rate.?limit/i.test(message) ? "rate_limited"
+    : DNS.test(code) || DNS.test(message.match(/net::\w+/)?.[0] ?? "") ? "dns"
+    : TIMEOUT.test(code) || TIMEOUT.test(probe) ? "timeout"
+    : OFFLINE.test(code) || OFFLINE.test(message.match(/net::\w+/)?.[0] ?? "") ? "offline"
+    : "other";
+  return { ...(http_status && { http_status }), reason };
+}
+
 const CRASH_REASONS = new Set(["crashed", "oom", "killed", "abnormal-exit", "launch-failed", "integrity-failure", "memory-eviction"]);
 
 /** null for a clean exit, which is not a crash; a reason Electron adds later reads as an abnormal exit. */
@@ -112,6 +136,6 @@ const LOCK_EVENTS = new Set(["lock-screen", "unlock-screen"]);
 const powerSignal = (event, endOnLock) => (!Object.hasOwn(POWER_SIGNALS, event) || (LOCK_EVENTS.has(event) && !endOnLock) ? null : POWER_SIGNALS[event]);
 
 module.exports = {
-  osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession,
+  osMajor, updaterErrorKind, updaterFailure, crashReason, exitCode, childSource, renderTarget, linuxSession,
   permissionFacts, permissionName, permissionGranted, permissionOutcome, askedFrom, flowEndReason, powerSignal,
 };

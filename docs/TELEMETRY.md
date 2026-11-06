@@ -197,11 +197,21 @@ Limit: at most 1 per launch.
 | `from_version` | The version before the update. | version number, like 1.2.3 or 1.2.3-beta.1 | always |
 | `to_version` | The version now running. | version number, like 1.2.3 or 1.2.3-beta.1 | always |
 
+### `update_check_ok`
+
+An update check that got an answer, so the failure rate of `update_result` can be worked out. `update_available` is true when a newer version was found.
+
+Limit: at most 1 per day for each `update_available`.
+
+| Property | Meaning | Values | Sent |
+| --- | --- | --- | --- |
+| `update_available` | Whether a newer version was found. | true or false | always |
+
 ### `update_result`
 
 As an update moves along: found, downloaded, the restart choice you made, an up-to-date answer to a check you asked for, or a failure. A background check that finds nothing sends nothing. A check you asked for and a background check are counted apart, so a failure from the menu is not lost to the one at launch.
 
-Limit: at most 1 per day for each combination of `stage` and `error_kind` and `manual`.
+Limit: at most 1 per day for each combination of `stage` and `error_kind` and `manual` and `reason`.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
@@ -209,6 +219,8 @@ Limit: at most 1 per day for each combination of `stage` and `error_kind` and `m
 | `to_version` | The version on offer. Left out for `up_to_date` and `failed`. | version number, like 1.2.3 or 1.2.3-beta.1 | sometimes |
 | `manual` | True when you asked for the check from the menu. | true or false | sometimes |
 | `error_kind` | Why an update failed, as a category. The error text is never sent. | `feed_missing`, `asset_missing`, `signature_invalid`, `network`, `other` | sometimes |
+| `http_status` | The HTTP status of a failed check, when the error carried one. | whole number, 100 to 599 | sometimes |
+| `reason` | A coarser cause of a failed update. The error text and address are never sent. | `offline`, `dns`, `timeout`, `not_found`, `rate_limited`, `other` | sometimes |
 
 ### `app_quit`
 
@@ -390,6 +402,8 @@ Limit: the same `class` and `brain_id` is not sent again within 5 minutes.
 | `class` | The kind of failure. Values starting with `agent_` are coding agent failures, the rest are model provider failures. | `no_key`, `no_model`, `auth`, `model_not_found`, `quota`, `rate_limited`, `unreachable`, `server_error`, `bad_request`, `stream_error`, `other`, `agent_no_folder`, `agent_start_failed`, `agent_start_timeout`, `agent_no_output`, `agent_stalled`, `agent_crashed`, `agent_rejected`, `agent_refused` | always |
 | `recovered` | For a coding agent: true when OpenLive restarted it and it came back. | true or false | sometimes |
 | `http_class` | `4xx` or `5xx` when the provider answered with an HTTP error, otherwise `none`. | `4xx`, `5xx`, `none` | sometimes |
+| `http_status` | The HTTP status the provider answered with, when there was one. | whole number, 100 to 599 | sometimes |
+| `reason` | Why a `bad_request` or `model_not_found` was refused, as a category. The provider's text is never sent. | `tools_unsupported`, `context_length`, `model_not_found`, `other` | sometimes |
 
 ### `flow_failure_card`
 
