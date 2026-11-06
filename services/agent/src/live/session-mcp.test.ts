@@ -55,54 +55,52 @@ async function stubAgent(id = "codex") {
   writeFileSync(stub, `
     import { appendFileSync } from "node:fs";
     import { Readable, Writable } from "node:stream";
-    import { AgentSideConnection, ndJsonStream } from ${url("@agentclientprotocol/sdk")};
+    import { agent, methods, ndJsonStream } from ${url("@agentclientprotocol/sdk/unstable")};
     import { Client } from ${url("@modelcontextprotocol/sdk/client/index.js")};
     import { StreamableHTTPClientTransport } from ${url("@modelcontextprotocol/sdk/client/streamableHttp.js")};
     let server, meta;
     const stream = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
-    new AgentSideConnection((conn) => {
-      const update = (sessionId, u) => conn.sessionUpdate({ sessionId, update: u });
-      return {
-        initialize: async () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }),
-        newSession: async (p) => { server = p.mcpServers[0]; meta = p._meta; return { sessionId: "s1" }; },
-        loadSession: async (p) => {
-          server = p.mcpServers[0];
-          await update(p.sessionId, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Look at this." } });
-          await update(p.sessionId, { sessionUpdate: "tool_call", toolCallId: "l", title: "mcp__openlive__look", kind: "other", status: "pending" });
-          await update(p.sessionId, { sessionUpdate: "tool_call_update", toolCallId: "l", status: "completed" });
-          await update(p.sessionId, { sessionUpdate: "tool_call", toolCallId: "own", title: "Read notes.md", kind: "read", status: "completed" });
-          await update(p.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "A cup." } });
-          return {};
-        },
-        authenticate: async () => ({}),
-        cancel: async () => {},
-        prompt: async (p) => {
-          appendFileSync(${JSON.stringify(log)}, JSON.stringify({ text: p.prompt[0].text, server: server?.name, meta }) + "\\n");
-          if (p.prompt[0].text.includes("Open the docs")) {
-            await update(p.sessionId, { sessionUpdate: "tool_call", toolCallId: "ask", title: "mcp.openlive.open_url", kind: "execute", status: "pending" });
-            const r = await conn.requestPermission({ sessionId: p.sessionId, toolCall: { toolCallId: "ask" }, options: [
-              { optionId: "approved", name: "Allow", kind: "allow_once" }, { optionId: "declined", name: "Decline", kind: "reject_once" }] });
-            await update(p.sessionId, { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: r.outcome.optionId ?? r.outcome.outcome } });
-            return { stopReason: "end_turn" };
-          }
-          const mcp = new Client({ name: "stub", version: "1" });
-          await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)));
-          const reads = (await mcp.listTools()).tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name);
-          appendFileSync(${JSON.stringify(log)}, JSON.stringify({ reads }) + "\\n");
-          const said = [];
-          for (const [name, args] of [["clipboard_write", { text: "copied" }], ["remember", { note: "Likes tea." }], ["look", {}]]) {
-            await update(p.sessionId, { sessionUpdate: "tool_call", toolCallId: name, title: "mcp__openlive__" + name, kind: "other", status: "pending" });
-            const r = await mcp.callTool({ name, arguments: args });
-            await update(p.sessionId, { sessionUpdate: "tool_call_update", toolCallId: name, status: "completed" });
-            said.push(r.content.map((c) => c.type === "text" ? c.text : c.type).join(" "));
-          }
-          await mcp.close();
-          await update(p.sessionId, { sessionUpdate: "tool_call", toolCallId: "own", title: "Read notes.md", kind: "read", status: "completed" });
-          await update(p.sessionId, { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: said.join(" | ") } });
+    const update = (client, sessionId, u) => client.notify(methods.client.session.update, { sessionId, update: u });
+    agent()
+      .onRequest(methods.agent.initialize, () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }))
+      .onRequest(methods.agent.session.new, ({ params: p }) => { server = p.mcpServers[0]; meta = p._meta; return { sessionId: "s1" }; })
+      .onRequest(methods.agent.session.load, async ({ params: p, client }) => {
+        server = p.mcpServers[0];
+        await update(client, p.sessionId, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Look at this." } });
+        await update(client, p.sessionId, { sessionUpdate: "tool_call", toolCallId: "l", title: "mcp__openlive__look", kind: "other", status: "pending" });
+        await update(client, p.sessionId, { sessionUpdate: "tool_call_update", toolCallId: "l", status: "completed" });
+        await update(client, p.sessionId, { sessionUpdate: "tool_call", toolCallId: "own", title: "Read notes.md", kind: "read", status: "completed" });
+        await update(client, p.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "A cup." } });
+        return {};
+      })
+      .onRequest(methods.agent.authenticate, () => ({}))
+      .onNotification(methods.agent.session.cancel, () => {})
+      .onRequest(methods.agent.session.prompt, async ({ params: p, client }) => {
+        appendFileSync(${JSON.stringify(log)}, JSON.stringify({ text: p.prompt[0].text, server: server?.name, meta }) + "\\n");
+        if (p.prompt[0].text.includes("Open the docs")) {
+          await update(client, p.sessionId, { sessionUpdate: "tool_call", toolCallId: "ask", title: "mcp.openlive.open_url", kind: "execute", status: "pending" });
+          const r = await client.request(methods.client.session.requestPermission, { sessionId: p.sessionId, toolCall: { toolCallId: "ask" }, options: [
+            { optionId: "approved", name: "Allow", kind: "allow_once" }, { optionId: "declined", name: "Decline", kind: "reject_once" }] });
+          await update(client, p.sessionId, { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: r.outcome.optionId ?? r.outcome.outcome } });
           return { stopReason: "end_turn" };
-        },
-      };
-    }, stream);
+        }
+        const mcp = new Client({ name: "stub", version: "1" });
+        await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+        const reads = (await mcp.listTools()).tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name);
+        appendFileSync(${JSON.stringify(log)}, JSON.stringify({ reads }) + "\\n");
+        const said = [];
+        for (const [name, args] of [["clipboard_write", { text: "copied" }], ["remember", { note: "Likes tea." }], ["look", {}]]) {
+          await update(client, p.sessionId, { sessionUpdate: "tool_call", toolCallId: name, title: "mcp__openlive__" + name, kind: "other", status: "pending" });
+          const r = await mcp.callTool({ name, arguments: args });
+          await update(client, p.sessionId, { sessionUpdate: "tool_call_update", toolCallId: name, status: "completed" });
+          said.push(r.content.map((c) => c.type === "text" ? c.text : c.type).join(" "));
+        }
+        await mcp.close();
+        await update(client, p.sessionId, { sessionUpdate: "tool_call", toolCallId: "own", title: "Read notes.md", kind: "read", status: "completed" });
+        await update(client, p.sessionId, { sessionUpdate: "agent_message_chunk", messageId: "m", content: { type: "text", text: said.join(" | ") } });
+        return { stopReason: "end_turn" };
+      })
+      .connect(stream);
   `);
   await setSetting(`acpCommand:${id}`, `${process.execPath} ${stub}`);
   return () => readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { text: string; server: string; meta?: any }).filter((l) => l.text);
