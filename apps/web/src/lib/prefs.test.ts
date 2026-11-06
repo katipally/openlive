@@ -3,9 +3,9 @@ import { cleanSessions, resetOnboarding, useOnboarding } from "./prefs";
 
 describe("resetOnboarding", () => {
   it("starts every first run and tour over, as for someone new", () => {
-    useOnboarding.setState({ welcomed: true, flowOnboarded: "1", dictateOnboarded: true, tours: ["home", "flow", "dictate"] });
+    useOnboarding.setState({ welcomed: true, flowOnboarded: "1", dictateOnboarded: true, dictateCard: 2, tours: ["home", "flow", "dictate"] });
     resetOnboarding();
-    expect(useOnboarding.getState()).toMatchObject({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] });
+    expect(useOnboarding.getState()).toMatchObject({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, dictateCard: 1, tours: [] });
   });
 });
 

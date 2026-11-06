@@ -68,7 +68,7 @@ const WEB_STEPS = [
   "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message",
   "first_mode_switch", "first_shortcuts_sheet",
   "welcome_shown", "welcome_step_2", "welcome_step_3", "welcome_step_4", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate",
-  "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation",
+  "dictate_onboarding_shown", "dictate_onboarding_step_2", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation",
 ] as const;
 const MAIN_STEPS = [
   "flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok",
@@ -166,6 +166,7 @@ const CALL_PERMS = ["perm_asks", "perm_allowed", "perm_denied", "perm_timeout"] 
 const COUNT = int(999);
 const MS = int(600000, { step: 10 });
 const SECONDS = int(86400);
+const LATENCY_MS = int(30000, { step: 50 });
 const BRAIN_KIND = en(["api", "acp"]);
 const BRAIN_ID = en(BRAIN_IDS);
 const LAUNCH_KIND = en(["manual", "login"]);
@@ -320,13 +321,17 @@ const events = {
       edits: opt(COUNT),
       commands: opt(COUNT),
       snippets: opt(COUNT),
+      empty: opt(COUNT),
+      cancelled: opt(COUNT),
+      latency_ms_p50: opt(LATENCY_MS),
+      latency_ms_p90: opt(LATENCY_MS),
       talk_mode: opt(en(["hands_free", "ptt"])),
       lang: opt(en(LANGUAGES)),
     },
   },
   dictate_failure: {
     props: {
-      code: en(["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing"]),
+      code: en(["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing", "secure_field", "mic_silent"]),
     },
     limit: { dedupeMs: 600000, dedupeKey: ["code"] },
   },

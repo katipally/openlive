@@ -98,14 +98,17 @@ export interface OnboardingPrefs {
   flowOnboarded: string | null;
   /** Dictate's first run on its home was finished or skipped. */
   dictateOnboarded: boolean;
+  /** The Dictate first-run card it was left on, so closing the window mid-way resumes there. */
+  dictateCard: 1 | 2;
   /** Tour ids already played. */
   tours: string[];
 }
-const NEVER_ONBOARDED = (): OnboardingPrefs => ({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] });
+const NEVER_ONBOARDED = (): OnboardingPrefs => ({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, dictateCard: 1, tours: [] });
 export const useOnboarding = persisted<OnboardingPrefs>("onboarding", NEVER_ONBOARDED, {
-  partialize: (s) => ({ welcomed: s.welcomed, flowOnboarded: s.flowOnboarded, dictateOnboarded: s.dictateOnboarded, tours: s.tours }),
+  partialize: (s) => ({ welcomed: s.welcomed, flowOnboarded: s.flowOnboarded, dictateOnboarded: s.dictateOnboarded, dictateCard: s.dictateCard, tours: s.tours }),
   clean: (f) => only(f, (k, v) =>
     k === "welcomed" || k === "dictateOnboarded" ? (typeof v === "boolean" ? v : undefined)
+    : k === "dictateCard" ? (v === 2 ? 2 : undefined)
     : k === "flowOnboarded" ? str(v, 32)
     : k === "tours" ? strings(v, 200)
     : undefined) as Partial<OnboardingPrefs>,
