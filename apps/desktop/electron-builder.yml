@@ -39,6 +39,7 @@ files:
   - telemetry-map.cjs
   - window-state.cjs
   - login-item.cjs
+  - update-gate.cjs
   # Product-usage telemetry: every runtime file of telemetry/, not its tests. A file
   # missing here is a "Cannot find module" at launch (packaging.test.ts checks).
   - telemetry/aggregator.cjs
@@ -56,6 +57,8 @@ files:
   # Stamped at release by scripts/pack-telemetry.cjs. Without it (a local build) the
   # pattern matches nothing and the app sends nothing.
   - telemetry-config.json
+  # Marks a release build (scripts/pack-release-marker.cjs); without it the updater stays off.
+  - release-build.json
   # Packed INTO the asar so the menu-bar tray (main.cjs loads build/tray*.png via
   # __dirname) has its image in installed builds — without this the tray was blank.
   - build/tray*.png

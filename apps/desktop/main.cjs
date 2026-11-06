@@ -23,6 +23,7 @@ const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
 const { createTelemetry } = require("./telemetry/index.cjs");
 const { writeAtomic } = require("./telemetry/state.cjs");
+const { updatesOffReason } = require("./update-gate.cjs");
 const { osMajor, updaterErrorKind, crashReason, exitCode, childSource, renderTarget, linuxSession, permissionFacts, flowEndReason, powerSignal } = require("./telemetry-map.cjs");
 
 // Crash early, loud, and visible instead of dying silently.
@@ -1546,12 +1547,17 @@ function buildMenu() {
 // electron-builder.yml). A newer version auto-downloads, then prompts to restart;
 // "Later" still installs on the next quit. NOTE: macOS auto-update requires the
 // app to be SIGNED — set the Apple secrets in the release workflow, or updates
-// silently no-op on Mac even though the release is published fine.
+// silently no-op on Mac even though the release is published fine. Only builds the
+// release workflow marked (release-build.json) update: a local build would download the
+// release into the installed app's caches, then fail the signature check. OPENLIVE_NO_UPDATES=1 turns it off too.
 let updater = null;         // the electron-updater singleton, once initialised
 let manualCheck = false;    // a menu-driven check reports "up to date" out loud
+let updatesOff = null;      // why the updater did not start in a packaged app, for the menu check
 
 function initAutoUpdate() {
   if (DEV || !app.isPackaged) return;
+  updatesOff = updatesOffReason({ env: process.env, releaseBuild: fs.existsSync(path.join(__dirname, "release-build.json")) });
+  if (updatesOff) { console.log("[updater] off:", updatesOff); return; }
   try { ({ autoUpdater: updater } = require("electron-updater")); } catch { return; }
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true; // if they pick "Later", install on next quit
@@ -1600,7 +1606,7 @@ function initAutoUpdate() {
 
 // Menu-driven "Check for Updates…" — reports the result (up to date / downloading).
 function checkForUpdatesNow() {
-  if (!updater) { if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: "Updates aren't available in this build", detail: "Auto-update runs only in the installed (packaged) app." }); return; }
+  if (!updater) { if (mainWin) dialog.showMessageBox(mainWin, { type: "info", message: updatesOff ? "Updates are off for this build" : "Updates aren't available in this build", detail: updatesOff || "Auto-update runs only in the installed (packaged) app." }); return; }
   manualCheck = true;
   updater.checkForUpdates().catch((e) => console.error("[updater] manual check:", e?.message || e));
 }

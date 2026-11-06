@@ -34,6 +34,11 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **A local build no longer updates itself.** It downloaded the latest release into the
+  installed app's update caches, failed the signature check, and showed "OpenLive x is
+  ready" on every launch. Only builds the release workflow marks run the updater now, and
+  `OPENLIVE_NO_UPDATES=1` turns it off for any build. Check for Updates says updates are
+  off for this build.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is

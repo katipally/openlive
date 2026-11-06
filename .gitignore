@@ -15,6 +15,8 @@ release/
 apps/desktop/dist/
 # Stamped at release from the environment (scripts/pack-telemetry.cjs); holds the ingest address
 apps/desktop/telemetry-config.json
+# Stamped by the release workflow (scripts/pack-release-marker.cjs)
+apps/desktop/release-build.json
 
 # demo videos are hosted as GitHub assets, not committed (100MB limit + no inline playback)
 *.mp4
