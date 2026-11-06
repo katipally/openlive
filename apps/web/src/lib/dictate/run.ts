@@ -5,6 +5,7 @@ import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
 import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
 import { MIC_COPY } from "../live/micCopy";
+import type { RewriteContext } from "./recent";
 
 // Dictate inside Flow's owner renderer: a session, opened and closed by its
 // gesture, in which each finished utterance (a pause hands-free, a release in
@@ -20,7 +21,9 @@ import { MIC_COPY } from "../live/micCopy";
 export type Inserted = "typed" | "copied" | "failed";
 export type Tone = "natural" | "casual" | "formal";
 /** One rewrite by Dictate's brain, as /api/dictate/rewrite takes it. */
-export type RewriteAsk = { kind: "polish"; text: string; tone: Tone } | { kind: "command"; text: string; selection: string };
+export type RewriteAsk =
+  | { kind: "polish"; text: string; tone: Tone; context?: RewriteContext }
+  | { kind: "command"; text: string; selection: string; context?: RewriteContext };
 
 export interface DictateSettings {
   rules: CleanupRules;
