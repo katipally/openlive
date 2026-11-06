@@ -7,6 +7,7 @@ import { ToolGlyph } from "@/components/live/ToolGlyph";
 import type { CapabilitiesWire, EditWire, OnDemandMode, ReminderWire, ToolGroupWire } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { telemetry } from "@/lib/telemetry";
 import { cn } from "@/lib/cn";
 import { asksFirst, chipOverflow, filterGroups, onDemandCaption } from "@/lib/capabilities";
 import { Button, Chip, ConfirmButton, InfoTip, Input, Segmented, Switch, Tooltip, type SegOption } from "@/components/ui";
@@ -32,7 +33,7 @@ export function useFlipGroup() {
     const set = (enabled: boolean) => qc.setQueryData<CapabilitiesWire>(capabilitiesQuery.queryKey, (d) => d && { ...d, groups: d.groups.map((x) => (x.id === g.id ? { ...x, enabled } : x)) });
     set(!g.enabled);
     api.setToolGroupEnabled(g.id, !g.enabled)
-      .then((d) => qc.setQueryData(capabilitiesQuery.queryKey, d))
+      .then((d) => { qc.setQueryData(capabilitiesQuery.queryKey, d); telemetry.track("capability_changed", { kind: "tool", action: g.enabled ? "disable" : "enable" }); })
       .catch((e) => { set(g.enabled); toast(`Couldn’t turn ${g.name} ${g.enabled ? "off" : "on"}. ${msg(e)}`); });
   };
 }

@@ -43,6 +43,14 @@ describe("serverChanges", () => {
     expect(serverChanges({ defaultAgent: "codex" }, { defaultAgent: "" })).toEqual([{ setting: "default_brain", value: "api", subject: "none" }]);
   });
 
+  it("reports a coding agent's model as changed, never the model, and not a reset by picking another agent", () => {
+    expect(serverChanges({ defaultAgent: "claude-code" }, { defaultAgent: "claude-code", defaultAgentModel: "claude-secret" }))
+      .toEqual([{ setting: "agent_model", value: "changed", subject: "claude-code" }]);
+    expect(serverChanges({ defaultAgent: "claude-code", defaultAgentModel: "m" }, { defaultAgent: "codex", defaultAgentModel: "" }))
+      .toEqual([{ setting: "default_brain", value: "acp", subject: "codex" }]);
+    expect(serverChanges({ defaultAgentModel: "m" }, { defaultAgentModel: "" })).toEqual([]);
+  });
+
   it("drops a provider that is not in the closed set", () => {
     expect(serverChanges({}, { liveProviderId: "my-secret-host" })).toEqual([]);
     expect(serverChanges({}, { liveModel: "m", liveProviderId: "my-secret-host" })).toEqual([{ setting: "api_model", value: "changed", subject: "none" }]);
@@ -108,6 +116,15 @@ describe("flowChanges", () => {
       { setting: "flow_brain", value: "acp", subject: "codex" },
     ]);
     expect(flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.brain.agentModel = "other"; c.brain.agentEffort = "low"; }))).toEqual([]);
+  });
+
+  it("reports a model change of Flow's or Dictate's own coding agent, and none for a default they follow", () => {
+    const own = (agentModel: string) => ({ override: true, kind: "acp" as const, agentId: "claude-code", agentModel, agentEffort: "" });
+    const base = flow((c) => { c.brain = own("a"); c.dictate.brain = own("a"); });
+    const change = [{ setting: "agent_model", value: "changed", subject: "claude-code" }];
+    expect(flowChanges(base, flow((c) => { c.brain = own("b"); c.dictate.brain = own("a"); }))).toEqual(change);
+    expect(flowChanges(base, flow((c) => { c.brain = own("a"); c.dictate.brain = own("b"); }))).toEqual(change);
+    expect(flowChanges(DEFAULT_FLOW_CONFIG, flow((c) => { c.brain.agentModel = "b"; c.dictate.brain.agentModel = "b"; }))).toEqual([]);
   });
 
   it("maps Close after silence to its four choices, else custom", () => {

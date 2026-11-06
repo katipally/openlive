@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as nodeFs from "node:fs";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFIG, count, DAY_1, DAY_2, fact, flush, modeOf, notice, rig, tmpDir } from "./rig";
 
 const require = createRequire(import.meta.url);
-const { createTelemetry } = require("./index.cjs");
+const { createTelemetry, RENDERER_EVENTS } = require("./index.cjs");
 const { usernameOf } = require("./username.cjs");
 
 beforeEach(() => vi.useFakeTimers({ now: DAY_1 }));
@@ -339,6 +340,22 @@ describe("lifecycle events", () => {
     expect(again.queue().filter((q) => q.n === "app_active_day").map((q) => q.p.first_surface)).toEqual(["flow", "tray"]);
   });
 
+  it("sends surface_active once per local day for each of chat, flow and dictate, and for no other surface", () => {
+    const r = ready();
+    for (const surface of ["main_window", "tray", "call", "call", "flow", "dictate", "dictate"] as const) r.telemetry.markActiveDay(surface);
+    const surfaces = () => r.queue().filter((q) => q.n === "surface_active").map((q) => q.p.surface);
+    expect(surfaces()).toEqual(["chat", "flow", "dictate"]);
+    expect(r.queue().find((q) => q.n === "app_active_day")!.p.first_surface).toBe("main_window");
+    r.telemetry.onQuit();
+    const again = r.again();
+    again.telemetry.start();
+    again.telemetry.markActiveDay("call");
+    expect(again.queue().filter((q) => q.n === "surface_active")).toHaveLength(3);
+    vi.setSystemTime(DAY_2);
+    again.telemetry.markActiveDay("call");
+    expect(again.queue().filter((q) => q.n === "surface_active").map((q) => q.p.surface)).toEqual(["chat", "flow", "dictate", "chat"]);
+  });
+
   it("puts a quit on disk synchronously, once, with the uptime", async () => {
     const r = ready();
     await flush(90 * 60_000);
@@ -347,6 +364,44 @@ describe("lifecycle events", () => {
     const quits = r.queue().filter((q) => q.n === "app_quit");
     expect(quits).toHaveLength(1);
     expect(quits[0]!.p).toMatchObject({ via: "update_restart", uptime_h: 1.5 });
+  });
+
+  it("sends what a clean quit queued before it ends, and keeps what the server did not take", async () => {
+    const r = ready();
+    await flush(120_000);
+    r.telemetry.onQuit("tray_menu");
+    expect(queued(r)).toContain("app_quit");
+    await r.telemetry.flushOnQuit(1500);
+    expect(r.names()).toContain("app_quit");
+    expect(r.queue()).toEqual([]);
+
+    const down = ready();
+    await flush(120_000);
+    down.respond.fail = true;
+    down.telemetry.onQuit("tray_menu");
+    await down.telemetry.flushOnQuit(1500);
+    expect(queued(down)).toContain("app_quit");
+    down.respond.fail = false;
+    const next = down.again();
+    next.telemetry.start();
+    await flush();
+    expect(next.names()).toContain("app_quit");
+  });
+
+  it("has nothing to flush on quit when sharing is off, the notice is owed or the queue is empty", async () => {
+    const owed = rig();
+    owed.telemetry.start({ launchKind: "manual" });
+    owed.telemetry.onQuit("tray_menu");
+    expect(owed.telemetry.flushOnQuit(1500)).toBeFalsy();
+
+    const off = ready();
+    await off.telemetry.setEnabled(false, "settings");
+    off.telemetry.onQuit("tray_menu");
+    expect(off.telemetry.flushOnQuit(1500)).toBeFalsy();
+
+    const empty = ready();
+    await flush(120_000);
+    expect(empty.telemetry.flushOnQuit(1500)).toBeFalsy();
   });
 
   it("sends last run's quit at the next launch", async () => {
@@ -526,6 +581,10 @@ describe("what an agent or a renderer may say", () => {
     t.handleRendererMessage({ t: "track", name: "lobby_blocked", props: { gap: "no_mic" } });
     t.handleRendererMessage({ t: "track", name: "app_launch", props: { launch_kind: "manual", boot_result: "ok" } });
     t.handleRendererMessage({ t: "track", name: "telemetry_disabled", props: { from: "notice", days_since_first_open: 0 } });
+    t.handleRendererMessage({ t: "track", name: "dictate_session", props: { duration_s: 12, ended_by: "gesture", dictations: 2, words: "11_50" } });
+    t.handleRendererMessage({ t: "track", name: "dictate_failure", props: { code: "no_mic" } });
+    t.handleRendererMessage({ t: "track", name: "capability_changed", props: { kind: "skill", action: "add" } });
+    t.handleRendererMessage({ t: "track", name: "surface_active", props: { surface: "chat" } });
     t.handleRendererMessage({ t: "track", name: "flow_session", props: {} });
     t.handleRendererMessage({ t: "count", key: "n_palette_open" });
     t.handleRendererMessage({ t: "fact", scope: "agent_flow", props: { turns: 9 } });
@@ -533,8 +592,19 @@ describe("what an agent or a renderer may say", () => {
     t.openFlow();
     t.handleRendererMessage({ t: "fact", scope: "flow_owner", props: { stops: 2 } });
     t.onQuit("tray_menu");
-    expect(queued(r)).toEqual(["app_first_open", "lobby_blocked", "flow_session", "feature_usage", "app_quit"]);
+    expect(queued(r)).toEqual(["app_first_open", "lobby_blocked", "dictate_session", "dictate_failure", "capability_changed", "flow_session", "feature_usage", "app_quit"]);
     expect(r.queue().find((q) => q.n === "flow_session")!.p).toMatchObject({ stops: 3, turns: 0 });
+  });
+
+  it("lets through every event the web app tracks", () => {
+    const web = fileURLToPath(new URL("../../web/src", import.meta.url));
+    const tracked = new Set(
+      readdirSync(web, { recursive: true, encoding: "utf8" })
+        .filter((f) => /\.tsx?$/.test(f) && !/\.test\./.test(f))
+        .flatMap((f) => [...readFileSync(join(web, f), "utf8").matchAll(/telemetry\.track\(\s*"(\w+)"/g)].map((m) => m[1]!)),
+    );
+    expect(tracked.size).toBeGreaterThan(5);
+    expect([...tracked].filter((name) => !RENDERER_EVENTS.has(name))).toEqual([]);
   });
 
   it("never throws on garbage from a renderer", () => {
@@ -719,7 +789,7 @@ describe("a quit before the notice", () => {
     const third = second.again({ appVersion: "1.3.0" });
     launch(third);
     notice(third.telemetry);
-    expect(queued(third)).toEqual(["app_first_open", "app_updated", "app_active_day", "flow_readiness_changed"]);
+    expect(queued(third)).toEqual(["app_first_open", "app_updated", "surface_active", "app_active_day", "flow_readiness_changed"]);
     expect(third.queue().find((q) => q.n === "app_updated")!.p).toMatchObject({ from_version: "1.2.3", to_version: "1.3.0" });
     expect(third.queue().find((q) => q.n === "flow_readiness_changed")!.p).toMatchObject({ from: "unknown", to: "ready" });
     third.telemetry.onQuit("tray_menu");

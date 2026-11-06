@@ -158,7 +158,7 @@ export function defaultModel(providerId: string): string {
 
 /** Small offline snapshot so the /model picker always has options (overridden by models.dev). */
 export const MODEL_SNAPSHOT: Record<string, string[]> = {
-  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+  anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
   openai: ["gpt-5", "gpt-5-mini", "o3"],
   // MiniMax-M3 (1M ctx, vision) and M2.5 (vision) support images over the
   // Anthropic-compat endpoint; M2 is text-only.

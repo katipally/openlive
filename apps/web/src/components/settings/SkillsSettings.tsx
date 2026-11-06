@@ -7,6 +7,7 @@ import { SKILL_DESCRIPTION_MAX, type SkillImportSource, type SkillListWire, type
 import { api } from "@/lib/api";
 import { bridge, isDesktop } from "@/lib/platform";
 import { toast } from "@/lib/toast";
+import { telemetry } from "@/lib/telemetry";
 import { cn } from "@/lib/cn";
 import { useLiveStore } from "@/lib/live/liveStore";
 import { filterSkills, initialPicks, newSkillProblem, pickKey, pickedItems, skillRole, splitSkills } from "@/lib/skills";
@@ -101,10 +102,10 @@ function SkillRow({ s, workspace, put, refresh }: { s: SkillWire; workspace: str
   const { builtIn, own } = skillRole(s.source);
   const flip = () => {
     put({ ...s, enabled: !s.enabled });
-    api.setSkillEnabled(s.name, !s.enabled, workspace).then(put).catch((e) => { put(s); toast(`Couldn’t turn ${s.name} ${s.enabled ? "off" : "on"}. ${msg(e)}`); });
+    api.setSkillEnabled(s.name, !s.enabled, workspace).then((r) => { put(r); telemetry.track("capability_changed", { kind: "skill", action: s.enabled ? "disable" : "enable" }); }).catch((e) => { put(s); toast(`Couldn’t turn ${s.name} ${s.enabled ? "off" : "on"}. ${msg(e)}`); });
   };
   const remove = async () => {
-    try { await api.removeSkill(s.name); await refresh(); }
+    try { await api.removeSkill(s.name); telemetry.track("capability_changed", { kind: "skill", action: "remove" }); await refresh(); }
     catch (e) { toast(`Couldn’t remove ${s.name}. ${msg(e)}`); }
   };
   const files = s.resources ? `${s.resources + 1} files` : "SKILL.md";
@@ -199,7 +200,7 @@ function NewPanel({ taken, onDone, onCancel }: { taken: string[]; onDone: () => 
   const submit = async () => {
     setError("");
     setBusy(true);
-    try { await api.createSkill({ name: name.trim(), description: description.trim(), body }); onDone(); }
+    try { await api.createSkill({ name: name.trim(), description: description.trim(), body }); telemetry.track("capability_changed", { kind: "skill", action: "add" }); onDone(); }
     catch (e) { setError(msg(e)); }
     finally { setBusy(false); }
   };
@@ -267,6 +268,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
     try {
       const r = await api.importSkills(items);
       const n = r.imported.length;
+      if (n) telemetry.track("capability_changed", { kind: "skill", action: "add" });
       toast(`Imported ${n} ${n === 1 ? "skill" : "skills"}.${r.skipped.length ? ` Skipped ${r.skipped.map((s) => `${s.name} (${s.reason})`).join(", ")}.` : ""}`, "info");
       onDone();
     } catch (e) { toast(`Couldn’t import. ${msg(e)}`); }

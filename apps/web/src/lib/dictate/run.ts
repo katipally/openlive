@@ -44,7 +44,7 @@ export interface Typing {
 /** Why a session closed, for its report. */
 export type DictateEnd = "gesture" | "idle" | "stop_command" | "flow_opened" | "sleep_or_lock" | "turned_off" | "tool" | "no_mic" | "other";
 /** A note on the orb that says something went wrong, by kind, never by content. */
-export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long";
+export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long" | "models_missing";
 /** One session in numbers, for its report: what happened, never what was said. */
 export interface DictateReport {
   ms: number; ended: DictateEnd; dictations: number; words: number; copied: number; failed: number;
@@ -222,6 +222,7 @@ export function createDictate(ports: DictatePorts) {
       const ok = heard === true;
       asked = heard === "";
       if (!open) return ok;
+      if (asked) ports.failure?.("models_missing");
       if (!ok) { set({ note: asked ? "" : NO_MIC }); close(asked ? "other" : "no_mic", true); }
       else if (!d?.ready) set({ ready: true });
       return ok;

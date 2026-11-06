@@ -625,6 +625,17 @@ describe("its report", () => {
     expect(ends).toEqual([expect.objectContaining({ ended: "no_mic", dictations: 0 })]);
   });
 
+  it("names the missing voice models when the orb asks for them instead of opening", async () => {
+    const r = rig({ mic: "" });
+    const codes: string[] = [];
+    const ends: unknown[] = [];
+    r.ports.failure = (c) => void codes.push(c);
+    r.ports.report = (x) => void ends.push(x);
+    await r.dictate.setOpen(true);
+    expect(codes).toEqual(["models_missing"]);
+    expect(ends).toEqual([expect.objectContaining({ ended: "other", dictations: 0 })]);
+  });
+
   it("buckets the words typed", () => {
     expect([0, 1, 10, 11, 50, 51, 200, 201].map(wordsBucket)).toEqual(["0", "1_10", "1_10", "11_50", "11_50", "51_200", "51_200", "201_plus"]);
   });

@@ -815,7 +815,10 @@ function summonFlow(_e, mode) {
   }
   // Dictate opening is Flow closing: the owner dismissed it first, and the orb
   // it is still hiding comes straight back for Dictate.
-  if (mode === "dictate") closeFlowCount();
+  if (mode === "dictate") {
+    closeFlowCount();
+    telemetry.markActiveDay("dictate");
+  }
   flowEndedBy = "other";
   flowSummoned = true;
   refreshTray();
@@ -1350,12 +1353,13 @@ function wirePowerEvents() {
   for (const event of ["suspend", "lock-screen", "resume", "unlock-screen"]) powerMonitor.on(event, () => send(event));
   // Logout / restart / shutdown (macOS, Linux) must never be held up by
   // before-quit's close-to-menu-bar. Windows skips before-quit for these anyway.
-  powerMonitor.on("shutdown", () => { app.isQuitting = true; telemetry.onQuit("os_shutdown"); });
+  powerMonitor.on("shutdown", onSessionEnd);
 }
 
 // Windows ends the session on logoff, restart and shutdown without before-quit, and gives
-// no time after this: all of it is synchronous. Our servers die with the session, so
-// their pids are not stale and the next launch must not read them as a crash.
+// no time after this: all of it is synchronous. macOS and Linux reach it from powerMonitor's
+// shutdown, where before-quit may not finish its 2 s of reaping. Our servers die with the
+// session, so their pids are not stale and the next launch must not read them as a crash.
 let sessionEnded = false;
 function onSessionEnd() {
   if (sessionEnded) return;
@@ -1560,12 +1564,14 @@ function initAutoUpdate() {
     if (response === 0) {
       telemetry.onQuit("update_restart");
       app.isQuitting = true;
-      await killChildren();
-      try { updater.quitAndInstall(); } catch (e) { console.error("[updater]", e?.message || e); telemetry.resume(); }
+      quitFlushed = true; // before-quit must not hold an install back
+      await Promise.allSettled([killChildren(), telemetry.flushOnQuit(TELEMETRY_QUIT_FLUSH_MS)]);
+      try { updater.quitAndInstall(); } catch (e) { console.error("[updater]", e?.message || e); quitFlushed = false; telemetry.resume(); }
     }
   });
   updater.on("error", (e) => {
     console.error("[updater]", e?.message || e);
+    quitFlushed = false;
     telemetry.resume(); // an install that fails after "Restart now" leaves the app running
     telemetry.track("update_result", { stage: "failed", error_kind: updaterErrorKind(e), manual: manualCheck });
     if (manualCheck) { manualCheck = false; if (mainWin) dialog.showMessageBox(mainWin, { type: "warning", message: "Couldn't check for updates", detail: String(e?.message || e) }); }
@@ -1685,6 +1691,10 @@ async function killChildren() {
   try { fs.rmSync(pidFile(), { force: true }); } catch { /* */ }
 }
 
+// The most a clean quit waits to send its last events.
+const TELEMETRY_QUIT_FLUSH_MS = 1500;
+let quitFlushed = false;
+
 app.on("before-quit", (e) => {
   // macOS routes the Dock's Quit here. Only while the Dock icon shows: with it
   // hidden no user action lands here, so logout and signals always get through.
@@ -1695,7 +1705,12 @@ app.on("before-quit", (e) => {
   }
   app.isQuitting = true;
   telemetry.onQuit("other"); // a quit no path above named; a no-op after one that did
-  if (cleanedUp || DEV || children.length === 0) return; // nothing of ours to reap
-  e.preventDefault();               // hold the quit until the trees are gone…
-  killChildren().finally(() => app.quit()); // …then let it through (cleanedUp now short-circuits)
+  // Run beside the reaping, so a clean quit sends what it queued without waiting past either budget.
+  // The ones left unsent stay queued for the next launch.
+  const sending = quitFlushed ? null : telemetry.flushOnQuit(TELEMETRY_QUIT_FLUSH_MS);
+  quitFlushed = true;
+  const reaping = cleanedUp || DEV || children.length === 0 ? null : killChildren(); // null: nothing of ours to reap
+  if (!sending && !reaping) return;
+  e.preventDefault();               // hold the quit until the trees are gone and the queue is tried…
+  Promise.allSettled([sending, reaping]).then(() => app.quit()); // …then let it through (both now short-circuit)
 });

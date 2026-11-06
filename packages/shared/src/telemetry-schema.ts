@@ -31,6 +31,10 @@ const PROVIDER_IDS = [
 ] as const;
 const AGENT_IDS = ["claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"] as const;
 const BRAIN_IDS = [...PROVIDER_IDS, ...AGENT_IDS] as const;
+/** The family a model belongs to, never its id or version. The first one an id contains; `other` for the rest. */
+const MODEL_FAMILIES = [
+  "haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other",
+] as const;
 const LANGUAGES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] as const;
 const STT_FAMILIES = ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"] as const;
 const TTS_FAMILIES = ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"] as const;
@@ -159,6 +163,7 @@ const LAUNCH_KIND = en(["manual", "login"]);
 const EXIT_CODE = int(999, { min: -1 });
 
 const brain = { brain_kind: opt(BRAIN_KIND), brain_id: opt(BRAIN_ID) };
+const MODEL_FAMILY = en(MODEL_FAMILIES);
 const flowEndedBy = en(["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"]);
 const dictateEndedBy = en(["gesture", "idle", "stop_command", "flow_opened", "sleep_or_lock", "turned_off", "tool", "no_mic", "other"]);
 const callEndedBy = en(["end_button", "orb_end", "window_closed", "sleep_or_lock", "start_failed", "switched_chat", "app_quit", "other"]);
@@ -193,8 +198,12 @@ const events = {
     limit: { perLaunch: 1 },
   },
   app_active_day: {
-    props: { first_surface: en(["main_window", "flow", "call", "tray"]) },
+    props: { first_surface: en(["main_window", "flow", "call", "dictate", "tray"]) },
     limit: { perDay: 1 },
+  },
+  surface_active: {
+    props: { surface: en(["chat", "flow", "dictate"]) },
+    limit: { perDayPerKey: 1, dayKey: ["surface"] },
   },
   app_updated: {
     props: { from_version: str(VERSION, 20), to_version: str(VERSION, 20) },
@@ -219,6 +228,7 @@ const events = {
   flow_session: {
     props: {
       ...brain,
+      brain_model: opt(MODEL_FAMILY),
       duration_s: SECONDS,
       ended_by: flowEndedBy,
       opened_by: opt(en(["gesture", "carry_on", "tray_new", "late_speech"])),
@@ -253,6 +263,7 @@ const events = {
   call_session: {
     props: {
       ...brain,
+      brain_model: opt(MODEL_FAMILY),
       duration_s: SECONDS,
       ended_by: callEndedBy,
       start_result: opt(en(["ok", "mic_denied", "start_failed"])),
@@ -297,7 +308,7 @@ const events = {
   },
   dictate_failure: {
     props: {
-      code: en(["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long"]),
+      code: en(["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing"]),
     },
     limit: { dedupeMs: 600000, dedupeKey: ["code"] },
   },
@@ -412,6 +423,13 @@ const events = {
       from: opt(en(["onboarding", "settings", "call_setup", "flow_home", "other"])),
     },
     limit: { perDayPerKey: 3, dayKey: ["setting"] },
+  },
+  capability_changed: {
+    props: {
+      kind: en(["memory", "skill", "connector", "tool"]),
+      action: en(["add", "enable", "disable", "remove", "connect"]),
+    },
+    limit: { perDayPerKey: 3, dayKey: ["kind", "action"] },
   },
   tray_action: {
     props: { action: en(["open", "new_call", "new_flow", "flow_on", "flow_off", "dictate_on", "dictate_off", "talk_hands_free", "talk_ptt", "allow_accessibility", "settings", "quit"]) },
@@ -547,6 +565,7 @@ const facts = {
     props: {
       brain_kind: last(BRAIN_KIND),
       brain_id: last(BRAIN_ID),
+      brain_model: last(MODEL_FAMILY),
       turns: sum(COUNT),
       lang: last(en(LANGUAGES)),
       steered: sum(COUNT),
@@ -570,6 +589,7 @@ const facts = {
     props: {
       brain_kind: last(BRAIN_KIND),
       brain_id: last(BRAIN_ID),
+      brain_model: last(MODEL_FAMILY),
       turns: sum(COUNT),
       interrupted: sum(COUNT),
       lang: last(en(LANGUAGES)),
@@ -626,6 +646,12 @@ type PropsOf<P> = Flat<
     [K in keyof P as P[K] extends { opt: true } ? K : never]?: PropValue<P[K]>;
   }
 >;
+
+/** A model id or name reduced to its family. Nothing for an empty one; the id itself is never kept. */
+export function modelFamilyOf(model: string | null | undefined): (typeof MODEL_FAMILIES)[number] | undefined {
+  const m = model?.toLowerCase();
+  return m?.trim() ? MODEL_FAMILIES.find((f) => m.includes(f)) ?? "other" : undefined;
+}
 
 export type TelemetryEventName = keyof typeof events;
 /** The props of one event, required and optional as the schema says. The sender adds the common ones. */

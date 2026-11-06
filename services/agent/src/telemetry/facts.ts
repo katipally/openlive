@@ -1,4 +1,4 @@
-import { classifyError, httpClassOf, SUPERVISED_CLASSES, type ErrorClass, type HttpClass, type TelemetryEventProps } from "@openlive/shared";
+import { classifyError, httpClassOf, modelFamilyOf, SUPERVISED_CLASSES, type ErrorClass, type HttpClass, type TelemetryEventProps } from "@openlive/shared";
 import { PERMISSION_CANCELLED } from "../agents/types.js";
 import { emitEvent, emitFact, type AgentFactProps } from "./emit.js";
 import { limits } from "./limits.js";
@@ -9,6 +9,13 @@ export type Surface = "flow" | "call";
 /** Which brain answered. The id is one of the closed provider or agent ids, and main checks it again. */
 export type Brain = Pick<TelemetryEventProps<"brain_error">, "brain_kind" | "brain_id">;
 export const brainOf = (kind: "api" | "acp", id: string): Brain => ({ brain_kind: kind, brain_id: id as Brain["brain_id"] });
+
+/** The family of the model that answered, from the one chosen or else the one a coding agent reports using. Nothing when neither is known. */
+export function modelFact(chosen: string | undefined, agent?: { currentModelId: string | null; models: readonly { id: string; name: string }[] } | null) {
+  const id = chosen || agent?.currentModelId || "";
+  const brain_model = modelFamilyOf(`${id} ${agent?.models.find((m) => m.id === id)?.name ?? ""}`);
+  return brain_model ? { brain_model } : {};
+}
 
 // ── tool groups ─────────────────────────────────────────────────────────────
 // A tool counts under its group and never under its own name: names are only

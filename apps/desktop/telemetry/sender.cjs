@@ -72,6 +72,7 @@ function createSender({ queue, post, config, gate, profileId, now, random, timer
 
   let timer = null;
   let busy = false;
+  let flight = Promise.resolve();
   let started = false;
   let notBefore = 0;
   let nextAt = 0;
@@ -124,7 +125,9 @@ function createSender({ queue, post, config, gate, profileId, now, random, timer
     busy = true;
     let next = null;
     try {
-      next = await step();
+      const run = step();
+      flight = run.catch(() => {});
+      next = await run;
     } catch {
       next = backoff();
     }
@@ -150,6 +153,26 @@ function createSender({ queue, post, config, gate, profileId, now, random, timer
       started = false;
       if (timer) timers.clearTimeout(timer);
       timer = null;
+    },
+    /**
+     * A clean quit: send the oldest events one after another until the queue is empty, one fails or `ms` pass.
+     * Only an event the server took leaves the queue. One cut off by the deadline may still land, and then goes again next launch.
+     */
+    async drain(ms) {
+      let timer;
+      const late = new Promise((resolve) => { timer = timers.setTimeout(() => resolve({ wait: ms }), ms); });
+      try {
+        // A send already under way is for the oldest event, so it finishes first.
+        if (busy) await Promise.race([flight, late]);
+        const id = profileId();
+        for (let item = queue.peek(); gate() && id && item; item = queue.peek()) {
+          const body = trackBody(item.rec, id);
+          if (body && (await Promise.race([attempt(body), late])).wait !== undefined) return;
+          queue.ack(item);
+        }
+      } finally {
+        timers.clearTimeout(timer);
+      }
     },
     /** One event, up to three tries a few seconds apart, then gone. Resolves true when the server took it. */
     async sendBestEffort(rec, id) {
