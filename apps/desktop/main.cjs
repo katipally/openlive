@@ -12,7 +12,7 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const { powerMonitor, net: electronNet } = require("electron");
 const flowInput = require("./flow-input.cjs");
-const { showOrb } = require("./orb-show.cjs");
+const { showOrb, dockStepsAside } = require("./orb-show.cjs");
 const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
@@ -834,7 +834,7 @@ function summonFlow(_e, mode) {
   win.setBounds(flowBounds());
   // The orb goes over everything: other always-on-top windows, the Dock, and
   // fullscreen apps. "floating" sits below the Dock.
-  showOrb(win);
+  showOrbOverFullScreen(win);
 }
 
 /** The renderer plays its exit, then says so; the timeout hides it regardless. */
@@ -853,6 +853,7 @@ function finishDismissFlow() {
   flowSummoned = false;
   closeFlowCount();
   if (flowWin && !flowWin.isDestroyed()) flowWin.hide();
+  syncDock();
   syncCallOrb();
   refreshTray();
 }
@@ -885,13 +886,22 @@ async function expandFlow(to) {
 /** The tray's "Start Flow": the gesture itself, fired from here, so the
  *  owner renderer opens Flow exactly as a double tap would. The gesture is a
  *  toggle, so an open Flow is not sent it: the owner starts the fresh session
- *  there instead, and leaves a turn that is still running alone. */
+ *  there instead, and leaves a turn that is still running alone. Without a
+ *  working key listener the gesture has nothing to fire, so the window opens on
+ *  Flow's home, which names what is missing. */
 const { FLOW_BINDING, PTT_BINDING } = flowInput;
+const HOOK_CARDS = { access: "no_accessibility", stopped: "hook_failed" };
 function startFlowFromTray() {
   const tell = (wasOpen) => {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-new-session", wasOpen);
   };
   if (flowSummoned) return tell(true);
+  const readiness = flowInput.revive();
+  if (readiness !== "ready") {
+    const code = HOOK_CARDS[readiness];
+    if (code) telemetry.track("flow_failure_card", { code, origin: "tray" });
+    return void expandFlow("").catch((e) => console.error("[main] tray flow:", e));
+  }
   try {
     flowInput.load().triggerExternal(FLOW_BINDING, true);
     // The trigger reaches the owner as an effect from the addon's thread, later than this send.
@@ -999,12 +1009,12 @@ function syncCallOrb() {
   if (!flowWin || flowWin.isDestroyed() || flowSummoned || flowHiding) return;
   const want = callOrbWanted();
   flowWin.webContents.send("openlive:call-orb", want ? callState : null);
-  if (!want) { if (flowWin.isVisible()) flowWin.hide(); return; }
+  if (!want) { if (flowWin.isVisible()) { flowWin.hide(); syncDock(); } return; }
   if (flowWin.isVisible()) return;
   setClickThrough(flowWin, true);
   // Over the dock of the screen the call's window was on, not the cursor's.
   flowWin.setBounds(flowBounds(mainWin ? screen.getDisplayMatching(mainWin.getBounds()) : undefined));
-  showOrb(flowWin);
+  showOrbOverFullScreen(flowWin);
 }
 
 // NOTE on `!mainWin`: closing the window does NOT quit on macOS (window-all-closed
@@ -1094,6 +1104,14 @@ function syncDock() {
   const up = !!(mainWin && (mainWin.isVisible() || mainWin.isMinimized()));
   if (up === app.dock.isVisible()) return;
   if (up) app.dock.show(); else app.dock.hide();
+}
+
+/** The orb in front of a full-screen app too, which macOS allows only while the
+ *  Dock icon is away. Hiding it never activates OpenLive; syncDock brings it back
+ *  once the orb is gone. */
+function showOrbOverFullScreen(win) {
+  if (dockStepsAside({ platform: process.platform, dockVisible: process.platform === "darwin" && app.dock.isVisible(), hasTray: !!tray, mainFocused: !!mainWin && mainWin.isFocused() })) app.dock.hide();
+  showOrb(win);
 }
 
 /** Before showing a window from menu-bar-only: a window shown while the Dock icon

@@ -7,7 +7,7 @@ vi.mock("./uiStore", () => ({ useUi: { getState: () => ui } }));
 import { DEFAULT_PIPELINE_CONFIG } from "./live/pipelineConfig";
 import {
   flowChanges, flowConfigChanged, flowOnboardingOpen, pipelineChanges, providerKeyChanged, reportSetting,
-  seedServerSettings, serverChanges, serverSettingsChanged, settingSurface, SETTING_DEBOUNCE_MS,
+  savedDefaultModel, seedServerSettings, serverChanges, serverSettingsChanged, settingSurface, SETTING_DEBOUNCE_MS,
 } from "./settingChanges";
 
 const flow = (edit: (c: FlowConfig) => void): FlowConfig => {
@@ -134,6 +134,24 @@ describe("flowChanges", () => {
     expect(at(null)).toEqual(["never"]);
     expect(at(123_456)).toEqual(["custom"]);
     expect(at(30_000)).toEqual([]);
+  });
+
+  it("reports a surface's own speech engines by switch and family, never the model, size or voice", () => {
+    const at = (edit: (c: FlowConfig) => void) => flowChanges(DEFAULT_FLOW_CONFIG, flow(edit));
+    // Seeded from Chat's engine, the family is the one already in use.
+    expect(at((c) => { c.voice.stt = { override: true, variant: "whisper", whisperSize: "base" }; })).toEqual([{ setting: "flow_own_stt", value: "on" }]);
+    expect(at((c) => { c.voice.stt = { override: true, variant: "parakeet-0.6b-v2-int8", whisperSize: "base" }; })).toEqual([
+      { setting: "flow_own_stt", value: "on" }, { setting: "flow_stt_family", value: "parakeet" },
+    ]);
+    expect(at((c) => { c.voice.tts = { override: true, variant: "kitten-nano-int8", voice: "luna" }; })).toEqual([
+      { setting: "flow_own_voice", value: "on" }, { setting: "flow_tts_family", value: "kitten" },
+    ]);
+    expect(at((c) => { c.dictate.stt = { override: true, variant: "moonshine-tiny-en-int8", whisperSize: "" }; })).toEqual([
+      { setting: "dictate_own_stt", value: "on" }, { setting: "dictate_stt_family", value: "moonshine" },
+    ]);
+    const own = flow((c) => { c.voice.stt = { override: true, variant: "parakeet-0.6b-v2-int8", whisperSize: "base" }; });
+    expect(flowChanges(own, flow((c) => { c.voice.stt = { override: true, variant: "parakeet-0.6b-v2-fp16", whisperSize: "small" }; }))).toEqual([]);
+    expect(flowChanges(own, DEFAULT_FLOW_CONFIG)).toEqual([{ setting: "flow_own_stt", value: "off" }]);
   });
 
   it("reports how you talk, and the push-to-talk key only as a default or another", () => {
@@ -289,5 +307,18 @@ describe("the reporter", () => {
     expect(track).toHaveBeenCalledWith("onboarding_step", { step: "first_provider_key_saved" });
     expect(track).toHaveBeenCalledWith("setting_changed", { setting: "provider_key", value: "added", subject: "openai", from: "other" });
     expect(track).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("savedDefaultModel", () => {
+  it("is the default agent's saved model, and nobody else's", () => {
+    seedServerSettings({ defaultAgent: "claude", defaultAgentModel: "haiku" });
+    expect(savedDefaultModel("claude")).toBe("haiku");
+    expect(savedDefaultModel("codex")).toBeUndefined();
+  });
+
+  it("is nothing when no model is saved", () => {
+    seedServerSettings({ defaultAgent: "claude", defaultAgentModel: "" });
+    expect(savedDefaultModel("claude")).toBeUndefined();
   });
 });

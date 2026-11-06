@@ -101,6 +101,10 @@ const SETTINGS = {
   flow_brain: { values: ["api", "acp"], subject: "agent" },
   flow_speak_replies: { values: ON_OFF },
   flow_own_wait: { values: ON_OFF },
+  flow_own_stt: { values: ON_OFF },
+  flow_stt_family: { values: STT_FAMILIES },
+  flow_own_voice: { values: ON_OFF },
+  flow_tts_family: { values: TTS_FAMILIES },
   flow_quiet_meeting: { values: ON_OFF },
   flow_quiet_mic: { values: ON_OFF },
   flow_quiet_dnd: { values: ON_OFF },
@@ -113,6 +117,8 @@ const SETTINGS = {
   dictate_polish: { values: ON_OFF },
   dictate_tone: { values: ["natural", "casual", "formal"] },
   dictate_own_brain: { values: ON_OFF },
+  dictate_own_stt: { values: ON_OFF },
+  dictate_stt_family: { values: STT_FAMILIES },
   dictate_brain: { values: ["api", "acp"], subject: "agent" },
   flow_key: { values: TOGGLE_KEYS },
   dictate_key: { values: TOGGLE_KEYS },
@@ -330,7 +336,7 @@ const events = {
   flow_failure_card: {
     props: {
       code: en(FAILURE_CODES),
-      origin: opt(en(["health", "turn", "mic", "lost_answer", "link"])),
+      origin: opt(en(["health", "turn", "mic", "lost_answer", "link", "tray"])),
       ...brain,
     },
     limit: { dedupeMs: 600000, dedupeKey: ["code"] },

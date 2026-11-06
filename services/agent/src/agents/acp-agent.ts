@@ -7,7 +7,7 @@ import type { AgentCapabilities, AvailableCommand, Client, RequestPermissionRequ
 import { getSetting } from "@openlive/db";
 import type { Message } from "@openlive/harness";
 import {
-  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, toolKindSchema,
+  AGENT_REGISTRY, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, resolveAgentModel, toolKindSchema,
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
 import { widenedPath } from "@openlive/shared/node";
@@ -76,7 +76,7 @@ export function callPreamble(hosted: string[]): string {
 // Other agents have no such channel, so they keep the first-turn preamble.
 // A toolless session (Dictate's rewrite) gets no built-in tool (`tools: []`), no MCP
 // server but the ones passed (none), and is not saved for `claude --resume`
-// (claude-agent-sdk's Options, read against adapter 0.81.2).
+// (claude-agent-sdk's Options, read against adapter 0.100.0).
 const buildClaudeMeta = (text: string, hosted: string[], toolless = false) => ({
   claudeCode: {
     options: {
@@ -438,8 +438,12 @@ export class AcpAgent implements Agent {
     };
   }
 
-  async setModel(modelId: string): Promise<void> {
+  async setModel(saved: string): Promise<void> {
     if (!this.conn || !this.sessionId || !(this.modelConfigId || this.legacyModels)) return;
+    // A saved id from an older adapter is mapped onto today's list; one with no
+    // counterpart is dropped, so the agent keeps its default instead of refusing it.
+    const modelId = this.meta.models.length ? resolveAgentModel(saved, this.meta.models) : saved;
+    if (!modelId) { log.debug(`agent:${this.id}`, `setModel(${saved}): not offered, keeping the default`); return; }
     // Model selection is now an ACP session config option. Never throw: an agent
     // that rejects a value must not crash the session.
     try {

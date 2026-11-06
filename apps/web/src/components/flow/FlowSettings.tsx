@@ -23,6 +23,7 @@ import { ModeOnLine, MoreMenu, QueryState, StatusDot } from "@/components/settin
 import { AnswerSummary, useDefaultBrain, WhoAnswers } from "@/components/settings/WhoAnswers";
 import { HistorySection } from "@/components/settings/HistorySection";
 import { SharedSettings } from "@/components/settings/SharedSettings";
+import { SurfaceSpeech } from "@/components/settings/SurfaceSpeech";
 import { clearFlowSessions, refreshFlowSessions, useFlowSessionCount } from "@/lib/flow/sessions";
 import { AddonCard } from "./AddonCard";
 
@@ -108,6 +109,8 @@ export function FlowSettings() {
           )}
         </ListGroup>
       </Section>
+
+      <SurfaceSpeech id="set-flow-speech" surface="flow" config={config} save={save} />
 
       <Section id="set-flow-quiet" title="Go quiet when" desc="Replies switch to text for that turn.">
         <ListGroup>

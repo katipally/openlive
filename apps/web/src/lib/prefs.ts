@@ -33,8 +33,8 @@ export const useVoicePrefs = persisted<VoicePrefs>("voice", () => ({ pipeline: n
 // One field per chat and per agent, so two windows saving different chats
 // both land.
 
-export interface ChatPrefs { bind?: string; cwd?: string; resume?: string }
-export interface AgentPrefs { meta?: Fields; model?: string; mode?: string; opts?: Record<string, string> }
+export interface ChatPrefs { bind?: string; cwd?: string; resume?: string; model?: string }
+export interface AgentPrefs { meta?: Fields; mode?: string; opts?: Record<string, string> }
 export type SessionPrefs = { recentFolders: string[] } & { [k: `chat:${string}`]: ChatPrefs | undefined } & { [k: `agent:${string}`]: AgentPrefs | undefined };
 
 /** Chats remembered at most; past it the oldest pick goes. A forgotten chat
@@ -43,14 +43,14 @@ export const CHAT_PREFS_MAX = 500;
 
 function chatPrefs(v: unknown): ChatPrefs | undefined {
   if (!isObj(v)) return undefined;
-  const out = only(v, (k, x) => (k === "bind" || k === "cwd" || k === "resume" ? str(x) : undefined));
+  const out = only(v, (k, x) => (k === "bind" || k === "cwd" || k === "resume" ? str(x) : k === "model" ? str(x, 512) : undefined));
   return Object.keys(out).length ? out : undefined;
 }
 function agentPrefs(v: unknown): AgentPrefs | undefined {
   if (!isObj(v)) return undefined;
   const out = only(v, (k, x) =>
     k === "meta" ? (isObj(x) ? x : undefined)
-    : k === "model" || k === "mode" ? str(x, 512)
+    : k === "mode" ? str(x, 512)
     : k === "opts" ? (isObj(x) ? only(x, (_, y) => str(y, 512)) : undefined)
     : undefined);
   return Object.keys(out).length ? out : undefined;

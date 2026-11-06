@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { resetOnboarding, useOnboarding } from "./prefs";
+import { cleanSessions, resetOnboarding, useOnboarding } from "./prefs";
 
 describe("resetOnboarding", () => {
   it("starts every first run and tour over, as for someone new", () => {
     useOnboarding.setState({ welcomed: true, flowOnboarded: "1", dictateOnboarded: true, tours: ["home", "flow", "dictate"] });
     resetOnboarding();
     expect(useOnboarding.getState()).toMatchObject({ welcomed: false, flowOnboarded: null, dictateOnboarded: false, tours: [] });
+  });
+});
+
+describe("cleanSessions", () => {
+  it("keeps the model a chat picked and drops what is not text", () => {
+    expect(cleanSessions({ "chat:a": { bind: "claude", model: "haiku" }, "chat:b": { model: 7 } })).toEqual({ "chat:a": { bind: "claude", model: "haiku" } });
   });
 });

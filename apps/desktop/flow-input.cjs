@@ -192,9 +192,26 @@ function hookReadiness() {
   } catch { return "off"; }
 }
 
+// The renderer starts the hook once its window loads; a hook still down after
+// this is one that never started, not one that is about to.
+const BOOT_GRACE_MS = 20_000;
+const bootedAt = Date.now();
+
 /** The message the key listener failed with, whether it died or never started. */
 function hookFailure() {
-  try { return load().hookError() || startError; } catch { return startError; }
+  try {
+    const api = load();
+    const idle = !hooked && Date.now() - bootedAt > BOOT_GRACE_MS && api.permissionStatus().accessibility;
+    return api.hookError() || startError || (idle ? "The key listener isn't running." : null);
+  } catch { return startError; }
+}
+
+/** Starts a listener that is down while the grant exists, for a caller that needs it now.
+ *  Never prompts: with no grant it leaves that to onboarding. Returns the new readiness. */
+function revive() {
+  try { if (load().permissionStatus().accessibility && (!hooked || hookFailure())) initialize(); }
+  catch (e) { console.error("[flow-input] revive:", e); }
+  return readiness();
 }
 
 function granted(what) {
@@ -338,4 +355,4 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   app.on("will-quit", teardown);
 }
 
-module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, request, hookFailure, insertionTiming };
+module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, revive, request, hookFailure, insertionTiming };

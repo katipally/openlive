@@ -1,6 +1,6 @@
 // Guards the agent registry — the single source of agent identity everything
 // (driver, API routes, UI) reads. The claude pin test is load-bearing: OpenLive
-// relies on claude-agent-acp@0.81.2's `_meta.claudeCode.options` passthrough, and
+// relies on claude-agent-acp@0.100.0's `_meta.claudeCode.options` passthrough, and
 // a drifted pin silently breaks native session persistence / `claude --resume`.
 import assert from "node:assert";
 import { test } from "vitest";
@@ -23,8 +23,8 @@ test("every agent id has a complete registry entry", () => {
 });
 
 test("the npx adapter PINS are intact (byte-identical)", () => {
-  assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.81.2");
-  assert.equal(adapterCommand("codex"), "npx -y @agentclientprotocol/codex-acp@1.13.1");
+  assert.equal(adapterCommand("claude-code"), "npx -y @agentclientprotocol/claude-agent-acp@0.100.0");
+  assert.equal(adapterCommand("codex"), "npx -y @agentclientprotocol/codex-acp@2.5.0");
 });
 
 test("hermes runs through its launcher, and Install uses the official installer", () => {

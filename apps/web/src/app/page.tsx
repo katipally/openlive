@@ -18,7 +18,7 @@ import { useHydrated } from "@/lib/useHydrated";
 import { SETTINGS_KEYS } from "@/lib/platform";
 import { setConversationBind } from "@/lib/live/useLiveSession";
 import { useLiveStore } from "@/lib/live/liveStore";
-import { useDefaultAgent } from "@/components/settings/WhoAnswers";
+import { useDefaultAgent, useDefaultAgentPending } from "@/components/settings/WhoAnswers";
 import { loadModels, modelsCached, modelsReady } from "@/lib/live/models";
 import { wirePanelCmdRouter } from "@/lib/live/panelBridge";
 import { MODES, ModeStart, ModeSwitch, modeCopy, SwitchHole } from "@/components/flow/ModeSwitch";
@@ -71,7 +71,9 @@ export default function Home() {
   // The hero's "Who answers" is what the next new chat talks to: the default each
   // time the hero comes back, and whenever the default changes.
   const defaultAgent = useDefaultAgent();
-  useEffect(() => { if (!liveOpen && defaultAgent !== undefined) useLiveStore.getState().set({ boundAgent: defaultAgent }); }, [liveOpen, defaultAgent]);
+  const defaultPending = useDefaultAgentPending();
+  // Before paint, so the chip never renders the old bind beside a default that has loaded.
+  useLayoutEffect(() => { if (!liveOpen && defaultAgent !== undefined) useLiveStore.getState().set({ boundAgent: defaultAgent }); }, [liveOpen, defaultAgent]);
 
   // Warm the on-device voice models in the background as soon as the app loads, so
   // opening Live doesn't stall on "Preparing…". Only when the weights are already
@@ -200,7 +202,7 @@ export default function Home() {
                 {/* Who a new conversation talks to: your API key or a coding agent. Carried
                     into New. Beside it, whether a call would start, as Flow's and Dictate's homes say. */}
                 <div className="ol-hero-sub flex max-w-full flex-wrap items-center justify-center gap-2 text-label text-faint">
-                  <span data-tour="talk-to" className="flex min-w-0 max-w-full items-center gap-2">Who answers <AgentSelect up /></span>
+                  <span data-tour="talk-to" className="flex min-w-0 max-w-full items-center gap-2">Who answers <AgentSelect up pending={defaultPending} /></span>
                   <ChatStatusChip />
                 </div>
               </div>

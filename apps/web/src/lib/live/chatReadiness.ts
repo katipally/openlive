@@ -8,8 +8,9 @@ import { flowBridge } from "@/lib/flow/bridge";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useUi } from "@/lib/uiStore";
 import { desktopPlatform } from "@/lib/platform";
-import { modelsCached, voiceDownloadPlan } from "./models";
-import { aboutSize } from "./weights";
+import { modelsCached, modelsCachedSettled, voiceDownloadPlan } from "./models";
+import { aboutSize, voiceModels } from "./weights";
+import { useDefaultAgentPending } from "@/components/settings/WhoAnswers";
 import { useApiModeChoice } from "./useApiModeChoice";
 import { useLiveStore } from "./liveStore";
 
@@ -49,22 +50,27 @@ function useMicRefused(): boolean {
 
 export function useChatReadiness(): ChatReadiness {
   const agent = useLiveStore((s) => s.boundAgent);
+  // The bound agent is the default until settings say which, so the chip waits for them.
+  const defaultPending = useDefaultAgentPending();
   const choice = useApiModeChoice();
   const { data: agents, isLoading: agentsLoading } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!agent });
   const row = agent ? agents?.find((r) => r.id === agent) : undefined;
-  const cached = typeof window !== "undefined" && modelsCached();
+  const settledRead = useQuery({ queryKey: ["models-settled"], queryFn: () => modelsCachedSettled(), staleTime: Infinity });
+  const settled = settledRead.isSuccess || settledRead.isError;
+  const cached = typeof window !== "undefined" && settled && modelsCached();
   const micRefused = useMicRefused();
   const open = useUi.getState().openSettingsTab;
   const name = agentLabel(agent);
 
-  const first: ChatGap | null = agent && row && !row.installed ? "agent_install"
+  const first: ChatGap | null = defaultPending ? null : agent && row && !row.installed ? "agent_install"
     : agent && row?.credState === "login_required" ? "agent_signin"
     : !agent && !choice.loading && !choice.usable ? "key" : null;
   // The size is asked of the hub only when the download is what the chip would say.
-  const { data: plan } = useQuery({ queryKey: ["voice-download-plan"], queryFn: () => voiceDownloadPlan(), enabled: !cached && !first, staleTime: 60_000 });
+  const { data: plan, isError: planFailed } = useQuery({ queryKey: ["voice-download-plan"], queryFn: () => voiceDownloadPlan(), enabled: settled && !cached && !first, staleTime: 60_000 });
+  const models = voiceModels(settled, cached, plan, planFailed);
+  const reading = defaultPending || choice.loading || (!!agent && agentsLoading) || models === "reading";
   const gap: ChatGap | null = first
-    ?? (!cached && (!plan || plan.missing.length > 0) ? "models"
-    : micRefused ? "mic" : null);
+    ?? (reading ? null : models === "missing" ? "models" : micRefused ? "mic" : null);
   const size = aboutSize(plan?.bytes ?? null);
 
   switch (gap) {
@@ -77,6 +83,6 @@ export function useChatReadiness(): ChatReadiness {
       // Refused once, the OS no longer asks, so the fix is its settings page where it has one.
       fix: () => { const b = flowBridge(); if (b) void (desktopPlatform === "linux" ? b.request("microphone", "other") : b.openSettings("microphone")); },
     };
-    default: return { gap: null, loading: choice.loading || (!!agent && agentsLoading), label: "Ready", tip: "A new call can start", fix: () => {} };
+    default: return { gap: null, loading: reading, label: "Ready", tip: "A new call can start", fix: () => {} };
   }
 }

@@ -14,7 +14,7 @@ import {
 import { languageLabel, languagesNote, licenseTag, variantGroups, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
-  tts, modelsReady, modelsCached, loadModels, removeModel, hasWebGPU, resetNativeFallbacks, voiceDownloadPlan,
+  tts, modelsReady, modelsCached, modelsCachedSettled, loadModels, removeModel, hasWebGPU, resetNativeFallbacks, voiceDownloadPlan,
   listNativeEngines, downloadModel, deleteNativeEngine, type NativeEngineStatus, type NativeFamilyStatus,
   getVoicePerf, setEngineAccel, rebenchEngine, type AccelProvider, type AccelResult,
 } from "@/lib/live/models";
@@ -68,7 +68,9 @@ function StageHead({ title, desc }: { title: string; desc: string }) {
 }
 
 // Shared on-device model download status + prefetch (all stage weights load together).
-function ModelStatus({ cfg, removeKind }: { cfg: PipelineConfig; removeKind?: "whisper" | "kokoro" | "supertonic" }) {
+// `scope` is a surface with engines of its own: the status is of those, and the
+// download waits for its own session, which asks first.
+function ModelStatus({ cfg, removeKind, scope }: { cfg: PipelineConfig; removeKind?: "whisper" | "kokoro" | "supertonic"; scope?: "flow" | "dictate" }) {
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [removing, setRemoving] = useState(false);
@@ -76,12 +78,18 @@ function ModelStatus({ cfg, removeKind }: { cfg: PipelineConfig; removeKind?: "w
   // fresh size/engine correctly shows the download button instead of a false
   // "Downloaded". (Don't fall back to modelsReady() — that's true for ANY loaded
   // config and would re-introduce the "everything looks downloaded" bug.)
-  const cached = typeof window !== "undefined" && modelsCached();
+  // The answer waits for the agent to say which voice it runs, as Chat's home does, so
+  // opening this never flashes a download for a voice the agent already has. A failed
+  // read counts as answered: the cache check is then all there is.
+  const voice = scope !== "dictate";
+  const read = useQuery({ queryKey: ["models-settled", scope ?? "chat", voice, cfg.tts.variant], queryFn: () => modelsCachedSettled(voice, cfg), staleTime: Infinity });
+  const settled = read.isSuccess || read.isError;
+  const cached = typeof window !== "undefined" && settled && modelsCached(voice, cfg);
   // What the button downloads, named and sized before it is pressed; re-read when the engines or language change.
   const [plan, setPlan] = useState<DownloadPlan | null>(null);
   const planKey = `${cfg.stt.variant}:${cfg.stt.whisperSize}:${cfg.tts.variant}:${cfg.language}`;
   useEffect(() => {
-    if (cached) return;
+    if (cached || scope) return;
     let live = true;
     void voiceDownloadPlan().then((p) => { if (live) setPlan(p); }, () => {});
     return () => { live = false; };
@@ -97,7 +105,7 @@ function ModelStatus({ cfg, removeKind }: { cfg: PipelineConfig; removeKind?: "w
     catch { toast("Couldn't remove that model."); }
     finally { setRemoving(false); }
   };
-  return cached ? (
+  return !settled ? <StatusDot tone="muted">Checking…</StatusDot> : cached ? (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <StatusDot tone="success">Ready, downloaded on this device</StatusDot>
       {removeKind && (
@@ -106,6 +114,8 @@ function ModelStatus({ cfg, removeKind }: { cfg: PipelineConfig; removeKind?: "w
         </Button>
       )}
     </div>
+  ) : scope ? (
+    <StatusDot tone="arc">Not downloaded. {scope === "flow" ? "Flow" : "Dictate"} asks before it downloads this one.</StatusDot>
   ) : (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <Button size="sm" onClick={download} disabled={busy}>
@@ -634,7 +644,7 @@ const missingNote = (cfg: PipelineConfig, stage: Stage, engines?: NativeFamilySt
 const unsupportedNote = (f: EngineFamilyInfo, lang: LanguageCode) =>
   languageSupport(f.id, lang) ? undefined : languagesNote(f.variants.flatMap((v) => v.languages));
 
-function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+export function SttStage({ cfg, update, scope }: { cfg: PipelineConfig; update: Update; scope?: "flow" | "dictate" }) {
   const { data: engines } = useNativeEngines();
   const where = useWhereItRuns();
   const whisper = !isNativeVariant(cfg.stt.variant);
@@ -643,7 +653,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const missing = missingNote(cfg, "stt", engines);
   return (
     <div className="space-y-4">
-      <StageHead title="Speech-to-text" desc="Turns what you say into text, on this device. Pick one; the rest stay off your disk until you download them. Applies on the next call." />
+      <StageHead title="Speech-to-text" desc={`Turns what you say into text, on this device. Pick one; the rest stay off your disk until you download them. ${scope ? "Applies the next time it opens." : "Applies on the next call."}`} />
       <div className={ENGINE_GRID}>
         {STT_FAMILIES.map((e) => {
           const variant = familyVariant(cfg, "stt", e);
@@ -656,7 +666,7 @@ function SttStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       </div>
       {gate}
       {active && <LicenseNote family={active} variant={cfg.stt.variant} />}
-      {whisper ? <ModelStatus cfg={cfg} removeKind="whisper" /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
+      {whisper ? <ModelStatus cfg={cfg} removeKind="whisper" scope={scope} /> : <NativeEngineRow id={cfg.stt.variant} fallback="Whisper" accel={false} />}
       <Advanced id="engine:stt">
         {whisper && <div className="flex flex-col gap-1.5">
           <span className="flex items-center gap-1.5 text-label text-foreground">
@@ -778,7 +788,7 @@ export async function playPreview(text: string, cfg: PipelineConfig) {
   src.onended = () => { void ctx.close(); };
 }
 
-function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
+export function TtsStage({ cfg, update, scope }: { cfg: PipelineConfig; update: Update; scope?: "flow" }) {
   const { data: engines } = useNativeEngines();
   const where = useWhereItRuns();
   const native = isNativeVariant(cfg.tts.variant);
@@ -792,7 +802,8 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
   const standIn = familyInfo("tts", browserTtsFallback(cfg.language) ?? "")?.name ?? "no voice";
   return (
     <div className="space-y-4">
-      <StageHead title="Text-to-speech" desc="The engine that speaks replies, on this device. The voice itself and its speed are chosen in Voice. Applies to the next reply." />
+      <StageHead title="Text-to-speech" desc={scope ? "The engine that speaks replies, on this device. Pick its voice below; the speed is shared. Applies to the next reply."
+        : "The engine that speaks replies, on this device. The voice itself and its speed are chosen in Voice. Applies to the next reply."} />
       <div className={ENGINE_GRID}>
         {TTS_FAMILIES.map((e) => {
           const variant = familyVariant(cfg, "tts", e);
@@ -805,7 +816,7 @@ function TtsStage({ cfg, update }: { cfg: PipelineConfig; update: Update }) {
       {gate}
       <LicenseNote family={engine} variant={cfg.tts.variant} />
       {native ? <NativeEngineRow id={cfg.tts.variant} fallback={standIn} accel={false} />
-        : <ModelStatus cfg={cfg} removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
+        : <ModelStatus cfg={cfg} scope={scope} removeKind={cfg.tts.family === "supertonic" ? "supertonic" : cfg.tts.family === "kokoro" ? "kokoro" : undefined} />}
       <Advanced id="engine:tts">
         <VariantPicker cfg={cfg} stage="tts" update={update} onAsk={ask} />
         {native && <AccelRow id={cfg.tts.variant} />}

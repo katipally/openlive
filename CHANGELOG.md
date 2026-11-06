@@ -7,6 +7,14 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Flow and Dictate can hear with their own speech engine, and Flow can speak with
+  its own voice.** Settings > Flow has Hearing and voice, and Settings > Dictate has
+  Hearing, each set to Same as Chat or Its own, with the same engine, model and Whisper
+  size pickers as Speech engine and a voice list for Flow. A model that is not on
+  disk shows as not downloaded, and Flow or Dictate asks before it downloads it.
+  `setting_changed` gains `flow_own_stt`, `flow_stt_family`, `flow_own_voice`,
+  `flow_tts_family`, `dictate_own_stt` and `dictate_stt_family`, never a model,
+  size or voice.
 - **Usage counts for each surface and for capabilities.** Two new anonymous events:
   `surface_active` (the first use each day of Chat, Flow or Dictate) and
   `capability_changed` (adding, switching, removing or signing in to a memory note,
@@ -21,8 +29,38 @@ Releases before 0.1.9 predate this file — see the
   are the built-in Anthropic models, with Opus 5.5 as the default. Haiku 5.5 replaces
   Haiku 4.5 as the recommended model for calls, and now gets the effort setting, which
   Haiku 4.5 could not take.
+- **Newer Claude Code and Codex adapters.** Claude Code runs on claude-agent-acp
+  0.100.0 (was 0.81.2) and Codex on codex-acp 2.5.0 (was 1.13.1), which builds on
+  Codex 0.165.0.
 
 ### Fixed
+- **Start Flow in the menu bar no longer does nothing when the key listener is down.**
+  Flow said it was ready when its key listener had never started, so Start Flow
+  failed without a word. The listener is now started on the click when the grant is
+  there, and otherwise the window opens on Flow's home, which names what is missing.
+  Start Flow is always clickable. `flow_failure_card` gains the origin `tray`.
+- **A coding agent's saved model that was renamed still applies.** The newer adapters
+  list models under new ids (`opus` where an older one said `opus[1m]`), so a model
+  saved earlier was refused and the agent quietly kept its default. A saved id is now
+  matched to the agent's current list (the same id without a suffix like `[1m]`, then
+  the model of the same family), in Chat, Flow and Dictate. Settings show the match, or
+  Agent default with a note when the agent no longer offers that model.
+- **The voice models card in Chat no longer asks for a download it does not need.** It
+  checked for a browser voice before the agent had said it runs that voice itself, so it
+  offered the download anyway. It now waits for the agent's answer. On a cold launch
+  the Chat home also flashed "Download voice models" and "Who answers: Your API key"
+  for a moment before settling on the real answer; both now stay blank until they are
+  known, and Settings > Speech engine does the same. If settings or the model check
+  never answer, they stop waiting and show what they have.
+- **A new Chat call starts on the default model you saved.** Settings > Models > Who
+  answers > Advanced said new chats start with it, but the call setup opened on the
+  agent's own pick. A model you choose in a chat now belongs to that chat, and every
+  other new chat starts on the default.
+- **Flow and Dictate show over a full-screen app on macOS.** The orb only appeared on
+  the desktop's own Space while OpenLive had a Dock icon (its window open or
+  minimized), because macOS lets only an app without one put a window over another
+  app's full-screen Space. The icon now steps aside while the orb is up and comes back
+  when it goes, unless OpenLive's own window is the one in front.
 - **A Dictate that cannot start says why.** When the voice models are not downloaded,
   Dictate asks for them instead of opening and now sends `dictate_failure` with
   `models_missing`, where it sent only an empty session.

@@ -182,6 +182,26 @@ test("an older file walks every migration into the current version", () => {
   expect(cfg.brain.override).toBe(false);
   expect(cfg.voice.turnOverride).toBeNull();
 });
+test("Flow and Dictate hear and speak as Chat does until each is given its own", () => {
+  const cfg = parseFlowConfig({});
+  expect(cfg.voice.stt.override).toBe(false);
+  expect(cfg.voice.tts.override).toBe(false);
+  expect(cfg.dictate.stt.override).toBe(false);
+});
+
+test("a surface's own engines survive a write, and anything malformed gives way to the default", () => {
+  const own = parseFlowConfig({
+    voice: { stt: { override: true, variant: "parakeet-0.6b-v2-int8", whisperSize: "small" }, tts: { override: true, variant: "kitten-nano-int8", voice: "luna" } },
+    dictate: { stt: { override: true, variant: "whisper", whisperSize: "large-v3-turbo" } },
+  });
+  expect(own.voice.stt).toEqual({ override: true, variant: "parakeet-0.6b-v2-int8", whisperSize: "small" });
+  expect(own.voice.tts).toEqual({ override: true, variant: "kitten-nano-int8", voice: "luna" });
+  expect(parseFlowConfig(own)).toEqual(own);
+  const bad = parseFlowConfig({ voice: { stt: { override: "yes", variant: 3 }, tts: [] }, dictate: { stt: null } });
+  expect(bad.voice.stt).toEqual({ override: false, variant: "", whisperSize: "" });
+  expect(bad.voice.tts).toEqual({ override: false, variant: "", voice: "" });
+  expect(bad.dictate.stt).toEqual({ override: false, variant: "", whisperSize: "" });
+});
 
 test("a decided override survives a write, and a v7 file is not migrated again", () => {
   const on = parseFlowConfig({ version: 7, brain: { override: true, kind: "acp", agentId: "codex" }, voice: { turnOverride: true } });

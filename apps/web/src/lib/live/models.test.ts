@@ -243,6 +243,34 @@ describe("a browser voice the agent runs", () => {
     expect(posted.find((m) => m.type === "load")).toMatchObject({ ttsEngine: "supertonic", ttsNative: false });
   });
 
+  describe("when the browser holds no voice because the agent speaks", () => {
+    beforeEach(async () => {
+      vi.stubGlobal("window", {});
+      vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "openlive-models-ready-v1" ? "wasm:native:native" : null), setItem: () => {} });
+      vi.stubGlobal("caches", { match: async () => undefined });
+      await savedPipeline({ stt: { engine: "parakeet" }, tts: { engine: "supertonic" } });
+    });
+    const hub = () => Response.json([]);
+
+    it("counts the weights as cached only once the agent has said so", async () => {
+      vi.stubGlobal("fetch", agent(async () => spoken([]), () => listing(true)));
+      expect(models.modelsCached()).toBe(false);
+      expect(await models.modelsCachedSettled()).toBe(true);
+    });
+
+    it("plans a browser voice while the agent is unreachable, and none once it answers", async () => {
+      let up = false;
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        if (url !== "/api/voice/engines") return hub();
+        if (!up) throw new TypeError("fetch failed");
+        return listing(true);
+      }));
+      expect((await models.voiceDownloadPlan()).missing.map((f) => f.key)).toContain("tts");
+      up = true;
+      expect((await models.voiceDownloadPlan()).missing.map((f) => f.key)).not.toContain("tts");
+    });
+  });
+
   it("never asks the agent about a browser voice it does not run", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

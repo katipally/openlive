@@ -107,10 +107,9 @@ describe("trayTemplate", () => {
     expect(items.find((i: { label?: string }) => i.label === "Quit OpenLive").accelerator).toBeUndefined();
   });
 
-  it("enables Start Flow only when a double tap would work", () => {
+  it("keeps Start Flow clickable in every state, so a click never does nothing", () => {
     const start = (state: object) => trayTemplate(state, act).find((i: { label?: string }) => i.label === "Start Flow");
-    expect(start(ready).enabled).toBe(true);
-    for (const readiness of ["access", "stopped", "off"]) expect(start({ ...ready, readiness }).enabled).toBe(false);
+    for (const readiness of ["ready", "access", "stopped", "off"]) expect(start({ ...ready, readiness }).enabled).not.toBe(false);
   });
 
   it("offers the fix in place when a grant is all that is missing, in the platform's words", () => {

@@ -4,7 +4,7 @@
 // aggregate progress bar, or a mid-session ask (agreeToDownload). Weights are cached by the browser Cache API AND the
 // worker is kept warm for the whole tab (never torn down between calls) — so opening
 // Live a second time reuses the loaded pipelines with zero download and no shader recompile.
-import { loadPipelineConfig, isNativeVariant, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES, ADDRESSEE_ENGINE } from "./pipelineConfig";
+import { loadPipelineConfig, isNativeVariant, type PipelineConfig, variantInfo, workerTag, tagCached, whisperCheckpoint, browserTtsFallback, languageSupport, CURATED_LANGUAGES, ADDRESSEE_ENGINE } from "./pipelineConfig";
 import type { LanguageCode, TelemetryEventProps } from "@openlive/shared";
 import { normalizeAligned } from "@openlive/shared/speech/normalize";
 import { heardOnsets } from "@openlive/shared/speech/timing";
@@ -60,10 +60,10 @@ export function modelsReady(): boolean { return ready; }
 // Whisper-size or TTS-engine change makes this false while `ready` stays true: callers use this to
 // reload the right weights instead of silently keeping the old ones. Without
 // `voice` (Dictate, a Flow that never speaks), a worker that also holds one serves.
-export function modelsMatchConfig(voice = true): boolean {
+export function modelsMatchConfig(voice = true, cfg?: PipelineConfig): boolean {
   if (!ready || !loadedTag) return false;
-  if (voice) return loadedTag === readyTag();
-  const [tier, stt] = readyTag(false).split(":"), held = loadedTag.split(":");
+  if (voice) return loadedTag === readyTag(true, cfg);
+  const [tier, stt] = readyTag(false, cfg).split(":"), held = loadedTag.split(":");
   return held[0] === tier && held[1] === stt;
 }
 
@@ -75,19 +75,19 @@ export function modelsMatchConfig(voice = true): boolean {
 const READY_KEY = "openlive-models-ready-v1";
 const OLD_READY_KEY = "takt-live-models-ready-v1"; // pre-rebrand; migrated below
 const deviceTier = () => (hasWebGPU() ? "webgpu" : "wasm");
-const readyTag = (voice = true) => { const c = loadPipelineConfig(); return workerTag(c, deviceTier(), !voice || !!onAgent(c.tts.variant)); };
+const readyTag = (voice = true, c = loadPipelineConfig()) => workerTag(c, deviceTier(), !voice || !!onAgent(c.tts.variant));
 // Every config that finished loading, space-separated (a pre-list value is one tag),
 // so a later switch counts whatever parts of it are already in the cache.
 const loadedTags = () => (localStorage.getItem(READY_KEY) ?? "").split(" ").filter(Boolean);
-export function modelsCached(voice = true): boolean {
+export function modelsCached(voice = true, cfg?: PipelineConfig): boolean {
   // Must be config-AWARE: `ready` alone is true whenever ANY size/engine is loaded,
   // which made the Pipeline UI claim every OTHER Whisper size / TTS engine was
   // "Downloaded" after the first load — so its download button never appeared and
   // the new weights only ever pulled silently on the next call. Gate on the loaded
   // config matching the current one instead.
-  if (modelsMatchConfig(voice)) return true;
+  if (modelsMatchConfig(voice, cfg)) return true;
   try {
-    if (tagCached(readyTag(voice), loadedTags())) return true;
+    if (tagCached(readyTag(voice, cfg), loadedTags())) return true;
     // Migration: a pre-rebrand flag (keyed by tier only) still means the heavy
     // weights are in the browser cache — count it as cached so we don't re-prompt.
     const old = localStorage.getItem(OLD_READY_KEY);
@@ -325,9 +325,15 @@ async function agentCopy(engine: string | undefined): Promise<string | undefined
       const v = f.browser && f.variants.find((x) => x.installed && x.runnable);
       return v ? [[f.browser!, v.id] as const] : [];
     }));
-  }, () => { copies = new Map(); });
+  }, () => { copies = new Map(); copiesLoading = null; }); // an agent still starting is asked again, not remembered as having no copy
   await copiesLoading;
   return onAgent(engine);
+}
+
+/** modelsCached once the agent has said which voice it runs: until then the check asks for a browser voice nobody needs. */
+export async function modelsCachedSettled(voice = true, cfg?: PipelineConfig): Promise<boolean> {
+  await agentCopy((cfg ?? loadPipelineConfig()).tts.variant);
+  return modelsCached(voice, cfg);
 }
 
 /** A new call gives a failed native engine another chance, and asks again about a download it was refused. */
