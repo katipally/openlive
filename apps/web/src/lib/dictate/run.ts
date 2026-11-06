@@ -235,6 +235,7 @@ export function createDictate(ports: DictatePorts) {
     open = false;
     holding = false;
     began = null;
+    last = null;
     ports.release();
     stopLinger();
     if (!d) return;
@@ -248,6 +249,7 @@ export function createDictate(ports: DictatePorts) {
     open = true;
     typed = 0;
     began = null;
+    last = null;
     d = null;
     tally = { at: Date.now(), dictations: 0, words: 0, copied: 0, failed: 0, polished: 0, edits: 0, commands: 0, snippets: 0, empty: 0, cancelled: 0 };
     set({ ready: ports.ready() });
@@ -375,7 +377,10 @@ export function createDictate(ports: DictatePorts) {
   const obey = async (c: SpokenCommand): Promise<string> => {
     if (c === "stop") return "";
     if (c === "undo") {
-      const n = last ? graphemes(last) : 0;
+      const f = await focused();
+      // Backspace acts on whatever has focus now, so only the window the words went into.
+      const elsewhere = f.secure || (tail !== null && f.windowId != null && f.windowId !== tail.id);
+      const n = last && !elsewhere ? graphemes(last) : 0;
       last = null;
       tail = null;
       if (!n || n > UNDO_MAX) return NOTHING_TO_UNDO;
@@ -403,7 +408,7 @@ export function createDictate(ports: DictatePorts) {
     let out: Inserted | null = null;
     const f = final ? await focused() : UNKNOWN;
     // A password field gets nothing: no typing, no clipboard, no AI, no history.
-    if (f.secure) note = SECURE;
+    if (f.secure) { note = SECURE; last = null; tail = null; }
     else if (final && !snippet && s.polish.enabled) ({ final, out, note } = await polish(clean, s.polish.tone, f));
     else if (final) out = await put(final, f);
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
@@ -428,14 +433,15 @@ export function createDictate(ports: DictatePorts) {
     const ask = { kind: "command", text: instruction, selection } as const;
     if (selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", partial: "", editing: false, note: TOO_LONG }); return; }
     const f = await focused();
-    if (f.secure) { set({ phase: "idle", partial: "", editing: false, note: SECURE }); return; }
+    if (f.secure) { last = null; tail = null; set({ phase: "idle", partial: "", editing: false, note: SECURE, undo: false }); return; }
     let result: string;
     try { result = await think(ask, COMMAND_MS); }
     catch (e) {
       // The brain's own words, when it has some, are the note; either way it is one kind of failure.
       ports.failure?.("command_failed");
       count("failed");
-      set({ phase: "idle", partial: "", editing: false, note: (e instanceof Error && e.message) || COMMAND_FAILED });
+      last = null;
+      set({ phase: "idle", partial: "", editing: false, note: (e instanceof Error && e.message) || COMMAND_FAILED, undo: false });
       return;
     }
     // An edit is its own text, not the next words of a sentence: no space before it.
@@ -480,7 +486,7 @@ export function createDictate(ports: DictatePorts) {
       const ended = await ports.endHold(performance.now() - up);
       holding = false;
       if (!open) return;
-      if (ended !== "heard") { began = null; releasedAt = null; if (ended !== "lost") count("empty"); set({ phase: "idle", partial: "", editing: false, note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH }); }
+      if (ended !== "heard") { began = null; releasedAt = null; if (ended !== "lost") count("empty"); last = null; set({ phase: "idle", partial: "", editing: false, note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH, undo: false }); }
       // The engine hands the words over without waiting for them to be typed.
       await work;
     },
@@ -490,7 +496,8 @@ export function createDictate(ports: DictatePorts) {
       holding = false;
       began = null;
       ports.dropHold();
-      set({ phase: "idle", partial: "", editing: false, note: MIC_SILENT });
+      last = null;
+      set({ phase: "idle", partial: "", editing: false, note: MIC_SILENT, undo: false });
     },
     /** A tap, a key on top, or sleep: the hold's words go nowhere. */
     async holdCancel() {
