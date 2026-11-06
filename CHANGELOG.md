@@ -34,6 +34,19 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **A restart, logoff or shutdown of the computer is no longer counted as a crash.**
+  The next launch took any leftover server pid for a crash, which flagged 35% of
+  installs, mostly Windows. It now tells a restart of the computer (`os_restart`) from
+  a force quit (`killed`) and a run that left no trace (`unknown`), a logoff mid-start
+  ends the session cleanly, and pids from before a restart are never killed.
+  `app_launch` gains `prev_exit`; `prev_exit_clean` stays and counts a restart as clean.
+- **Windows graphics driver crashes no longer repeat.** OpenLive overrode Chromium's GPU
+  blocklist on every launch, which forced drivers it distrusts. After a GPU process crash
+  on Windows it keeps the blocklist for that version, and voice models run on the CPU
+  there. `app_launch` gains `gpu_blocklist_kept`.
+- **A crashing local server no longer leaves a dead app.** The restart budget was five
+  tries in three seconds. It now backs off over about 30 seconds, starts over once a
+  server has run for a minute, and when it does give up it asks Retry or Quit.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is
