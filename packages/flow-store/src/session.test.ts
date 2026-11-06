@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { entryChain, readSession } from "./jsonl";
 import { FlowSession, readSessionState, resolveAsset, sessionAssetFile } from "./session";
 import { flowDir, sessionsDir } from "./paths";
@@ -83,15 +83,20 @@ test("assets live beside the log, never inside it", async () => {
 });
 
 test("the idle window archives the session and hands control back", async () => {
-  let rolled = 0;
-  const s = await FlowSession.open({ idleMs: 20, onIdle: () => { rolled++; } });
-  await new Promise((r) => setTimeout(r, 10));
-  await s.append("message", { role: "user", text: "still talking" }); // resets the window
-  await new Promise((r) => setTimeout(r, 15));
-  expect(readSessionState(s.path)).toBe("active");
-  await new Promise((r) => setTimeout(r, 60));
-  expect(rolled).toBe(1);
-  expect(readSessionState(s.path)).toBe("archived");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    let rolled = 0;
+    const s = await FlowSession.open({ idleMs: 20, onIdle: () => { rolled++; } });
+    await vi.advanceTimersByTimeAsync(10);
+    await s.append("message", { role: "user", text: "still talking" }); // resets the window
+    await vi.advanceTimersByTimeAsync(15);
+    expect(readSessionState(s.path)).toBe("active");
+    await vi.advanceTimersByTimeAsync(60);
+    await vi.waitFor(() => expect(rolled).toBe(1));
+    expect(readSessionState(s.path)).toBe("archived");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a requested asset stays inside its own session's folder", () => {
