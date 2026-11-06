@@ -83,7 +83,12 @@ export function Welcome({ onPending }: { onPending: (pending: boolean) => void }
   };
   const next = () => {
     if (step === 3) passedAccess.current = true;
-    if (step < STEPS) { setStep(step + 1); reached.current = Math.max(reached.current, step + 1); } else finish("welcome_done");
+    if (step < STEPS) {
+      const to = (step + 1) as 2 | 3 | 4;
+      setStep(to);
+      reached.current = Math.max(reached.current, to);
+      telemetry.track("onboarding_step", { step: `welcome_step_${to}` });
+    } else finish("welcome_done");
   };
   // Focus goes back to the dialog, not to wherever the gone question leaves it.
   const keepGoing = () => { setAsking(false); root.current?.focus(); };

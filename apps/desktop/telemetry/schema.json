@@ -74,7 +74,7 @@
         "duration_s": { "k": "int", "max": 86400 },
         "ended_by": { "k": "enum", "values": ["gesture", "orb_button", "idle", "disarmed", "sleep_or_lock", "dictate_opened", "quit", "other"] },
         "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "opt": true },
-        "ready": { "k": "enum", "values": ["ok", "no_brain", "mic_failed"], "opt": true },
+        "ready": { "k": "enum", "values": ["ok", "no_brain", "models_missing", "mic_failed"], "opt": true },
         "ready_ms": { "k": "int", "max": 600000, "step": 10, "opt": true },
         "turns": { "k": "int", "max": 999 },
         "acted": { "k": "bool" },
@@ -83,6 +83,7 @@
         "steered": { "k": "int", "max": 999, "opt": true },
         "quiet_turns": { "k": "int", "max": 999, "opt": true },
         "stops": { "k": "int", "max": 999, "opt": true },
+        "speech_starts": { "k": "int", "max": 999, "opt": true },
         "barge_ins": { "k": "int", "max": 999, "opt": true },
         "top_quiet_reason": { "k": "enum", "values": ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"], "opt": true },
         "tool_calls": { "k": "int", "max": 999, "opt": true },
@@ -291,7 +292,7 @@
     },
     "onboarding_step": {
       "props": {
-        "step": { "k": "enum", "values": ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped", "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted", "first_call_turn", "first_flow_turn", "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "tour_closed_flow", "tour_closed_dictate", "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume", "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message", "first_mode_switch", "first_shortcuts_sheet", "welcome_shown", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate", "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation"] },
+        "step": { "k": "enum", "values": ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped", "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted", "first_call_turn", "first_flow_turn", "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "tour_closed_flow", "tour_closed_dictate", "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume", "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message", "first_mode_switch", "first_shortcuts_sheet", "welcome_shown", "welcome_step_2", "welcome_step_3", "welcome_step_4", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate", "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation"] },
         "hours_since_first_open": { "k": "dec", "max": 99999, "places": 1, "opt": true },
         "tour_exit": { "k": "enum", "values": ["done", "skipped", "left"], "opt": true },
         "tour_step": { "k": "int", "max": 9, "min": 1, "opt": true }
@@ -443,9 +444,10 @@
       "event": "flow_session",
       "props": {
         "opened_by": { "k": "enum", "values": ["gesture", "carry_on", "tray_new", "late_speech"], "fold": "last" },
-        "ready": { "k": "enum", "values": ["ok", "no_brain", "mic_failed"], "fold": "last" },
+        "ready": { "k": "enum", "values": ["ok", "no_brain", "models_missing", "mic_failed"], "fold": "last" },
         "ready_ms": { "k": "int", "max": 600000, "step": 10, "fold": "last" },
         "stops": { "k": "int", "max": 999, "fold": "sum" },
+        "speech_starts": { "k": "int", "max": 999, "fold": "sum" },
         "barge_ins": { "k": "int", "max": 999, "fold": "sum" },
         "top_quiet_reason": { "k": "enum", "values": ["none", "meeting", "mic_busy", "dnd", "output_muted", "off"], "fold": "last" },
         "failure_cards": { "k": "int", "max": 999, "fold": "sum" },

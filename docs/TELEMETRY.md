@@ -237,7 +237,7 @@ Limit: none.
 | `duration_s` | How long the orb was open, in seconds. | whole number, 0 to 86400 | always |
 | `ended_by` | What closed it: `gesture` (the double tap), `orb_button`, `idle` (Close after silence ran out), `disarmed` (Flow was switched off on its home), `sleep_or_lock` (the computer slept, or the screen locked while End Flow and calls when the screen locks is on), `dictate_opened` (Dictate was opened over it), `quit`, or `other`. | `gesture`, `orb_button`, `idle`, `disarmed`, `sleep_or_lock`, `dictate_opened`, `quit`, `other` | always |
 | `opened_by` | What opened it: `gesture` (the double tap), `carry_on` (continuing an earlier session), `tray_new` (Start Flow in the tray, whether the orb was closed or already open), or `late_speech` (a sentence that finished transcribing after the orb had closed). | `gesture`, `carry_on`, `tray_new`, `late_speech` | sometimes |
-| `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `mic_failed` | sometimes |
+| `ready` | Whether Flow was ready to listen: `ok`, `no_brain` (no provider or coding agent set up), `models_missing` (the voice models are not downloaded yet), or `mic_failed` (the microphone did not open). | `ok`, `no_brain`, `models_missing`, `mic_failed` | sometimes |
 | `ready_ms` | Time from the open gesture until the microphone was ready, to 10 ms. | whole number, 0 to 600000, rounded to 10 | sometimes |
 | `turns` | Finished turns: Flow heard you, worked and answered. | whole number, 0 to 999 | always |
 | `acted` | True when Flow acted on the computer: typed, pressed keys, moved the pointer or clicked, moved a window, opened an app or link, or ran a shell command. Worked out from the tool counts below, so it is always sent. | true or false | always |
@@ -246,6 +246,7 @@ Limit: none.
 | `steered` | Times you spoke while Flow was still working, and it folded the new sentence into the same turn. | whole number, 0 to 999 | sometimes |
 | `quiet_turns` | Turns answered as text on screen instead of aloud, because Flow chose to stay quiet. | whole number, 0 to 999 | sometimes |
 | `stops` | Times you pressed Stop. | whole number, 0 to 999 | sometimes |
+| `speech_starts` | Times the microphone heard you start to speak, whether or not Flow went on to answer. | whole number, 0 to 999 | sometimes |
 | `barge_ins` | Times you spoke over Flow's voice to interrupt it. | whole number, 0 to 999 | sometimes |
 | `top_quiet_reason` | Why Flow stayed quiet most often: a meeting or call, another app using the microphone, Do Not Disturb, a muted output, or the Speak replies setting being off. `none` when no turn was quiet. | `none`, `meeting`, `mic_busy`, `dnd`, `output_muted`, `off` | sometimes |
 | `tool_calls` | Tool calls Flow's brain made. Each counts once, whichever brain answered. | whole number, 0 to 999 | sometimes |
@@ -886,6 +887,9 @@ The Values cells link here for the long lists.
 | `first_mode_switch` | You switched between Chat, Flow and Dictate for the first time. |
 | `first_shortcuts_sheet` | The keyboard shortcuts sheet was opened for the first time. |
 | `welcome_shown` | Welcome, the first run of the whole app, was shown. |
+| `welcome_step_2` | Welcome's second step, Who answers you, was reached. |
+| `welcome_step_3` | Welcome's third step, Let it hear and type, was reached. |
+| `welcome_step_4` | Welcome's last step, How you talk, was reached. |
 | `welcome_done` | Welcome was finished, with `tour_step` its furthest step. |
 | `welcome_skipped` | Welcome was skipped, with `tour_step` its furthest step. |
 | `welcome_try_chat` | Welcome's last step opened Chat. |
