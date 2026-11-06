@@ -192,7 +192,7 @@ export class VoiceEngine {
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
   private holdLive = false;                       // this hold has had a frame with sound (onHoldLive)
-  private holdTimer: ReturnType<typeof setTimeout> | undefined; // the wait for that frame, from the device's open
+  private micWaitTimer: ReturnType<typeof setTimeout> | undefined; // the wait for that frame, from the device's open
   private holdCues = false;                       // a short tone as a hold turns live and as it ends
   private speakerId = "";
   private tape: Tape | null = null;               // the hold in progress, from the microphone's first frame
@@ -311,7 +311,7 @@ export class VoiceEngine {
   private cuedAt = -Infinity;
   private cueN = 0;
   // "ended" fires only when the browser ends a track, never for our own stop().
-  private onMicEnded = () => { clearTimeout(this.holdTimer); this.h.onMicLost?.(); };
+  private onMicEnded = () => { clearTimeout(this.micWaitTimer); this.h.onMicLost?.(); };
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
@@ -603,8 +603,8 @@ export class VoiceEngine {
     // A device just opened gives silent frames while it wakes (150-300 ms here).
     if (this.ptt && !this.holdLive && rms > 0) {
       this.holdLive = true;
-      clearTimeout(this.holdTimer);
-      this.cue("start");
+      clearTimeout(this.micWaitTimer);
+      this.tone("start");
       this.h.onHoldLive?.();
     }
     // Learn the room's ambient noise floor WHILE IDLE (never during the user's own
@@ -1001,14 +1001,14 @@ export class VoiceEngine {
   private watchLive() {
     if (!this.ptt || this.holdLive) return;
     const label = this.micTrack?.label ?? "", opened = performance.now();
-    clearTimeout(this.holdTimer);
-    this.holdTimer = setTimeout(() => {
+    clearTimeout(this.micWaitTimer);
+    this.micWaitTimer = setTimeout(() => {
       // +1: a timer can fire a hair before its wait by the clock the verdict reads.
       if (this.ptt && holdVerdict(label, performance.now() - opened + 1, this.holdLive) === "silent") this.h.onHoldSilent?.();
     }, micWaitMs(label));
   }
   /** Through the chosen speaker, and off the VAD's way: a hold's cues come before its words or after its tape. */
-  private cue(which: HoldCue) {
+  private tone(which: HoldCue) {
     if (!this.holdCues) return;
     const p = (this.cuePlayer ??= new AudioPlayer());
     p.setSink(this.speakerId);
@@ -1022,8 +1022,8 @@ export class VoiceEngine {
    *  "lost" when words were heard that could not be written down. */
   async endPtt(now = false, lateMs = 0): Promise<HoldEnd> {
     if (!this.ptt) return "heard";
-    clearTimeout(this.holdTimer);
-    if (this.holdLive) this.cue("stop");
+    clearTimeout(this.micWaitTimer);
+    if (this.holdLive) this.tone("stop");
     const tape = this.tape?.stop(lateMs);
     this.tape = null;
     // The tape has all of the hold: with the microphone shut between holds, it
@@ -1093,7 +1093,7 @@ export class VoiceEngine {
   dropPtt() {
     if (!this.ptt) return;
     this.ptt = false;
-    clearTimeout(this.holdTimer);
+    clearTimeout(this.micWaitTimer);
     void this.tape?.stop(0);
     this.tape = null;
     this.pending = null;
@@ -1479,7 +1479,7 @@ export class VoiceEngine {
     clearInterval(this.keepWarm);
     clearTimeout(this.feedTimer);
     clearTimeout(this.announceTimer);
-    clearTimeout(this.holdTimer);
+    clearTimeout(this.micWaitTimer);
     this.clearHold();
     this.ptt = false;
     void this.tape?.stop(0);

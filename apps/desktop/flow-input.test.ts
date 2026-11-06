@@ -231,7 +231,7 @@ describe("typing into OpenLive's own window", () => {
 
   it("leaves every other app to the addon", async () => {
     const { addon, call } = load(() => null);
-    expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: null });
+    expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: { secure: false } });
     const { value: session } = (await call("openlive:flow-insert-begin", "type", {})) as { value: number };
     await call("openlive:flow-insert-push", session, "hi");
     await call("openlive:flow-insert-end", session);

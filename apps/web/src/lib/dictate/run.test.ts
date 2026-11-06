@@ -708,7 +708,7 @@ describe("a password field", () => {
 
 describe("the space before dictated words", () => {
   it("follows what is before the caret", async () => {
-    for (const [before, typed] of [["word", " Hello there."], ["word ", "Hello there."], ["(", "Hello there."], ["", "Hello there."], ["line\n", "Hello there."]] as const) {
+    for (const [before, typed] of [["word", " Hello there"], ["word ", "Hello there"], ["(", "Hello there"], ["", "Hello there"], ["line\n", "Hello there"]] as const) {
       const r = rig({ focus: { before } });
       await hold(r, "hello there");
       expect(r.typed).toEqual([typed]);
@@ -723,7 +723,7 @@ describe("the space before dictated words", () => {
     (r.ports.focus as ReturnType<typeof vi.fn>).mockResolvedValue({ editable: null, secure: false, before: null, windowId: 8 });
     await r.dictate.setOpen(false);
     await hold(r, "third one");
-    expect(r.typed).toEqual(["First one.", " Second one.", "Third one."]);
+    expect(r.typed).toEqual(["First one", " Second one", "Third one"]);
   });
 
   it("sends the text before the caret to AI polish", async () => {
