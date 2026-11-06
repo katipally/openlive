@@ -16,7 +16,7 @@ function load(ownField?: () => unknown, { packaged = false, access = null as str
     narrowToggle: vi.fn((toggle: string, hold: string) => (toggle === "ctrl" && hold === "ctrl_right" ? "ctrl_left" : toggle)),
     initializeInjector: vi.fn(), initializeHook: vi.fn(), hookError: vi.fn(() => null), permissionStatus: vi.fn(() => ({})),
     secureInputStatus: vi.fn(() => ({ changed: false })), shutdown: vi.fn(),
-    focusEditable: vi.fn(async () => null), accessibleSelection: vi.fn(async () => "the old line"), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
+    focusEditable: vi.fn(async () => ({ secure: false })), accessibleSelection: vi.fn(async () => "the old line"), beginInsertion: vi.fn(async () => 7), pushInsertion: vi.fn(async () => {}), endInsertion: vi.fn(async () => {}),
   };
   stub(require.resolve("electron"), {
     app: { isPackaged: packaged, on: vi.fn() },
@@ -231,7 +231,7 @@ describe("typing into OpenLive's own window", () => {
 
   it("leaves every other app to the addon", async () => {
     const { addon, call } = load(() => null);
-    expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: null });
+    expect(await call("openlive:flow-focus-editable")).toEqual({ ok: true, value: { secure: false } });
     const { value: session } = (await call("openlive:flow-insert-begin", "type", {})) as { value: number };
     await call("openlive:flow-insert-push", session, "hi");
     await call("openlive:flow-insert-end", session);

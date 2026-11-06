@@ -21,13 +21,12 @@ import { InputAccessFix } from "@/components/flow/InputAccessFix";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
-import { COPIED, HISTORY_CHANNEL } from "@/lib/dictate/run";
+import { COPIED, HISTORY_CHANNEL, SECURE } from "@/lib/dictate/run";
 import { desktopPlatform, isDesktop, isMacDesktop } from "@/lib/platform";
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
 import { featureUsed } from "@/lib/featureUse";
 import { telemetry } from "@/lib/telemetry";
-import { SkipSetup } from "@/components/SkipSetup";
 import { toast } from "@/lib/toast";
 import { usePendingDeletes } from "@/lib/deferredDelete";
 import { cn } from "@/lib/cn";
@@ -133,27 +132,33 @@ function HowTo({ own }: { own: FlowConfig["dictate"] }) {
   );
 }
 
-/** The first visit: what Dictate is and turning it on, then one try in a box right here. Skippable; Done or Skip ends it for good. */
+/** The first visit: what Dictate is and turning it on, then one try in a box right here. Later ends it on either card and leaves Dictate as it is; the card it was left on is kept, so a closed window resumes there. */
 function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: () => void; keyWords: string; caps: FlowCapabilities | null; refresh: () => void }) {
-  const [card, setCard] = useState<1 | 2>(1);
+  const card = useOnboarding((s) => s.dictateCard);
   // The button pressed goes with the card it was on, so focus moves to the next card's heading.
   const heading = useRef<HTMLHeadingElement>(null);
   const turned = useRef(false);
-  const turn = (to: 1 | 2) => { turned.current = true; setCard(to); };
+  const turn = (to: 1 | 2) => {
+    turned.current = true;
+    useOnboarding.setState({ dictateCard: to });
+    if (to === 2) telemetry.track("onboarding_step", { step: "dictate_onboarding_step_2" });
+  };
   useEffect(() => {
     if (!turned.current) return;
     turned.current = false;
     heading.current?.focus();
   }, [card]);
   const [tried, setTried] = useState("");
-  // Skipped, the first run never comes back on its own, so Skip asks first, as Welcome's does.
-  const [asking, setAsking] = useState(false);
-  useEffect(() => { telemetry.track("onboarding_step", { step: "dictate_onboarding_shown" }); }, []);
+  // Once per install, so a resumed first run adds nothing.
+  useEffect(() => {
+    telemetry.track("onboarding_step", { step: "dictate_onboarding_shown" });
+    if (card === 2) telemetry.track("onboarding_step", { step: "dictate_onboarding_step_2" });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Welcome's access step asked for these already; the second card still shows any that are missing.
   const welcomeAsked = useOnboarding((s) => !flowOnboardingDue(s.flowOnboarded));
   const done = (how: "dictate_onboarding_done" | "dictate_onboarding_skipped") => {
-    telemetry.track("onboarding_step", { step: how });
-    useOnboarding.setState({ dictateOnboarded: true });
+    telemetry.track("onboarding_step", { step: how, tour_step: card });
+    useOnboarding.setState({ dictateOnboarded: true, dictateCard: 1 });
   };
   const missing = missingGrants(caps);
   const head = (title: string) => (
@@ -176,7 +181,7 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
             {on && !welcomeAsked && <GrantPills mode="dictate" missing={missing} refresh={refresh} />}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <SkipSetup asking={asking} onAsk={() => setAsking(true)} onKeep={() => setAsking(false)} onSkip={() => done("dictate_onboarding_skipped")} />
+            <Later onClick={() => done("dictate_onboarding_skipped")} />
             <span className="flex-1" />
             <Tooltip label={!on && "Turn it on first"}>
               <Button variant="primary" disabled={!on} onClick={() => turn(2)}>Continue <ArrowRight aria-hidden /></Button>
@@ -192,6 +197,7 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
           {tried.trim() && <StatusDot tone="success">That's all there is to it. It works the same in any app.</StatusDot>}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => turn(1)}><ArrowLeft aria-hidden /> Back</Button>
+            <Later onClick={() => done("dictate_onboarding_skipped")} />
             <span className="flex-1" />
             <Button variant="primary" onClick={() => done("dictate_onboarding_done")}>Done</Button>
           </div>
@@ -199,6 +205,11 @@ function FirstRun({ on, flip, keyWords, caps, refresh }: { on: boolean; flip: ()
       )}
     </div>
   );
+}
+
+/** Puts the first run off without losing anything: Dictate stays as it is, and its home has the same switch and settings. */
+function Later({ onClick }: { onClick: () => void }) {
+  return <Tooltip label="Set up later"><Button variant="ghost" size="sm" onClick={onClick}>Later</Button></Tooltip>;
 }
 
 /** Every dictation kept, newest first, grouped by day. */
@@ -271,7 +282,9 @@ function Row({ d, first, insertion, onDelete }: { d: Dictation; first: boolean; 
     let note = "That window's gone, so it's on the clipboard. Paste it where you want it.";
     if (api && d.windowId != null && (await api.device("control", { kind: "window", op: "activate", windowId: d.windowId })).ok) {
       await new Promise((r) => setTimeout(r, FOCUS_MS));
-      if (valueOr(await api.focusEditable(), null) === false) note = COPIED;
+      const focus = valueOr(await api.focusEditable(), null);
+      if (focus?.secure) return toast(SECURE, "info");
+      if (focus?.editable === false) note = COPIED;
       else {
         const session = valueOr(await api.insertBegin(insertion.method, insertion), -1);
         if (session >= 0 && (await api.insertPush(session, d.final)).ok && (await api.insertEnd(session)).ok) return;

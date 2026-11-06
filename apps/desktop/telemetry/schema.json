@@ -203,13 +203,17 @@
         "edits": { "k": "int", "max": 999, "opt": true },
         "commands": { "k": "int", "max": 999, "opt": true },
         "snippets": { "k": "int", "max": 999, "opt": true },
+        "empty": { "k": "int", "max": 999, "opt": true },
+        "cancelled": { "k": "int", "max": 999, "opt": true },
+        "latency_ms_p50": { "k": "int", "max": 30000, "step": 50, "opt": true },
+        "latency_ms_p90": { "k": "int", "max": 30000, "step": 50, "opt": true },
         "talk_mode": { "k": "enum", "values": ["hands_free", "ptt"], "opt": true },
         "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true }
       }
     },
     "dictate_failure": {
       "props": {
-        "code": { "k": "enum", "values": ["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing"] }
+        "code": { "k": "enum", "values": ["no_mic", "not_written", "insert_failed", "polish_late", "polish_cut", "command_failed", "keys_failed", "too_long", "models_missing", "secure_field", "mic_silent"] }
       },
       "limit": { "dedupeMs": 600000, "dedupeKey": ["code"] }
     },
@@ -305,7 +309,7 @@
     },
     "onboarding_step": {
       "props": {
-        "step": { "k": "enum", "values": ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped", "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted", "first_call_turn", "first_flow_turn", "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "tour_closed_flow", "tour_closed_dictate", "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume", "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message", "first_mode_switch", "first_shortcuts_sheet", "welcome_shown", "welcome_step_2", "welcome_step_3", "welcome_step_4", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate", "dictate_onboarding_shown", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation"] },
+        "step": { "k": "enum", "values": ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "flow_onboarding_shown", "flow_onboarding_done", "flow_onboarding_skipped", "first_provider_key_saved", "first_agent_install_ok", "first_agent_ready", "voice_models_ready", "flow_consent_granted", "first_call_turn", "first_flow_turn", "tour_closed_home", "tour_closed_lobby", "tour_closed_call", "tour_closed_history", "tour_closed_settings", "tour_closed_flow", "tour_closed_dictate", "first_settings_open", "first_settings_search", "first_palette_use", "first_history_open", "first_resume", "first_flow_history_open", "first_carry_on", "first_lobby_open", "first_camera_on", "first_screen_share", "first_typed_message", "first_mode_switch", "first_shortcuts_sheet", "welcome_shown", "welcome_step_2", "welcome_step_3", "welcome_step_4", "welcome_done", "welcome_skipped", "welcome_try_chat", "welcome_try_flow", "welcome_try_dictate", "dictate_onboarding_shown", "dictate_onboarding_step_2", "dictate_onboarding_done", "dictate_onboarding_skipped", "first_dictation"] },
         "hours_since_first_open": { "k": "dec", "max": 99999, "places": 1, "opt": true },
         "tour_exit": { "k": "enum", "values": ["done", "skipped", "left"], "opt": true },
         "tour_step": { "k": "int", "max": 9, "min": 1, "opt": true },

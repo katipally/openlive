@@ -23,11 +23,11 @@ describe("telemetry schema contents", () => {
     expect(Object.keys(facts).sort()).toEqual(["agent_call", "agent_flow", "call_renderer", "flow_owner"]);
   });
 
-  it("lists 43 web onboarding steps (seven tours) and the main and agent steps", () => {
+  it("lists 44 web onboarding steps (seven tours) and the main and agent steps", () => {
     const steps = events.onboarding_step!.props.step!.values!;
     expect(steps.filter((s) => s.startsWith("tour_closed_"))).toHaveLength(7);
-    expect(steps).toHaveLength(52);
-    expect(new Set(steps).size).toBe(52);
+    expect(steps).toHaveLength(53);
+    expect(new Set(steps).size).toBe(53);
     for (const s of ["flow_hook_started", "flow_hook_failed", "first_flow_summon", "first_call", "first_device_action", "flow_consent_granted", "first_agent_start_ok", "first_flow_reply", "first_call_reply", "activated", "first_lobby_open"]) {
       expect(steps).toContain(s);
     }
@@ -57,6 +57,15 @@ describe("telemetry schema contents", () => {
     expect(events.flow_session!.props.interrupted).toBeUndefined();
     expect(events.telemetry_disabled!.props.from!.values).toEqual(["notice", "settings"]);
     expect(events.telemetry_disabled!.props.days_since_first_open).toMatchObject({ k: "int", max: 999 });
+  });
+
+  it("measures Dictate's speed, empty and cancelled dictations, and names its two new failures", () => {
+    const { props } = events.dictate_session!;
+    for (const p of ["empty", "cancelled"]) expect(props[p], p).toMatchObject({ k: "int", max: 999, opt: true });
+    for (const p of ["latency_ms_p50", "latency_ms_p90"]) expect(props[p], p).toMatchObject({ k: "int", max: 30000, step: 50, opt: true });
+    expect(events.dictate_failure!.props.code!.values).toEqual(expect.arrayContaining(["secure_field", "mic_silent"]));
+    expect(events.dictate_failure!.limit).toMatchObject({ dedupeKey: ["code"] });
+    expect(events.onboarding_step!.props.step!.values).toContain("dictate_onboarding_step_2");
   });
 
   it("lists no value that no code path sends", () => {

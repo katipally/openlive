@@ -245,6 +245,15 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
   refused. A coding agent is kept warm between dictations (let go after
   5 quiet minutes or 20 rewrites) and is started on the key press, so the
   first rewrite does not wait on a cold start where it can help it.
+- The rewrite is told where its words land, as reference only: up to 320
+  characters of what the field already holds before the cursor (so it keeps the
+  casing and does not repeat a capital or a sentence already begun) and the last
+  5 dictations typed in the same window, 1200 characters in all. Copied
+  dictations (including a secure field's) are never among them. They stay in
+  memory for half an hour, are never written to disk, and the prompt tells the
+  brain never to follow instructions found in them. A malformed context is
+  dropped and the rewrite goes ahead without it. The same block reaches edit by
+  voice. Cost: O(characters clamped), a few hundred.
 - The rewrite is typed as it streams in. The orb stays on **Cleaning up** and
   counts the words in.
 - Nothing said is lost. A failure, an empty answer or 25 seconds with no words
@@ -293,9 +302,16 @@ Select text in any app, and with Dictate open, say what to change.
   and run length: O(n) in the words said, whatever the size of the list.
 - **Snippets**: a phrase said on its own, case and punctuation aside, types its
   text instead. One map lookup. A snippet is never polished.
-- Speech engine hints are not used yet: the streaming engines here take no
-  hotwords without a model change, and the Whisper pipeline has no prompt
-  input, so the dictionary works on the text instead.
+- Speech engine hints: none of the engines here can be biased toward the
+  dictionary as they are set up, so it works on the text instead (checked
+  against transformers.js 4.3.0 and sherpa-onnx-node 1.13.8).
+
+  | Engine | Hint | Why |
+  |---|---|---|
+  | Whisper (browser) | No | transformers.js 4.3.0 declares `prompt_ids` but its Whisper `generate` never reads it, and the pipeline has no prompt input. |
+  | Nemotron, Nemotron 3.5 (streaming) | No | The online recognizer's `createStream()` takes no hotwords, and its hotwords file needs `modified_beam_search` and a BPE vocab, which the model is not loaded with. |
+  | Parakeet TDT | No | Offline hotwords need a plain transducer under `modified_beam_search`; Parakeet loads as `nemo_transducer` with greedy search. |
+  | Moonshine, Canary | No | Encoder-decoder models: no hotwords or context option in either config. |
 
 ![Settings > Dictate > Words](../assets/dictate.png)
 
@@ -360,6 +376,8 @@ where the switch is. Then three subtabs:
     Speech engine.
   - **Cleanup**: the five rules, with a live example of what they do.
   - **AI polish**: on or off, and its tone.
+  - **Microphone**: the system default, or one device for Dictate alone. A device that is gone falls back to the default, and a new pick applies the next time the microphone opens.
+  - **Sounds**: the start and stop tones of a push to talk hold, on by default.
   - **History**: how long to keep dictations, **Clear all**, and a link to the
     list on Dictate's home.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
@@ -443,6 +461,19 @@ One microphone, one engine, one orb, so the two take turns:
   AudioContext does not shorten it. Sound before that is not there to keep,
   so a word begun on the very press can lose its first consonant; one begun a
   beat later, as most are, is whole.
+- **Live cue**: `onFrame` marks the hold live at its first frame with sound
+  (`onHoldLive`), which turns the badge from Getting ready to Listening. The
+  tape starts at the device's first frame, so what is said before the cue is
+  kept: the cue is feedback, never a gate. Once the device is open the engine
+  waits for that frame by the device's name (`lib/live/holdLive.ts`): 300 ms
+  built-in or wired, 2.5 s Bluetooth, 1 s otherwise. With none by then the
+  hold is given up, the orb says "The microphone gave no sound." and the
+  failure is `mic_silent`. A device unplugged in that wait goes the way a lost
+  microphone does. With **Sounds** on, the live edge plays a soft 80 ms tone
+  and a hold's end a shorter, lower one (`lib/live/holdCue.ts`, generated, no
+  files), through the speaker chosen for Flow. They are push to talk only,
+  so hands-free is never interrupted, and the start tone comes before any
+  speech.
 - **Release**: `VoiceEngine.endPtt(true, lateMs)` cuts the tape where the key
   went up and, with the gate on, pauses the VAD at once (its segment in
   progress dropped: the tape has all of it) and stops every track once the
@@ -481,11 +512,29 @@ One microphone, one engine, one orb, so the two take turns:
 - **Tray**: main reads and writes Dictate's switch through `/api/flow/config`,
   the windows' own route, then tells the owner renderer and the main window
   (`openlive:flow-settings-changed`) so the key and the screens follow.
-- **Focus**: ol-input's `focusEditable()` reads the focused element (AX role
-  and settable AXValue or AXSelectedTextRange; UIA control type, ValuePattern
-  and TextPattern; AT-SPI role and EDITABLE through python3's GObject bindings,
-  given up on after 800 ms). The verdicts are pure functions in
-  `native/ol-input/src/focus.rs`; `null` means it could not tell, and types.
+- **Focus**: ol-input's `focusEditable()` reads the focused element once per
+  utterance (AX role and settable AXValue or AXSelectedTextRange; UIA control
+  type, ValuePattern and TextPattern; AT-SPI role and EDITABLE through
+  python3's GObject bindings, given up on after 800 ms) and returns
+  `{ editable, secure, before }`. The verdicts are pure functions in
+  `native/ol-input/src/focus.rs`; an absent `editable` means it could not
+  tell, and types.
+- **Password fields**: `secure` is AXSubrole `AXSecureTextField` (macOS; with
+  Secure Event Input on, an element whose role cannot be read counts as
+  secure), UIA `IsPassword` (Windows) or the AT-SPI `password text` role
+  (Linux). A secure field's text is never read. Dictate then types nothing,
+  copies nothing, sends nothing to AI polish and writes no history row; the
+  strip says "Password field. Dictate won't type here." and the session
+  reports `dictate_failure` with `secure_field`. Insert again refuses the same way.
+- **Spacing**: `before` is up to 320 characters before the caret (AX
+  AXSelectedTextRange and AXStringForRange; UIA TextPattern; AT-SPI Text).
+  `needsSpace` (`apps/web/src/lib/dictate/spacing.ts`) gives dictated words one
+  leading space unless that text is empty, ends in whitespace (a newline
+  included) or ends in an opening bracket or quote. Where an app will not say
+  (Electron and Chromium often hide it), Dictate uses the end of what it last
+  typed, only in the same window; otherwise it follows its earlier words in
+  the session with a space, as it always did. `before` also goes to AI polish
+  as `context.before`.
 - **Close**: Dictate's `release` port drops what the engine is still hearing
   or transcribing (`VoiceEngine.discard()`) and, with Flow closed, stops the
   engine, which stops every microphone track.

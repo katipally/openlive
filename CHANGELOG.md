@@ -6,7 +6,33 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-06
+
 ### Added
+- **Dictate's first run is easier to leave and to come back to, and telemetry says where
+  people stop.** Both cards have a Later button that puts setup off with no question
+  asked and leaves Dictate as it is. Closing the window mid-way resumes on the same
+  card. `onboarding_step` gains `dictate_onboarding_step_2`, and `tour_step` on
+  `dictate_onboarding_done` and `dictate_onboarding_skipped` is the furthest card.
+- **Telemetry measures Dictate's speed and its empty and cancelled dictations.**
+  `dictate_session` gains `empty`, `cancelled`, and `latency_ms_p50` and `latency_ms_p90`
+  (speech end to the first character in, to 50 ms). `dictate_failure` gains
+  `secure_field` and `mic_silent`. Counts and times only, never text.
+- **Dictate says when to speak.** In push to talk the orb stays on Getting ready until the
+  microphone really gives sound, then plays a soft tone, and a lower one when you let go.
+  A mic that stays silent (300 ms built-in, 2.5 s Bluetooth, 1 s otherwise) ends the hold with
+  a note. Nothing said before the tone is lost. Turn the tones off in Settings > Dictate > Sounds.
+- **Flow and Dictate each have their own microphone, and Flow its own speaker.**
+  Settings > Flow has Microphone and Speaker, and Settings > Dictate has Microphone.
+  Each starts on the system default, follows devices plugged in or out, and goes back
+  to the default when its device is gone. A new pick applies the next time the
+  microphone opens, and a new speaker applies at once.
+- **AI polish and edit by voice know where the words land.** The rewrite is given, as
+  reference only, the text before the cursor and the last few dictations typed in the
+  same window (never copied ones), so it keeps the casing and does not repeat what is
+  already there. Speech engine hints for the dictionary were checked per engine and none
+  can take them yet; docs/DICTATE.md says why.
+- **Dictate stays out of password fields and spaces its words by what is before the cursor.** In a password field it types nothing, copies nothing, sends nothing to AI polish and keeps no history, and says so on the orb. Elsewhere it adds a space only where one belongs: not at the start of a field or line, after a space, or after an opening bracket or quote. AI polish is also told what comes before the cursor.
 - **Telemetry says why an update check or a model request failed.** `update_result`
   gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
   checks that worked. `brain_error` gains `http_status` and a `reason` for a refused

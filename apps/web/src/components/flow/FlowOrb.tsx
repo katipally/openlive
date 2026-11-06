@@ -177,7 +177,7 @@ export function FlowOrb() {
   // (on X11, the cursor it polls), tested against every `data-hit` element and
   // nothing else, so the empty air around them never blocks the dock or the
   // app underneath.
-  const retest = useRef(() => {});
+  const retest = useRef((_settle?: boolean) => {});
   useEffect(() => {
     const api = flowBridge();
     const root = rootRef.current;
@@ -185,7 +185,9 @@ export function FlowOrb() {
     let inside = false;
     let at: { x: number; y: number } | null = null;
     let linger: ReturnType<typeof setTimeout> | undefined;
-    const test = () => {
+    let drop: ReturnType<typeof setTimeout> | undefined;
+    // `settle`: a control left under a pointer that did not move. The next click may come before any move does, so the window stays clickable a beat.
+    const test = (settle = false) => {
       const p = at;
       const next = !!p && Array.from(root.querySelectorAll("[data-hit]")).some((el) => {
         const r = el.getBoundingClientRect();
@@ -193,7 +195,9 @@ export function FlowOrb() {
       });
       if (next === inside) return;
       inside = next;
-      api.interactive(next);
+      clearTimeout(drop);
+      if (next || !settle) api.interactive(next);
+      else drop = setTimeout(() => api.interactive(false), CONTROLS_LINGER_MS);
       clearTimeout(linger);
       // Clicks pass through the moment the pointer is off, but the controls stay
       // up (and hit-testable) a beat longer: the path from the orb to them
@@ -236,12 +240,13 @@ export function FlowOrb() {
       document.removeEventListener("mouseleave", onLeave);
       offPointer?.();
       clearTimeout(linger);
+      clearTimeout(drop);
       api.interactive(false);
     };
   }, []);
   // A card or a strip can rise under a pointer that is not moving, and no move
   // arrives to make its buttons clickable.
-  useEffect(() => retest.current(), [cardUp, stripUp, call, s.aside, badge, dictateUp, s.dictate?.undo]);
+  useEffect(() => retest.current(true), [cardUp, stripUp, call, s.aside, badge, dictateUp, s.dictate?.undo]);
 
   // In the strip while Flow works, and on the card while a question waits on its answer.
   const stop = (

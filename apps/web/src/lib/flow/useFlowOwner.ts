@@ -22,9 +22,10 @@ import { perf } from "@/lib/live/perf";
 import { speechFacts } from "@/lib/live/speechFacts";
 import { CameraCapture } from "@/lib/live/cameraCapture";
 import { desktopPlatform } from "@/lib/platform";
-import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Typing } from "@/lib/dictate/run";
+import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Focus, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { recentFor, rememberDictation } from "@/lib/dictate/recent";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
 import { surfaceVoice } from "./voice";
@@ -73,7 +74,7 @@ interface FlowSettings {
   talk: FlowConfig["talk"];
   brain: FlowConfig["brain"];
   insertion: FlowConfig["insertion"];
-  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride" | "stt" | "tts">;
+  voice: { speakReplies: boolean; autoQuiet: QuietRules } & Pick<FlowConfig["voice"], "turn" | "turnOverride" | "stt" | "tts" | "micId" | "speakerId">;
   dictate: FlowConfig["dictate"];
 }
 
@@ -305,6 +306,7 @@ export function useFlowOwner(): void {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = (await r.json()) as { config: FlowSettings; brainReady: boolean; brainKind?: "api" | "acp"; brainId?: string; editReady: boolean };
         settings.current = body.config;
+        engine.current?.setSpeaker(body.config.voice.speakerId);
         // Dictate turned off closes a session still open: its key is no longer watched.
         if (!body.config.dictate.enabled) dictate.yield("turned_off");
         talk.modeChanged();
@@ -320,6 +322,13 @@ export function useFlowOwner(): void {
     // The microphone is held only while Flow or Dictate is open, and in push to
     // talk only while the key is down: Flow has no wake word and never listens
     // while it is closed.
+    // The surface that is open picks its microphone. A saved device that is gone
+    // is only preferred, so the system default opens instead of failing. A new
+    // pick takes hold the next time the microphone is opened, never mid-capture.
+    const openMic = () => {
+      const id = dictate.isOpen() ? settings.current?.dictate.micId : settings.current?.voice.micId;
+      return navigator.mediaDevices.getUserMedia({ audio: id ? { ...MIC, deviceId: { ideal: id } } : MIC });
+    };
     const ensureEngine = async () => {
       if (engine.current) return;
       if (starting.current) return starting.current;
@@ -347,12 +356,14 @@ export function useFlowOwner(): void {
           onMicLost: () => void recoverMic(eng),
           onSpeechStart,
           onHoldLive: () => { if (snap.current.talk.holding) publishTalk(true, true); },
+          onHoldSilent: () => dictate.micSilent(),
         // Flow's own wait when its override is on, else the shared one the
         // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
         }, undefined, { ...(settings.current && flowTurn(settings.current)), backchannels: false });
         eng.setGate(talkMode() === "ptt");
-        try { await eng.start(() => navigator.mediaDevices.getUserMedia({ audio: MIC })); }
+        eng.setSpeaker(settings.current?.voice.speakerId ?? "");
+        try { await eng.start(openMic); }
         catch (e) {
           // A half-started engine already holds an audio context, and "Try again"
           // opens a new mic rather than reusing this one.
@@ -370,7 +381,7 @@ export function useFlowOwner(): void {
     const recoverMic = async (eng: VoiceEngine) => {
       try {
         // Push to talk opens it only at the next press, so it is tried now and let go.
-        if (talkMode() === "ptt") (await navigator.mediaDevices.getUserMedia({ audio: MIC })).getTracks().forEach((t) => t.stop());
+        if (talkMode() === "ptt") (await openMic()).getTracks().forEach((t) => t.stop());
         if (engine.current !== eng) return;
         await eng.reopen();
       } catch (e) {
@@ -663,10 +674,19 @@ export function useFlowOwner(): void {
       if (!dictate.isOpen()) void talk.toggleDictate();
     };
 
+    /** One read of the focus per utterance. Where the app will not show the text
+     *  before the caret, the window is named so Dictate can fall back on its own last words there. */
+    const readFocus = async (): Promise<Focus> => {
+      const f = valueOr(await api.focusEditable(), null);
+      const read = { editable: f?.editable ?? null, secure: f?.secure === true, before: f?.before ?? null };
+      if (read.before !== null || read.secure || read.editable === false) return read;
+      const front = valueOr(await api.device("foreground", {}), null) as { id?: number } | null;
+      return { ...read, windowId: front?.id };
+    };
     /** Typing at the cursor. None where the focused element is plainly not a
      *  text box; where the platform cannot tell, it types as it always did. */
-    const openTyping = async (): Promise<Typing | null> => {
-      if (valueOr(await api.focusEditable(), null) === false) return null;
+    const openTyping = async (f: Focus): Promise<Typing | null> => {
+      if (f.editable === false) return null;
       const ins = settings.current?.insertion;
       const session = valueOr(await api.insertBegin(ins?.method, ins), -1);
       if (session < 0) return null;
@@ -692,10 +712,14 @@ export function useFlowOwner(): void {
         engine.current?.setGate(talkMode() === "ptt");
         return !!engine.current;
       },
-      beginHold: () => engine.current?.beginPtt(),
+      beginHold: () => {
+        engine.current?.setHoldCues(settings.current?.dictate.sounds ?? false);
+        engine.current?.beginPtt();
+      },
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? "heard",
       dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
+      focus: readFocus,
       typing: openTyping,
       copy: copyDictation,
       // What was still being said or transcribed is dropped, and with Flow closed
@@ -713,10 +737,13 @@ export function useFlowOwner(): void {
         api.dismiss("other");
       },
       rewrite: async (ask, signal, onText) => {
-        const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(ask), signal });
+        const front = valueOr(await api.device("foreground", {}), null) as { id?: number } | null;
+        const recent = recentFor(front?.id);
+        const body = recent.length ? { ...ask, context: { ...ask.context, recent } } : ask;
+        const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(body), signal });
         if (r.ok && r.body) return readRewrite(r.body, (t) => { if (!signal.aborted) onText(t); });
-        const body = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error || `HTTP ${r.status}`);
+        const err = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || `HTTP ${r.status}`);
       },
       warm: () => void fetch("/api/dictate/warm", { ...JSON_POST, body: "{}" }).catch(() => {}),
       // The accessibility API alone. A copy would read the whole line in many
@@ -730,6 +757,8 @@ export function useFlowOwner(): void {
           duration_s: Math.min(86400, Math.round(r.ms / 1000)), ended_by: r.ended, dictations: n(r.dictations), words: wordsBucket(r.words),
           ...(r.copied && { copied: n(r.copied) }), ...(r.failed && { failed: n(r.failed) }), ...(r.polished && { polished: n(r.polished) }),
           ...(r.edits && { edits: n(r.edits) }), ...(r.commands && { commands: n(r.commands) }), ...(r.snippets && { snippets: n(r.snippets) }),
+          ...(r.empty && { empty: n(r.empty) }), ...(r.cancelled && { cancelled: n(r.cancelled) }),
+          ...(r.latency && { latency_ms_p50: r.latency.p50, latency_ms_p90: r.latency.p90 }),
           talk_mode: talkMode() === "ptt" ? "ptt" : "hands_free", ...(lang && { lang }),
         });
       },
@@ -737,6 +766,7 @@ export function useFlowOwner(): void {
       record: (d) => void (async () => {
         telemetry.track("onboarding_step", { step: "first_dictation" });
         const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
+        if (!d.copied && !d.command) rememberDictation(front?.id, d.final);
         await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, app: front?.appName, windowId: front?.id }) });
         const ch = new BroadcastChannel(HISTORY_CHANNEL); ch.postMessage(null); ch.close();
       })().catch((e) => log.debug("flow", "dictate history:", e)),
@@ -767,6 +797,7 @@ export function useFlowOwner(): void {
           const e = engine.current;
           if (!e) return false;
           if (snap.current.aside) patch({ aside: "" });
+          e.setHoldCues(false);
           e.beginPtt();
           return true;
         },

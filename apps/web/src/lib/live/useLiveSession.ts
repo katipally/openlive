@@ -9,6 +9,7 @@ import { notifyDesktop } from "@/lib/platform";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
+import { deviceOptions } from "./devices";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { labelJudgment } from "./addressee";
 import { loadModels, modelsCachedSettled, modelsMatchConfig } from "./models";
@@ -794,8 +795,8 @@ export function useLiveSession(chatId: string) {
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       set({
-        mics: devs.filter((d) => d.kind === "audioinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` })),
-        cams: devs.filter((d) => d.kind === "videoinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` })),
+        mics: deviceOptions(devs, "audioinput"),
+        cams: deviceOptions(devs, "videoinput"),
       });
     } catch { /* enumerate not available */ }
     const cached = await modelsCachedSettled();

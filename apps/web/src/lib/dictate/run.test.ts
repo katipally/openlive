@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMMAND_MS, createDictate, wordsBucket, DONE_MS, NO_EDIT_BRAIN, NO_SPEECH, POLISH_MS, readRewrite, UNDO_MS, type DictatePorts, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
+import { COMMAND_MS, createDictate, wordsBucket, DONE_MS, NO_EDIT_BRAIN, NO_SPEECH, POLISH_MS, readRewrite, SECURE, UNDO_MS, type DictatePorts, type Focus, type DictateSettings, type Inserted, type RewriteAsk } from "./run";
 import type { SpokenCommand } from "./words";
 import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
@@ -9,7 +9,7 @@ const RULES = { punctuation: true, fillers: true, backtrack: true, lists: true, 
 /** Dictate with every port faked: the engine "hears" `said` when a hold ends.
  *  `selection`: what the accessibility API reads each time it is asked, the
  *  last one standing for every read after it. */
-function rig({ voided = false, mic = true as boolean | "" | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = [""] as (string | null)[] } = {}) {
+function rig({ voided = false, mic = true as boolean | "" | Promise<boolean>, held = "heard" as HoldEnd, inserted = "typed" as Inserted, ended = true, settings = {} as Partial<DictateSettings>, rewrite = async (ask: RewriteAsk) => `REWRITTEN ${ask.text}`, selection = [""] as (string | null)[], focus = null as Partial<Focus> | null } = {}) {
   const shown: (DictateSnapshot | null)[] = [];
   const typed: string[] = [];
   const pressed: [string[], number | undefined][] = [];
@@ -33,6 +33,8 @@ function rig({ voided = false, mic = true as boolean | "" | Promise<boolean>, he
       return { push: vi.fn(async (t: string) => { text += t; }), end: vi.fn(async () => { typed.push(text); return ended; }) };
     }),
     copy: vi.fn(async () => inserted !== "failed"),
+    failure: vi.fn(),
+    ...(focus && { focus: vi.fn(async () => ({ editable: null, secure: false, before: null, ...focus })) }),
     release: vi.fn(),
     show: (d) => void shown.push(d),
     rewrite: vi.fn(async (ask: RewriteAsk, _signal: AbortSignal, _onText: (t: string) => void) => { asked.push(ask); return rewrite(ask); }),
@@ -610,6 +612,40 @@ describe("its report", () => {
     expect(reports).toHaveLength(1);
   });
 
+  it("counts empty and cancelled dictations and measures speech end to first character", async () => {
+    const r = rig();
+    const reports: unknown[] = [];
+    r.ports.report = (x) => void reports.push(x);
+    await hold(r, "send it friday");
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    await r.dictate.holdCancel();
+    const lost = rig({ held: "lost" });
+    const lostReports: unknown[] = [];
+    lost.ports.report = (x) => void lostReports.push(x);
+    await hold(lost, "");
+    const quiet = rig({ held: "silent" });
+    const quietReports: unknown[] = [];
+    quiet.ports.report = (x) => void quietReports.push(x);
+    await hold(quiet, "");
+    await r.dictate.setOpen(false);
+    await lost.dictate.setOpen(false);
+    await quiet.dictate.setOpen(false);
+    expect(quietReports).toEqual([expect.objectContaining({ empty: 1 })]);
+    expect(reports).toEqual([expect.objectContaining({ dictations: 1, empty: 0, cancelled: 1, latency: { p50: expect.any(Number), p90: expect.any(Number) } })]);
+    expect(lostReports).toEqual([expect.objectContaining({ empty: 0, latency: null })]);
+  });
+
+  it("counts a hands-free utterance that cleans up to nothing as empty", async () => {
+    const r = rig();
+    const reports: { empty: number }[] = [];
+    r.ports.report = (x) => void reports.push(x);
+    await r.dictate.setOpen(true);
+    await utter(r, "um");
+    await r.dictate.setOpen(false);
+    expect(reports[0]!.empty).toBe(1);
+  });
+
   it("names each failure the orb says, once per note", async () => {
     const r = rig({ inserted: "failed" });
     const codes: string[] = [];
@@ -625,6 +661,21 @@ describe("its report", () => {
     expect(ends).toEqual([expect.objectContaining({ ended: "no_mic", dictations: 0 })]);
   });
 
+  it("gives up a hold whose microphone stays silent, with a note and mic_silent", async () => {
+    const r = rig();
+    const codes: string[] = [];
+    r.ports.failure = (c) => void codes.push(c);
+    await r.dictate.setOpen(true);
+    r.dictate.holdStart();
+    await Promise.resolve();
+    r.dictate.micSilent();
+    expect(r.ports.dropHold).toHaveBeenCalledTimes(1);
+    expect(codes).toEqual(["mic_silent"]);
+    expect(r.dictate.busy()).toBe(false);
+    r.dictate.micSilent();
+    expect(codes).toEqual(["mic_silent"]);
+  });
+
   it("names the missing voice models when the orb asks for them instead of opening", async () => {
     const r = rig({ mic: "" });
     const codes: string[] = [];
@@ -636,7 +687,81 @@ describe("its report", () => {
     expect(ends).toEqual([expect.objectContaining({ ended: "other", dictations: 0 })]);
   });
 
+  it("offers no Undo on a password field after an earlier dictation, and presses nothing", async () => {
+    const r = rig({ focus: { windowId: 1 } });
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    const focus = r.ports.focus as ReturnType<typeof vi.fn>;
+    focus.mockResolvedValue({ editable: null, secure: true, before: null, windowId: 1 });
+    await r.dictate.heard("hunter two");
+    expect(r.last()).toMatchObject({ undo: false, note: SECURE });
+    await r.dictate.undo();
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
+  it("starts a new session with no Undo, and nothing for it to take back", async () => {
+    const r = rig();
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    await r.dictate.setOpen(false);
+    await r.dictate.setOpen(true);
+    expect(r.last()?.undo).toBe(false);
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
+  it("does not undo into a different window than the words went into", async () => {
+    const r = rig({ focus: { windowId: 1 } });
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    (r.ports.focus as ReturnType<typeof vi.fn>).mockResolvedValue({ editable: null, secure: false, before: null, windowId: 2 });
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
   it("buckets the words typed", () => {
     expect([0, 1, 10, 11, 50, 51, 200, 201].map(wordsBucket)).toEqual(["0", "1_10", "1_10", "11_50", "11_50", "51_200", "51_200", "201_plus"]);
+  });
+});
+
+describe("a password field", () => {
+  it("gets no typing, clipboard, AI or history, and says so", async () => {
+    const r = rig({ focus: { secure: true }, settings: { polish: { enabled: true, tone: "natural" } } });
+    await hold(r, "my secret is hunter two");
+    expect(r.typed).toEqual([]);
+    expect(r.asked).toEqual([]);
+    expect(r.kept).toEqual([]);
+    expect(r.ports.copy).not.toHaveBeenCalled();
+    expect(r.ports.typing).not.toHaveBeenCalled();
+    expect(r.last()?.note).toBe(SECURE);
+    expect(r.ports.failure).toHaveBeenCalledWith("secure_field");
+  });
+});
+
+describe("the space before dictated words", () => {
+  it("follows what is before the caret", async () => {
+    for (const [before, typed] of [["word", " Hello there"], ["word ", "Hello there"], ["(", "Hello there"], ["", "Hello there"], ["line\n", "Hello there"]] as const) {
+      const r = rig({ focus: { before } });
+      await hold(r, "hello there");
+      expect(r.typed).toEqual([typed]);
+    }
+  });
+
+  it("falls back on the end of its own last words in the same window only", async () => {
+    const r = rig({ focus: { windowId: 7 } });
+    await hold(r, "first one");
+    await r.dictate.setOpen(false);
+    await hold(r, "second one");
+    (r.ports.focus as ReturnType<typeof vi.fn>).mockResolvedValue({ editable: null, secure: false, before: null, windowId: 8 });
+    await r.dictate.setOpen(false);
+    await hold(r, "third one");
+    expect(r.typed).toEqual(["First one", " Second one", "Third one"]);
+  });
+
+  it("sends the text before the caret to AI polish", async () => {
+    const r = rig({ focus: { before: "Dear Sam," }, settings: { polish: { enabled: true, tone: "natural" } } });
+    await hold(r, "thanks for the note");
+    expect(r.asked[0]).toMatchObject({ kind: "polish", context: { before: "Dear Sam," } });
   });
 });
