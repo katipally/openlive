@@ -45,8 +45,11 @@ async function regress(e: Engine, cache: string): Promise<"pass" | "fail" | "ski
     return "skip";
   }
   const texts = corpus.map((reply, r) => chunks(reply, r + 7));
-  // Each render of the corpus on its own synth, all at once: a stochastic
-  // engine's renders are independent, and the metrics pool them.
+  // sherpa seeds every synth of a process alike, so synths left alone render
+  // the corpus bit for bit the same. Synth i first speaks i sentences, which
+  // moves its noise stream on, so the renders are independent draws.
+  for (const [i, synth] of synths.entries()) for (let k = 0; k < i; k++) await synth.say(texts[k]![0]!, false);
+  // Each render of the corpus on its own synth, all at once: the metrics pool them.
   const renders = await Promise.all(synths.map(async (synth) => {
     const ms: ReplyMetrics[] = [];
     try {
