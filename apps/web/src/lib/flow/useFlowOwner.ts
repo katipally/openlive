@@ -234,6 +234,7 @@ export function useFlowOwner(): void {
         accessibility: c?.permissions ? c.permissions.accessibility : null,
         secureInput: !!c?.secureInput?.active,
         hookError: c?.hookError ?? null,
+        inputAccess: c?.inputAccess ?? null,
         addonError: c?.addonError ?? null,
         packaged: !!c?.packaged,
         brainReady: brainReady.current,

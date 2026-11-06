@@ -8,6 +8,7 @@ const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { app, ipcMain, shell } = require("electron");
 const { askedFrom, permissionGranted, permissionName } = require("./telemetry-map.cjs");
+const { inputAccess } = require("./linux-input.cjs");
 
 // macOS never reports a secure-input change, so it has to be polled.
 const SECURE_INPUT_POLL_MS = 1000;
@@ -103,17 +104,31 @@ function startSecureInputPoll() {
   secureTimer.unref?.();
 }
 
+// What the listener says when Linux's own check already knows why it cannot start.
+const ACCESS_BLOCKED = {
+  not_in_group: "permission denied reading /dev/input: this user is not in the input group.",
+  needs_relogin: "permission denied reading /dev/input: the input group was added, but this session started before it.",
+  no_devices: "no keyboard devices were found under /dev/input.",
+  sandboxed: "this sandbox does not let OpenLive read /dev/input.",
+};
+
 function initialize() {
   const api = load();
   api.initializeInjector();
   // A hook thread that died stays installed, and installing is a no-op while it
   // is, so it has to be dropped before a retry can start a live one.
   if (hooked && api.hookError()) { api.shutdown(); hooked = false; }
+  const access = hooked ? null : inputAccess(true);
   if (!hooked) {
+    if (ACCESS_BLOCKED[access]) {
+      startError = ACCESS_BLOCKED[access];
+      telemetry.reportOnboardingStep("flow_hook_failed", { hook_reason: access });
+      throw new Error(startError);
+    }
     try { api.initializeHook((effect) => route(effect)); }
     catch (e) {
       startError = String(e && e.message ? e.message : e);
-      telemetry.reportOnboardingStep("flow_hook_failed");
+      telemetry.reportOnboardingStep("flow_hook_failed", access ? { hook_reason: "other" } : undefined);
       throw e;
     }
     startError = null;
@@ -212,6 +227,15 @@ function revive() {
   try { if (load().permissionStatus().accessibility && (!hooked || hookFailure())) initialize(); }
   catch (e) { console.error("[flow-input] revive:", e); }
   return readiness();
+}
+
+/** "Check again" after the user ran the fix: reads /dev/input anew and, when it opens, starts the listener. Null off Linux. */
+function recheckInput() {
+  const access = inputAccess(true);
+  if (access === "ok" && (!hooked || hookFailure())) {
+    try { initialize(); } catch (e) { console.error("[flow-input] recheck:", e); }
+  }
+  return access;
 }
 
 function granted(what) {
@@ -348,6 +372,7 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));
   ipcMain.handle("openlive:flow-hook-error", guard(() => hookFailure()));
+  ipcMain.handle("openlive:flow-input-recheck", guard(recheckInput));
   ipcMain.handle("openlive:flow-fn-usage", guard(fnUsage));
 
   // will-quit, not before-quit: ⌘Q only closes to the menu bar now, and that
@@ -355,4 +380,4 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   app.on("will-quit", teardown);
 }
 
-module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, revive, request, hookFailure, insertionTiming };
+module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, revive, recheckInput, request, hookFailure, insertionTiming };

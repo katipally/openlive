@@ -16,7 +16,8 @@ import { GrantPills, missingGrants } from "@/components/flow/GrantPills";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { flowBridge, valueOr, type FlowCapabilities } from "@/lib/flow/bridge";
-import { keyListenerNote } from "@/lib/flow/failure";
+import { inputFix, keyListenerNote } from "@/lib/flow/failure";
+import { InputAccessFix } from "@/components/flow/InputAccessFix";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
@@ -118,6 +119,7 @@ function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () 
   const note = keyListenerNote(caps, "dictate");
   const missing = missingGrants(caps);
   if (missing.length) return <GrantPills mode="dictate" missing={missing} refresh={refresh} />;
+  if (caps.hookError && inputFix(caps.inputAccess)) return <InputAccessFix access={caps.inputAccess} onRetry={refresh} />;
   if (note) return <StatusDot tone={caps.hookError ? "danger" : "arc"}>{note}</StatusDot>;
   return <StatusDot tone="success">Ready</StatusDot>;
 }

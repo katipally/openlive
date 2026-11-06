@@ -34,6 +34,14 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **Flow's key listener on Linux says exactly why it cannot start, and how to fix it.**
+  Before arming, OpenLive now checks whether it can open `/dev/input` and tells
+  apart a user outside the `input` group, a group added but not yet signed back in,
+  no keyboard devices, and a Flatpak or Snap sandbox. Flow's setup, Flow's home and
+  Dictate's home show the one fix (with a copy button for
+  `sudo usermod -aG input $USER`) and a Check again that starts the listener on
+  success. `onboarding_step` gains `hook_reason` on `flow_hook_failed`: `not_in_group`,
+  `needs_relogin`, `no_devices`, `sandboxed` or `other`.
 - **Start Flow in the menu bar no longer does nothing when the key listener is down.**
   Flow said it was ready when its key listener had never started, so Start Flow
   failed without a word. The listener is now started on the click when the grant is

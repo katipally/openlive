@@ -53,7 +53,7 @@
  *   markActiveDay(surface)  app_active_day at most once per local day: "main_window" | "flow" | "call" | "dictate" | "tray".
  *                           Also surface_active, once per local day for each of "call" (chat), "flow" and "dictate".
  *                           Call at the first-real-action sites, never for a login launch alone.
- *   reportOnboardingStep(step)   Same as track("onboarding_step", { step }).
+ *   reportOnboardingStep(step, extra)   Same as track("onboarding_step", { step, ...extra }).
  *   reportReadiness(props)  flow_readiness_changed. props: { to, perm_accessibility?, perm_post_events?,
  *                           perm_screen?, perm_microphone?, linux_session? }. `from` is the last reported
  *                           value (persisted); an unchanged `to` sends nothing, so poll freely.
@@ -440,7 +440,7 @@ function build(deps) {
     handleAgentMessage,
     handleRendererMessage,
     markActiveDay,
-    reportOnboardingStep: (step) => track("onboarding_step", { step }),
+    reportOnboardingStep: (step, extra) => track("onboarding_step", { step, ...extra }),
     reportReadiness,
     onQuit,
     flushOnQuit,

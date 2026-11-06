@@ -137,6 +137,8 @@ contextBridge.exposeInMainWorld("openlive", {
     accessibleSelection: () => ipcRenderer.invoke("openlive:flow-accessible-selection"),
     secureInput: () => ipcRenderer.invoke("openlive:flow-secure-input"),
     hookError: () => ipcRenderer.invoke("openlive:flow-hook-error"),
+    // Linux: reads /dev/input anew and starts the key listener when it opens. Resolves to the status.
+    recheckInput: () => ipcRenderer.invoke("openlive:flow-input-recheck"),
     // macOS's Fn (Globe) action, as a number, or null when unreadable or not a Mac.
     fnUsage: () => ipcRenderer.invoke("openlive:flow-fn-usage"),
     // What the user is looking at, whether this is a moment to speak out loud, and

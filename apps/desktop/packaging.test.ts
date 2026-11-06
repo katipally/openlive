@@ -136,8 +136,8 @@ describe("hook sites", () => {
   });
 
   it("report only onboarding steps and active-day surfaces the schema lists", () => {
-    const steps = all(/reportOnboardingStep\("([a-z_]+)"\)/g);
-    expect(steps.sort()).toEqual(["first_call", "first_device_action", "first_flow_summon", "flow_hook_failed", "flow_hook_started"]);
+    const steps = all(/reportOnboardingStep\("([a-z_]+)"[,)]/g);
+    expect(steps.sort()).toEqual(["first_call", "first_device_action", "first_flow_summon", "flow_hook_failed", "flow_hook_failed", "flow_hook_started"]);
     for (const step of steps) expect(schema.events.onboarding_step.props.step.values, step).toContain(step);
     const surfaces = all(/markActiveDay\("([a-z_]+)"\)/g);
     expect(new Set(surfaces)).toEqual(new Set(schema.events.app_active_day.props.first_surface.values));

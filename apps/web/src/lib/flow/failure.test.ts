@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addonProblem, deriveFailure, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
+import { addonProblem, deriveFailure, inputFix, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
@@ -60,6 +60,22 @@ describe("deriveFailure", () => {
     expect(linux?.detail).toMatch(/input group/);
     expect(linux?.detail).toContain("usermod -aG input");
     expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
+  });
+
+  it("says the exact fix for what /dev/input showed, and keeps the generic one when it is unknown", () => {
+    const stopped = { ...HEALTHY, platform: "linux", hookError: "permission denied" };
+    const missing = deriveFailure({ ...stopped, inputAccess: "not_in_group" });
+    expect(missing?.title).toBe("Flow can't read your keyboard");
+    expect(missing?.detail).toContain("`sudo usermod -aG input $USER`");
+    const relogin = deriveFailure({ ...stopped, inputAccess: "needs_relogin" });
+    expect(relogin?.detail).toMatch(/Sign out and back in/);
+    expect(relogin?.detail).not.toContain("usermod");
+    expect(deriveFailure({ ...stopped, inputAccess: "no_devices" })?.detail).toContain("/dev/input");
+    expect(deriveFailure({ ...stopped, inputAccess: "sandboxed" })?.detail).toContain("AppImage");
+    expect(deriveFailure({ ...stopped, inputAccess: "other" })?.detail).toContain("input group");
+    expect(deriveFailure({ ...stopped, platform: "win32", inputAccess: "not_in_group" })?.detail).toBe("permission denied");
+    expect(inputFix("ok")).toBeNull();
+    expect(inputFix(null)).toBeNull();
   });
 
   it("asks before the download, naming what it fetches, how big and where it is kept", () => {

@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { app, ipcMain, nativeImage, screen } = require("electron");
 const flowInput = require("./flow-input.cjs");
+const { inputAccess } = require("./linux-input.cjs");
 const flowCursor = require("./flow-cursor.cjs");
 
 // Shelling out is the only way to read most of these, so a burst of turns must
@@ -144,7 +145,7 @@ function capabilities() {
   const wayland = report
     ? report.session === "wayland"
     : process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
-  return { platform: process.platform, wayland, permissions, secureInput, hookError, addonError, packaged: app.isPackaged, report, armed: flowInput.isArmed() };
+  return { platform: process.platform, wayland, permissions, secureInput, hookError, addonError, inputAccess: inputAccess(), packaged: app.isPackaged, report, armed: flowInput.isArmed() };
 }
 
 // ── the device bridge ────────────────────────────────────────────────────────
