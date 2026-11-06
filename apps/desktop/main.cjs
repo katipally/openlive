@@ -664,7 +664,6 @@ function createMainWindow() {
     refreshTray();
     // DevTools available via View menu / Cmd+Opt+I — not auto-opened (it covered the UI).
   });
-  mainWin.on("session-end", onSessionEnd);
   // Closing does NOT quit on macOS — the app lives on in the tray, so the tray menu
   // has to re-read this (its "Open OpenLive" is now the only way back).
   // Flow is ambient: it belongs to the machine, not to this window. Closing or
@@ -790,7 +789,6 @@ function createOwnerWindow() {
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
   // Loaded means the web server answers, so Dictate's state can be read for the tray.
   ownerWin.webContents.on("did-finish-load", () => void syncFlowSettings());
-  ownerWin.on("session-end", onSessionEnd);
   ownerWin.on("closed", () => { ownerWin = null; });
   return ownerWin;
 }
