@@ -610,6 +610,40 @@ describe("its report", () => {
     expect(reports).toHaveLength(1);
   });
 
+  it("counts empty and cancelled dictations and measures speech end to first character", async () => {
+    const r = rig();
+    const reports: unknown[] = [];
+    r.ports.report = (x) => void reports.push(x);
+    await hold(r, "send it friday");
+    r.dictate.holdStart();
+    await vi.advanceTimersByTimeAsync(0);
+    await r.dictate.holdCancel();
+    const lost = rig({ held: "lost" });
+    const lostReports: unknown[] = [];
+    lost.ports.report = (x) => void lostReports.push(x);
+    await hold(lost, "");
+    const quiet = rig({ held: "silent" });
+    const quietReports: unknown[] = [];
+    quiet.ports.report = (x) => void quietReports.push(x);
+    await hold(quiet, "");
+    await r.dictate.setOpen(false);
+    await lost.dictate.setOpen(false);
+    await quiet.dictate.setOpen(false);
+    expect(quietReports).toEqual([expect.objectContaining({ empty: 1 })]);
+    expect(reports).toEqual([expect.objectContaining({ dictations: 1, empty: 0, cancelled: 1, latency: { p50: expect.any(Number), p90: expect.any(Number) } })]);
+    expect(lostReports).toEqual([expect.objectContaining({ empty: 0, latency: null })]);
+  });
+
+  it("counts a hands-free utterance that cleans up to nothing as empty", async () => {
+    const r = rig();
+    const reports: { empty: number }[] = [];
+    r.ports.report = (x) => void reports.push(x);
+    await r.dictate.setOpen(true);
+    await utter(r, "um");
+    await r.dictate.setOpen(false);
+    expect(reports[0]!.empty).toBe(1);
+  });
+
   it("names each failure the orb says, once per note", async () => {
     const r = rig({ inserted: "failed" });
     const codes: string[] = [];
