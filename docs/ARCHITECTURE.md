@@ -54,8 +54,8 @@ Node-only helpers (credential probing, PATH widening, terminal launch) live in
 `@openlive/shared/node`.
 
 The npx adapter versions are **pinned** on purpose (guarded by unit tests):
-`claude-agent-acp@0.81.2` (OpenLive relies on its `_meta.claudeCode.options`
-passthrough) and `codex-acp@1.13.1`.
+`claude-agent-acp@0.100.0` (OpenLive relies on its `_meta.claudeCode.options`
+passthrough) and `codex-acp@2.5.0`.
 
 ## Driving a coding agent over ACP (`services/agent/src/agents/`)
 

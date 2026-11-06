@@ -179,6 +179,16 @@ describe("the model family of a session", () => {
     expect(modelFact("my-private-finetune")).toEqual({ brain_model: "other" });
   });
 
+  it("reads the ids and names coding agents report today", () => {
+    const agent = (id: string, name: string) => modelFact("", { currentModelId: id, models: [{ id, name }] });
+    expect(agent("fable", "Fable 5.1")).toEqual({ brain_model: "fable" });
+    expect(agent("opus", "Opus 5.5")).toEqual({ brain_model: "opus" });
+    expect(agent("claude-haiku-4-5-20251001", "Haiku 4.5")).toEqual({ brain_model: "haiku" });
+    expect(agent("gpt-6.1-terra[medium]", "6.1 Terra (medium)")).toEqual({ brain_model: "gpt" });
+    expect(agent("gemini-3-pro", "Gemini 3 Pro")).toEqual({ brain_model: "gemini" });
+    expect(agent("default", "Default (recommended)")).toEqual({ brain_model: "other" });
+  });
+
   it("is left out when no model is known", () => {
     expect(modelFact("")).toEqual({});
     expect(modelFact(undefined, null)).toEqual({});
