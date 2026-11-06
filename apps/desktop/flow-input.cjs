@@ -7,7 +7,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { app, ipcMain, shell } = require("electron");
-const { askedFrom, permissionGranted, permissionName } = require("./telemetry-map.cjs");
+const { askedFrom, permissionGranted, permissionName, permissionOutcome } = require("./telemetry-map.cjs");
+
+// The system prompt answers after the call returns, so the outcome is read by polling, for as long as a person takes to decide.
+const PERMISSION_POLL_MS = 1000;
+const PERMISSION_WINDOW_MS = 120_000;
 
 // macOS never reports a secure-input change, so it has to be polled.
 const SECURE_INPUT_POLL_MS = 1000;
@@ -250,11 +254,31 @@ async function prompt(what) {
   return api.requestScreenRecording();
 }
 
-/** `prompt`, and the post-event grant's own, with the answer counted for the onboarding funnel.
+/** Counts a permission prompt once its outcome is known: granted or refused as soon as the status says, else
+ *  not granted when the window ends. Reading the status at the prompt itself reports the grant as missing. */
+function trackOutcome(what, from, answer) {
+  const permission = permissionName(what);
+  const asked_from = askedFrom(from);
+  const done = (granted_now) => telemetry.track("os_permission_request", { permission, granted_now, asked_from });
+  const settled = (status) => (permissionGranted(what, answer) || permissionOutcome(what, status));
+  const first = settled(load().permissionStatus());
+  if (first !== null) return done(first);
+  const deadline = Date.now() + PERMISSION_WINDOW_MS;
+  const timer = setInterval(() => {
+    let outcome = null;
+    try { outcome = settled(load().permissionStatus()); } catch { /* the window still ends it */ }
+    if (outcome === null && Date.now() < deadline) return;
+    clearInterval(timer);
+    done(outcome === true);
+  }, PERMISSION_POLL_MS);
+  timer.unref?.();
+}
+
+/** `prompt`, and the post-event grant's own, with the outcome counted for the onboarding funnel.
  *  `from` is the screen that asked; only a name from telemetry's closed set is kept. */
 async function request(what, from) {
   const answer = await (what === "postEvents" ? load().requestPostEvents() : prompt(what));
-  telemetry.track("os_permission_request", { permission: permissionName(what), granted_now: permissionGranted(what, answer), asked_from: askedFrom(from) });
+  try { trackOutcome(what, from, answer); } catch (e) { console.error("[flow-input] permission outcome:", e); }
   return answer;
 }
 

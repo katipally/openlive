@@ -530,14 +530,14 @@ Limit: at most 6 per launch.
 
 ### `os_permission_request`
 
-When OpenLive asks the operating system for a permission Flow needs.
+When OpenLive asks the operating system for a permission Flow needs. Sent when the outcome is known, up to two minutes after the prompt; quitting before then sends nothing.
 
 Limit: at most 3 per day for each `permission`.
 
 | Property | Meaning | Values | Sent |
 | --- | --- | --- | --- |
 | `permission` | Which permission: `post_events` is sending key presses and clicks. | `accessibility`, `microphone`, `screen`, `post_events` | always |
-| `granted_now` | The answer at the moment of the prompt, not the state afterwards. On macOS the accessibility and screen answers are usually false, because the grant is not reported at once. The real state shows in [`flow_readiness_changed`](#flow_readiness_changed). | true or false | always |
+| `granted_now` | Whether the permission was granted after the prompt: sent as soon as the system reports a grant (or, for the microphone, a refusal), else as false once two minutes pass with no grant. Releases before this fix read the status at the moment of the prompt, which is almost always false on macOS, so earlier data under-reports grants. The state later on shows in [`flow_readiness_changed`](#flow_readiness_changed). | true or false | always |
 | `asked_from` | Which screen asked. | `onboarding`, `flow_settings`, `flow_home`, `other` | sometimes |
 
 ## Setup and first use events
