@@ -16,6 +16,15 @@ Mac signing runs when these repo secrets are set:
 `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
 `APPLE_TEAM_ID`. Details in [`apps/desktop/README.md`](apps/desktop/README.md).
 
+## Auto-update
+
+Only builds that `release.yml` marks run the updater. The step "Mark as a release
+build" runs `pack:release-marker` with `OPENLIVE_RELEASE_BUILD=1`, which writes the
+git-ignored `apps/desktop/release-build.json` into the app. A local or CI build has no
+mark, so it never downloads a release into the installed app's caches. Setting
+`OPENLIVE_NO_UPDATES=1` turns the updater off in any build, and Check for Updates then
+says updates are off for this build.
+
 ## Usage telemetry
 
 A release reports anonymous usage only when three repository variables are set. If
