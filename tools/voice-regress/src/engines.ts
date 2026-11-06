@@ -229,11 +229,18 @@ export const ENGINES: Engine[] = [
     }, { roughJoins: 0.13 }),
     renders: 3, drift: { roughJoins: 0.1 },
   },
-  native("kokoro-native", "kokoro-multi-v1_0", "kokoro-native", "Apache-2.0", "nightly", 1.5, {
-    "model.onnx": "b40f62b166ac8164b0627ef48a0b358eda0985e272fb03ef5252e7206305da11",
-    "voices.bin": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29",
-    "tokens.txt": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",
-  }),
+  // Measured over the 30 nightlies to 2026-11-06 (one render each): one join
+  // is rough in every run and a second in 1 of 30 (0.125 against the 0.1 gate,
+  // 2026-11-02). Three renders pooled, as Kitten does, and Kitten's 0.13 gate:
+  // the always-rough join is 3 of 48, so 4 more must turn rough in one night.
+  {
+    ...native("kokoro-native", "kokoro-multi-v1_0", "kokoro-native", "Apache-2.0", "nightly", 1.5, {
+      "model.onnx": "b40f62b166ac8164b0627ef48a0b358eda0985e272fb03ef5252e7206305da11",
+      "voices.bin": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29",
+      "tokens.txt": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",
+    }, { roughJoins: 0.13 }),
+    renders: 3,
+  },
   // The app's default Piper voice. Its dataset license (Blizzard 2013,
   // non-commercial) keeps it out of CI. Piper and Matcha start each
   // sentence rendered alone over, as kokoro-js does, and move more from run to
@@ -243,11 +250,19 @@ export const ENGINES: Engine[] = [
     "en_US-lessac-medium.onnx": "96a843df9c4da007e0fc224816cc6020fdc3482b47cb2684b8aab11fec8385ca",
     "tokens.txt": "87c8ef66eae5473ed0cc0366b3964c736ca6c5f676c979522ea31234e47430b9",
   }, { f0JumpSt: 4.5, loudJumpDb: 3.5, startPitchSt: 2.8, roughJoins: 1 }),
-  native("matcha", "matcha-en-ljspeech", "matcha", "Apache-2.0", "nightly", 2, {
-    "model-steps-3.onnx": "4d7771c0ec063ca74f2fa92ba0ecfe14f73fa3f61c236d9469b92e102d8e9574",
-    "vocos-22khz-univ.onnx": "0574a135aa1db2de6e181050db2ec528496cacd4a4701fc5d7faf9f9804c0081",
-    "tokens.txt": "bcb4a50830e9402112fe8cb57d53ae8523908868a5015f2040dde5f5fd231697",
-  }, { f0JumpSt: 5.5, loudJumpDb: 6, startPitchSt: 3.5, roughJoins: 1 }),
+  // Over the same 30 nightlies one render moved loudJumpDb 4.32-5.75 dB (sd
+  // 0.39) and startPitchSt 2.28-3.01 st (sd 0.17) around means of 4.98 and
+  // 2.72, past the 1 dB and 0.3 st drift of a baseline recorded at 4.621 and
+  // 2.637, 2 and 1 times. The baseline is now those 30 runs' mean, and three
+  // renders pooled cut the spread by a factor of 1.7.
+  {
+    ...native("matcha", "matcha-en-ljspeech", "matcha", "Apache-2.0", "nightly", 2, {
+      "model-steps-3.onnx": "4d7771c0ec063ca74f2fa92ba0ecfe14f73fa3f61c236d9469b92e102d8e9574",
+      "vocos-22khz-univ.onnx": "0574a135aa1db2de6e181050db2ec528496cacd4a4701fc5d7faf9f9804c0081",
+      "tokens.txt": "bcb4a50830e9402112fe8cb57d53ae8523908868a5015f2040dde5f5fd231697",
+    }, { f0JumpSt: 5.5, loudJumpDb: 6, startPitchSt: 3.5, roughJoins: 1 }),
+    renders: 3,
+  },
   kokoroJs,
   supertonic,
   // The same Supertonic as the agent runs it on this computer (native-worker.ts,
