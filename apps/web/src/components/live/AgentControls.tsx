@@ -73,8 +73,9 @@ export function AgentQuickPick() {
 
 /** Top-bar selector: what THIS conversation talks to: your API key or a coding
  *  agent (Claude Code / Codex / Cursor). Persisted per conversation. `up`
- *  opens the menu above, for a selector low on the screen. */
-export function AgentSelect({ up = false }: { up?: boolean }) {
+ *  opens the menu above, for a selector low on the screen. `pending` while the
+ *  default it shows is still being read, so it never says the API key meanwhile. */
+export function AgentSelect({ up = false, pending = false }: { up?: boolean; pending?: boolean }) {
   const activeChatId = useUi((s) => s.activeChatId);
   const boundAgent = useLiveStore((s) => s.boundAgent);
   const openSettingsTab = useUi((s) => s.openSettingsTab);
@@ -85,7 +86,7 @@ export function AgentSelect({ up = false }: { up?: boolean }) {
   // The probe runs the person's login shell, so it waits for the menu to open.
   const { agents, missing, loaded } = useTalkTo(boundAgent, mounted);
   const choice = useApiModeChoice();
-  const label = boundAgent ? agentLabel(boundAgent) : API_KEY;
+  const label = pending ? "\u2026" : boundAgent ? agentLabel(boundAgent) : API_KEY;
   const pick = (id: AgentId | null) => { if (activeChatId) setConversationBind(activeChatId, id); requestClose(); };
 
   return (
@@ -93,7 +94,7 @@ export function AgentSelect({ up = false }: { up?: boolean }) {
       <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`Who answers: ${label}`}
         className={cn(pill, "max-w-full gap-2 pl-1")}>
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
-          {boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={16} />}
+          {pending ? null : boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={16} />}
         </span>
         <span className="min-w-0 truncate">{label}</span>
         <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />

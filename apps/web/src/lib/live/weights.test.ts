@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergePipelineConfig } from "./pipelineConfig";
-import { aboutSize, listed, missingWeights, planModels, weightFiles } from "./weights";
+import { aboutSize, listed, missingWeights, planModels, voiceModels, weightFiles } from "./weights";
 
 const cfg = (stt: string, tts: string, whisperSize = "base", language = "en") =>
   mergePipelineConfig({ language, stt: { engine: stt, whisperSize }, tts: { engine: tts } });
@@ -58,5 +58,35 @@ describe("the offer's words", () => {
     expect(aboutSize(400_000)).toBe("about 1 MB");
     expect(aboutSize(1_644_000_000)).toBe("about 1.6 GB");
     expect(aboutSize(null)).toBeNull();
+  });
+});
+
+describe("voice models, as the Chat chip reads them", () => {
+  const some = { missing: weightFiles(cfg("whisper", "kokoro"), "webgpu", "kokoro"), bytes: 1e6 };
+  const none = { missing: [], bytes: 0 };
+
+  it("is still being read until the agent has said which voice it runs", () => {
+    expect(voiceModels(false, false, undefined)).toBe("reading");
+    expect(voiceModels(false, false, some)).toBe("reading");
+  });
+
+  it("is still being read while the cache falls short and the hub has not answered", () => {
+    expect(voiceModels(true, false, undefined)).toBe("reading");
+  });
+
+  it("is ready when the cache holds the weights, whatever a plan says", () => {
+    expect(voiceModels(true, true, undefined)).toBe("ready");
+    expect(voiceModels(true, true, some)).toBe("ready");
+  });
+
+  it("is missing only when the plan names weights that are not there", () => {
+    expect(voiceModels(true, false, some)).toBe("missing");
+    expect(voiceModels(true, false, none)).toBe("ready");
+  });
+
+  it("is missing, not reading forever, when the plan could not be made", () => {
+    expect(voiceModels(true, false, undefined, true)).toBe("missing");
+    expect(voiceModels(true, true, undefined, true)).toBe("ready");
+    expect(voiceModels(false, false, undefined, true)).toBe("reading");
   });
 });

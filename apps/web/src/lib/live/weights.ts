@@ -75,13 +75,15 @@ export async function refuseUnagreed(files: WeightFile[], allow: ReadonlySet<str
 }
 
 // One listing per repo folder for the session; a failed one is asked again.
+// Past this the size is left unsaid: a hub that does not answer must not hold the Download card back.
+const SIZE_TIMEOUT_MS = 8000;
 const listings = new Map<string, Promise<Map<string, number>>>();
 function sizeOf(f: WeightFile): Promise<number> {
   const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
   const key = `${f.repo}/${dir}`;
   let listing = listings.get(key);
   if (!listing) {
-    listing = fetch(`${HF}/api/models/${f.repo}/tree/main${dir && `/${dir}`}`)
+    listing = fetch(`${HF}/api/models/${f.repo}/tree/main${dir && `/${dir}`}`, { signal: AbortSignal.timeout(SIZE_TIMEOUT_MS) })
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<{ path: string; size: number; lfs?: { size: number } }[]>; })
       .then((xs) => new Map(xs.map((x) => [x.path, x.lfs?.size ?? x.size])));
     listing.catch(() => listings.delete(key));
@@ -108,6 +110,15 @@ export async function downloadPlan(files: WeightFile[]): Promise<DownloadPlan> {
 const MODEL_WORDS: Record<ModelKey, string> = { stt: "speech recognition", tts: "voice", turn: "turn-taking" };
 /** The models a plan downloads, in the words the UI uses. */
 export const planModels = (p: DownloadPlan): string[] => [...new Set(p.missing.map((f) => MODEL_WORDS[f.key]))];
+
+/** Where the voice weights stand: "reading" until the agent has said which voice it runs
+ *  and, if the cache falls short, the plan has said what is missing. A plan that failed
+ *  leaves the weights unknown, which the download card answers. */
+export function voiceModels(settled: boolean, cached: boolean, plan: DownloadPlan | undefined, planFailed = false): "reading" | "missing" | "ready" {
+  if (!settled) return "reading";
+  if (cached) return "ready";
+  return !plan ? (planFailed ? "missing" : "reading") : plan.missing.length ? "missing" : "ready";
+}
 
 /** "about 210 MB", "about 1.6 GB"; null for an unknown size. Decimal units, as the engine lists use. */
 export function aboutSize(bytes: number | null): string | null {

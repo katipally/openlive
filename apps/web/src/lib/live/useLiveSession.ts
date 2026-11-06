@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef } from "react";
 import { chatStore } from "@/lib/chatStore";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { isAgentId, agentLabel } from "@openlive/shared";
+import { isAgentId, agentLabel, initialAgentModel } from "@openlive/shared";
 import { notifyDesktop } from "@/lib/platform";
 import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
 import { CameraCapture } from "./cameraCapture";
 import { AudioPlayer } from "./audioPlayback";
 import { VoiceEngine, type EnginePhase } from "./voiceEngine";
 import { labelJudgment } from "./addressee";
-import { loadModels, modelsCached, modelsMatchConfig } from "./models";
+import { loadModels, modelsCachedSettled, modelsMatchConfig } from "./models";
 import { kindMeta, toolActive } from "./toolMeta";
 import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
 import { log } from "@/lib/log";
@@ -20,7 +20,8 @@ import { callFactProps, newCallFact, type CallEndedBy } from "./callFact";
 import { perf } from "./perf";
 import { speechFacts } from "./speechFacts";
 import { featureUsed } from "../featureUse";
-import { reportSetting } from "../settingChanges";
+import { reportSetting, savedDefaultModel } from "../settingChanges";
+import { useUi } from "../uiStore";
 import { telemetry } from "../telemetry";
 import { MIC_COPY } from "./micCopy";
 import { agentPrefsOf, chatPrefsOf, setAgentPrefs, setChatPrefs, useSessionPrefs } from "../prefs";
@@ -49,7 +50,8 @@ function readBind(chatId: string): AgentId | null {
  *  (e.g. the top-bar selector) — takes effect on the next connect if idle. */
 export function setConversationBind(chatId: string, agentId: AgentId | null) {
   useLiveStore.getState().set({ boundAgent: agentId });
-  setChatPrefs(chatId, { bind: agentId ?? "" });
+  // A model picked for one agent means nothing to another.
+  setChatPrefs(chatId, agentId === readBind(chatId) ? { bind: agentId ?? "" } : { bind: agentId ?? "", model: "" });
 }
 
 const readCwd = (chatId: string): string => chatPrefsOf(chatId).cwd ?? "";
@@ -93,10 +95,9 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
     // categories so "Mode"/"Model" isn't rendered twice (agents report mode via both
     // SessionModeState and a category:"mode" option — and older caches kept it).
     meta.options = meta.options.filter((o) => o.category !== "mode" && o.category !== "model");
-    // Reflect the user's remembered model/mode/option preference (validated against
-    // the cached set) so the pre-call pickers show their last choice.
-    const mp = prefs.model;
-    if (mp && meta.models.some((m) => m.id === mp)) meta.currentModelId = mp;
+    // Reflect the model this chat picked, else the saved default, and the remembered
+    // mode/option preference (validated against the cached set) so the pre-call pickers show them.
+    meta.currentModelId = startModel(agentId, meta);
     const dp = prefs.mode;
     if (dp && meta.modes.some((m) => m.id === dp)) meta.currentModeId = dp;
     for (const o of meta.options) {
@@ -107,11 +108,15 @@ export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
   } catch { return null; }
 }
 
+/** What this chat starts on: its own pick, else the saved default model (when this is the default agent), else the agent's own. */
+const startModel = (agent: AgentId, meta: AgentMeta): string | null =>
+  initialAgentModel(meta.models, meta.currentModelId, chatPrefsOf(useUi.getState().activeChatId).model, savedDefaultModel(agent));
+
 export function setConversationModel(modelId: string) {
   const agent = useLiveStore.getState().boundAgent;
   const shown = (useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent))?.currentModelId;
   if (agent && modelId !== shown) reportSetting({ setting: "agent_model", value: "changed", subject: agent });
-  if (agent) setAgentPrefs(agent, { model: modelId });
+  if (agent) setChatPrefs(useUi.getState().activeChatId, { model: modelId });
   activeLiveClient?.setModel(modelId);
   const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
   if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModelId: modelId } });
@@ -351,8 +356,8 @@ export function useLiveSession(chatId: string) {
         // Apply the remembered model/mode preference now the agent's set is known.
         if (agent) {
           const prefs = agentPrefsOf(agent);
-          const pm = prefs.model;
-          if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
+          const pm = startModel(agent, meta);
+          if (pm && pm !== meta.currentModelId) client.current?.setModel(pm);
           const pd = prefs.mode;
           if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
           for (const o of meta.options ?? []) {
@@ -786,9 +791,6 @@ export function useLiveSession(chatId: string) {
     // isn't warm in THIS page, silently pre-load it in the background so hitting
     // start is instant — no visible progress bar (it reads from cache, fast).
     // Never mid-call: a reload replaces the worker and fails the call's STT and TTS.
-    const cached = modelsCached();
-    set({ modelsDownloaded: cached || modelsMatchConfig() });
-    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}, "launch_warm").catch(() => {});
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       set({
@@ -796,6 +798,9 @@ export function useLiveSession(chatId: string) {
         cams: devs.filter((d) => d.kind === "videoinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` })),
       });
     } catch { /* enumerate not available */ }
+    const cached = await modelsCachedSettled();
+    set({ modelsDownloaded: cached || modelsMatchConfig() });
+    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}, "launch_warm").catch(() => {});
   }, [set]);
 
   // Unmounting the dock is what ends a call that no button ended: the chat was switched.

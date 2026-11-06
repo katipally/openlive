@@ -534,9 +534,40 @@ export function mergePipelineConfig(partial: unknown): PipelineConfig {
 /** Clamp a typed config the same way (it may hold a stale engine or voice). Pure. */
 export const clampPipelineConfig = (c: PipelineConfig): PipelineConfig => mergePipelineConfig(c);
 
+/** The engines a surface (Flow, Dictate) picked for itself over the shared ones. */
+export interface SurfaceVoice {
+  stt?: { variant: string; whisperSize: string };
+  tts?: { variant: string; voice: string };
+}
+
+/** `c` with a surface's own engines on top. A pick that no longer fits (an
+ *  unknown or restricted engine, one that does not speak the session language,
+ *  a voice the engine does not have) leaves that part of the shared config as
+ *  it was, so a language switch in Chat never leaves Flow hearing the wrong one. Pure. */
+export function withSurfaceVoice(c: PipelineConfig, own: SurfaceVoice | null | undefined): PipelineConfig {
+  const fits = (stage: Stage, variant: string) => variantInfo(variant)?.family.stage === stage && speaks(variant, c.language) && permitted(c, variant);
+  let out = c;
+  if (own?.stt && fits("stt", own.stt.variant)) {
+    out = chooseVariant(out, "stt", own.stt.variant);
+    out = { ...out, stt: { ...out.stt, whisperSize: oneOf(own.stt.whisperSize, WHISPER_SIZE_IDS, c.stt.whisperSize) } };
+  }
+  if (own?.tts && fits("tts", own.tts.variant)) {
+    const next = chooseVariant(out, "tts", own.tts.variant);
+    out = mergePipelineConfig({ ...next, tts: { ...next.tts, voice: own.tts.voice } });
+  }
+  return out;
+}
+
+// Flow and Dictate run in one renderer of their own, which says here whose
+// engines the open session uses. Every read of the config below then follows,
+// so the models, the downloads and the engine all agree on one set.
+let surface: (() => SurfaceVoice | null) | null = null;
+export const setSurfaceVoice = (fn: (() => SurfaceVoice | null) | null): void => { surface = fn; };
+
 export function loadPipelineConfig(): PipelineConfig {
   const saved = useVoicePrefs.getState().pipeline;
-  return saved ? mergePipelineConfig(saved) : DEFAULT_PIPELINE_CONFIG;
+  const shared = saved ? mergePipelineConfig(saved) : DEFAULT_PIPELINE_CONFIG;
+  return surface ? withSurfaceVoice(shared, surface()) : shared;
 }
 
 // The Voice and Speech engine tabs edit this config from several places (speed, engine,

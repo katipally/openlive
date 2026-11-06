@@ -1,9 +1,9 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { AGENT_REGISTRY, isAgentId, type AgentId } from "@openlive/shared";
+import { AGENT_REGISTRY, isAgentId, resolveAgentModel, type AgentId } from "@openlive/shared";
 import { defaultBrain, defaultBrainSettings, type FlowBrain } from "@openlive/flow-store/shared";
 import { api, type AgentStatus } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -57,6 +57,22 @@ export function useDefaultAgent(): AgentId | null | undefined {
   if (!settings) return undefined;
   const brain = defaultBrain(settings);
   return brain.kind === "acp" && isAgentId(brain.agentId) ? brain.agentId : null;
+}
+
+/** How long the default may stay unread before screens stop waiting for it. */
+const SETTINGS_PATIENCE_MS = 10_000;
+
+/** True while the default agent is still being read: not once settings have failed or
+ *  taken too long, when screens show the agent they already have rather than wait on "…". */
+export function useDefaultAgentPending(): boolean {
+  const { data, isError } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (data || isError) return;
+    const t = setTimeout(() => setGaveUp(true), SETTINGS_PATIENCE_MS);
+    return () => clearTimeout(t);
+  }, [data, isError]);
+  return !data && !isError && !gaveUp;
 }
 
 /** Who answers, in one line: its name, what it runs, and whether it is ready.
@@ -170,16 +186,20 @@ function AgentAdvanced({ id, brain, onPick }: { id: string; brain: FlowBrain; on
     staleTime: 5 * 60_000,
     retry: false,
   });
+  // An id saved under an older adapter shows as the entry that carries it on; with none, the default.
+  const offered = models.data?.models ?? [];
+  const model = brain.agentModel && offered.length ? resolveAgentModel(brain.agentModel, offered) : brain.agentModel;
   const note = models.isLoading ? "Asking the agent what it can be set to…"
     : models.isError ? "The agent didn't answer, so it keeps its own settings."
-    : !models.data?.models.length ? "This agent keeps its own model." : "";
+    : !offered.length ? "This agent keeps its own model."
+    : model === null ? "Your saved model isn't offered anymore, using the default." : "";
   return (
     <Advanced id={`answers-${id}`}>
       <Field label="Model">
-        <Select className="min-w-0 flex-1" value={brain.agentModel} disabled={!models.data?.models.length}
+        <Select className="min-w-0 flex-1" value={model ?? ""} disabled={!offered.length}
           onChange={(e) => onPick({ agentModel: e.target.value })}>
           <option value="">Agent default</option>
-          {(models.data?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          {offered.map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
         </Select>
       </Field>
       {!!models.data?.effort?.values.length && (
