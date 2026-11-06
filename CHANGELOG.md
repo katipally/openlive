@@ -53,6 +53,11 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **Chat's voice chip follows the speech engine.** Changing the engine, model or language
+  in Settings now updates "Download voice models" or "Ready" on Chat's home at once, not
+  after a reload.
+- **An unclean last exit leaves a line in the log.** A start after a crash, a force quit
+  or a restart notes `previous exit:` with how it ended, and nothing else.
 - **A local build no longer updates itself.** It downloaded the latest release into the
   installed app's update caches, failed the signature check, and showed "OpenLive x is
   ready" on every launch. Only builds the release workflow marks run the updater now, and

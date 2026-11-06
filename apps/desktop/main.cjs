@@ -247,6 +247,7 @@ function reapRecordedPids() {
 let prevExit = "clean";
 async function ensurePortsFree() {
   prevExit = reapRecordedPids();
+  if (prevExit !== "clean") console.error(`[main] previous exit: ${prevExit}`);
   for (const port of [AGENT_PORT, WEB_PORT]) {
     const h = portHolder(port);
     if (h && h.ours) { console.error(`[main] killing stale ${h.name} (pid ${h.pid}) on port ${port}`); killTree(h.pid, "SIGKILL"); }

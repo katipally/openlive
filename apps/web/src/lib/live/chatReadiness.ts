@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentLabel } from "@openlive/shared";
 import { api } from "@/lib/api";
 import { flowBridge } from "@/lib/flow/bridge";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { useUi } from "@/lib/uiStore";
+import { useVoicePrefs } from "@/lib/prefs";
 import { desktopPlatform } from "@/lib/platform";
 import { modelsCached, modelsCachedSettled, voiceDownloadPlan } from "./models";
+import { loadPipelineConfig } from "./pipelineConfig";
 import { aboutSize, voiceModels } from "./weights";
 import { useDefaultAgentPending } from "@/components/settings/WhoAnswers";
 import { useApiModeChoice } from "./useApiModeChoice";
@@ -55,9 +57,12 @@ export function useChatReadiness(): ChatReadiness {
   const choice = useApiModeChoice();
   const { data: agents, isLoading: agentsLoading } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!agent });
   const row = agent ? agents?.find((r) => r.id === agent) : undefined;
-  const settledRead = useQuery({ queryKey: ["models-settled"], queryFn: () => modelsCachedSettled(), staleTime: Infinity });
+  const saved = useVoicePrefs((s) => s.pipeline);
+  const cfg = useMemo(() => loadPipelineConfig(), [saved]);
+  const engines = [cfg.stt.variant, cfg.stt.whisperSize, cfg.tts.variant, cfg.language].join(":");
+  const settledRead = useQuery({ queryKey: ["models-settled", engines], queryFn: () => modelsCachedSettled(true, cfg), staleTime: Infinity });
   const settled = settledRead.isSuccess || settledRead.isError;
-  const cached = typeof window !== "undefined" && settled && modelsCached();
+  const cached = typeof window !== "undefined" && settled && modelsCached(true, cfg);
   const micRefused = useMicRefused();
   const open = useUi.getState().openSettingsTab;
   const name = agentLabel(agent);
@@ -66,7 +71,7 @@ export function useChatReadiness(): ChatReadiness {
     : agent && row?.credState === "login_required" ? "agent_signin"
     : !agent && !choice.loading && !choice.usable ? "key" : null;
   // The size is asked of the hub only when the download is what the chip would say.
-  const { data: plan, isError: planFailed } = useQuery({ queryKey: ["voice-download-plan"], queryFn: () => voiceDownloadPlan(), enabled: settled && !cached && !first, staleTime: 60_000 });
+  const { data: plan, isError: planFailed } = useQuery({ queryKey: ["voice-download-plan", engines], queryFn: () => voiceDownloadPlan(true, cfg), enabled: settled && !cached && !first, staleTime: 60_000 });
   const models = voiceModels(settled, cached, plan, planFailed);
   const reading = defaultPending || choice.loading || (!!agent && agentsLoading) || models === "reading";
   const gap: ChatGap | null = first
