@@ -687,6 +687,39 @@ describe("its report", () => {
     expect(ends).toEqual([expect.objectContaining({ ended: "other", dictations: 0 })]);
   });
 
+  it("offers no Undo on a password field after an earlier dictation, and presses nothing", async () => {
+    const r = rig({ focus: { windowId: 1 } });
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    const focus = r.ports.focus as ReturnType<typeof vi.fn>;
+    focus.mockResolvedValue({ editable: null, secure: true, before: null, windowId: 1 });
+    await r.dictate.heard("hunter two");
+    expect(r.last()).toMatchObject({ undo: false, note: SECURE });
+    await r.dictate.undo();
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
+  it("starts a new session with no Undo, and nothing for it to take back", async () => {
+    const r = rig();
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    await r.dictate.setOpen(false);
+    await r.dictate.setOpen(true);
+    expect(r.last()?.undo).toBe(false);
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
+  it("does not undo into a different window than the words went into", async () => {
+    const r = rig({ focus: { windowId: 1 } });
+    await r.dictate.setOpen(true);
+    await r.dictate.heard("send it");
+    (r.ports.focus as ReturnType<typeof vi.fn>).mockResolvedValue({ editable: null, secure: false, before: null, windowId: 2 });
+    await r.dictate.heard("undo that");
+    expect(r.pressed).toEqual([]);
+  });
+
   it("buckets the words typed", () => {
     expect([0, 1, 10, 11, 50, 51, 200, 201].map(wordsBucket)).toEqual(["0", "1_10", "1_10", "11_50", "11_50", "51_200", "51_200", "201_plus"]);
   });
