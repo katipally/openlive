@@ -7,6 +7,11 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Flow and Dictate each have their own microphone, and Flow its own speaker.**
+  Settings > Flow has Microphone and Speaker, and Settings > Dictate has Microphone.
+  Each starts on the system default, follows devices plugged in or out, and goes back
+  to the default when its device is gone. A new pick applies the next time the
+  microphone opens, and a new speaker applies at once.
 - **Telemetry says why an update check or a model request failed.** `update_result`
   gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
   checks that worked. `brain_error` gains `http_status` and a `reason` for a refused

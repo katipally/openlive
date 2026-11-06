@@ -1430,6 +1430,7 @@ export class VoiceEngine {
 
   micLevel() { return this.micRms; }
   agentLevel() { return this.player.level(); }
+  setSpeaker(id: string) { this.player.setSink(id); }
   /** N octave-band magnitudes (0..1) of YOUR voice — a real spectrum for the orb. */
   micBands(n = 5): number[] {
     if (!this.micAnalyser || !this.micFreq) return new Array(n).fill(0);

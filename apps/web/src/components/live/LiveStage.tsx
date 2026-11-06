@@ -44,10 +44,11 @@ export function DownloadProgress({ pct, loaded, total, models }: { pct: number; 
 
 export function DeviceSelect({ icon: Icon, opts, value, onChange }: { icon: typeof Mic; opts: DeviceOpt[]; value?: string; onChange: (id: string) => void }) {
   if (!opts.length) return <p className="text-label text-faint">No device found</p>;
+  const shown = value ?? opts[0]?.id ?? "";
   return (
-    <label className="flex items-center gap-2 text-muted-foreground">
+    <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
       <Icon className="size-3.5 shrink-0" />
-      <Select value={value ?? opts[0]?.id ?? ""} onChange={(e) => onChange(e.target.value)} className="flex-1">
+      <Select value={shown} title={opts.find((o) => o.id === shown)?.label} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1">
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </Select>
     </label>
