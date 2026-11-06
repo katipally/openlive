@@ -109,6 +109,14 @@ function Basics({ config, save }: { config: FlowConfig; save: Save }) {
       <SharedSettings id="set-dictate-shared" insertion={config.insertion} speaks={false} />
       <SurfaceSpeech id="set-dictate-speech" surface="dictate" config={config} save={save} />
 
+      <Section id="set-dictate-sounds" title="Sounds" desc="Push to talk only.">
+        <ListGroup>
+          <ListRow label="Start and stop tones" detail="A soft tone when the mic is live, so you know when to speak" asLabel>
+            <Switch on={own.sounds} onFlip={() => save({ dictate: { sounds: !own.sounds } })} />
+          </ListRow>
+        </ListGroup>
+      </Section>
+
       <Section id="set-dictate-cleanup" title="Cleanup" desc="On this machine, instantly.">
         <div className="flex flex-col gap-3">
           <ListGroup>

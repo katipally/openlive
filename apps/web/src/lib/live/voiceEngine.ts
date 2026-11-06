@@ -3,6 +3,8 @@ import { AudioPlayer } from "./audioPlayback";
 import { stt, tts, timedOn, type Heard, ttsStream, hasWebGPU, turnComplete, turnModelReady, activeSttEngine, nativeSttFailed, resetNativeFallbacks, warmNativeEngines } from "./models";
 import { isJunk, isBackchannel, endsMidThought, stripMarkdown, speechPieces, estimateSpeechMs, SentenceChunker, LISTENING, asksQuestion, joinChunks } from "./voiceText";
 import { octaveBands } from "./spectrum";
+import { cueTone, type HoldCue } from "./holdCue";
+import { holdVerdict, micWaitMs } from "./holdLive";
 import { perf } from "./perf";
 import { capturePart, nextCaptureReply } from "./ttsCapture";
 import { loadPipelineConfig, variantInfo } from "./pipelineConfig";
@@ -57,6 +59,8 @@ export interface VoiceEngineHandlers {
   onSpeechStart?: () => void;
   /** A push-to-talk hold's first frame with sound in it: the device is awake, words from here are heard. */
   onHoldLive?: () => void;
+  /** A hold's microphone opened and still gave no sound once its device's wait was up (holdVerdict). */
+  onHoldSilent?: () => void;
 }
 
 /** How a push-to-talk hold ended: its words sent on, none heard, or heard and not written down. */
@@ -188,6 +192,9 @@ export class VoiceEngine {
   private finalizing = false;
   private ptt = false;                            // push-to-talk held: accumulate until release, no auto-send
   private holdLive = false;                       // this hold has had a frame with sound (onHoldLive)
+  private holdTimer: ReturnType<typeof setTimeout> | undefined; // the wait for that frame, from the device's open
+  private holdCues = false;                       // a short tone as a hold turns live and as it ends
+  private speakerId = "";
   private tape: Tape | null = null;               // the hold in progress, from the microphone's first frame
   private muted = false;                          // mirrors setMuted — PTT temporarily lifts a mute, then restores it
   private gated = false;                          // push to talk: the VAD runs only while a hold is down (setGate)
@@ -304,7 +311,7 @@ export class VoiceEngine {
   private cuedAt = -Infinity;
   private cueN = 0;
   // "ended" fires only when the browser ends a track, never for our own stop().
-  private onMicEnded = () => this.h.onMicLost?.();
+  private onMicEnded = () => { clearTimeout(this.holdTimer); this.h.onMicLost?.(); };
 
   // Accept a pre-primed player so audio can be unlocked DURING the Start click
   // (iOS blocks audio started after an await — see useLiveSession.start).
@@ -594,7 +601,12 @@ export class VoiceEngine {
     const rms = Math.sqrt(sum / frame.length);
     this.micRms += (rms - this.micRms) * 0.3;
     // A device just opened gives silent frames while it wakes (150-300 ms here).
-    if (this.ptt && !this.holdLive && rms > 0) { this.holdLive = true; this.h.onHoldLive?.(); }
+    if (this.ptt && !this.holdLive && rms > 0) {
+      this.holdLive = true;
+      clearTimeout(this.holdTimer);
+      this.cue("start");
+      this.h.onHoldLive?.();
+    }
     // Learn the room's ambient noise floor WHILE IDLE (never during the user's own
     // speech), so the reject-gate rises in a loud room / around a TV and stops
     // background chatter tripping a turn — but stays at the fixed floor in a quiet
@@ -983,8 +995,26 @@ export class VoiceEngine {
     this.holdLive = false;
     this.clearHold(); // keep `pending`: PTT continues an already-held thought
     if ((this.tentative || this.phase === "speaking" || this.phase === "thinking" || this.player.playing()) && !this.h.holdBargeIn?.()) this.bargeIn();
-    this.listen(true).catch(this.micFailed);
+    this.listen(true).then(() => this.watchLive(), this.micFailed);
   }
+  /** The device is open: if no frame with sound has come by its wait, the hold is silent. */
+  private watchLive() {
+    if (!this.ptt || this.holdLive) return;
+    const label = this.micTrack?.label ?? "", opened = performance.now();
+    clearTimeout(this.holdTimer);
+    this.holdTimer = setTimeout(() => {
+      // +1: a timer can fire a hair before its wait by the clock the verdict reads.
+      if (this.ptt && holdVerdict(label, performance.now() - opened + 1, this.holdLive) === "silent") this.h.onHoldSilent?.();
+    }, micWaitMs(label));
+  }
+  /** Through the chosen speaker, and off the VAD's way: a hold's cues come before its words or after its tape. */
+  private cue(which: HoldCue) {
+    if (!this.holdCues) return;
+    const p = (this.cuePlayer ??= new AudioPlayer());
+    p.setSink(this.speakerId);
+    p.play(cueTone(which, 24000), 0, 24000);
+  }
+  setHoldCues(on: boolean) { this.holdCues = on; }
   /** Released: everything accumulated (held segments + the in-flight one) is the turn.
    *  PTT stays "on" until the VAD closes the in-flight segment, so onSpeechEnd files
    *  it into `pending` (the ptt branch) instead of racing an auto end-of-turn. */
@@ -992,6 +1022,8 @@ export class VoiceEngine {
    *  "lost" when words were heard that could not be written down. */
   async endPtt(now = false, lateMs = 0): Promise<HoldEnd> {
     if (!this.ptt) return "heard";
+    clearTimeout(this.holdTimer);
+    if (this.holdLive) this.cue("stop");
     const tape = this.tape?.stop(lateMs);
     this.tape = null;
     // The tape has all of the hold: with the microphone shut between holds, it
@@ -1061,6 +1093,7 @@ export class VoiceEngine {
   dropPtt() {
     if (!this.ptt) return;
     this.ptt = false;
+    clearTimeout(this.holdTimer);
     void this.tape?.stop(0);
     this.tape = null;
     this.pending = null;
@@ -1430,7 +1463,7 @@ export class VoiceEngine {
 
   micLevel() { return this.micRms; }
   agentLevel() { return this.player.level(); }
-  setSpeaker(id: string) { this.player.setSink(id); }
+  setSpeaker(id: string) { this.speakerId = id; this.player.setSink(id); this.cuePlayer?.setSink(id); }
   /** N octave-band magnitudes (0..1) of YOUR voice — a real spectrum for the orb. */
   micBands(n = 5): number[] {
     if (!this.micAnalyser || !this.micFreq) return new Array(n).fill(0);
@@ -1446,6 +1479,7 @@ export class VoiceEngine {
     clearInterval(this.keepWarm);
     clearTimeout(this.feedTimer);
     clearTimeout(this.announceTimer);
+    clearTimeout(this.holdTimer);
     this.clearHold();
     this.ptt = false;
     void this.tape?.stop(0);

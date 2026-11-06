@@ -54,7 +54,7 @@ export interface Typing {
 /** Why a session closed, for its report. */
 export type DictateEnd = "gesture" | "idle" | "stop_command" | "flow_opened" | "sleep_or_lock" | "turned_off" | "tool" | "no_mic" | "other";
 /** A note on the orb that says something went wrong, by kind, never by content. */
-export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long" | "models_missing" | "secure_field";
+export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long" | "models_missing" | "secure_field" | "mic_silent";
 /** One session in numbers, for its report: what happened, never what was said. */
 export interface DictateReport {
   ms: number; ended: DictateEnd; dictations: number; words: number; copied: number; failed: number;
@@ -120,6 +120,7 @@ export const UNDO_MS = 5000;
 const NO_MIC = `${MIC_COPY.noOpen}.`;
 const ASKED = "Dictation didn't open: the orb is asking the user to download the voice models first.";
 const NOT_WRITTEN = "Couldn't write your words down.";
+const MIC_SILENT = "The microphone gave no sound.";
 export const NO_SPEECH = "No words heard.";
 export const COPIED = "No text box in focus. Copied instead.";
 export const SECURE = "Password field. Dictate won't type here.";
@@ -206,7 +207,7 @@ export function createDictate(ports: DictatePorts) {
   // A hold's speech ended when the key came up, before the engine handed its words over.
   let releasedAt: number | null = null;
   const NOTES: [string, DictateFailure][] = [[NO_MIC, "no_mic"], [NOT_WRITTEN, "not_written"], [FAILED, "insert_failed"], [POLISH_LATE, "polish_late"],
-    [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"], [SECURE, "secure_field"]];
+    [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"], [SECURE, "secure_field"], [MIC_SILENT, "mic_silent"]];
 
   const set = (patch: Partial<DictateSnapshot>) => {
     // Gone from the orb: work still landing after a close does not bring it back.
@@ -482,6 +483,14 @@ export function createDictate(ports: DictatePorts) {
       if (ended !== "heard") { began = null; releasedAt = null; if (ended !== "lost") count("empty"); set({ phase: "idle", partial: "", editing: false, note: ended === "lost" ? NOT_WRITTEN : NO_SPEECH }); }
       // The engine hands the words over without waiting for them to be typed.
       await work;
+    },
+    /** The hold's microphone opened and gave no sound in time: the hold is given up with a note. */
+    micSilent() {
+      if (!holding) return;
+      holding = false;
+      began = null;
+      ports.dropHold();
+      set({ phase: "idle", partial: "", editing: false, note: MIC_SILENT });
     },
     /** A tap, a key on top, or sleep: the hold's words go nowhere. */
     async holdCancel() {
