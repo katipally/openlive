@@ -7,6 +7,10 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **Telemetry says why an update check or a model request failed.** `update_result`
+  gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
+  checks that worked. `brain_error` gains `http_status` and a `reason` for a refused
+  request. No error text is sent.
 - **Telemetry says where Welcome and Flow sessions stop.** `onboarding_step` gains
   `welcome_step_2`, `welcome_step_3` and `welcome_step_4`, the first time each Welcome
   step is reached. `flow_session` gains `speech_starts` (how often the microphone heard
@@ -53,6 +57,9 @@ Releases before 0.1.9 predate this file — see the
   Codex 0.165.0.
 
 ### Fixed
+- **A model that cannot use tools still answers.** When an OpenAI-compatible or Ollama
+  server refuses a request that carried tools with a 400, the turn is retried once
+  without them, and later turns for that model skip tools for the session.
 - **Chat's voice chip follows the speech engine.** Changing the engine, model or language
   in Settings now updates "Download voice models" or "Ready" on Chat's home at once, not
   after a reload.
