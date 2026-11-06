@@ -742,8 +742,8 @@ export function useFlowOwner(): void {
         const body = recent.length ? { ...ask, context: { ...ask.context, recent } } : ask;
         const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(body), signal });
         if (r.ok && r.body) return readRewrite(r.body, (t) => { if (!signal.aborted) onText(t); });
-        const body = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error || `HTTP ${r.status}`);
+        const err = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || `HTTP ${r.status}`);
       },
       warm: () => void fetch("/api/dictate/warm", { ...JSON_POST, body: "{}" }).catch(() => {}),
       // The accessibility API alone. A copy would read the whole line in many
