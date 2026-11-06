@@ -31,12 +31,22 @@ use crate::capture::{Bitmap, Display};
 use crate::control::Button;
 use crate::coords::{ScreenPoint, Shot};
 use crate::ocr::ShotBox;
-use crate::platform::macos::{event_source, CFRelease};
+use crate::focus::{Focus, BEFORE_MAX};
+use crate::platform::macos::{event_source, secure_input_active, CFRelease};
 use crate::window::WindowInfo;
 
 /// Accessibility value types, from AXValue.h.
 const AX_VALUE_CG_POINT: u32 = 1;
 const AX_VALUE_CG_SIZE: u32 = 2;
+const AX_VALUE_CF_RANGE: u32 = 4;
+/// A hung app must not hold a dictation up.
+const AX_WAIT_SECONDS: f32 = 0.8;
+
+#[repr(C)]
+struct CfRange {
+    location: isize,
+    length: isize,
+}
 /// Only layer 0 is an ordinary application window. Menus, the dock and the
 /// wallpaper all live above or below it and none of them can be acted on.
 const NORMAL_WINDOW_LAYER: f64 = 0.0;
@@ -60,6 +70,13 @@ extern "C" {
         attribute: *const c_void,
         settable: *mut u8,
     ) -> i32;
+    fn AXUIElementCopyParameterizedAttributeValue(
+        element: *mut c_void,
+        attribute: *const c_void,
+        parameter: *const c_void,
+        value: *mut *mut c_void,
+    ) -> i32;
+    fn AXUIElementSetMessagingTimeout(element: *mut c_void, seconds: f32) -> i32;
     fn AXUIElementPerformAction(element: *mut c_void, action: *const c_void) -> i32;
     fn AXValueCreate(value_type: u32, value: *const c_void) -> *mut c_void;
     fn AXValueGetValue(value: *mut c_void, value_type: u32, out: *mut c_void) -> bool;
@@ -604,26 +621,72 @@ pub fn accessible_selection() -> Option<String> {
     selected_text()
 }
 
-pub fn focus_editable() -> Option<bool> {
-    let focused = ax_focused()?;
-    let role_key = cfstring("AXRole");
-    let mut role: *mut c_void = ptr::null_mut();
-    let role = unsafe {
-        if AXUIElementCopyAttributeValue(focused, as_cf(&role_key), &mut role) == 0 && !role.is_null() {
-            let text = to_string(role.cast());
-            CFRelease(role.cast());
-            text
-        } else {
-            None
-        }
+/// A copied attribute, retained: the caller releases it.
+fn ax_copy(element: *mut c_void, attribute: &str) -> Option<*mut c_void> {
+    let key = cfstring(attribute);
+    let mut value: *mut c_void = ptr::null_mut();
+    let status = unsafe { AXUIElementCopyAttributeValue(element, as_cf(&key), &mut value) };
+    (status == 0 && !value.is_null()).then_some(value)
+}
+
+fn ax_text(element: *mut c_void, attribute: &str) -> Option<String> {
+    let value = ax_copy(element, attribute)?;
+    let text = unsafe { to_string(value.cast()) };
+    unsafe { CFRelease(value.cast()) };
+    text
+}
+
+/// The text before the caret (before the selection, when something is
+/// selected), asked of the range alone so a long document is never read whole.
+fn text_before_caret(focused: *mut c_void) -> Option<String> {
+    let selection = ax_copy(focused, "AXSelectedTextRange")?;
+    let mut caret = CfRange { location: 0, length: 0 };
+    let read = unsafe { AXValueGetValue(selection, AX_VALUE_CF_RANGE, ptr::addr_of_mut!(caret).cast()) };
+    unsafe { CFRelease(selection.cast()) };
+    if !read || caret.location < 0 {
+        return None;
+    }
+    let start = (caret.location - BEFORE_MAX as isize).max(0);
+    if start == caret.location {
+        return Some(String::new());
+    }
+    let wanted = CfRange { location: start, length: caret.location - start };
+    let parameter = unsafe { AXValueCreate(AX_VALUE_CF_RANGE, ptr::addr_of!(wanted).cast()) };
+    if parameter.is_null() {
+        return None;
+    }
+    let key = cfstring("AXStringForRange");
+    let mut value: *mut c_void = ptr::null_mut();
+    let status = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(focused, as_cf(&key), parameter, &mut value)
     };
+    unsafe { CFRelease(parameter.cast()) };
+    if status != 0 || value.is_null() {
+        return None;
+    }
+    let text = unsafe { to_string(value.cast()) };
+    unsafe { CFRelease(value.cast()) };
+    text.map(|text| crate::focus::tail(&text))
+}
+
+pub fn focus_read() -> Focus {
+    let secure_input = secure_input_active();
+    let Some(focused) = ax_focused() else {
+        return Focus { secure: secure_input, ..Focus::default() };
+    };
+    unsafe { AXUIElementSetMessagingTimeout(focused, AX_WAIT_SECONDS) };
+    let role = ax_text(focused, "AXRole");
+    let subrole = ax_text(focused, "AXSubrole");
     let settable = ["AXValue", "AXSelectedTextRange"].iter().any(|attribute| {
         let mut yes = 0u8;
         let key = cfstring(attribute);
         unsafe { AXUIElementIsAttributeSettable(focused, as_cf(&key), &mut yes) == 0 && yes != 0 }
     });
+    let editable = crate::focus::ax(role.as_deref(), settable);
+    let secure = crate::focus::ax_secure(subrole.as_deref(), editable, secure_input);
+    let before = if secure { None } else { text_before_caret(focused) };
     unsafe { CFRelease(focused.cast()) };
-    crate::focus::ax(role.as_deref(), settable)
+    Focus { editable, secure, before }
 }
 
 /// macOS has no equivalent of Windows' elevated-window block: an app allowed to

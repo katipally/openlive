@@ -107,8 +107,9 @@ export interface FlowBridge {
    *  (OpenLive's own page directly): "" for none, null where it cannot be read
    *  that way, as on Wayland. Never copies. */
   accessibleSelection(): Promise<Guarded<string | null>>;
-  /** Whether the focused element takes typed text; null when the platform or the app will not say. */
-  focusEditable(): Promise<Guarded<boolean | null>>;
+  /** The focused element: whether it takes typed text (absent when the platform or the app will not say),
+   *  whether it is a password field, and up to 320 characters before the caret (absent where unreadable, and for a password). */
+  focusEditable(): Promise<Guarded<{ editable?: boolean | null; secure?: boolean; before?: string | null }>>;
   context(): Promise<Guarded<FlowContextWire>>;
   signals(): Promise<Guarded<QuietSignals>>;
   capabilities(): Promise<Guarded<FlowCapabilities>>;
