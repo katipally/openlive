@@ -355,6 +355,7 @@ export function useFlowOwner(): void {
           onMicLost: () => void recoverMic(eng),
           onSpeechStart,
           onHoldLive: () => { if (snap.current.talk.holding) publishTalk(true, true); },
+          onHoldSilent: () => dictate.micSilent(),
         // Flow's own wait when its override is on, else the shared one the
         // engine reads from the pipeline config.
         // No listening sounds hands-free: a pause there is often the user acting, not thinking aloud.
@@ -701,7 +702,10 @@ export function useFlowOwner(): void {
         engine.current?.setGate(talkMode() === "ptt");
         return !!engine.current;
       },
-      beginHold: () => engine.current?.beginPtt(),
+      beginHold: () => {
+        engine.current?.setHoldCues(settings.current?.dictate.sounds ?? false);
+        engine.current?.beginPtt();
+      },
       endHold: async (lateMs) => (await engine.current?.endPtt(true, lateMs)) ?? "heard",
       dropHold: () => engine.current?.dropPtt(),
       ready: () => !!engine.current,
@@ -776,6 +780,7 @@ export function useFlowOwner(): void {
           const e = engine.current;
           if (!e) return false;
           if (snap.current.aside) patch({ aside: "" });
+          e.setHoldCues(false);
           e.beginPtt();
           return true;
         },

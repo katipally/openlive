@@ -112,6 +112,8 @@ export interface FlowConfig {
     stt: SpeechInPick;
     /** The microphone Dictate uses, as the browser names it. "" is the system default. */
     micId: string;
+    /** A soft tone when the microphone is live in push to talk, and another when the hold ends. */
+    sounds: boolean;
     commands: { enter: boolean; newLine: boolean; newParagraph: boolean; undo: boolean; stop: boolean };
     words: string[];
     snippets: { trigger: string; text: string }[];
@@ -146,6 +148,7 @@ export const DEFAULT_FLOW_CONFIG: FlowConfig = {
     polish: { enabled: false, tone: "natural" },
     stt: { override: false, variant: "", whisperSize: "" },
     micId: "",
+    sounds: true,
     commands: { enter: true, newLine: true, newParagraph: true, undo: true, stop: true },
     words: [],
     snippets: [],
@@ -346,6 +349,7 @@ export function parseFlowConfig(raw: unknown): FlowConfig {
       polish: { ...polish, enabled: bool(polish.enabled, dd.polish.enabled), tone: one(polish.tone, TONES, dd.polish.tone) },
       stt: speechIn(dictateStt, dd.stt),
       micId: str(dictate.micId, dd.micId),
+      sounds: bool(dictate.sounds, dd.sounds),
       commands: {
         ...commands,
         enter: bool(commands.enter, dd.commands.enter),

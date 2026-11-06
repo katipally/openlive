@@ -625,6 +625,21 @@ describe("its report", () => {
     expect(ends).toEqual([expect.objectContaining({ ended: "no_mic", dictations: 0 })]);
   });
 
+  it("gives up a hold whose microphone stays silent, with a note and mic_silent", async () => {
+    const r = rig();
+    const codes: string[] = [];
+    r.ports.failure = (c) => void codes.push(c);
+    await r.dictate.setOpen(true);
+    r.dictate.holdStart();
+    await Promise.resolve();
+    r.dictate.micSilent();
+    expect(r.ports.dropHold).toHaveBeenCalledTimes(1);
+    expect(codes).toEqual(["mic_silent"]);
+    expect(r.dictate.busy()).toBe(false);
+    r.dictate.micSilent();
+    expect(codes).toEqual(["mic_silent"]);
+  });
+
   it("names the missing voice models when the orb asks for them instead of opening", async () => {
     const r = rig({ mic: "" });
     const codes: string[] = [];
