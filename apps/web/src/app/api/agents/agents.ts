@@ -10,6 +10,22 @@ export type Action = "install" | "uninstall" | "login" | "logout" | "update";
 
 export const agentById = (id: string): AgentDef | undefined => (isAgentId(id) ? AGENT_REGISTRY[id] : undefined);
 
+/** A hint for an install that failed on Windows for a reason the output names but does not explain. */
+export function installHint(output: string, isWin: boolean): string | null {
+  if (!isWin) return null;
+  if (/exit code (1925|1603)|administrator|elevat/i.test(output))
+    return "\n⚠ This installer needs administrator rights. Open PowerShell as administrator, run the command above, then hit Re-check.\n";
+  if (/'?npm'? is not recognized|ENOENT/i.test(output))
+    return "\n⚠ npm wasn't found. Install Node.js from nodejs.org, restart OpenLive, then retry.\n";
+  return null;
+}
+
+/** The install command as a person would type it, for when the button has failed twice. */
+export function installDisplay(a: AgentDef, isWin: boolean): string | undefined {
+  const r = a.install;
+  return r?.npm ? `npm install -g ${r.npm}` : (isWin ? r?.winShell : r?.posixShell);
+}
+
 // The command to run for an action. npm/shell installs are non-interactive
 // (streamed inline); login/logout and terminal-flavored installs (hermes'
 // wizard) open the user's terminal (Terminal.app, PowerShell, or the first Linux
