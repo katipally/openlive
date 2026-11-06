@@ -4,6 +4,7 @@ import type { DictateSnapshot } from "@/lib/flow/types";
 import type { HoldEnd } from "@/lib/live/voiceEngine";
 import { DICTATE_BODY_MAX, DICTATE_TEXT_MAX } from "@openlive/shared";
 import { MIC_COPY } from "../live/micCopy";
+import { BEFORE_MAX, needsSpace } from "./spacing";
 
 // Dictate inside Flow's owner renderer: a session, opened and closed by its
 // gesture, in which each finished utterance (a pause hands-free, a release in
@@ -19,7 +20,7 @@ import { MIC_COPY } from "../live/micCopy";
 export type Inserted = "typed" | "copied" | "failed";
 export type Tone = "natural" | "casual" | "formal";
 /** One rewrite by Dictate's brain, as /api/dictate/rewrite takes it. */
-export type RewriteAsk = { kind: "polish"; text: string; tone: Tone } | { kind: "command"; text: string; selection: string };
+export type RewriteAsk = { kind: "polish"; text: string; tone: Tone; context?: { before: string } } | { kind: "command"; text: string; selection: string };
 
 export interface DictateSettings {
   rules: CleanupRules;
@@ -33,6 +34,11 @@ export interface DictateSettings {
   canEdit: boolean;
 }
 
+/** The focused element, read once per utterance. `before` is the text before the
+ *  caret, null where the app will not say; `windowId` is only looked up then. */
+export interface Focus { editable: boolean | null; secure: boolean; before: string | null; windowId?: number }
+const UNKNOWN: Focus = { editable: null, secure: false, before: null };
+
 /** Typing at the cursor, open: words pushed as they come, then ended. */
 export interface Typing {
   push(text: string): Promise<void>;
@@ -44,7 +50,7 @@ export interface Typing {
 /** Why a session closed, for its report. */
 export type DictateEnd = "gesture" | "idle" | "stop_command" | "flow_opened" | "sleep_or_lock" | "turned_off" | "tool" | "no_mic" | "other";
 /** A note on the orb that says something went wrong, by kind, never by content. */
-export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long" | "models_missing";
+export type DictateFailure = "no_mic" | "not_written" | "insert_failed" | "polish_late" | "polish_cut" | "command_failed" | "keys_failed" | "too_long" | "models_missing" | "secure_field";
 /** One session in numbers, for its report: what happened, never what was said. */
 export interface DictateReport {
   ms: number; ended: DictateEnd; dictations: number; words: number; copied: number; failed: number;
@@ -69,8 +75,10 @@ export interface DictatePorts {
   endHold(lateMs: number): Promise<HoldEnd>;
   /** The hold is given up and its words dropped, at once. */
   dropHold(): void;
+  /** What is in focus, in one read. Absent, nothing is known of it. */
+  focus?(): Promise<Focus>;
   /** Typing at the cursor, opened. Null where nothing in focus takes typing. */
-  typing(): Promise<Typing | null>;
+  typing(focus: Focus): Promise<Typing | null>;
   /** On the clipboard. False when it could not be. */
   copy(text: string): Promise<boolean>;
   /** What the orb shows, or null once Dictate gives it back. */
@@ -106,6 +114,7 @@ const ASKED = "Dictation didn't open: the orb is asking the user to download the
 const NOT_WRITTEN = "Couldn't write your words down.";
 export const NO_SPEECH = "No words heard.";
 export const COPIED = "No text box in focus. Copied instead.";
+export const SECURE = "Password field. Dictate won't type here.";
 /** Flow's owner window records each dictation; this tells the main window to read the list again. */
 export const HISTORY_CHANNEL = "openlive-dictate-history";
 const FAILED = "Couldn't type or copy that.";
@@ -156,6 +165,9 @@ export function createDictate(ports: DictatePorts) {
   let holding = false;
   // The last text Dictate typed, which "undo that" takes back.
   let last: string | null = null;
+  // The end of what Dictate last typed, and where: stands in for the text before the
+  // caret in an app that will not say, for the same window only.
+  let tail: { id: number; text: string } | null = null;
   // The microphone opening for this session, which a hold waits on.
   let opening: Promise<boolean> = Promise.resolve(true);
   // It did not open because the owner is asking the user something on the orb first.
@@ -176,7 +188,7 @@ export function createDictate(ports: DictatePorts) {
   let tally: (Omit<DictateReport, "ms" | "ended"> & { at: number }) | null = null;
   const count = (k: keyof Omit<DictateReport, "ms" | "ended">, n = 1) => { if (tally) tally[k] += n; };
   const NOTES: [string, DictateFailure][] = [[NO_MIC, "no_mic"], [NOT_WRITTEN, "not_written"], [FAILED, "insert_failed"], [POLISH_LATE, "polish_late"],
-    [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"]];
+    [KEYS_FAILED, "keys_failed"], [TOO_LONG, "too_long"], [SECURE, "secure_field"]];
 
   const set = (patch: Partial<DictateSnapshot>) => {
     // Gone from the orb: work still landing after a close does not bring it back.
@@ -265,26 +277,34 @@ export function createDictate(ports: DictatePorts) {
     } finally { clearTimeout(timer); }
   };
 
+  const focused = async () => (await ports.focus?.().catch(() => UNKNOWN)) ?? UNKNOWN;
+
   /** At the cursor, or on the clipboard where there is no cursor to type at. */
-  const insert = async (text: string): Promise<Inserted> => {
-    const typing = await ports.typing();
+  const insert = async (text: string, f: Focus): Promise<Inserted> => {
+    const typing = await ports.typing(f);
     if (typing) {
       await typing.push(text);
       if (await typing.end()) return "typed";
     }
     return (await ports.copy(text)) ? "copied" : "failed";
   };
-  /** A session's later words follow its earlier ones after a space. */
-  const lead = () => (typed ? " " : "");
+  /** The text before the caret: as read, else the end of what was last typed in this window. */
+  const caretBefore = (f: Focus) => f.before ?? (tail && f.windowId === tail.id ? tail.text : null);
+  /** One space after what is before the caret. Where that is unknown, a session's later words follow its earlier ones after a space. */
+  const lead = (f: Focus) => {
+    const before = caretBefore(f);
+    return (before === null ? typed > 0 : needsSpace(before)) ? " " : "";
+  };
   /** What landed, remembered for "undo that". */
-  const landed = (out: Inserted, text: string): Inserted => {
+  const landed = (out: Inserted, text: string, f: Focus): Inserted => {
     if (out !== "failed") typed++;
     last = out === "typed" ? text : null;
+    if (out === "typed") tail = f.windowId == null ? null : { id: f.windowId, text: text.slice(-BEFORE_MAX) };
     return out;
   };
-  const put = async (text: string): Promise<Inserted> => {
-    const spaced = lead() + text;
-    return landed(await insert(spaced), spaced);
+  const put = async (text: string, f: Focus): Promise<Inserted> => {
+    const spaced = lead(f) + text;
+    return landed(await insert(spaced, f), spaced, f);
   };
 
   /**
@@ -293,14 +313,15 @@ export function createDictate(ports: DictatePorts) {
    * taking it back could hit whatever the app made of it, and all of the text
    * goes on the clipboard, so nothing said is lost.
    */
-  const polish = async (clean: string, tone: Tone): Promise<{ final: string; out: Inserted; note: string }> => {
-    const space = lead();
+  const polish = async (clean: string, tone: Tone, f: Focus): Promise<{ final: string; out: Inserted; note: string }> => {
+    const space = lead(f);
+    const before = caretBefore(f);
     set({ polishing: true });
     let opened = null as Promise<Typing | null> | null;
     let sent = "";
     let pushing = Promise.resolve();
     const onText = (text: string) => {
-      opened ??= ports.typing();
+      opened ??= ports.typing(f);
       pushing = pushing.then(async () => {
         const typing = await opened;
         if (!typing) return;
@@ -310,19 +331,19 @@ export function createDictate(ports: DictatePorts) {
       });
     };
     let answer: string | null = null;
-    try { answer = await think({ kind: "polish", text: clean, tone }, POLISH_MS, onText); } catch { /* below */ }
+    try { answer = await think({ kind: "polish", text: clean, tone, ...(before && { context: { before } }) }, POLISH_MS, onText); } catch { /* below */ }
     const pushed = await pushing.then(() => true, () => false);
     const typing = await opened;
     const ended = typing ? await typing.end() : false;
     if (!sent) {
       const final = answer ?? clean;
-      return { final, out: await put(final), note: answer === null ? POLISH_LATE : "" };
+      return { final, out: await put(final, f), note: answer === null ? POLISH_LATE : "" };
     }
-    if (answer === sent && pushed && ended) return { final: answer, out: landed("typed", space + sent), note: "" };
+    if (answer === sent && pushed && ended) return { final: answer, out: landed("typed", space + sent, f), note: "" };
     const final = answer ?? clean;
     // Undo takes back only words known to have landed.
-    if (pushed && ended) landed("typed", space + sent);
-    else { typed++; last = null; }
+    if (pushed && ended) landed("typed", space + sent, f);
+    else { typed++; last = null; tail = null; }
     return { final, out: "typed", note: POLISH_CUT + ((await ports.copy(final)) ? ON_CLIPBOARD : "") };
   };
   const insertedNote = (out: Inserted) => (out === "copied" ? COPIED : out === "failed" ? FAILED : "");
@@ -333,6 +354,7 @@ export function createDictate(ports: DictatePorts) {
     if (c === "undo") {
       const n = last ? graphemes(last) : 0;
       last = null;
+      tail = null;
       if (!n || n > UNDO_MAX) return NOTHING_TO_UNDO;
       return (await ports.keys(["backspace"], n)) ? SAID.undo : KEYS_FAILED;
     }
@@ -341,6 +363,7 @@ export function createDictate(ports: DictatePorts) {
     // The next words start the line: no space before them.
     typed = 0;
     last = null;
+    if (tail) tail.text = "\n";
     return sent ? SAID[c] : KEYS_FAILED;
   };
 
@@ -355,8 +378,11 @@ export function createDictate(ports: DictatePorts) {
     let final = snippet ?? clean;
     let note = "";
     let out: Inserted | null = null;
-    if (final && !snippet && s.polish.enabled) ({ final, out, note } = await polish(clean, s.polish.tone));
-    else if (final) out = await put(final);
+    const f = final ? await focused() : UNKNOWN;
+    // A password field gets nothing: no typing, no clipboard, no AI, no history.
+    if (f.secure) note = SECURE;
+    else if (final && !snippet && s.polish.enabled) ({ final, out, note } = await polish(clean, s.polish.tone, f));
+    else if (final) out = await put(final, f);
     if (out && out !== "failed") ports.record({ raw: text, cleaned: clean, final, copied: out === "copied" });
     if (out) {
       count(out === "failed" ? "failed" : "dictations");
@@ -378,6 +404,8 @@ export function createDictate(ports: DictatePorts) {
     set({ phase: "processing", partial: instruction, editing: true });
     const ask = { kind: "command", text: instruction, selection } as const;
     if (selection.length > DICTATE_TEXT_MAX || new TextEncoder().encode(JSON.stringify(ask)).length > DICTATE_BODY_MAX) { set({ phase: "idle", partial: "", editing: false, note: TOO_LONG }); return; }
+    const f = await focused();
+    if (f.secure) { set({ phase: "idle", partial: "", editing: false, note: SECURE }); return; }
     let result: string;
     try { result = await think(ask, COMMAND_MS); }
     catch (e) {
@@ -388,7 +416,7 @@ export function createDictate(ports: DictatePorts) {
       return;
     }
     // An edit is its own text, not the next words of a sentence: no space before it.
-    const out = landed(await insert(result), result);
+    const out = landed(await insert(result, f), result, f);
     if (out !== "failed") ports.record({ raw: text, cleaned: instruction, final: result, command: true, copied: out === "copied" });
     count(out === "failed" ? "failed" : "edits");
     if (out === "copied") count("copied");

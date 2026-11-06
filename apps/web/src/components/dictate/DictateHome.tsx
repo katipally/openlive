@@ -21,7 +21,7 @@ import { InputAccessFix } from "@/components/flow/InputAccessFix";
 import { flowOnboardingDue } from "@/lib/flow/onboarding";
 import { keyName, liveKeys } from "@/lib/dictate/hotkey";
 import { countWords } from "@/lib/dictate/cleanup";
-import { COPIED, HISTORY_CHANNEL } from "@/lib/dictate/run";
+import { COPIED, HISTORY_CHANNEL, SECURE } from "@/lib/dictate/run";
 import { desktopPlatform, isDesktop, isMacDesktop } from "@/lib/platform";
 import { useOnboarding } from "@/lib/prefs";
 import { useUi } from "@/lib/uiStore";
@@ -271,7 +271,9 @@ function Row({ d, first, insertion, onDelete }: { d: Dictation; first: boolean; 
     let note = "That window's gone, so it's on the clipboard. Paste it where you want it.";
     if (api && d.windowId != null && (await api.device("control", { kind: "window", op: "activate", windowId: d.windowId })).ok) {
       await new Promise((r) => setTimeout(r, FOCUS_MS));
-      if (valueOr(await api.focusEditable(), null) === false) note = COPIED;
+      const focus = valueOr(await api.focusEditable(), null);
+      if (focus?.secure) return toast(SECURE, "info");
+      if (focus?.editable === false) note = COPIED;
       else {
         const session = valueOr(await api.insertBegin(insertion.method, insertion), -1);
         if (session >= 0 && (await api.insertPush(session, d.final)).ok && (await api.insertEnd(session)).ok) return;

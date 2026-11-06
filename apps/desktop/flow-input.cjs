@@ -59,6 +59,17 @@ let ownSession = 2 ** 30; // above any session id the addon hands out
 // What Dictate types into in OpenLive's own window: a text field that takes input, or an editable element.
 const OWN_EDITABLE = `(() => { const e = document.activeElement; return !!e && (e.isContentEditable || ((e.tagName === "TEXTAREA"
   || (e.tagName === "INPUT" && /^(text|search|email|url|tel|password|number)$/.test(e.type))) && !e.disabled && !e.readOnly)); })()`;
+// The same focus as the addon reports it: whether it takes input, whether it is
+// a password, and up to 320 characters before the caret (never a password's).
+const OWN_FOCUS = `(() => { const e = document.activeElement; const editable = ${OWN_EDITABLE};
+  const secure = !!e && e.tagName === "INPUT" && e.type === "password"; let before = null;
+  try {
+    if (editable && !secure && e.isContentEditable) {
+      const s = getSelection();
+      if (s && s.rangeCount && e.contains(s.anchorNode)) { const r = document.createRange(); r.setStart(e, 0); r.setEnd(s.getRangeAt(0).startContainer, s.getRangeAt(0).startOffset); before = r.toString().slice(-320); }
+    } else if (editable && !secure && e.selectionStart != null) before = e.value.slice(Math.max(0, e.selectionStart - 320), e.selectionStart);
+  } catch {}
+  return { editable, secure, before }; })()`;
 // The selection inside that text box, as Dictate's edits read it: OpenLive's
 // own page, read directly rather than through the OS. Never a password's.
 const OWN_SELECTION = `(() => { const e = document.activeElement; if (!e || e.disabled || e.readOnly) return "";
@@ -391,7 +402,7 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   }));
   ipcMain.handle("openlive:flow-focus-editable", guard(() => {
     const own = ownField();
-    return own ? own.executeJavaScript(OWN_EDITABLE, true) : load().focusEditable();
+    return own ? own.executeJavaScript(OWN_FOCUS, true) : load().focusEditable();
   }));
 
   ipcMain.handle("openlive:flow-secure-input", guard(() => load().secureInputStatus()));

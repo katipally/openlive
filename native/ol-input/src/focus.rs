@@ -7,11 +7,44 @@
 //! and a wrong "no" would send dictation to the clipboard in an app that would
 //! have taken it. So only a named element that is plainly not for typing is
 //! `Some(false)`.
+//!
+//! The same read says whether the field is a password field and what stands
+//! before the caret. A secure field's content is never read. Where its role is
+//! unreadable the answer is "not secure", as before, except on macOS while
+//! Secure Event Input is on, where it is "secure".
 
 use crate::platform::desktop::current as platform;
 
-pub fn editable() -> Option<bool> {
-    platform::focus_editable()
+/// What one read of the focused element found.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Focus {
+    pub editable: Option<bool>,
+    pub secure: bool,
+    /// Up to `BEFORE_MAX` characters before the caret; `None` where the app will not say.
+    pub before: Option<String>,
+}
+
+pub const BEFORE_MAX: usize = 320;
+
+pub fn read() -> Focus {
+    platform::focus_read()
+}
+
+/// The last `BEFORE_MAX` characters of `text`.
+pub fn tail(text: &str) -> String {
+    let skip = text.chars().count().saturating_sub(BEFORE_MAX);
+    text.chars().skip(skip).collect()
+}
+
+/// macOS: the focused element's AXSubrole, the verdict `ax` gave it, and
+/// whether Secure Event Input is on.
+pub fn ax_secure(subrole: Option<&str>, editable: Option<bool>, secure_input: bool) -> bool {
+    subrole == Some("AXSecureTextField") || (secure_input && editable.is_none())
+}
+
+/// Linux: the focused accessible's AT-SPI role name.
+pub fn atspi_secure(role: &str) -> bool {
+    role == "password text"
 }
 
 const AX_TEXT: [&str; 3] = ["AXTextField", "AXTextArea", "AXComboBox"];
@@ -123,6 +156,28 @@ mod tests {
     fn uia_a_pane_or_nothing_cannot_tell() {
         assert_eq!(uia(Some(50033), None, false), None);
         assert_eq!(uia(None, None, false), None);
+    }
+
+    #[test]
+    fn tail_keeps_the_last_characters_whole() {
+        assert_eq!(tail("word "), "word ");
+        let long = "é".repeat(BEFORE_MAX + 5);
+        assert_eq!(tail(&long).chars().count(), BEFORE_MAX);
+    }
+
+    #[test]
+    fn ax_secure_subrole_is_secure_and_secure_input_fails_closed_only_when_unreadable() {
+        assert!(ax_secure(Some("AXSecureTextField"), Some(true), false));
+        assert!(ax_secure(None, None, true));
+        assert!(ax_secure(Some("AXUnknown"), None, true));
+        assert!(!ax_secure(Some("AXTextField"), Some(true), true));
+        assert!(!ax_secure(None, None, false));
+    }
+
+    #[test]
+    fn atspi_password_text_is_secure() {
+        assert!(atspi_secure("password text"));
+        assert!(!atspi_secure("entry"));
     }
 
     #[test]
