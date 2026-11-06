@@ -7,6 +7,11 @@ Releases before 0.1.9 predate this file — see the
 ## [Unreleased]
 
 ### Added
+- **AI polish and edit by voice know where the words land.** The rewrite is given, as
+  reference only, the text before the cursor and the last few dictations typed in the
+  same window (never copied ones), so it keeps the casing and does not repeat what is
+  already there. Speech engine hints for the dictionary were checked per engine and none
+  can take them yet; docs/DICTATE.md says why.
 - **Telemetry says why an update check or a model request failed.** `update_result`
   gains `http_status` and a coarse `reason`, and a new `update_check_ok` counts the
   checks that worked. `brain_error` gains `http_status` and a `reason` for a refused

@@ -11,8 +11,8 @@ import { rewrite, warm, type RewriteAsk } from "./rewrite.js";
 export const dictateRoutes = new Hono();
 
 const ask = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("polish"), text: z.string().min(1).max(DICTATE_TEXT_MAX), tone: z.enum(["natural", "casual", "formal"]) }),
-  z.object({ kind: z.literal("command"), text: z.string().min(1).max(DICTATE_TEXT_MAX), selection: z.string().max(DICTATE_TEXT_MAX) }),
+  z.object({ kind: z.literal("polish"), text: z.string().min(1).max(DICTATE_TEXT_MAX), tone: z.enum(["natural", "casual", "formal"]), context: z.unknown().optional() }),
+  z.object({ kind: z.literal("command"), text: z.string().min(1).max(DICTATE_TEXT_MAX), selection: z.string().max(DICTATE_TEXT_MAX), context: z.unknown().optional() }),
 ]);
 
 dictateRoutes.post("/rewrite", bodyLimit({ maxSize: DICTATE_BODY_MAX, onError: (c) => c.json({ error: "body too large" }, 413) }), async (c) => {
