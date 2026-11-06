@@ -210,6 +210,12 @@ test("each surface keeps its own microphone, Flow its speaker, and a bad value i
   expect([bad.voice.micId, bad.voice.speakerId, bad.dictate.micId]).toEqual(["", "", ""]);
 });
 
+test("Dictate's sounds are on unless turned off, and a bad value is on", () => {
+  expect(parseFlowConfig({}).dictate.sounds).toBe(true);
+  expect(parseFlowConfig({ dictate: { sounds: false } }).dictate.sounds).toBe(false);
+  expect(parseFlowConfig({ dictate: { sounds: "no" } }).dictate.sounds).toBe(true);
+});
+
 test("a decided override survives a write, and a v7 file is not migrated again", () => {
   const on = parseFlowConfig({ version: 7, brain: { override: true, kind: "acp", agentId: "codex" }, voice: { turnOverride: true } });
   expect(parseFlowConfig(on)).toEqual(on);

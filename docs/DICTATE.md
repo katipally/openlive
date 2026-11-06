@@ -360,6 +360,7 @@ where the switch is. Then three subtabs:
     Speech engine.
   - **Cleanup**: the five rules, with a live example of what they do.
   - **AI polish**: on or off, and its tone.
+  - **Sounds**: the start and stop tones of a push to talk hold, on by default.
   - **History**: how long to keep dictations, **Clear all**, and a link to the
     list on Dictate's home.
 - **Words**: the dictionary (a filter past 12 words, the first 40 shown until
@@ -443,6 +444,19 @@ One microphone, one engine, one orb, so the two take turns:
   AudioContext does not shorten it. Sound before that is not there to keep,
   so a word begun on the very press can lose its first consonant; one begun a
   beat later, as most are, is whole.
+- **Live cue**: `onFrame` marks the hold live at its first frame with sound
+  (`onHoldLive`), which turns the badge from Getting ready to Listening. The
+  tape starts at the device's first frame, so what is said before the cue is
+  kept: the cue is feedback, never a gate. Once the device is open the engine
+  waits for that frame by the device's name (`lib/live/holdLive.ts`): 300 ms
+  built-in or wired, 2.5 s Bluetooth, 1 s otherwise. With none by then the
+  hold is given up, the orb says "The microphone gave no sound." and the
+  failure is `mic_silent`. A device unplugged in that wait goes the way a lost
+  microphone does. With **Sounds** on, the live edge plays a soft 80 ms tone
+  and a hold's end a shorter, lower one (`lib/live/holdCue.ts`, generated, no
+  files), through the speaker chosen for Flow. They are push to talk only,
+  so hands-free is never interrupted, and the start tone comes before any
+  speech.
 - **Release**: `VoiceEngine.endPtt(true, lateMs)` cuts the tape where the key
   went up and, with the gate on, pauses the VAD at once (its segment in
   progress dropped: the tape has all of it) and stops every track once the
