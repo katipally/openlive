@@ -154,6 +154,16 @@ describe("brain errors", () => {
     expect(events("brain_error").map((p) => [p.class, p.http_class])).toEqual([["server_error", "5xx"], ["quota", "4xx"]]);
   });
 
+  it("adds the status, and for a refused request a coarse reason, never the words", () => {
+    reportTurnError("call", { brain_kind: "api", brain_id: "ollama" }, { message: "HTTP 400: registry.ollama.ai/library/m does not support tools" });
+    reportTurnError("call", { brain_kind: "api", brain_id: "openai" }, { message: "HTTP 503: down" });
+    expect(events("brain_error")).toMatchObject([
+      { class: "bad_request", http_status: 400, reason: "tools_unsupported" },
+      { class: "server_error", http_status: 503 },
+    ]);
+    expect(events("brain_error")[1]).not.toHaveProperty("reason");
+  });
+
   it("leaves a supervised agent's own incidents to its supervisor", () => {
     for (const code of ["agent_no_output", "agent_stalled", "agent_crashed"] as const) reportTurnError("flow", brain, { code, message: "x" });
     expect(sent).toEqual([]);
