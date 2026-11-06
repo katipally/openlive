@@ -13,4 +13,13 @@ function showOrb(win) {
   win.webContents.send("openlive:flow-shown");
 }
 
-module.exports = { showOrb };
+/** macOS keeps a window out of another app's full-screen Space for as long as this
+ *  app has a Dock icon; only an app without one (Electron's setVisibleOnAllWorkspaces
+ *  switches to that unless told to skip, which the orb does to avoid flicker) is
+ *  let in. So the icon steps aside while the orb is up, unless OpenLive's own window
+ *  is the one in front, where the orb needs no such Space. Without a tray there
+ *  would be no way back to the window, so the icon stays. */
+const dockStepsAside = ({ platform, dockVisible, hasTray, mainFocused }) =>
+  platform === "darwin" && dockVisible && hasTray && !mainFocused;
+
+module.exports = { showOrb, dockStepsAside };

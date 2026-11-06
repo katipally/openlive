@@ -235,3 +235,28 @@ describe("typing into OpenLive's own window", () => {
     expect(addon.endInsertion).toHaveBeenCalledWith(7);
   });
 });
+
+describe("a key listener that never started", () => {
+  it("is not ready once the boot grace has passed, and revive starts it when the grant is there", () => {
+    vi.useFakeTimers();
+    const { flowInput, addon } = load();
+    addon.permissionStatus.mockReturnValue({ accessibility: true });
+    expect(flowInput.hookReadiness()).toBe("ready");
+    vi.advanceTimersByTime(30_000);
+    expect(flowInput.hookReadiness()).toBe("stopped");
+    expect(flowInput.revive()).toBe("ready");
+    expect(addon.initializeHook).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("revive never starts it without the grant, and reports a start that fails", () => {
+    const { flowInput, addon } = load();
+    addon.permissionStatus.mockReturnValue({ accessibility: false });
+    expect(flowInput.revive()).toBe("access");
+    expect(addon.initializeHook).not.toHaveBeenCalled();
+    addon.permissionStatus.mockReturnValue({ accessibility: true });
+    addon.initializeHook.mockImplementation(() => { throw new Error("no input access"); });
+    expect(flowInput.revive()).toBe("stopped");
+    expect(flowInput.hookFailure()).toBe("no input access");
+  });
+});

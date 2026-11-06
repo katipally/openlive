@@ -84,9 +84,9 @@ function trayTemplate(state, act) {
     { label: "Open OpenLive", click: act.open },
     // Chat's call setup, which asks about anything missing before a call can start.
     { label: "New call", click: act.newCall },
-    // Enabled only when a double tap would work; the status line says why not.
+    // Always enabled: when a double tap would not work it opens Flow's home, which says why.
     // Electron cannot show a double tap as an accelerator, so the status line carries it.
-    { label: "Start Flow", enabled: state.readiness === "ready", click: act.startFlow },
+    { label: "Start Flow", click: act.startFlow },
     // The same switches as Flow's and Dictate's homes.
     { label: state.armed ? "Turn Flow off" : "Turn Flow on", click: state.armed ? act.flowOff : act.flowOn },
     // Unknown until its settings are read.
