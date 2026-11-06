@@ -28,6 +28,7 @@ export class AudioPlayer {
   private cues = new Map<() => void, number>(); // each onStart not yet fired → the context time its chunk starts
   private held = false; // hold(): the clock stops, and every chunk and cue waits for release()
   private rms = 0;
+  private sinkId = "";
 
   private ensure(): AudioContext {
     if (!this.ctx) {
@@ -57,11 +58,21 @@ export class AudioPlayer {
       document.body.appendChild(el);
       void el.play().catch(() => {});
       this.el = el;
+      if (this.sinkId) this.route(el);
     }
     if (this.held) void this.ctx.suspend();
     else if (this.ctx.state === "suspended") void this.ctx.resume();
     return this.ctx;
   }
+
+  /** Plays through this output device from now on, mid-reply included. "" is the system default. */
+  setSink(id: string) {
+    if (id === this.sinkId) return;
+    this.sinkId = id;
+    if (this.el) this.route(this.el);
+  }
+  // A device that is gone is the default again, so the voice is never lost.
+  private route(el: HTMLAudioElement) { void el.setSinkId(this.sinkId).catch(() => el.setSinkId("").catch(() => {})); }
 
   // TTS hands us Float32 (24 kHz from Kokoro and the native engines), whole or
   // as streamed pieces that queue back to back. `onStart` fires

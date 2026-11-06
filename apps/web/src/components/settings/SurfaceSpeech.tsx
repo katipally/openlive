@@ -3,9 +3,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FlowConfig } from "@openlive/flow-store";
+import { Mic, Volume2 } from "lucide-react";
+import { DeviceSelect } from "@/components/live/LiveStage";
 import { ListGroup, ListRow, Select } from "@/components/ui";
 import type { FlowConfigPatch } from "@/lib/flow/useFlowConfig";
 import { surfaceVoice, type Surface } from "@/lib/flow/voice";
+import { pickedDevice, useDevices } from "@/lib/live/devices";
 import { engineName, languageLabel, voiceMenu } from "@/lib/live/engineMenu";
 import { familyInfo, loadPipelineConfig, onPipelineConfig, savePipelineConfig, withSurfaceVoice, type PipelineConfig } from "@/lib/live/pipelineConfig";
 import { Section } from "./Section";
@@ -71,6 +74,31 @@ function VoiceSelect({ cfg, onPick }: { cfg: PipelineConfig; onPick: (voice: str
   );
 }
 
+/** The microphone, and for Flow the speaker, each "System default" until picked. */
+function Devices({ flow, config, save }: { flow: boolean; config: FlowConfig; save: Save }) {
+  const { mics, speakers, named } = useDevices();
+  const micId = flow ? config.voice.micId : config.dictate.micId;
+  const hint = (count: number, noun: string) => count === 1 ? `No ${noun} found.` : named ? undefined : `Allow microphone access to see device names.`;
+  return (
+    <ListGroup>
+      <ListRow label="Microphone" detail={hint(mics.length, "microphone")}>
+        <div className="w-56 max-w-full">
+          <DeviceSelect icon={Mic} opts={mics} value={pickedDevice(mics, micId)}
+            onChange={(id) => save(flow ? { voice: { micId: id } } : { dictate: { micId: id } })} />
+        </div>
+      </ListRow>
+      {flow && (
+        <ListRow label="Speaker" detail={hint(speakers.length, "speaker")}>
+          <div className="w-56 max-w-full">
+            <DeviceSelect icon={Volume2} opts={speakers} value={pickedDevice(speakers, config.voice.speakerId)}
+              onChange={(id) => save({ voice: { speakerId: id } })} />
+          </div>
+        </ListRow>
+      )}
+    </ListGroup>
+  );
+}
+
 export function SurfaceSpeech({ id, surface, config, save }: { id: string; surface: Surface; config: FlowConfig; save: Save }) {
   const go = useSettingsNav();
   const { data: engines } = useNativeEngines();
@@ -98,6 +126,7 @@ export function SurfaceSpeech({ id, surface, config, save }: { id: string; surfa
     <Section id={id} title={flow ? "Hearing and voice" : "Hearing"}
       desc={flow ? "What Flow hears with and speaks with. Chat's, or its own." : "What Dictate hears with. Chat's, or its own."}>
       <div className="flex flex-col gap-5">
+        <Devices flow={flow} config={config} save={save} />
         <Choice id={`${id}-stt`} label="Speech to text" name={name} own={stt.override}
           onChange={(override) => saveStt(override ? { override, variant: shared.stt.variant, whisperSize: shared.stt.whisperSize } : { ...stt, override })}
           follows={<LinkRow label="Chat's choice" value={sttLine(shared)} onGo={() => go("engine", "set-engine-stage-stt")} />}>
