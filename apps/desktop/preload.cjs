@@ -172,7 +172,7 @@ contextBridge.exposeInMainWorld("openlive", {
     visible: () => ipcRenderer.invoke("openlive:flow-visible"),
     // The orb's full-screen control: bring OpenLive up, on Flow, or on the
     // settings page `to` names ("models-settings", "flow-settings", ...).
-    expand: (to) => ipcRenderer.send("openlive:flow-expand", /^[a-z]+-settings$/.test(to) ? to : ""),
+    expand: (to) => ipcRenderer.send("openlive:flow-expand", /^[a-z]+-settings(#[a-z0-9-]+)?$/.test(to) ? to : ""),
     onShow: (cb) => listen("openlive:flow-show", (to) => cb(to || "")),
     // Continue an archived session: the main window asks, the owner renderer (the
     // only one holding the Flow socket) does it, so this has to cross windows.

@@ -137,7 +137,7 @@ export interface FlowBridge {
   visible?(): Promise<boolean>;
   /** Bring the OpenLive window up on Flow, from the orb's full-screen control,
    *  or on the settings page where a failure's fix lives. */
-  expand(to?: `${FlowSettingsPage}-settings`): void;
+  expand(to?: `${FlowSettingsPage}-settings` | `${FlowSettingsPage}-settings#${string}`): void;
   /** The main window's side of `expand`: show Flow, because that is where the
    *  person already was. */
   onShow?(cb: (to: string) => void): () => void;

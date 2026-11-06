@@ -11,6 +11,7 @@ import { classifyYesNo, optionForVerdict } from "@/lib/live/modalAnswer";
 import { agentToolLabel, toolActive } from "@/lib/live/toolMeta";
 import { NO_CALL, openliveBridge, type PanelCmd } from "@/lib/live/panelBridge";
 import type { PendingPermission } from "@/lib/live/liveStore";
+import type { AgentStatus } from "@/lib/api";
 import { log } from "@/lib/log";
 import { featureUsed } from "@/lib/featureUse";
 import { noteLastFailure } from "@/lib/reportProblem";
@@ -27,11 +28,12 @@ import { hotkeyKeys } from "@/lib/dictate/hotkey";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
 import { surfaceVoice } from "./voice";
+import { readyAgent } from "./setup";
 import { deriveFailure, forOrb, modelsDownloading, modelsFailed, modelsOffer, sessionModelsOffer, turnFailure } from "./failure";
 import { decideQuiet, NO_SIGNALS, type QuietRules, type QuietSignals } from "./quiet";
 import { cardWatch, openFact, ownerFactProps, trayAsk, type FailureOrigin, type OpenedBy } from "./ownerFact";
-import { IDLE_FLOW, type FlowFailure, type FlowPhase, type FlowSnapshot } from "./types";
-import { flowTurn } from "@openlive/flow-store/shared";
+import { IDLE_FLOW, type FlowFailure, type FlowFixId, type FlowPhase, type FlowSnapshot } from "./types";
+import { defaultBrainSettings, flowTurn } from "@openlive/flow-store/shared";
 import type { FlowConfig, TalkMode } from "@openlive/flow-store";
 
 // Flow's owner renderer. It holds the microphone, the voice cascade, the Flow
@@ -48,6 +50,7 @@ const CAMERA_TRIES = 20;
 const CAMERA_WAIT_MS = 100;
 // macOS never calls back when a permission is granted, so an unarmed runtime asks.
 const ARM_WATCH_MS = 1000;
+const AGENT_READ_MS = 5000;
 // A turn that stops saying anything at all. Every event from the server pushes
 // this out, so a long tool call or a slow brain is never cut short; what it
 // catches is an answer that will not arrive, which otherwise left the orb
@@ -224,9 +227,25 @@ export function useFlowOwner(): void {
     let askCard: FlowFailure | null = null;
     // Flow loads a browser voice only to speak its replies; Dictate never does.
     const speaks = () => settings.current?.voice.speakReplies ?? true;
+    // The coding agent Flow could switch to, asked of /api/agents only while nothing
+    // answers and at most every few seconds: health re-runs on every secure input flip.
+    let agentRead = { at: 0, label: null as string | null, id: "" };
+    const findAgent = async () => {
+      if (brainReady.current || settings.current?.brain.override) return null;
+      if (Date.now() - agentRead.at > AGENT_READ_MS) {
+        agentRead.at = Date.now();
+        try {
+          const r = await fetch("/api/agents", { cache: "no-store" });
+          const a = r.ok ? readyAgent((await r.json()) as AgentStatus[]) : undefined;
+          agentRead = { at: agentRead.at, label: a?.label ?? null, id: a?.id ?? "" };
+        } catch { agentRead.label = null; }
+      }
+      return agentRead.label;
+    };
     const refreshHealth = async () => {
       await loadSettings();
       const c = valueOr(await api.capabilities(), null);
+      const agent = await findAgent();
       const plan = await voiceDownloadPlan(speaks());
       weightsMissing = plan.missing.length > 0;
       const failure = deriveFailure({
@@ -238,6 +257,7 @@ export function useFlowOwner(): void {
         addonError: c?.addonError ?? null,
         packaged: !!c?.packaged,
         brainReady: brainReady.current,
+        readyAgent: agent,
         online: typeof navigator === "undefined" || navigator.onLine,
         modelsCached: !weightsMissing,
         voiceModels: planModels(plan),
@@ -245,6 +265,25 @@ export function useFlowOwner(): void {
       }) ?? askCard;
       patch({ failure });
       raise(failure, "health");
+    };
+
+    /** The one-step fixes for nothing answering. A switch to the agent writes the default,
+     *  which Flow follows, then health is read again so the next summon just works. */
+    const fixBrain = async (fix: FlowFixId) => {
+      if (fix === "add_key") return api.expand("models-settings#set-models-provider");
+      if (fix === "pick_brain") return api.expand("flow-settings#set-flow-brain");
+      if (!agentRead.id) return;
+      try {
+        const r = await fetch("/api/settings", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify(defaultBrainSettings({ kind: "acp", agentId: agentRead.id, agentModel: "", agentEffort: "" })),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        api.settingsChanged?.();
+      } catch (e) { log.warn("flow", "use agent:", e); }
+      agentRead.at = 0;
+      await loadSettings();
+      await refreshHealth();
     };
 
     // ── arming ────────────────────────────────────────────────────────────
@@ -897,7 +936,10 @@ export function useFlowOwner(): void {
         }
         case "flowFix": {
           fact.fixes++;
-          if (c.code === "no_accessibility") void api.init().then(refreshHealth);
+          const fix = c.fix ?? snap.current.failure?.fix;
+          if (fix) void fixBrain(fix);
+          // The ask is the system's own prompt. A grant given at once arms the hook now; one given in System Settings is caught by the watch below.
+          else if (c.code === "no_accessibility") { armed.current = false; void api.request("accessibility", "other").then(arm).then(refreshHealth); }
           else if (c.code === "mic_failed") void onOpen();
           else if (c.code === "models_missing") void fetchModels();
           else if (snap.current.failure?.settings) api.expand(`${snap.current.failure.settings}-settings`);

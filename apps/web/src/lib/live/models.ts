@@ -132,14 +132,15 @@ const workerVoice = (engine: string | null | undefined) => (engine === "superton
 // nothing here until it fails.
 const browserTts = (cfg: ReturnType<typeof loadPipelineConfig>): string | null =>
   isNativeVariant(cfg.tts.variant) || onAgent(cfg.tts.variant) ? null : cfg.tts.family === "clone" ? browserTtsFallback(cfg.language) : cfg.tts.family;
-const neededWeights = (voice: boolean) => { const cfg = loadPipelineConfig(); return weightFiles(cfg, deviceTier(), voice ? browserTts(cfg) : null); };
+const neededWeights = (voice: boolean, cfg = loadPipelineConfig()) => weightFiles(cfg, deviceTier(), voice ? browserTts(cfg) : null);
 
 /** What the current pipeline would download before it can run, the browser
  *  voice only for a `voice` use: nothing once every weight is in the browser
- *  cache. Asks the hub for sizes, never for weights. */
-export async function voiceDownloadPlan(voice = true): Promise<DownloadPlan> {
-  await agentCopy(loadPipelineConfig().tts.variant);
-  return downloadPlan(neededWeights(voice));
+ *  cache. Asks the hub for sizes, never for weights. `cfg` is a surface's own
+ *  engines on top of the shared ones, for a window that is not that surface's. */
+export async function voiceDownloadPlan(voice = true, cfg = loadPipelineConfig()): Promise<DownloadPlan> {
+  await agentCopy(cfg.tts.variant);
+  return downloadPlan(neededWeights(voice, cfg));
 }
 
 /**
@@ -148,7 +149,7 @@ export async function voiceDownloadPlan(voice = true): Promise<DownloadPlan> {
  * are not all cached rejects with ModelsNotDownloaded instead of fetching.
  * Without `voice` no browser voice loads: a later tts call loads its own.
  */
-export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start", consented = false, voice = true): Promise<void> {
+export function loadModels(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger = "call_start", consented = false, voice = true, cfg = loadPipelineConfig()): Promise<void> {
   // In-flight guard: a silent background preload and the start() lazy-load must
   // share ONE worker, not race to spawn two. Late callers join the same promise,
   // except a consented one behind a load that may refuse, or one needing the
@@ -156,20 +157,20 @@ export function loadModels(onProgress: (p: LoadProgress) => void, trigger: Model
   if (loading && (loading.consented || !consented) && (loading.voice || !voice)) return loading.p;
   const prior = loading?.p.catch(() => {}) ?? Promise.resolve();
   // Which voice the agent runs decides what the worker loads, so it is read first.
-  const p: Promise<void> = prior.then(() => agentCopy(loadPipelineConfig().tts.variant)).then(() => loadWorker(onProgress, trigger, consented, voice))
+  const p: Promise<void> = prior.then(() => agentCopy(cfg.tts.variant)).then(() => loadWorker(onProgress, trigger, consented, voice, cfg))
     .finally(() => { if (loading?.p === p) loading = null; }); // free the guard so a post-reset reload can re-run
   loading = { p, consented, voice };
   return p;
 }
 
-async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean, needsVoice: boolean): Promise<void> {
-  if (modelsMatchConfig(needsVoice)) return;
-  const needed = neededWeights(needsVoice);
+async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: ModelsTrigger, consented: boolean, needsVoice: boolean, cfg: PipelineConfig): Promise<void> {
+  if (modelsMatchConfig(needsVoice, cfg)) return;
+  const needed = neededWeights(needsVoice, cfg);
   if (consented) agreeTo(needed);
   const missing = await unagreed(needed, agreed);
   if (missing.length) throw new ModelsNotDownloaded(missing);
   // A load whose weights are all in the browser cache is a warm-up, not a download: it reports only if it fails.
-  const download = !modelsCached(needsVoice);
+  const download = !modelsCached(needsVoice, cfg);
   const startedAt = Date.now();
   let bytes = 0;
   // A warm worker loaded with a DIFFERENT config (the user changed Whisper size /
@@ -184,7 +185,6 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
   const settled = (result: "ok" | "failed") => {
     if (result === "ok") telemetry.track("onboarding_step", { step: "voice_models_ready" });
     if (result === "ok" && !download) return;
-    const cfg = loadPipelineConfig();
     telemetry.track("voice_models_result", {
       trigger,
       result: result === "failed" && typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : result,
@@ -193,7 +193,6 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
       stt_family: sttFamilyOf(cfg.stt.family), tts_family: ttsFamilyOf(cfg.tts.family), webgpu: hasWebGPU(),
     });
   };
-  const cfg = loadPipelineConfig();
   const voice = needsVoice ? browserTts(cfg) : null;
   return new Promise<void>((resolve, reject) => {
     const w = new Worker(new URL("./models.worker.ts", import.meta.url), { type: "module" });
@@ -229,9 +228,9 @@ async function loadWorker(onProgress: (p: LoadProgress) => void, trigger: Models
           if (e.target === tw) turnAvailable = !!m.turn;
           else { whisperLoaded = m.whisper; if (voice) voicesLoaded.add(workerVoice(voice)); }
           if (--waiting) break;
-          ready = true; loadedTag = readyTag(needsVoice);
+          ready = true; loadedTag = readyTag(needsVoice, cfg);
           warmNativeEngines();
-          try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag(needsVoice)])].join(" ")); } catch { /* private mode */ }
+          try { localStorage.setItem(READY_KEY, [...new Set([...loadedTags(), readyTag(needsVoice, cfg)])].join(" ")); } catch { /* private mode */ }
           resolve();
           break;
         case "result": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p.resolve(m); } break; }
