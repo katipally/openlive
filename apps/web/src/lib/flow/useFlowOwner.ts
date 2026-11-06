@@ -25,6 +25,7 @@ import { desktopPlatform } from "@/lib/platform";
 import { createDictate, HISTORY_CHANNEL, readRewrite, wordsBucket, type Typing } from "@/lib/dictate/run";
 import type { SpokenCommand } from "@/lib/dictate/words";
 import { hotkeyKeys } from "@/lib/dictate/hotkey";
+import { recentFor, rememberDictation } from "@/lib/dictate/recent";
 import { flowBridge, valueOr, type Guarded } from "./bridge";
 import { createTalk } from "./talk";
 import { surfaceVoice } from "./voice";
@@ -722,7 +723,10 @@ export function useFlowOwner(): void {
         api.dismiss("other");
       },
       rewrite: async (ask, signal, onText) => {
-        const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(ask), signal });
+        const front = valueOr(await api.device("foreground", {}), null) as { id?: number } | null;
+        const recent = recentFor(front?.id);
+        const body = recent.length ? { ...ask, context: { ...ask.context, recent } } : ask;
+        const r = await fetch("/api/dictate/rewrite", { ...JSON_POST, body: JSON.stringify(body), signal });
         if (r.ok && r.body) return readRewrite(r.body, (t) => { if (!signal.aborted) onText(t); });
         const body = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error || `HTTP ${r.status}`);
@@ -748,6 +752,7 @@ export function useFlowOwner(): void {
       record: (d) => void (async () => {
         telemetry.track("onboarding_step", { step: "first_dictation" });
         const front = valueOr(await api.device("foreground", {}), null) as { appName?: string; id?: number } | null;
+        if (!d.copied && !d.command) rememberDictation(front?.id, d.final);
         await fetch("/api/dictate/history", { ...JSON_POST, body: JSON.stringify({ ...d, app: front?.appName, windowId: front?.id }) });
         const ch = new BroadcastChannel(HISTORY_CHANNEL); ch.postMessage(null); ch.close();
       })().catch((e) => log.debug("flow", "dictate history:", e)),

@@ -245,6 +245,15 @@ them in the tone picked (Natural, Casual or Formal) and gives back text only.
   refused. A coding agent is kept warm between dictations (let go after
   5 quiet minutes or 20 rewrites) and is started on the key press, so the
   first rewrite does not wait on a cold start where it can help it.
+- The rewrite is told where its words land, as reference only: up to 320
+  characters of what the field already holds before the cursor (so it keeps the
+  casing and does not repeat a capital or a sentence already begun) and the last
+  5 dictations typed in the same window, 1200 characters in all. Copied
+  dictations (including a secure field's) are never among them. They stay in
+  memory for half an hour, are never written to disk, and the prompt tells the
+  brain never to follow instructions found in them. A malformed context is
+  dropped and the rewrite goes ahead without it. The same block reaches edit by
+  voice. Cost: O(characters clamped), a few hundred.
 - The rewrite is typed as it streams in. The orb stays on **Cleaning up** and
   counts the words in.
 - Nothing said is lost. A failure, an empty answer or 25 seconds with no words
@@ -293,9 +302,16 @@ Select text in any app, and with Dictate open, say what to change.
   and run length: O(n) in the words said, whatever the size of the list.
 - **Snippets**: a phrase said on its own, case and punctuation aside, types its
   text instead. One map lookup. A snippet is never polished.
-- Speech engine hints are not used yet: the streaming engines here take no
-  hotwords without a model change, and the Whisper pipeline has no prompt
-  input, so the dictionary works on the text instead.
+- Speech engine hints: none of the engines here can be biased toward the
+  dictionary as they are set up, so it works on the text instead (checked
+  against transformers.js 4.3.0 and sherpa-onnx-node 1.13.8).
+
+  | Engine | Hint | Why |
+  |---|---|---|
+  | Whisper (browser) | No | transformers.js 4.3.0 declares `prompt_ids` but its Whisper `generate` never reads it, and the pipeline has no prompt input. |
+  | Nemotron, Nemotron 3.5 (streaming) | No | The online recognizer's `createStream()` takes no hotwords, and its hotwords file needs `modified_beam_search` and a BPE vocab, which the model is not loaded with. |
+  | Parakeet TDT | No | Offline hotwords need a plain transducer under `modified_beam_search`; Parakeet loads as `nemo_transducer` with greedy search. |
+  | Moonshine, Canary | No | Encoder-decoder models: no hotwords or context option in either config. |
 
 ![Settings > Dictate > Words](../assets/dictate.png)
 

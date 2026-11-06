@@ -75,3 +75,7 @@ export type MessageBlock =
 /** Dictate's rewrite (/dictate/rewrite): the longest text or selection it takes, and the largest body. */
 export const DICTATE_TEXT_MAX = 20_000;
 export const DICTATE_BODY_MAX = 64 * 1024;
+/** What a rewrite may be told of the field it types into: the text before the cursor, and the last few dictations there, in characters. */
+export const DICTATE_CONTEXT_BEFORE_MAX = 320;
+export const DICTATE_CONTEXT_RECENT_MAX = 5;
+export const DICTATE_CONTEXT_RECENT_CHARS = 1200;
