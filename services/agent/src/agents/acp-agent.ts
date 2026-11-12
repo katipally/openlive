@@ -10,7 +10,7 @@ import {
   AGENT_REGISTRY, AgentStartError, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, resolveAgentModel, startFailure, startReason, toolKindSchema,
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
-import { commandOnPath, toWslPath, widenedPath, wslEnv, wslHostFor, wslLaunch } from "@openlive/shared/node";
+import { commandOnPath, toWslPath, WSL_UTF8, widenedPath, wslEnv, wslHostFor, wslLaunch, wslMirrored } from "@openlive/shared/node";
 import { layout, resolveHome } from "@openlive/shared/home";
 import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
@@ -117,8 +117,8 @@ export interface AcpOpts {
   onResumed?: (how: "none" | "resumed" | "loaded" | "fell_back") => void;
 }
 
-/** The registry's `toolless` launch, with Gemini's policy written where `--policy` can read it (from inside WSL when `wsl` is set). */
-function toollessLaunch(id: AgentId, wsl = false): { args: string[]; env: Record<string, string> } {
+/** The registry's `toolless` launch, with Gemini's policy written where `--policy` can read it (from inside the WSL distro `wsl` names). */
+function toollessLaunch(id: AgentId, wsl = ""): { args: string[]; env: Record<string, string> } {
   const t = AGENT_REGISTRY[id].acp.toolless ?? {};
   const args = [...(t.args ?? [])];
   if (t.policyToml) {
@@ -127,7 +127,7 @@ function toollessLaunch(id: AgentId, wsl = false): { args: string[]; env: Record
     const file = join(dir, `${id}-toolless-policy.toml`);
     writeFileSync(file, t.policyToml);
     // Windows spawns through a shell, which splits an unquoted path at its spaces. WSL spawns without one.
-    args.push("--policy", wsl ? toWslPath(file) : process.platform === "win32" ? `"${file}"` : file);
+    args.push("--policy", wsl ? toWslPath(file, wsl) ?? file : process.platform === "win32" ? `"${file}"` : file);
   }
   return { args, env: t.env ?? {} };
 }
@@ -215,22 +215,26 @@ export class AcpAgent implements Agent {
     const isWin = process.platform === "win32";
     const path = widenedPath();
     // Windows only, and only when the user chose a distro: an agent whose CLI is not on the Windows PATH but is in that distro runs there.
-    const distro = await wslHostFor(getSetting("wslDistro"), AGENT_REGISTRY[this.id].bins, cfg.command, (b) => commandOnPath(b, path));
-    this.wsl = !!distro;
+    const host = await wslHostFor(getSetting("wslDistro"), AGENT_REGISTRY[this.id].bins, cfg.command, (b) => commandOnPath(b, path));
+    const distro = host?.distro ?? "";
+    this.wsl = !!host;
+    // The distro opens its own paths and the Windows drives; a folder on another distro or a network share it cannot, and a Windows launch would not find the CLI.
+    const folder = host ? toWslPath(cfg.cwd, host.distro) : cfg.cwd;
+    if (folder === null) throw new ClassedError(`${labelFor(this.id)} runs in WSL (${distro}), which can't open ${cfg.cwd}. Pick a folder on a Windows drive or inside ${distro}.`, "agent_no_folder");
     const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
     // pi's launcher is a Windows .cmd, which pi inside WSL cannot run: there it goes without OpenLive's tools.
     if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length && !distro) this.bridge = piBridge(http);
-    const toolless = this.opts.toolless ? toollessLaunch(this.id, !!distro) : { args: [], env: {} };
-    if (!distro && !commandOnPath(cfg.command, path)) throw startFailure(this.id, "not_installed", { command: cfg.command });
+    const toolless = this.opts.toolless ? toollessLaunch(this.id, distro) : { args: [], env: {} };
+    if (!host && !commandOnPath(cfg.command, path)) throw startFailure(this.id, "not_installed", { command: cfg.command });
     const agentEnv = { ...AGENT_REGISTRY[this.id].acp.env, ...toolless.env };
-    const launch = distro ? wslLaunch(distro, cfg.command, [...cfg.args, ...toolless.args], cfg.cwd) : { command: cfg.command, args: [...cfg.args, ...toolless.args] };
+    const launch = host ? wslLaunch(host, cfg.command, [...cfg.args, ...toolless.args], folder) : { command: cfg.command, args: [...cfg.args, ...toolless.args] };
     const child = spawn(launch.command, launch.args, {
       cwd: cfg.cwd,
       // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
       // refuses to exec without a shell (ENOENT) — so bind Claude Code/Codex/OpenCode
       // died on Windows. Run through a shell there. On POSIX we keep shell:false so
       // the acpCommand override can't be shell-interpreted (validated + no shell).
-      shell: isWin && !distro,
+      shell: isWin && !host,
       env: {
         ...process.env,
         PATH: path,
@@ -244,7 +248,8 @@ export class AcpAgent implements Agent {
         ...this.bridge?.env,
         ...toolless.env,
         // wsl.exe passes on only the variables WSLENV names.
-        ...wslEnv(distro ? Object.keys(agentEnv) : []),
+        ...wslEnv(host ? Object.keys(agentEnv) : []),
+        ...(host ? WSL_UTF8 : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
       // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
@@ -259,7 +264,7 @@ export class AcpAgent implements Agent {
     const bridge = this.bridge;
     if (bridge) child.once("close", () => bridge.dispose()); // a failed start or a crash leaves no token behind
     let stderr = "";
-    child.stderr.on("data", (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
+    child.stderr.on("data", (d: Buffer) => { stderr = (stderr + d.toString().replace(/\0/g, "")).slice(-2000); }); // wsl.exe's own messages can still be UTF-16
 
     // Reject the whole handshake if the child dies before it's ready. An OUTDATED or
     // SIGNED-OUT agent (e.g. an old cursor-agent) prints a TUI / exits instead of
@@ -286,7 +291,7 @@ export class AcpAgent implements Agent {
     this.conn = this.clientApp().connect(stream).agent;
 
     try {
-      await Promise.race([this.handshake(cfg.cwd, distro ? toWslPath(cfg.cwd) : cfg.cwd), died]);
+      await Promise.race([this.handshake(cfg.cwd, folder), died]);
     } catch (e) {
       // The SDK's "ACP connection closed" (stdout ended) outruns the child's `exit`
       // event — give the exit a moment, and if the child is dead tell the actionable
@@ -342,7 +347,8 @@ export class AcpAgent implements Agent {
     // and the preamble stops promising their tools. One that stays silent keeps them:
     // Hermes accepts http without advertising it. Pi's adapter says it takes none, so
     // its servers went in through the bridge instead.
-    const asked = this.opts.mcpServers ?? [];
+    // Hosted servers listen on Windows' 127.0.0.1, which a WSL2 agent reaches only under mirrored networking.
+    const asked = this.wsl && !wslMirrored() ? [] : this.opts.mcpServers ?? [];
     this.hosted = this.bridge?.servers ?? asked.filter((s) => !("type" in s) || this.caps.mcpCapabilities?.[s.type] !== false);
     if (this.hosted.length < asked.length) log.warn(`agent:${this.id}`, "it accepts no MCP over http, so OpenLive's tools are not attached");
     // Claude gets the voice context through its system prompt (buildClaudeMeta), so the

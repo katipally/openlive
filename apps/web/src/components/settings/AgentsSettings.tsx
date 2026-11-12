@@ -109,6 +109,7 @@ export function AgentsSettings() {
 /** The card's single readiness verdict, derived from install + credential probes. */
 function statusOf(a: AgentStatus): { text: string; tone: DotTone } {
   if (!a.installed) return { text: "Not installed", tone: "muted" };
+  if (a.host === "wsl") return { text: `Installed in WSL (${a.distro})`, tone: "success" };
   if (a.credState === "ready") return { text: "Ready", tone: "success" };
   // Wizard agents (hermes) aren't "signed out" in this state: their setup was
   // started but never finished (no provider picked). Say that.
@@ -186,9 +187,10 @@ function AgentCard({ a }: { a: AgentStatus }) {
   const spin = (kind: ActionKind, Icon: typeof Download) => running === kind ? <Loader2 className="animate-spin" /> : <Icon />;
 
   // While a run is in flight only the copy stays: the store runs one action per agent.
+  const inWsl = a.host === "wsl";
   const more: MenuAction[] = !a.installed ? [] : [
     ...(a.canUpdate && !busy ? [{ label: "Update", icon: ArrowUpCircle, run: () => start(a.id, "update") }] : []),
-    { label: "Copy sign-in command", icon: Copy, run: copyLogin },
+    ...(inWsl ? [] : [{ label: "Copy sign-in command", icon: Copy, run: copyLogin }]),
     ...(a.credState === "ready" && a.canLogout && !busy ? [{ label: "Sign out", icon: LogOut, run: () => start(a.id, "logout") }] : []),
     ...(a.canUninstall && !busy ? [{
       label: "Uninstall", icon: Trash2, run: () => start(a.id, "uninstall"),
@@ -207,7 +209,7 @@ function AgentCard({ a }: { a: AgentStatus }) {
     action = <Button variant="secondary" size="sm" onClick={copyInstall}><Copy /> Copy install command</Button>;
   } else if (!a.installed && a.canInstall) {
     action = <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>{spin("install", Download)} Install</Button>;
-  } else if (a.installed && a.credState !== "ready") {
+  } else if (a.installed && !inWsl && a.credState !== "ready") {
     action = (
       <Button variant={a.credState === "login_required" ? "primary" : "secondary"} size="sm" onClick={() => start(a.id, "login")} disabled={busy}>
         {spin("login", LogIn)} {a.wizard ? "Finish setup" : "Sign in"}
@@ -241,9 +243,14 @@ function AgentCard({ a }: { a: AgentStatus }) {
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t border-border pt-3 text-label">
           {a.version && <Fact term="Version"><OneLine text={a.version} className="font-mono" /></Fact>}
           {a.authDetail && <Fact term="Signed in as"><OneLine text={a.authDetail} /></Fact>}
-          <Fact term="Sessions"><OneLine text={a.sessions} className="font-mono" /></Fact>
-          <Fact term="Sign in with"><OneLine text={a.loginCommand} className="font-mono" /></Fact>
+          {!inWsl && <Fact term="Sessions"><OneLine text={a.sessions} className="font-mono" /></Fact>}
+          {!inWsl && <Fact term="Sign in with"><OneLine text={a.loginCommand} className="font-mono" /></Fact>}
+          {inWsl && <Fact term="Runs in"><OneLine text={a.distro ?? "WSL"} /></Fact>}
         </dl>
+      )}
+
+      {inWsl && (
+        <p className="text-caption text-muted-foreground">Signed in and updated from a shell in {a.distro}, not here.</p>
       )}
 
       {waiting && a.credState !== "ready" && (

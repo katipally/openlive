@@ -21,10 +21,13 @@ Releases before 0.1.9 predate this file — see the
   works. (#18)
 - **Windows can run agents installed inside WSL2.** Turn it on in Settings > Agents
   and pick a distro: an agent that is not on the Windows PATH but is in that distro is
-  detected and started there. It shows as Installed (sign in from the distro), and
-  History does not read its sessions. OpenLive's own tools reach a WSL2 agent only
-  with mirrored networking (`networkingMode=mirrored` in `.wslconfig`); on the default
-  NAT mode the agent still runs, without them. (#28)
+  detected, found through your own shell (so nvm, fnm and volta installs count) and
+  started there. It shows as Installed in WSL, with no Windows-side sign in, update or
+  uninstall (do those from the distro), and History does not read its sessions.
+  OpenLive's own tools reach a WSL2 agent only with mirrored networking
+  (`networkingMode=mirrored` under `[wsl2]` in `.wslconfig`); on the default NAT mode
+  the agent still runs, without them. Project folders must be on a Windows drive or in
+  the chosen distro. (#28)
 - **Linux: trigger Dictate and Flow from a desktop shortcut.** `openlive --toggle-dictate`
   and `openlive --toggle-flow` do what the key's double tap does, so they work without
   access to `/dev/input`. Bind them in Sway, Hyprland, GNOME or KDE; the steps are in

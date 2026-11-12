@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { listWslDistros } from "@openlive/shared/node";
 import { getAllSettings, getSetting, listProviders, setSetting } from "@openlive/db";
 import { isLoopbackUrl, normalizeOllamaUrl, resolveApiMode } from "@openlive/harness/registry";
 
@@ -74,6 +75,10 @@ export async function PUT(req: Request) {
     if (typeof v !== "string" || !isExposed(k)) continue;
     if (k.startsWith("acpCommand:") && v.trim() && !isSafeAcpCommand(v)) {
       return NextResponse.json({ error: `Rejected unsafe command for ${k}` }, { status: 400 });
+    }
+    // Names the distro every agent is launched in: only one wsl.exe lists, and never an option-looking name.
+    if (k === "wslDistro" && v.trim() && (v.trim().startsWith("-") || !(await listWslDistros()).includes(v.trim()))) {
+      return NextResponse.json({ error: `Rejected unknown WSL distro for ${k}` }, { status: 400 });
     }
     // Stored as the server root, so every caller appends its own path to one
     // spelling of it. Empty goes back to the default address.

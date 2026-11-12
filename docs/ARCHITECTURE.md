@@ -128,25 +128,36 @@ over stdio ("LSP for agents"). Design points:
 - **Cleanup.** Adapters spawn in their own process group so dispose kills the whole
   `npx → node → binary` tree.
 - **WSL2 (Windows, opt-in).** Settings → Agents lists the distros from `wsl.exe -l -q`
-  (UTF-16LE); choosing one stores `wslDistro` (empty is off, and nothing below runs on
-  macOS or Linux). When an agent's CLI is not on the Windows PATH but is in that
-  distro, along with the adapter command (`sh -lc 'command -v <bin>'`, cached a minute
-  per distro and bin), the adapter spawns as `wsl.exe -d <distro> --cd <folder> --exec
-  sh -lc 'exec "$0" "$@"' <adapter> <args>` with no Windows shell. The login shell
-  gives it the distro's profile PATH, and `--exec` keeps wsl.exe from re-parsing the
-  arguments. Everything handed across is translated (`packages/shared/src/node/wsl.ts`):
-  the folder (`C:\x` to `/mnt/c/x`; `\\wsl$\<distro>\…` and `\\wsl.localhost\<distro>\…`
-  to the distro's own path) for `--cd` and `session/new`, Gemini's `--policy` file,
-  and the registry env, which crosses wsl.exe only if `WSLENV` names it. Covered:
+  (`WSL_UTF8=1` is set on every wsl.exe call, since its own text is UTF-16LE otherwise);
+  choosing one stores `wslDistro` (validated against that list on save; empty is off, and
+  nothing below runs on macOS or Linux). When an agent's CLI is not on the Windows PATH
+  but is in that distro, along with the adapter command, the adapter spawns as `wsl.exe
+  -d <distro> --cd <folder> --exec env PATH=<path> <adapter path> <args>` with no
+  Windows shell. One probe per distro, `$SHELL -lic` (login and interactive, so
+  `~/.bashrc` and `~/.zshrc` set up nvm, fnm and volta; fish falls back to `sh`), reports
+  the PATH and where every agent's CLI and adapter resolve, as tagged lines an rc file's
+  own output cannot break. It is cached a minute, only when it succeeded: a timeout or
+  cold VM is retried rather than remembered as absent, a stale answer is served while a
+  fresh one runs, and a hit under `/mnt/` (Windows' own `npx`) is a miss. The launch then
+  skips every shell, so nothing an rc file prints reaches the ACP stream, and `--exec`
+  keeps wsl.exe from re-parsing the arguments. Everything handed across is translated
+  (`packages/shared/src/node/wsl.ts`): the folder (`C:\x` to `/mnt/c/x`, wsl's default
+  automount root; `\\wsl$\<distro>\…` and `\\wsl.localhost\<distro>\…`, or their `//`
+  forms, to the distro's own path) for `--cd` and `session/new`, Gemini's `--policy`
+  file, and the registry env, which crosses wsl.exe only if `WSLENV` names it. A folder
+  the distro cannot open (another distro's share, a network share, a relative path, or a
+  custom automount root) fails the start with a message naming it. Covered:
   every agent whose CLI and adapter run on Linux, so Claude Code, Codex, OpenCode,
   Cursor, Gemini, Copilot, Kiro and Hermes. Limits: the agent's sign-in, sessions and
-  config live in the distro, so the panel shows it as Installed, never as signed in
-  (sign in from a distro shell), and History does not read its on-disk sessions; the
+  config live in the distro, so the panel shows it as Installed in WSL, never as signed in,
+  and offers no Windows-side sign in, update or uninstall (a Windows copy would take
+  priority over the distro's; do them from a distro shell), and History does not read its on-disk sessions; the
   agent runs its own shell commands (OpenLive's hosted terminals are off); Pi runs
   without OpenLive's tools (its launcher is a Windows `.cmd`). OpenLive's MCP server
   listens on `127.0.0.1` of Windows, which a WSL2 agent reaches only with mirrored
-  networking (`networkingMode=mirrored` in `.wslconfig`); on the default NAT mode the
-  agent still runs, without OpenLive's tools. Disposing kills the `wsl.exe` tree with
+  networking (`networkingMode=mirrored` under `[wsl2]` in `%USERPROFILE%\.wslconfig`,
+  read at start); otherwise the agent still runs, but the hosted servers and the
+  preamble's promise of OpenLive's tools are left out. Disposing kills the `wsl.exe` tree with
   `taskkill /T`, which ends the session and its stdio; the Linux adapter exits on
   that EOF, and a grandchild that ignores it can outlive it until `wsl --terminate`.
 
