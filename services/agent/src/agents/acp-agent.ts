@@ -963,8 +963,8 @@ const AUTH_REQUIRED = -32000;
 /** The pre-config-option model list some agents still return from session/new. */
 interface LegacyModels { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string | null }
 
-/** Package version reported as clientInfo on initialize. */
-const CLIENT_VERSION = process.env.npm_package_version || "0";
+/** App version reported as clientInfo on initialize (the desktop shell sets OPENLIVE_APP_VERSION). */
+const CLIENT_VERSION = process.env.OPENLIVE_APP_VERSION || process.env.npm_package_version || "0";
 
 /** A boolean config option rides the select-shaped wire as this on/off pair,
  *  which every surface already renders as a switch. */

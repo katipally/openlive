@@ -380,6 +380,7 @@ async function startServers() {
     AGENT_PORT: String(AGENT_PORT),
     AGENT_HOST: "127.0.0.1",
     OPENLIVE_HOME: HOME,
+    OPENLIVE_APP_VERSION: app.getVersion(),
     WEB_PUBLIC_URL: WEB_URL,
     OPENLIVE_AGENT_SECRET: AGENT_TOKEN,
     // The computer-use helper the agent drives; its own app, so its grants are its own.
