@@ -135,12 +135,12 @@ export function chatExists(id: string): boolean {
 
 /** Stamp a session's agent + workspace so history groups it agent→workspace→session.
  *  Called when a conversation binds (built-in or a coding agent) in the lobby/call.
- *  Switching to a different agent drops the old agent's session id: it means nothing
- *  to the new one, and History would hide that on-disk session behind this chat. */
-export async function setChatContext(chatId: string, agentId: string | null, cwd: string): Promise<void> {
+ *  `agentChanged` (the caller's decision) drops the old agent's session id: it means
+ *  nothing to the new one, and History would hide that on-disk session behind this chat. */
+export async function setChatContext(chatId: string, agentId: string | null, cwd: string, agentChanged: boolean): Promise<void> {
   withBusyRetry(() => getDb().prepare(
-    "UPDATE chats SET agent_session_id = CASE WHEN agent_id IS NOT ? THEN NULL ELSE agent_session_id END, agent_id = ?, cwd = ? WHERE id = ?",
-  ).run(agentId, agentId, cwd, chatId));
+    "UPDATE chats SET agent_session_id = CASE WHEN ? THEN NULL ELSE agent_session_id END, agent_id = ?, cwd = ? WHERE id = ?",
+  ).run(agentChanged ? 1 : 0, agentId, cwd, chatId));
 }
 
 /** Link this chat to the agent's OWN ACP session id (captured on connect). This is

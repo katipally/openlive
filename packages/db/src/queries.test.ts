@@ -80,7 +80,7 @@ describe("sqlite chat store + JSON migration", () => {
   it("supports the full CRUD surface on a fresh (no-JSON) install", async () => {
     const q = await freshDb();
     const chat = await q.createChat(undefined, "Fresh");
-    await q.setChatContext(chat.id, "codex", "/tmp/w");
+    await q.setChatContext(chat.id, "codex", "/tmp/w", false);
     await q.setChatAgentSession(chat.id, "sess-9");
     await q.addMessage(chat.id, "user", [{ type: "text", text: "one" }], true);
     await q.addMessage(chat.id, "assistant", [{ type: "text", text: "two" }]);
@@ -101,16 +101,16 @@ describe("sqlite chat store + JSON migration", () => {
     expect(q.getAllSettings()).toEqual({ "bind:other-chat": "codex" }); // its per-chat settings go with it
   });
 
-  it("re-pointing a chat at another agent drops the old agent's session id, rebinding the same one keeps it", async () => {
+  it("setChatContext drops the old agent's session id only when the caller says the agent changed", async () => {
     const q = await freshDb();
     const chat = await q.createChat(undefined, "Repoint");
-    await q.setChatContext(chat.id, "claude-code", "/tmp/a");
+    await q.setChatContext(chat.id, "claude-code", "/tmp/a", false);
     await q.setChatAgentSession(chat.id, "sess-a");
 
-    await q.setChatContext(chat.id, "claude-code", "/tmp/b");
+    await q.setChatContext(chat.id, "claude-code", "/tmp/b", false);
     expect(q.listChats()[0]!).toMatchObject({ agentId: "claude-code", cwd: "/tmp/b", agentSessionId: "sess-a" });
 
-    await q.setChatContext(chat.id, "codex", "/tmp/b");
+    await q.setChatContext(chat.id, "codex", "/tmp/b", true);
     const [row] = q.listChats();
     expect(row).toMatchObject({ agentId: "codex", cwd: "/tmp/b" });
     expect(row!.agentSessionId).toBeUndefined();

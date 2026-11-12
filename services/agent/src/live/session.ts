@@ -526,20 +526,25 @@ export class LiveSession {
   }
 
   private async applyBindInner(id: AgentId | null, cwd: string | undefined, resumeSessionId: string | undefined, epoch: number) {
-    // Read before setBoundAgent moves it: a different agent can't load the old one's session.
-    const agentChanged = !!this.chatId && id !== boundAgent(this.chatId);
     // These two MUST land before agentCwd()/createBoundAgent read them back.
     if (cwd !== undefined && this.chatId) await setSetting(`agentCwd:${this.chatId}`, cwd);
+    if (epoch !== this.bindEpoch) return; // superseded while awaiting
+    // Commit point: only a live bind writes below. The bind is stored BEFORE the session
+    // is cleared, so a bind that supersedes this one sees the new agent and clears too,
+    // never finds the old agent with its session already gone.
+    const agentChanged = !!this.chatId && id !== boundAgent(this.chatId); // a different agent can't load the old one's session
+    if (this.chatId) await setBoundAgent(this.chatId, id);
+    if (epoch !== this.bindEpoch) return;
     // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
     // session id so createBoundAgent loadSession-s it instead of starting fresh.
     if (this.chatId && (resumeSessionId || agentChanged)) await setSetting(`acpSession:${this.chatId}`, resumeSessionId ?? "");
-    if (epoch !== this.bindEpoch) return; // superseded while awaiting
+    if (epoch !== this.bindEpoch) return;
     // Canonical, per-chat→global — the SAME resolution the agent spawns in, so the
     // rebuild guard below and History grouping stay consistent.
     const effectiveCwd = this.chatId ? agentCwd(this.chatId) : "";
     // Stamp the session's agent + workspace so the History sidebar can file it
     // under agent → workspace → session.
-    if (this.chatId) await setChatContext(this.chatId, id, effectiveCwd);
+    if (this.chatId) await setChatContext(this.chatId, id, effectiveCwd, agentChanged);
     if (epoch !== this.bindEpoch) return;
     if (id === this.boundId && effectiveCwd === this.boundCwd && this.agent) {
       // Same bind, agent already up. The client may have cleared its model/mode
@@ -553,8 +558,6 @@ export class LiveSession {
     void this.agent?.dispose();
     this.agent = null; this.agentReady = null; this.lastMeta = null; this.boundId = id; this.boundCwd = effectiveCwd; this.agentStartMs = 0; this.resumed = undefined;
     if (moved) { this.tools = this.callTools(); this.runner.tools = this.tools; }
-    if (this.chatId) await setBoundAgent(this.chatId, id);
-    if (epoch !== this.bindEpoch) return;
     if (!id || this.closed || !this.chatId) return;
     // A coding agent needs a real folder. Don't spawn (then instantly kill) one with
     // no cwd — that surfaced a spurious "pick a folder" error and churned processes on
