@@ -3,7 +3,7 @@ import { EFFORT_MAP } from "./effort"
 import { fetchWithRetry } from "./retry"
 import { sseLines } from "./sse"
 
-/** Convert canonical messages to the Responses API: top-level `instructions` + typed `input` items. */
+/** Convert canonical messages to the Responses API: top-level `instructions` + typed `input` items. Every item states its `type`: the spec makes it optional on messages, but strict servers (Lemonade, llama.cpp) reject an item without one. */
 function toResponsesInput(messages: Message[]): { instructions?: string; input: unknown[] } {
   let instructions: string | undefined
   const input: Record<string, unknown>[] = []
@@ -16,10 +16,10 @@ function toResponsesInput(messages: Message[]): { instructions?: string; input: 
         if (m.text) content.push({ type: "input_text", text: m.text })
         for (const img of m.images)
           content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.data}` })
-        input.push({ role: "user", content })
-      } else input.push({ role: "user", content: m.text })
+        input.push({ type: "message", role: "user", content })
+      } else input.push({ type: "message", role: "user", content: m.text })
     } else if (m.role === "assistant") {
-      if (m.text) input.push({ role: "assistant", content: m.text })
+      if (m.text) input.push({ type: "message", role: "assistant", content: m.text })
       for (const tc of m.toolCalls ?? []) {
         input.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: tc.arguments || "{}" })
       }

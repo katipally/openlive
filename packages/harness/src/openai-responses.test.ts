@@ -65,4 +65,23 @@ describe("streamOpenAIResponses", () => {
     expect(body.tool_choice).toBe("none");
     expect(body.tools).toHaveLength(1);
   });
+
+  it("gives every input item an explicit type, which strict servers like Lemonade require", async () => {
+    const fetch = serve(`data: {"type":"response.completed","response":{}}\n\n`);
+    const req = {
+      model: "m",
+      tools: [],
+      messages: [
+        { role: "system" as const, text: "be brief" },
+        { role: "user" as const, text: "hi" },
+        { role: "user" as const, text: "look", images: [{ data: "AAA", mime: "image/png" }] },
+        { role: "assistant" as const, text: "ok", toolCalls: [{ id: "a", name: "wait", arguments: "{}" }] },
+        { role: "tool" as const, callId: "a", name: "wait", result: "Waited." },
+      ],
+    };
+    for await (const _ of streamOpenAIResponses({ baseURL: "http://x/v1", req, signal: new AbortController().signal })) { /* drain */ }
+    const body = JSON.parse(String(fetch.mock.calls[0]![1].body)) as { input: Record<string, unknown>[] };
+    expect(body.input.map((i) => i.type)).toEqual(["message", "message", "message", "function_call", "function_call_output"]);
+    expect(body.input[3]).toEqual({ type: "function_call", call_id: "a", name: "wait", arguments: "{}" });
+  });
 });

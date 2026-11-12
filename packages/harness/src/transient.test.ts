@@ -78,7 +78,7 @@ describe("a transient tail", () => {
 
   it("follows the function call output as a user input on the Responses API", async () => {
     const sent = await responses([...ask, ...step("a"), tail(1)])
-    expect(sent.input.map((i: { type?: string; role?: string }) => i.type ?? i.role)).toEqual(["user", "function_call", "function_call_output", "user"])
+    expect(sent.input.map((i: { type?: string; role?: string }) => i.type)).toEqual(["message", "function_call", "function_call_output", "message"])
     expect(sent.input[3].content).toEqual([
       { type: "input_text", text: "The newest window state:\n1 button Save" },
       { type: "input_image", image_url: "data:image/jpeg;base64,JPG1" },
