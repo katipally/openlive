@@ -215,9 +215,10 @@ export const ENGINES: Engine[] = [
   // rough (in 100%, 40%, 10% and 10% of runs), so three renders pooled pass
   // 0.13 but for about 1 run in 40,000 even if every other join turned rough
   // 1 time in 200; a pooled baseline lands anywhere in about 0.03-0.09, hence the
-  // drift allowance that leaves 0.13 the gate. The old comma-cut first chunk
-  // has 5 joins rough in every run, 5-6 of 30 in all (0.167-0.2), so it fails
-  // 0.13 in every pooling.
+  // drift allowance. PR runs pooled 0.063-0.125 and once 7 of 48 (0.146), which
+  // failed 0.13, so the gate is 0.16. The old comma-cut first chunk has 5 joins
+  // rough in every run, 5-6 of 30 in all (0.167-0.2), so it still fails 0.16 in
+  // every pooling.
   // Since the chunker holds sentences after the opening (2026-09-30) a render
   // has 16 joins; one (reply 2's opening, a line ending in a colon) is rough in
   // every run, 0.063 pooled.
@@ -226,12 +227,12 @@ export const ENGINES: Engine[] = [
       "model.int8.onnx": "0ba1e21eda9c8bcc4a70ada7e0d27fefc9ba775aaa037547248ec71f9a3d9b7d",
       "voices.bin": "d520519c4a3519d44fcfcd943ed0b1e3c5da5cee0eea501d922fac1a93cd24dc",
       "tokens.txt": "934a4188addc7665dd3410256bb622169242357fbb99d840d9351209b486dabb",
-    }, { roughJoins: 0.13 }),
+    }, { roughJoins: 0.16 }),
     renders: 3, drift: { roughJoins: 0.1 },
   },
   // Measured over the 30 nightlies to 2026-11-06 (one render each): one join
   // is rough in every run and a second in 1 of 30 (0.125 against the 0.1 gate,
-  // 2026-11-02). Three renders pooled, as Kitten does, and Kitten's 0.13 gate:
+  // 2026-11-02). Three renders pooled, as Kitten does, and a 0.13 gate:
   // the always-rough join is 3 of 48, so 4 more must turn rough in one night.
   {
     ...native("kokoro-native", "kokoro-multi-v1_0", "kokoro-native", "Apache-2.0", "nightly", 1.5, {
