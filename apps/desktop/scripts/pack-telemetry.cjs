@@ -2,7 +2,7 @@
 // Stamp apps/desktop/telemetry-config.json from the release environment. The ingest
 // address is never in source: a build without all three variables writes no file, and
 // an unstamped build sends nothing. A stale file from an earlier stamp is removed first,
-// so a local build can never ship somebody else's address. The values are never printed.
+// so a local build can never ship somebody else's address. This script never prints the values (they are public, and the release log shows them in the step env).
 const fs = require("node:fs");
 const path = require("node:path");
 const { loadConfig } = require("../telemetry/config.cjs");
