@@ -6,6 +6,39 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-11
+
+### Added
+- **Ukrainian speech recognition and voice replies.** Pick Ukrainian in Settings > Voice
+  and OpenLive hears you with Parakeet v3, Whisper or Nemotron 3.5 and answers with
+  Supertonic or Piper (Lada). Numbers are read aloud in Ukrainian too. The interface
+  stays in English. (#53)
+- **Slow machines start on the speech engines they can run.** With no usable WebGPU
+  adapter and no engine picked yet, OpenLive now defaults to the native speech engines
+  you already have installed instead of the slower browser ones. An engine that is too
+  slow for your machine gets a badge in the engine list. Nothing changes if you picked
+  an engine, or if WebGPU works. (#18)
+- **Windows can run agents installed inside WSL2.** Turn it on in Settings > Agents
+  and pick a distro: an agent that is not on the Windows PATH but is in that distro is
+  detected and started there. It shows as Installed (sign in from the distro), and
+  History does not read its sessions. OpenLive's own tools reach a WSL2 agent only
+  with mirrored networking (`networkingMode=mirrored` in `.wslconfig`); on the default
+  NAT mode the agent still runs, without them. (#28)
+- **Linux: trigger Dictate and Flow from a desktop shortcut.** `openlive --toggle-dictate`
+  and `openlive --toggle-flow` do what the key's double tap does, so they work without
+  access to `/dev/input`. Bind them in Sway, Hyprland, GNOME or KDE; the steps are in
+  docs/DICTATE.md. (#52)
+
+### Fixed
+- **Pointing a chat at another agent no longer hides its first session.** The chat's
+  original session stays in History, and the new agent starts fresh instead of trying
+  to resume the old agent's session. (#20)
+- **Big network chunks no longer break a streamed reply.** The size limit on a streamed
+  (SSE) response now applies to each line, not to each chunk the network delivers, so
+  a large chunk no longer fails with a size-limit error. (#54)
+- **Strict OpenAI-compatible servers accept Responses requests.** Every input item now
+  carries its explicit type, so servers such as Lemonade no longer reject the request. (#27)
+
 ## [0.3.2] - 2026-11-06
 
 ### Added
