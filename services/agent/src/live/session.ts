@@ -526,11 +526,13 @@ export class LiveSession {
   }
 
   private async applyBindInner(id: AgentId | null, cwd: string | undefined, resumeSessionId: string | undefined, epoch: number) {
+    // Read before setBoundAgent moves it: a different agent can't load the old one's session.
+    const agentChanged = !!this.chatId && id !== boundAgent(this.chatId);
     // These two MUST land before agentCwd()/createBoundAgent read them back.
     if (cwd !== undefined && this.chatId) await setSetting(`agentCwd:${this.chatId}`, cwd);
     // Resuming one of the agent's OWN prior sessions (from History): stamp its ACP
     // session id so createBoundAgent loadSession-s it instead of starting fresh.
-    if (resumeSessionId && this.chatId) await setSetting(`acpSession:${this.chatId}`, resumeSessionId);
+    if (this.chatId && (resumeSessionId || agentChanged)) await setSetting(`acpSession:${this.chatId}`, resumeSessionId ?? "");
     if (epoch !== this.bindEpoch) return; // superseded while awaiting
     // Canonical, per-chat→global — the SAME resolution the agent spawns in, so the
     // rebuild guard below and History grouping stay consistent.
