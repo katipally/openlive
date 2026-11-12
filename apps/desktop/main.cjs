@@ -126,7 +126,15 @@ process.on("unhandledRejection", () => telemetry.track("main_exception", { proce
 const trackSetting = (setting, value) => telemetry.track("setting_changed", { setting, value });
 // Before the servers are up there is no page to show; boot opens the window itself.
 let serversUp = false;
-app.on("second-instance", () => { if (serversUp) restoreMainWindow(); });
+/** `openlive --toggle-flow|--toggle-dictate`: that key's double tap, for a shortcut bound in a desktop
+ *  where the key listener cannot read /dev/input. Dropped until the owner page has loaded: nothing
+ *  there is listening yet. True when the command line asked for a toggle. */
+function toggleFromCli(argv) {
+  const id = flowInput.toggleFromArgv(argv);
+  if (id && serversUp && ownerWin && !ownerWin.isDestroyed() && !ownerWin.webContents.isLoading()) flowInput.triggerFromCli(id);
+  return !!id;
+}
+app.on("second-instance", (_e, argv) => { if (!toggleFromCli(argv) && serversUp) restoreMainWindow(); });
 
 // ── media (mic/camera) permissions — Electron blocks getUserMedia otherwise ──
 function wirePermissions() {
@@ -1698,7 +1706,8 @@ async function boot() {
   });
   if (ready && firstTime("loginItemDefault") && !loginItem()) loginItem(true);
   // A login launch comes up as just the tray, with Flow ready.
-  const hidden = !!tray && openedAtLogin;
+  // A launch that only asked for a toggle has no window to show either; the toggle itself is dropped.
+  const hidden = !!tray && (openedAtLogin || !!flowInput.toggleFromArgv(process.argv));
   if (hidden && process.platform === "darwin") app.dock.hide();
   if (!hidden) createSplash();
   const started = await startServers();

@@ -255,6 +255,7 @@ export function useFlowOwner(): void {
         secureInput: !!c?.secureInput?.active,
         hookError: c?.hookError ?? null,
         inputAccess: c?.inputAccess ?? null,
+        cliTrigger: !!c?.cliTrigger,
         addonError: c?.addonError ?? null,
         packaged: !!c?.packaged,
         brainReady: brainReady.current,

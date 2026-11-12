@@ -286,7 +286,7 @@ is one, a single button that fixes it.
 
 | Card | Cause | Fix |
 |---|---|---|
-| Flow's key listener stopped | The global key hook died or could not start. On Linux (X11 or Wayland) that usually means no read access to `/dev/input` | **Try again** restarts it. On Linux, first add yourself to the `input` group (`sudo usermod -aG input $USER`) and sign back in |
+| Flow's key listener stopped | The global key hook died or could not start. On Linux (X11 or Wayland) that usually means no read access to `/dev/input` | **Try again** restarts it. On Linux, first add yourself to the `input` group (`sudo usermod -aG input $USER`) and sign back in, or skip the keys: bind a shortcut to `openlive --toggle-flow` (see [Linux without `/dev/input`](DICTATE.md#linux-without-devinput)) |
 | Flow hears you, but can't type for you | No Accessibility (macOS) or input access | **Open settings**, then allow OpenLive |
 | A password field has the keyboard | Secure input is on | Leave the password field |
 | Nothing is set to answer yet | No key for the chosen provider, and no agent | **Choose one** opens Settings > Flow |

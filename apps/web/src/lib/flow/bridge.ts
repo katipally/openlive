@@ -56,6 +56,8 @@ export interface FlowCapabilities {
   report: CapabilityReport | null;
   /** False while Flow's off switch (on Flow's home) is off: the hook is suspended on purpose. */
   armed: boolean;
+  /** A desktop shortcut running `openlive --toggle-flow|--toggle-dictate` has driven Flow this run, so it needs no key listener. */
+  cliTrigger?: boolean;
 }
 /** The binding ids main registers with the addon (apps/desktop/flow-input.cjs),
  *  as effects name them. Flow's and Dictate's report a double tap; the

@@ -78,7 +78,7 @@ function listenerNote(caps: ReturnType<typeof useFlowCapabilities>["caps"]): str
   const note = keyListenerNote(caps, "shared");
   if (!note) return "";
   const linux = caps?.hookError && desktopPlatform === "linux"
-    ? " On Linux the keys need the input group: run sudo usermod -aG input $USER, then sign out and back in." : "";
+    ? " On Linux the keys need the input group: run sudo usermod -aG input $USER, then sign out and back in, or bind a shortcut to openlive --toggle-dictate." : "";
   return `${note}${linux} In a call, the Hold to talk button works without it.`;
 }
 

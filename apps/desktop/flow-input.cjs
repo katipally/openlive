@@ -171,6 +171,23 @@ function setArmed(next) {
 
 const isArmed = () => armed;
 
+const TOGGLE_FLAGS = new Map([["--toggle-flow", FLOW_BINDING], ["--toggle-dictate", DICTATE_BINDING]]);
+
+/** The binding a command line toggles, for a desktop shortcut running `openlive --toggle-dictate`
+ *  where the key listener cannot read the keyboard. Null when it asks for none. */
+const toggleFromArgv = (argv) => argv.map((a) => TOGGLE_FLAGS.get(a)).find(Boolean) ?? null;
+
+// Said in capabilities: once a shortcut drives Flow, a dead key listener is no longer news on its orb.
+let cliTriggered = false;
+const usedCli = () => cliTriggered;
+
+/** The binding's double tap without the hook, so it works where the hook cannot start. Flow's off switch still applies. */
+function triggerFromCli(id) {
+  if (id === FLOW_BINDING && !armed) return;
+  cliTriggered = true;
+  route({ kind: "double_tap", bindingId: id });
+}
+
 /** The keys the settings ask for, `{ flow, dictate, ptt }`, each a binding in
  *  ol-input's grammar or null for none. Registered at once while the hook runs,
  *  and the moment it starts otherwise, so a rebind needs no restart. */
@@ -415,4 +432,4 @@ function install(routeEffect, getTarget, telemetryClient, getOwnField = () => nu
   app.on("will-quit", teardown);
 }
 
-module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, setBindings, binding, watched, readiness, hookReadiness, revive, recheckInput, request, hookFailure, insertionTiming };
+module.exports = { FLOW_BINDING, DICTATE_BINDING, PTT_BINDING, install, teardown, load, setArmed, isArmed, toggleFromArgv, triggerFromCli, usedCli, setBindings, binding, watched, readiness, hookReadiness, revive, recheckInput, request, hookFailure, insertionTiming };

@@ -343,3 +343,32 @@ describe("the key listener on Linux without access to /dev/input", () => {
     expect(telemetry.reportOnboardingStep).toHaveBeenCalledWith("flow_hook_failed", undefined);
   });
 });
+
+describe("the command-line toggle", () => {
+  it("names the binding a command line asks for, and none for anything else", () => {
+    const { toggleFromArgv } = load().flowInput;
+    expect(toggleFromArgv(["openlive", "--toggle-dictate"])).toBe("dictate");
+    expect(toggleFromArgv(["openlive", "--hidden", "--toggle-flow"])).toBe("flow");
+    expect(toggleFromArgv(["openlive", "--toggle-flow", "--toggle-dictate"])).toBe("flow");
+    expect(toggleFromArgv(["openlive", "--hidden", "constructor", "--toggle"])).toBeNull();
+    expect(toggleFromArgv([])).toBeNull();
+  });
+
+  it("sends the double tap the key would, with no key listener running", () => {
+    const { flowInput, effects } = load(undefined, { access: "not_in_group" });
+    flowInput.triggerFromCli("dictate");
+    flowInput.triggerFromCli("flow");
+    expect(effects).toEqual([{ kind: "double_tap", bindingId: "dictate" }, { kind: "double_tap", bindingId: "flow" }]);
+    expect(flowInput.usedCli()).toBe(true);
+  });
+
+  it("leaves Flow alone while its off switch is off, and Dictate working", () => {
+    const { flowInput, effects } = load();
+    flowInput.setArmed(false);
+    flowInput.triggerFromCli("flow");
+    expect(effects).toEqual([]);
+    expect(flowInput.usedCli()).toBe(false);
+    flowInput.triggerFromCli("dictate");
+    expect(effects).toEqual([{ kind: "double_tap", bindingId: "dictate" }]);
+  });
+});

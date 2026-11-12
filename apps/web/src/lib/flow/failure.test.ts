@@ -62,6 +62,13 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
   });
 
+  it("drops the key listener's card once a shortcut drives Flow, and keeps every other failure", () => {
+    const stopped = { ...HEALTHY, platform: "linux", hookError: "permission denied", inputAccess: "not_in_group" as const };
+    expect(deriveFailure({ ...stopped, cliTrigger: true })).toBeNull();
+    expect(deriveFailure({ ...stopped, cliTrigger: true, brainReady: false })?.code).toBe("no_provider");
+    expect(deriveFailure({ ...stopped, cliTrigger: false })?.code).toBe("hook_failed");
+  });
+
   it("says the exact fix for what /dev/input showed, and keeps the generic one when it is unknown", () => {
     const stopped = { ...HEALTHY, platform: "linux", hookError: "permission denied" };
     const missing = deriveFailure({ ...stopped, inputAccess: "not_in_group" });
