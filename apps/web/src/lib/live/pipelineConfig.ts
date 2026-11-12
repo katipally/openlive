@@ -598,8 +598,9 @@ export function loadPipelineConfig(): PipelineConfig {
 // The Voice and Speech engine tabs edit this config from several places (speed, engine,
 // cloned voice). Each holds a copy in state; without a change signal one saving
 // its stale copy would silently undo another's edit.
-const listeners = new Set<(c: PipelineConfig) => void>();
-export function onPipelineConfig(fn: (c: PipelineConfig) => void): () => void {
+// `settle` marks a write the person never made (the slow-machine seed).
+const listeners = new Set<(c: PipelineConfig, settle?: boolean) => void>();
+export function onPipelineConfig(fn: (c: PipelineConfig, settle?: boolean) => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
@@ -609,4 +610,16 @@ export function savePipelineConfig(c: PipelineConfig): PipelineConfig {
   useVoicePrefs.setState({ pipeline: clamped as unknown as Record<string, unknown> });
   for (const fn of listeners) fn(clamped);
   return clamped;
+}
+
+/** Saves only `c`'s engines for a person who picked none, so every other field
+ *  keeps following the defaults until they change it. Listeners hear a settle. */
+export function seedPipelineEngines(c: PipelineConfig): void {
+  const { stt, tts } = c;
+  useVoicePrefs.setState({ pipeline: {
+    stt: { family: stt.family, variant: stt.variant, variants: stt.variants },
+    tts: { family: tts.family, variant: tts.variant, variants: tts.variants, voice: tts.voice },
+  } });
+  const merged = loadPipelineConfig();
+  for (const fn of listeners) fn(merged, true);
 }

@@ -54,6 +54,43 @@ const spoken = (chunks: Float32Array[]) => new Response(new ReadableStream<Uint8
 }), { headers: { "x-sample-rate": "24000" } });
 const bodyOf = (f: ReturnType<typeof vi.fn>, i: number) => JSON.parse((f.mock.calls[i]![1] as RequestInit).body as string);
 
+describe("WebGPU adapter probe", () => {
+  const gpu = (requestAdapter: () => Promise<unknown>) => vi.stubGlobal("navigator", { gpu: { requestAdapter } });
+
+  it("reports no WebGPU when the API exists but hands out no adapter, and keeps the answer", async () => {
+    const requestAdapter = vi.fn(async () => null);
+    gpu(requestAdapter);
+    expect(models.hasWebGPU()).toBe(true); // the API's presence, until asked
+    expect(await models.probeWebGPU()).toBe(false);
+    expect(models.hasWebGPU()).toBe(false);
+    await models.probeWebGPU();
+    expect(requestAdapter).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports WebGPU for an adapter, and none for a rejected request or a browser without the API", async () => {
+    gpu(async () => ({}));
+    expect(await models.probeWebGPU()).toBe(true);
+    vi.resetModules();
+    models = await import("./models");
+    gpu(async () => { throw new Error("blocklisted"); });
+    expect(await models.probeWebGPU()).toBe(false);
+    vi.resetModules();
+    models = await import("./models");
+    vi.stubGlobal("navigator", {});
+    expect(await models.probeWebGPU()).toBe(false);
+  });
+
+  it("gives the API's answer for a request that hangs, and asks again next time", async () => {
+    const requestAdapter = vi.fn(() => new Promise<unknown>(() => {}));
+    gpu(requestAdapter);
+    const p = models.probeWebGPU(500);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await p).toBe(true);
+    void models.probeWebGPU(500);
+    expect(requestAdapter).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("native TTS stall", () => {
   it("tries the same voice again when no audio arrives in time, then leaves the sentence unspoken", async () => {
     const fetch = stalledTts([]);

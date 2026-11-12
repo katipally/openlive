@@ -291,17 +291,21 @@ a warm-up, which only loads the selected engines. A config that already had one
 keeps it, and Settings says what its license limits.
 
 **Slow machines.** The browser models run on WASM without a usable WebGPU
-adapter, about 10x slower than the agent's native tier. On the first launch,
-while no pipeline config is saved (so no engine was picked), `warmup.ts` checks
-for an adapter and, with none, asks the agent which engines are downloaded;
+adapter, about 10x slower than the agent's native tier. At each launch, while
+no pipeline config is saved (so no engine was picked), `warmup.ts` asks for an
+adapter once (`probeWebGPU` in `models.ts`, which also makes `hasWebGPU()` say
+whether one exists) and, with none, asks the agent which engines are downloaded;
 `nativeFirst` (`pipelineConfig.ts`) then moves each stage to the light native
 engine for the language (Moonshine or Canary for speech-to-text, Piper's pick
-for voice) when it is downloaded and permitted, and the result is saved like
-any pick. Nothing changes with an adapter, an unreachable agent or nothing
-downloaded. Smart-Turn is the default turn engine everywhere. The engine cards
-mark what is a poor pick here (`slowHere` in `engineMenu.ts`): a benchmarked
-real-time factor of 1 or more, else a cloned voice on a low tier machine and
-Supertonic in a browser without WebGPU.
+for voice) when it is downloaded and permitted. Only those engines are saved
+(`seedPipelineEngines`), without a telemetry event, so the rest of the config
+keeps following the defaults. A fresh install has nothing downloaded yet, so the
+seed applies at the first launch after the engines are installed. Nothing
+changes with an adapter, an unreachable agent or nothing downloaded. Smart-Turn
+is the default turn engine everywhere. The engine cards mark what is a poor
+pick here (`slowHere` in `engineMenu.ts`): a benchmarked real-time factor of 1
+or more, else a cloned voice on a low tier machine and Supertonic in a browser
+without WebGPU.
 
 **Supertonic on this computer.** On the desktop the agent can run Supertonic
 itself, on onnxruntime-node, with the synthesis the browser runs

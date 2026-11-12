@@ -6,7 +6,7 @@ import { LANGUAGE_CODES } from "@openlive/shared";
 import {
   mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
   STT_FAMILIES, TTS_FAMILIES, CURATED_LANGUAGES, LANGUAGE_DEFAULTS, languageSupport, pickCompatible, chooseFamily, chooseVariant,
-  defaultVariant, nativeFirst, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig,
+  defaultVariant, nativeFirst, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig, seedPipelineEngines, onPipelineConfig,
   type PipelineConfig,
 } from "./pipelineConfig.ts";
 import { useVoicePrefs } from "../prefs.ts";
@@ -434,4 +434,19 @@ test("nativeFirst: a restricted voice waits for the user's OK", () => {
   const installed = new Set(["piper-it_IT-paola-medium-int8"]);
   assert.equal(nativeFirst(it, { webgpu: false, installed }), it);
   assert.equal(nativeFirst({ ...it, allowRestricted: true }, { webgpu: false, installed }).tts.variant, "piper-it_IT-paola-medium-int8");
+});
+
+test("seedPipelineEngines saves only the engines, so the other defaults keep following", () => {
+  const seeded = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: LIGHT });
+  const heard: boolean[] = [];
+  const off = onPipelineConfig((_, settle) => heard.push(!!settle));
+  try {
+    seedPipelineEngines(seeded);
+    const saved = useVoicePrefs.getState().pipeline as Record<string, Record<string, unknown>>;
+    assert.deepEqual(Object.keys(saved).sort(), ["stt", "tts"]);
+    assert.equal(saved.stt.whisperSize, undefined);
+    assert.equal(saved.tts.speed, undefined);
+    assert.deepEqual(loadPipelineConfig(), seeded);
+    assert.deepEqual(heard, [true]);
+  } finally { off(); useVoicePrefs.setState({ pipeline: null }); }
 });

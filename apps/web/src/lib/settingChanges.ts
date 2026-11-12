@@ -222,8 +222,8 @@ export function pipelineChanges(a: PipelineConfig, b: PipelineConfig): Change[] 
 /** Reports each change to the saved voice pipeline, whichever screen saved it. Returns the unsubscribe. */
 export function watchPipelineConfig(): () => void {
   let before = loadPipelineConfig();
-  return onPipelineConfig((after) => {
-    pipelineChanges(before, after).forEach(reportSetting);
+  return onPipelineConfig((after, settle) => {
+    if (!settle) pipelineChanges(before, after).forEach(reportSetting);
     before = after;
   });
 }

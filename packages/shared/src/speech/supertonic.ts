@@ -43,11 +43,11 @@ const LONG_S = 6.5;
 // (huggingface.co/Supertone/supertonic-3). NFKD splits Hangul into jamo, as the
 // reference does: the unicode indexer holds the jamo, not the syllables.
 // "@", "e.g." and the like arrive already spelled out (toSpeech, voiceText.ts).
-function preprocess(text: string, lang: string): string {
+export function preprocess(text: string, lang: string): string {
   text = text.normalize("NFKD")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu, "")
     .replace(/[–‑—]/g, "-").replace(/_/g, " ")
-    .replace(/[“”]/g, '"').replace(/[‘’´`]/g, "'")
+    .replace(/[“”]/g, '"').replace(/[‘’ʼ´`]/g, "'")
     .replace(/[[\]|/#→←]/g, " ")
     .replace(/[♥☆♡©\\]/g, "")
     .replace(/ ([,.!?;:'])/g, "$1")

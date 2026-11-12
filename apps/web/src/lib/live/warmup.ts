@@ -1,7 +1,7 @@
 "use client";
 
-import { listNativeEngines, loadModels, modelsCached, modelsReady } from "./models";
-import { DEFAULT_PIPELINE_CONFIG, nativeFirst, savePipelineConfig } from "./pipelineConfig";
+import { listNativeEngines, loadModels, modelsCached, modelsReady, probeWebGPU } from "./models";
+import { DEFAULT_PIPELINE_CONFIG, nativeFirst, seedPipelineEngines } from "./pipelineConfig";
 import { useVoicePrefs } from "../prefs";
 import { log } from "@/lib/log";
 
@@ -19,23 +19,22 @@ export function warmupOnLaunch(): void {
   if (window.location.pathname === "/flow") return;
   warmed = true;
   // Let first paint + hydration settle before grabbing CPU/GPU for shaders.
-  setTimeout(() => { void seedNativeDefaults().then(run); warmOcr(); }, 1500);
+  setTimeout(() => { void seedNativeDefaults().finally(run); warmOcr(); }, 1500);
 }
 
-// A machine with no usable WebGPU adapter (navigator.gpu alone can exist
-// without one) runs the browser models on WASM, ~10x slower than the agent's
-// native tier, so the first launch's engines become the downloaded native ones.
-// Only while nothing is saved: any engine the user picked is in that saved config.
+// A machine with no usable WebGPU adapter runs the browser models on WASM, ~10x
+// slower than the agent's native tier, so once the native engines it needs are
+// downloaded they become the engines. Only while nothing is saved: any engine
+// the user picked is in that saved config.
 async function seedNativeDefaults(): Promise<void> {
   try {
-    if (useVoicePrefs.getState().pipeline) return;
-    const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    if (await gpu?.requestAdapter().catch(() => null)) return;
+    const webgpu = await probeWebGPU(); // also settles hasWebGPU() for the rest of the app
+    if (webgpu || useVoicePrefs.getState().pipeline) return;
     const families = await listNativeEngines(AbortSignal.timeout(3000));
     if (useVoicePrefs.getState().pipeline) return;
     const installed = new Set(families.flatMap((f) => f.variants.filter((v) => v.installed && v.runnable).map((v) => v.id)));
-    const next = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed });
-    if (next !== DEFAULT_PIPELINE_CONFIG) savePipelineConfig(next);
+    const next = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu, installed });
+    if (next !== DEFAULT_PIPELINE_CONFIG) seedPipelineEngines(next);
   } catch (e) { log.debug("warmup", "native defaults skipped:", e); }
 }
 

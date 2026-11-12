@@ -51,8 +51,21 @@ function resetWorker() {
   for (const [id, p] of pending) { pending.delete(id); p.reject(new Error("models reset")); }
 }
 
+// navigator.gpu can exist with no adapter behind it; probeWebGPU settles that
+// once, and until then the API's presence is the best answer.
+let adapter: boolean | undefined;
 export function hasWebGPU(): boolean {
-  return typeof navigator !== "undefined" && "gpu" in navigator;
+  return adapter ?? (typeof navigator !== "undefined" && "gpu" in navigator);
+}
+
+/** Whether a WebGPU adapter exists, asked once and remembered for `hasWebGPU`.
+ *  A request that hangs past `ms` answers `hasWebGPU()` and is not remembered. */
+export async function probeWebGPU(ms = 2000): Promise<boolean> {
+  if (adapter !== undefined) return adapter;
+  const gpu = typeof navigator === "undefined" ? undefined : (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) return (adapter = false);
+  const found = await Promise.race([gpu.requestAdapter().then(Boolean, () => false), new Promise<undefined>((r) => setTimeout(r, ms))]);
+  return found === undefined ? hasWebGPU() : (adapter = found);
 }
 
 export function modelsReady(): boolean { return ready; }

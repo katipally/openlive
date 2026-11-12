@@ -11,13 +11,14 @@ Releases before 0.1.9 predate this file — see the
 ### Added
 - **Ukrainian speech recognition and voice replies.** Pick Ukrainian in Settings > Voice
   and OpenLive hears you with Parakeet v3, Whisper or Nemotron 3.5 and answers with
-  Supertonic or Piper (Lada). Numbers are read aloud in Ukrainian too. The interface
-  stays in English. (#53)
-- **Slow machines start on the speech engines they can run.** With no usable WebGPU
-  adapter and no engine picked yet, OpenLive now defaults to the native speech engines
-  you already have installed instead of the slower browser ones. An engine that is too
-  slow for your machine gets a badge in the engine list. Nothing changes if you picked
-  an engine, or if WebGPU works. (#18)
+  Supertonic or Piper (Lada). Numbers, dates and "№" are read aloud in Ukrainian too.
+  The interface stays in English. (#53)
+- **Slow machines move to the speech engines they can run.** With no usable WebGPU
+  adapter and no engine picked yet, OpenLive switches to the native speech engines once
+  you have them installed, instead of the slower browser ones, and leaves every other
+  voice setting at its default. An engine that is too slow for your machine gets a
+  badge in the engine list. Nothing changes if you picked an engine, or if WebGPU
+  works. (#18)
 - **Windows can run agents installed inside WSL2.** Turn it on in Settings > Agents
   and pick a distro: an agent that is not on the Windows PATH but is in that distro is
   detected and started there. It shows as Installed (sign in from the distro), and
