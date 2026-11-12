@@ -127,6 +127,28 @@ over stdio ("LSP for agents"). Design points:
   a *spoken* one-liner + structured error — never a session stuck listening.
 - **Cleanup.** Adapters spawn in their own process group so dispose kills the whole
   `npx → node → binary` tree.
+- **WSL2 (Windows, opt-in).** Settings → Agents lists the distros from `wsl.exe -l -q`
+  (UTF-16LE); choosing one stores `wslDistro` (empty is off, and nothing below runs on
+  macOS or Linux). When an agent's CLI is not on the Windows PATH but is in that
+  distro, along with the adapter command (`sh -lc 'command -v <bin>'`, cached a minute
+  per distro and bin), the adapter spawns as `wsl.exe -d <distro> --cd <folder> --exec
+  sh -lc 'exec "$0" "$@"' <adapter> <args>` with no Windows shell. The login shell
+  gives it the distro's profile PATH, and `--exec` keeps wsl.exe from re-parsing the
+  arguments. Everything handed across is translated (`packages/shared/src/node/wsl.ts`):
+  the folder (`C:\x` to `/mnt/c/x`; `\\wsl$\<distro>\…` and `\\wsl.localhost\<distro>\…`
+  to the distro's own path) for `--cd` and `session/new`, Gemini's `--policy` file,
+  and the registry env, which crosses wsl.exe only if `WSLENV` names it. Covered:
+  every agent whose CLI and adapter run on Linux, so Claude Code, Codex, OpenCode,
+  Cursor, Gemini, Copilot, Kiro and Hermes. Limits: the agent's sign-in, sessions and
+  config live in the distro, so the panel shows it as Installed, never as signed in
+  (sign in from a distro shell), and History does not read its on-disk sessions; the
+  agent runs its own shell commands (OpenLive's hosted terminals are off); Pi runs
+  without OpenLive's tools (its launcher is a Windows `.cmd`). OpenLive's MCP server
+  listens on `127.0.0.1` of Windows, which a WSL2 agent reaches only with mirrored
+  networking (`networkingMode=mirrored` in `.wslconfig`); on the default NAT mode the
+  agent still runs, without OpenLive's tools. Disposing kills the `wsl.exe` tree with
+  `taskkill /T`, which ends the session and its stdio; the Linux adapter exits on
+  that EOF, and a grandchild that ignores it can outlive it until `wsl --terminate`.
 
 History also surfaces each agent's **own** on-disk sessions
 (`apps/web/src/app/api/history/agentSessions.ts` — Claude JSONL, Codex rollouts,

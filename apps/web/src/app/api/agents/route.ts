@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { AGENT_LIST, agentVersion } from "@openlive/shared";
-import { widenedPath, evalCredProbe, readJsonHome, type CredState } from "@openlive/shared/node";
+import { widenedPath, evalCredProbe, readJsonHome, wslHostFor, type CredState } from "@openlive/shared/node";
 import { getSetting } from "@openlive/db";
 import { installDisplay } from "./agents";
 
@@ -58,10 +58,12 @@ export async function GET() {
     const paths = await Promise.all(a.bins.map(locate));
     const found = paths.findIndex(Boolean);
     const firstBin = found < 0 ? null : a.bins[found]!;
-    const installed = !!firstBin && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready");
+    // Not on the Windows PATH may still be in the WSL distro the user chose. Its footprint and sign-in live there, out of reach of the probes below.
+    const inWsl = !firstBin && !!(await wslHostFor(getSetting("wslDistro"), a.bins, a.adapter.command, () => false));
+    const installed = inWsl || (!!firstBin && (!a.installedProbe || (await evalCredProbe(a.installedProbe)) === "ready"));
     // Only probe credentials when actually installed — a leftover config file
     // from an old install shouldn't render as signed in.
-    const credState: CredState = installed ? await evalCredProbe(a.credProbe) : "unknown";
+    const credState: CredState = installed && !inWsl ? await evalCredProbe(a.credProbe) : "unknown";
     // CLI version, shown in the row.
     const version = installed && firstBin ? await binVersion(firstBin, paths[found]!) : undefined;
     return {

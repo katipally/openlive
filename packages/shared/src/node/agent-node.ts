@@ -9,6 +9,8 @@ import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import type { CredProbe } from "../agent-registry";
 
+export * from "./wsl";
+
 export function expandHome(p: string): string {
   return p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
 }

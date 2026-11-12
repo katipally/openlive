@@ -10,7 +10,7 @@ import {
   AGENT_REGISTRY, AgentStartError, agentLabel as labelFor, capRawJson, capToolContent, ClassedError, mergeToolCall, resolveAgentModel, startFailure, startReason, toolKindSchema,
   type MessageBlock, type ToolCallDelta, type ToolCallState, type ToolContent, type ToolKind, type ToolLocation,
 } from "@openlive/shared";
-import { commandOnPath, widenedPath } from "@openlive/shared/node";
+import { commandOnPath, toWslPath, widenedPath, wslEnv, wslHostFor, wslLaunch } from "@openlive/shared/node";
 import { layout, resolveHome } from "@openlive/shared/home";
 import type { Emit } from "../capabilities/types.js";
 import type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, ReplayMessage, TurnInput } from "./types.js";
@@ -117,8 +117,8 @@ export interface AcpOpts {
   onResumed?: (how: "none" | "resumed" | "loaded" | "fell_back") => void;
 }
 
-/** The registry's `toolless` launch, with Gemini's policy written where `--policy` can read it. */
-function toollessLaunch(id: AgentId): { args: string[]; env: Record<string, string> } {
+/** The registry's `toolless` launch, with Gemini's policy written where `--policy` can read it (from inside WSL when `wsl` is set). */
+function toollessLaunch(id: AgentId, wsl = false): { args: string[]; env: Record<string, string> } {
   const t = AGENT_REGISTRY[id].acp.toolless ?? {};
   const args = [...(t.args ?? [])];
   if (t.policyToml) {
@@ -126,8 +126,8 @@ function toollessLaunch(id: AgentId): { args: string[]; env: Record<string, stri
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `${id}-toolless-policy.toml`);
     writeFileSync(file, t.policyToml);
-    // Windows spawns through a shell, which splits an unquoted path at its spaces.
-    args.push("--policy", process.platform === "win32" ? `"${file}"` : file);
+    // Windows spawns through a shell, which splits an unquoted path at its spaces. WSL spawns without one.
+    args.push("--policy", wsl ? toWslPath(file) : process.platform === "win32" ? `"${file}"` : file);
   }
   return { args, env: t.env ?? {} };
 }
@@ -158,6 +158,7 @@ export class AcpAgent implements Agent {
   private modelConfigId: string | null = null; // the ACP config option id for model selection
   private legacyModels = false;  // models arrived as session state (`models`), set with session/set_model
   private hosted: McpServerWire[] = []; // the servers OpenLive hosts that this agent can actually reach
+  private wsl = false; // running inside WSL (the `wslDistro` setting)
   private bridge: PiBridge | null = null; // hosted servers handed to pi past its adapter
   private booleanIds = new Set<string>(); // config options set with a typed boolean, not a value id
   private caps: AgentCapabilities = {};
@@ -212,18 +213,24 @@ export class AcpAgent implements Agent {
     try { if (!statSync(cfg.cwd).isDirectory()) throw new Error("not a directory"); }
     catch { throw new ClassedError(`The project folder ${cfg.cwd} doesn't exist — pick a different one.`, "agent_no_folder"); }
     const isWin = process.platform === "win32";
-    const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
-    if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length) this.bridge = piBridge(http);
-    const toolless = this.opts.toolless ? toollessLaunch(this.id) : { args: [], env: {} };
     const path = widenedPath();
-    if (!commandOnPath(cfg.command, path)) throw startFailure(this.id, "not_installed", { command: cfg.command });
-    const child = spawn(cfg.command, [...cfg.args, ...toolless.args], {
+    // Windows only, and only when the user chose a distro: an agent whose CLI is not on the Windows PATH but is in that distro runs there.
+    const distro = await wslHostFor(getSetting("wslDistro"), AGENT_REGISTRY[this.id].bins, cfg.command, (b) => commandOnPath(b, path));
+    this.wsl = !!distro;
+    const http = (this.opts.mcpServers ?? []).filter((s): s is PiBridge["servers"][number] => "type" in s && s.type === "http");
+    // pi's launcher is a Windows .cmd, which pi inside WSL cannot run: there it goes without OpenLive's tools.
+    if (AGENT_REGISTRY[this.id].acp.mcpBridge === "piExtension" && http.length && !distro) this.bridge = piBridge(http);
+    const toolless = this.opts.toolless ? toollessLaunch(this.id, !!distro) : { args: [], env: {} };
+    if (!distro && !commandOnPath(cfg.command, path)) throw startFailure(this.id, "not_installed", { command: cfg.command });
+    const agentEnv = { ...AGENT_REGISTRY[this.id].acp.env, ...toolless.env };
+    const launch = distro ? wslLaunch(distro, cfg.command, [...cfg.args, ...toolless.args], cfg.cwd) : { command: cfg.command, args: [...cfg.args, ...toolless.args] };
+    const child = spawn(launch.command, launch.args, {
       cwd: cfg.cwd,
       // Windows: npx/npm/uvx/opencode are `.cmd`/`.ps1` shims that Node's spawn
       // refuses to exec without a shell (ENOENT) — so bind Claude Code/Codex/OpenCode
       // died on Windows. Run through a shell there. On POSIX we keep shell:false so
       // the acpCommand override can't be shell-interpreted (validated + no shell).
-      shell: isWin,
+      shell: isWin && !distro,
       env: {
         ...process.env,
         PATH: path,
@@ -236,6 +243,8 @@ export class AcpAgent implements Agent {
         ...(AGENT_REGISTRY[this.id].acp.env ?? {}),
         ...this.bridge?.env,
         ...toolless.env,
+        // wsl.exe passes on only the variables WSLENV names.
+        ...wslEnv(distro ? Object.keys(agentEnv) : []),
       },
       stdio: ["pipe", "pipe", "pipe"],
       // POSIX: own process group so dispose() can kill the WHOLE tree. The adapter is
@@ -277,7 +286,7 @@ export class AcpAgent implements Agent {
     this.conn = this.clientApp().connect(stream).agent;
 
     try {
-      await Promise.race([this.handshake(cfg.cwd), died]);
+      await Promise.race([this.handshake(cfg.cwd, distro ? toWslPath(cfg.cwd) : cfg.cwd), died]);
     } catch (e) {
       // The SDK's "ACP connection closed" (stdout ended) outruns the child's `exit`
       // event — give the exit a moment, and if the child is dead tell the actionable
@@ -304,7 +313,7 @@ export class AcpAgent implements Agent {
    *  image capability + the agent's models/modes. Resume is capability-gated; a
    *  failure falls back to a fresh session SILENTLY (see below — resume-fail is a
    *  common, benign case, and the original session stays on disk / in History). */
-  private async handshake(cwd: string): Promise<void> {
+  private async handshake(cwd: string, agentCwd: string): Promise<void> {
     const init = await this.conn!.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       // fs stays false by design (no editor = no unsaved buffers to serve), but
@@ -313,7 +322,8 @@ export class AcpAgent implements Agent {
       // kills the process tree.
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
-        terminal: AGENT_REGISTRY[this.id].acp.terminal,
+        // A WSL agent's folder is a Linux path these Windows-side terminals cannot start in, so it runs its own.
+        terminal: AGENT_REGISTRY[this.id].acp.terminal && !this.wsl,
         // Elicitations: login/OAuth URLs open the user's browser (narrated); form
         // requests render a proper modal. Both fully handled in clientHandler().
         elicitation: { url: {}, form: {} },
@@ -358,7 +368,7 @@ export class AcpAgent implements Agent {
     if (this.opts.resumeSessionId && canResume && !(this.opts.replay && canLoad)) {
       try {
         this.sessionId = this.opts.resumeSessionId;
-        this.reportMeta(await this.conn!.request(methods.agent.session.resume, { sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
+        this.reportMeta(await this.conn!.request(methods.agent.session.resume, { sessionId: this.opts.resumeSessionId, cwd: agentCwd, mcpServers, ...(meta ? { _meta: meta } : {}) }));
         resumed = true;
         how = "resumed";
         this.seedText = "";
@@ -378,7 +388,7 @@ export class AcpAgent implements Agent {
       this.sessionId = this.opts.resumeSessionId;
       this.replaying = true;
       try {
-        const r = await this.conn!.request(methods.agent.session.load, { sessionId: this.opts.resumeSessionId, cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
+        const r = await this.conn!.request(methods.agent.session.load, { sessionId: this.opts.resumeSessionId, cwd: agentCwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
         this.replaying = false;
         this.reportMeta(r);
         resumed = true;
@@ -405,7 +415,7 @@ export class AcpAgent implements Agent {
       }
     }
     if (!resumed) {
-      const r = await this.conn!.request(methods.agent.session.new, { cwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
+      const r = await this.conn!.request(methods.agent.session.new, { cwd: agentCwd, mcpServers, ...(meta ? { _meta: meta } : {}) });
       this.sessionId = r.sessionId;
       this.reportMeta(r);
     }

@@ -13,15 +13,15 @@ const FIXTURE = fileURLToPath(new URL("./fake-acp-agent.fixture.mjs", import.met
 vi.mock("@openlive/db", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   // The driver's own override hook runs the fixture in place of the real adapter.
-  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : k === "disabledToolGroups" ? adapter.off : undefined),
+  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : k === "disabledToolGroups" ? adapter.off : k === "wslDistro" ? adapter.wsl : undefined),
 }));
-const adapter = vi.hoisted(() => ({ command: undefined as string | undefined, off: undefined as string | undefined }));
+const adapter = vi.hoisted(() => ({ command: undefined as string | undefined, off: undefined as string | undefined, wsl: undefined as string | undefined }));
 
 const { AcpAgent, commandsFromAcp, isAdvertised, optionFromAcp, sessionsFromAcp } = await import("./acp-agent.ts");
 
 const cwd = mkdtempSync(join(tmpdir(), "acp-agent-test-"));
 const live: { dispose(): Promise<void> }[] = [];
-afterEach(async () => { adapter.command = undefined; adapter.off = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
+afterEach(async () => { adapter.command = undefined; adapter.off = undefined; adapter.wsl = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
 
 function agent(opts: Record<string, unknown> = {}, id: "codex" | "pi" = "codex") {
   const metas: AgentMeta[] = [];
@@ -122,6 +122,13 @@ test("resume uses session/resume without a replay, and falls back to load then n
   // Resume refused: load takes over (and replays, harmlessly into a full chat).
   await agent({ resumeSessionId: "gone", onSession, onReplay }).a.start(new AbortController().signal);
   assert.deepEqual(sessions, ["s1", "s1", "gone"]);
+}, 20_000);
+
+test("the WSL setting changes nothing off Windows: the agent starts where it always did", async () => {
+  adapter.wsl = "Ubuntu";
+  const { a } = agent();
+  await a.start(new AbortController().signal);
+  assert.equal((a as unknown as { wsl: boolean }).wsl, false);
 }, 20_000);
 
 test("how a session came up is reported: none, resumed, loaded, or fell back to a fresh one", async () => {

@@ -21,6 +21,8 @@ export interface AppSettings {
   defaultAgent?: string;
   defaultAgentModel?: string;
   defaultAgentEffort?: string;
+  /** Windows: the WSL2 distro coding agents run in when their CLI is installed there instead; unset is off. */
+  wslDistro?: string;
   /** How long OpenLive's own chats are kept (HistoryKeep); unset is forever. */
   chatHistory?: string;
 }
@@ -73,6 +75,8 @@ export const api = {
   deleteExternalSession: (agentId: string, id: string) =>
     fetch("/api/history/session", { method: "DELETE", headers: JSON_TYPE, body: JSON.stringify({ agentId, id }), keepalive: true }).then(j),
   agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
+  /** `distros` is empty off Windows and where WSL is not installed. */
+  wslDistros: () => fetch("/api/agents/wsl").then(j<{ distros: string[] }>),
   /** Starts the agent once to ask what it can be set to, so this is seconds. */
   agentModels: (agentId: string) =>
     fetch(`/api/flow/agent-models?agent=${encodeURIComponent(agentId)}`)
