@@ -335,7 +335,7 @@ export function migrateHome(home, { from, userData, env = process.env, platform 
       if (fs.existsSync(P.migration)) return null;
       if (src && fs.existsSync(src)) {
         for (const [name, to] of DATA_MOVES) move(path.join(src, name), path.join(P[to], name), report);
-        for (const name of fs.readdirSync(src).filter((n) => n.startsWith("addressee-"))) move(path.join(src, name), path.join(P.data, name), report);
+        for (const name of fs.readdirSync(/*turbopackIgnore: true*/ src).filter((n) => n.startsWith("addressee-"))) move(path.join(src, name), path.join(P.data, name), report);
         splitSettings(path.join(src, "settings.json"), P, env, report);
         splitConnectors(path.join(src, "connectors.json"), P, report);
       }

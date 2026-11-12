@@ -8,7 +8,8 @@ directories:
 
 # Where `--publish` uploads and where auto-update metadata (latest.yml /
 # latest-mac.yml) points. electron-builder creates a *draft* GitHub Release named
-# v<version> and attaches the installers; you publish it from the Releases page.
+# v<version> and attaches the installers; release.yml publishes it once every
+# platform has uploaded.
 publish:
   provider: github
   owner: katipally

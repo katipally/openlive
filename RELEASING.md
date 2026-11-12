@@ -16,6 +16,10 @@ Mac signing runs when these repo secrets are set:
 `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
 `APPLE_TEAM_ID`. Details in [`apps/desktop/README.md`](apps/desktop/README.md).
 
+Known limitation: the Windows installer is unsigned (the repo has no code-signing
+certificate), so users see a SmartScreen warning. The mac `.dmg` is not signed
+itself; the app inside it is signed and notarized.
+
 ## Auto-update
 
 Only builds that `release.yml` marks run the updater. The step "Mark as a release
@@ -50,7 +54,7 @@ the app ships them.
   `apps/desktop/telemetry-config.json` and the step log says the build sends no
   telemetry. With all three set but unusable (an endpoint that is not `https` or
   loopback `http`, an origin that is not a URL, a client ID that is not a UUID) the
-  step fails and the release stops. It never prints the values.
+  step fails and the release stops. The script never prints the values; they are public, and the release log shows them in the step env.
 - **Local builds never report.** A local build has none of the variables, so it stamps
   nothing (and removes a stale file from an earlier stamp). `pnpm desktop:dev` never
   reports either: only a packaged app with a stamped file does. Do not export the
