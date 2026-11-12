@@ -197,6 +197,8 @@ contextBridge.exposeInMainWorld("openlive", {
     onArmed: (cb) => listen("openlive:flow-armed", (v) => cb(!!v)),
     // Single listener each, same replace-on-subscribe rule as the handlers above.
     onEffect: (cb) => listen("openlive:flow-effect", cb),
+    // The owner page has subscribed above, so main may send it a command-line toggle.
+    ownerReady: () => ipcRenderer.send("openlive:flow-owner-ready"),
     onSecureInput: (cb) => listen("openlive:flow-secure-input", cb),
   },
 });

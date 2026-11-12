@@ -412,8 +412,8 @@ One microphone, one engine, one orb, so the two take turns:
   takes the `input` group (`sudo usermod -aG input $USER`, then sign out and
   back in); until then Settings says so, and a call's **Hold to talk** button
   works without it. Without the group, bind a desktop shortcut to
-  `openlive --toggle-dictate` or `openlive --toggle-flow` instead: each is that
-  key's double tap (see [Linux without `/dev/input`](#linux-without-devinput)).
+  `<AppImage> --toggle-dictate` or `<AppImage> --toggle-flow` instead: each is
+  that key's double tap (see [Linux without `/dev/input`](#linux-without-devinput)).
   Right Alt is often AltGr (ISO Level 3). Edit by voice reads
   the selection over AT-SPI, which Wayland apps rarely share, so there your
   words are typed. Key presses (spoken commands) go through `xdotool` on X11
@@ -423,23 +423,28 @@ One microphone, one engine, one orb, so the two take turns:
 ### Linux without `/dev/input`
 
 Without the `input` group the key listener cannot start, and the keys do
-nothing. A shortcut bound in your desktop can run OpenLive with a flag instead:
+nothing. A shortcut bound in your desktop can run OpenLive with a flag instead.
 
-- `openlive --toggle-dictate` is Dictate's double tap: starts it, and again stops it.
-- `openlive --toggle-flow` is Flow's, and follows Flow's off switch.
+`<AppImage>` is the path to the OpenLive AppImage you run (the card on the
+Flow and Dictate homes shows it filled in, quoted). The AppImage is the only
+Linux build, so there is no `openlive` command on your PATH.
+
+- `<AppImage> --toggle-dictate` is Dictate's double tap: starts it, and again
+  stops it. It does nothing while Dictate is off.
+- `<AppImage> --toggle-flow` is Flow's, and follows Flow's off switch.
 
 The running app takes the command and the new process exits at once. Bind it
 wherever your desktop binds keys:
 
-- **Sway**: `bindsym $mod+d exec openlive --toggle-dictate`
-- **Hyprland**: `bind = SUPER, D, exec, openlive --toggle-dictate`
-- **GNOME**: Settings > Keyboard > Custom Shortcuts, command `openlive --toggle-dictate`
-- **KDE**: System Settings > Shortcuts > Add Command, `openlive --toggle-dictate`
+- **Sway**: `bindsym $mod+d exec '<AppImage>' --toggle-dictate`
+- **Hyprland**: `bind = SUPER, D, exec, '<AppImage>' --toggle-dictate`
+- **GNOME**: Settings > Keyboard > Custom Shortcuts, command `'<AppImage>' --toggle-dictate`
+- **KDE**: System Settings > Shortcuts > Add Command, `'<AppImage>' --toggle-dictate`
 
-For the AppImage, give the path to the file instead of `openlive`. The shortcut
-only reaches an app that is already running and ready; launching OpenLive with
-the flag starts it to the tray and does nothing else. Push to talk needs the
-key listener and has no command.
+Quote the path if it has spaces. The shortcut only reaches an app that is
+already running and ready; launching OpenLive with the flag opens its window
+until Welcome is done, and after that starts it to the tray and does nothing
+else. Push to talk needs the key listener and has no command.
 
 ## Architecture (for developers)
 

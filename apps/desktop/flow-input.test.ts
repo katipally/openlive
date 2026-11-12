@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 
 /** flow-input.cjs against stand-ins for electron and for the ol-input addon. */
 const track = vi.fn();
-function load(ownField?: () => unknown, { packaged = false, access = null as string | null } = {}) {
+function load(ownField?: () => unknown, { packaged = false, access = null as string | null, delivered = true } = {}) {
   const seen = { access };
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const stub = (path: string, exports: unknown) => {
@@ -30,7 +30,7 @@ function load(ownField?: () => unknown, { packaged = false, access = null as str
   const flowInput = require(mod);
   const effects: unknown[] = [];
   const telemetry = { reportOnboardingStep: vi.fn(), track };
-  flowInput.install((e: unknown) => effects.push(e), () => null, telemetry, ownField);
+  flowInput.install((e: unknown) => { effects.push(e); return delivered; }, () => null, telemetry, ownField);
   const call = (name: string, ...args: unknown[]) => handlers.get(name)!({}, ...args);
   return { flowInput, addon, call, handlers, effects, telemetry, seen };
 }
@@ -356,14 +356,41 @@ describe("the command-line toggle", () => {
 
   it("sends the double tap the key would, with no key listener running", () => {
     const { flowInput, effects } = load(undefined, { access: "not_in_group" });
+    flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: null });
     flowInput.triggerFromCli("dictate");
     flowInput.triggerFromCli("flow");
     expect(effects).toEqual([{ kind: "double_tap", bindingId: "dictate" }, { kind: "double_tap", bindingId: "flow" }]);
     expect(flowInput.usedCli()).toBe(true);
   });
 
+  it("leaves Dictate alone while it has no key, as the key itself would", () => {
+    const { flowInput, effects } = load();
+    flowInput.triggerFromCli("dictate");
+    flowInput.setBindings({ flow: "ctrl", dictate: null, ptt: null });
+    flowInput.triggerFromCli("dictate");
+    expect(effects).toEqual([]);
+    expect(flowInput.usedCli()).toBe(false);
+    flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: null });
+    flowInput.triggerFromCli("dictate");
+    expect(effects).toEqual([{ kind: "double_tap", bindingId: "dictate" }]);
+  });
+
+  it("counts as used only once the effect was delivered, and not after the hook starts", async () => {
+    const lost = load(undefined, { delivered: false });
+    lost.flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: null });
+    lost.flowInput.triggerFromCli("dictate");
+    expect(lost.flowInput.usedCli()).toBe(false);
+    const { flowInput, call } = load();
+    flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: null });
+    flowInput.triggerFromCli("dictate");
+    expect(flowInput.usedCli()).toBe(true);
+    await call("openlive:flow-init");
+    expect(flowInput.usedCli()).toBe(false);
+  });
+
   it("leaves Flow alone while its off switch is off, and Dictate working", () => {
     const { flowInput, effects } = load();
+    flowInput.setBindings({ flow: "ctrl", dictate: "option", ptt: null });
     flowInput.setArmed(false);
     flowInput.triggerFromCli("flow");
     expect(effects).toEqual([]);

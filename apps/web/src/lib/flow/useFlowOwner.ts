@@ -1016,6 +1016,7 @@ export function useFlowOwner(): void {
     // to know. Opening one of Flow and Dictate closes the other. Push to talk
     // arrives here only while one is open (main sends it to a call otherwise).
     const offEffect = api.onEffect((e) => talk.effect(e));
+    api.ownerReady();
     const offSecure = api.onSecureInput(() => void refreshHealth());
     // Flow's off switch hides the orb from the main process, so the session
     // behind it has to close here too or the microphone stays open.

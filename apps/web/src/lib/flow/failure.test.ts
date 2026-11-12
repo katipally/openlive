@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addonProblem, deriveFailure, inputFix, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
+import { addonProblem, cliToggle, cliToggleExamples, deriveFailure, inputFix, forOrb, keyListenerNote, sessionModelsOffer, modelsDownloading, modelsFailed, turnFailure, type FlowHealth } from "./failure";
 import { IDLE_FLOW } from "./types";
 
 const HEALTHY: FlowHealth = {
@@ -62,11 +62,26 @@ describe("deriveFailure", () => {
     expect(deriveFailure({ ...HEALTHY, platform: "win32", hookError: "tap died" })?.detail).toBe("tap died");
   });
 
-  it("drops the key listener's card once a shortcut drives Flow, and keeps every other failure", () => {
+  it("drops the key listener's card once a shortcut drives Flow on Linux without input access, and keeps every other failure", () => {
     const stopped = { ...HEALTHY, platform: "linux", hookError: "permission denied", inputAccess: "not_in_group" as const };
     expect(deriveFailure({ ...stopped, cliTrigger: true })).toBeNull();
     expect(deriveFailure({ ...stopped, cliTrigger: true, brainReady: false })?.code).toBe("no_provider");
     expect(deriveFailure({ ...stopped, cliTrigger: false })?.code).toBe("hook_failed");
+  });
+
+  it("keeps the key listener's card where a shortcut does not explain it", () => {
+    const died = { ...HEALTHY, hookError: "tap died", cliTrigger: true };
+    expect(deriveFailure({ ...died, platform: "win32" })?.code).toBe("hook_failed");
+    expect(deriveFailure({ ...died, platform: "linux", inputAccess: "ok" })?.code).toBe("hook_failed");
+    expect(deriveFailure({ ...died, platform: "linux", inputAccess: null })?.code).toBe("hook_failed");
+  });
+
+  it("names the app's own path in the shortcut commands, quoted when it needs it, and a placeholder without one", () => {
+    expect(cliToggle("dictate", "/opt/OpenLive.AppImage")).toBe("/opt/OpenLive.AppImage --toggle-dictate");
+    expect(cliToggle("flow", "/home/a b/it's.AppImage")).toBe("'/home/a b/it'\\''s.AppImage' --toggle-flow");
+    expect(cliToggle("dictate")).toContain("--toggle-dictate");
+    expect(cliToggle("dictate")).not.toMatch(/^openlive/);
+    expect(cliToggleExamples("/opt/O.AppImage").map((e) => e.command)).toEqual(["bindsym $mod+d exec /opt/O.AppImage --toggle-dictate", "/opt/O.AppImage --toggle-dictate"]);
   });
 
   it("says the exact fix for what /dev/input showed, and keeps the generic one when it is unknown", () => {
