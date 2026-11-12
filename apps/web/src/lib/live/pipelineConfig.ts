@@ -74,6 +74,7 @@ export const CURATED_LANGUAGES: { code: LanguageCode; name: string; native: stri
   { code: "zh", name: "Chinese (Mandarin)", native: "中文" },
   { code: "ja", name: "Japanese", native: "日本語" },
   { code: "ko", name: "Korean", native: "한국어" },
+  { code: "uk", name: "Ukrainian", native: "Українська" },
 ];
 
 // Defaults are tuned for modest devices; the bigger models are opt-in for machines
@@ -200,12 +201,12 @@ const PIPER_IDS = "en_US-lessac-low-int8 en_US-lessac-medium-int8 en_US-lessac-h
   + "fr_FR-upmc-medium-int8 de_DE-thorsten-low-int8 de_DE-thorsten-medium-int8 de_DE-thorsten-high-int8 de_DE-kerstin-low-int8 "
   + "de_DE-ramona-low-int8 it_IT-paola-medium-int8 it_IT-riccardo-x_low-int8 pt_BR-faber-medium-int8 pt_BR-cadu-medium-int8 "
   + "pt_PT-tugao-medium-int8 hi_IN-pratham-medium-int8 hi_IN-priyamvada-medium-int8 hi_IN-rohan-medium-int8 "
-  + "zh_CN-chaowen-medium-int8 zh_CN-xiao_ya-medium-int8 zh_CN-huayan-medium";
+  + "zh_CN-chaowen-medium-int8 zh_CN-xiao_ya-medium-int8 zh_CN-huayan-medium uk_UA-lada-x_low-int8";
 // Voices whose own data is CC0, CC BY or BSD-style, whatever voice they were
 // fine-tuned from; the rest are research-only, non-commercial, share-alike,
 // AGPL or unknown (licenses in native-models.ts PIPER).
 const PIPER_OPEN = new Set(["en_US-libritts_r", "es_ES-davefx", "es_ES-sharvard", "fr_FR-siwis", "de_DE-thorsten", "de_DE-kerstin",
-  "de_DE-ramona", "it_IT-riccardo", "pt_BR-faber", "pt_BR-cadu", "pt_PT-tugao", "zh_CN-chaowen"]);
+  "de_DE-ramona", "it_IT-riccardo", "pt_BR-faber", "pt_BR-cadu", "pt_PT-tugao", "zh_CN-chaowen", "uk_UA-lada"]);
 const KOKORO_MULTI = langs("en es fr hi it pt zh");
 
 export const STT_FAMILIES: EngineFamilyInfo[] = [
@@ -228,7 +229,7 @@ export const STT_FAMILIES: EngineFamilyInfo[] = [
       { id: "parakeet-110m-int8", languages: EN },
       { id: "parakeet-0.6b-v2-int8", languages: EN, legacy: "parakeet" },
       { id: "parakeet-0.6b-v2-fp16", languages: EN },
-      { id: "parakeet-0.6b-v3-int8", languages: langs("en es fr de it pt") },
+      { id: "parakeet-0.6b-v3-int8", languages: langs("en es fr de it pt uk") },
     ],
     defaultVariant: "parakeet-0.6b-v2-int8",
   },
@@ -245,7 +246,7 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
   // Verified 2026-09-24 against huggingface.co/Supertone/supertonic-3: 31
   // languages, Chinese not among them; the language rides as a tag (supertonic.ts).
   {
-    id: "supertonic", stage: "tts", name: "Supertonic", native: false, variants: one("supertonic", langs("en es fr de it pt hi ja ko")),
+    id: "supertonic", stage: "tts", name: "Supertonic", native: false, variants: one("supertonic", langs("en es fr de it pt hi ja ko uk")),
     note: "OpenRAIL-M, with use restrictions", licenseUrl: "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
     defaultVariant: "supertonic", voices: SUPERTONIC_VOICES, defaultVoice: "M1", onAgent: true,
   },
@@ -281,7 +282,7 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
     // Each language's pick; a restricted one (it, hi) waits for the user's OK.
     byLanguage: {
       es: "piper-es_ES-davefx-medium-int8", fr: "piper-fr_FR-siwis-medium-int8", de: "piper-de_DE-thorsten-medium-int8",
-      it: "piper-it_IT-paola-medium-int8", pt: "piper-pt_BR-faber-medium-int8", hi: "piper-hi_IN-rohan-medium-int8", zh: "piper-zh_CN-chaowen-medium-int8",
+      it: "piper-it_IT-paola-medium-int8", pt: "piper-pt_BR-faber-medium-int8", hi: "piper-hi_IN-rohan-medium-int8", zh: "piper-zh_CN-chaowen-medium-int8", uk: "piper-uk_UA-lada-x_low-int8",
     },
   },
   {
@@ -352,11 +353,35 @@ export const LANGUAGE_DEFAULTS: Record<LanguageCode, Record<Stage, string>> = {
   zh: { stt: "nemotron-3.5-160ms-int8", tts: "kokoro-multi-v1_0" },
   ja: { stt: "nemotron-3.5-160ms-int8", tts: "supertonic" },
   ko: { stt: "nemotron-3.5-160ms-int8", tts: "supertonic" },
+  uk: { stt: "parakeet-0.6b-v3-int8", tts: "supertonic" },
 };
 
 /** The in-browser voice that stands in for a failed native or cloned one in
  *  `lang`, or null when none speaks it. Pure. */
 export const browserTtsFallback = (lang: LanguageCode): string | null => ["kokoro", "supertonic"].find((id) => speaks(id, lang)) ?? null;
+
+// The light native engines a machine without WebGPU runs instead of the
+// in-browser models (WASM, single-threaded: ~10x slower than the agent's
+// sherpa-onnx, #18). Only each family's own pick: Piper's high tier took 42 s
+// to a first sentence where medium took 2.5 s, and the 0.6B models are not
+// light. Whisper stands in where none speaks the language.
+const LIGHT_NATIVE: Record<Stage, string[]> = { stt: ["moonshine", "canary"], tts: ["piper"] };
+
+/** `c` with each stage moved to a light native engine, for a machine without
+ *  WebGPU whose agent (`installed`, null when unreachable) has one for the
+ *  language downloaded and permitted. Anything else comes back as `c` itself,
+ *  so the caller can tell nothing changed. Pure, O(families x variants). */
+export function nativeFirst(c: PipelineConfig, m: { webgpu: boolean; installed: ReadonlySet<string> | null }): PipelineConfig {
+  const { installed } = m;
+  if (m.webgpu || !installed) return c;
+  let out = c;
+  for (const stage of ["stt", "tts"] as const) {
+    const pick = LIGHT_NATIVE[stage].map((id) => defaultVariant(familyInfo(stage, id)!, c.language, c.allowRestricted))
+      .find((id) => speaks(id, c.language) && permitted(c, id) && installed.has(id));
+    if (pick) out = chooseVariant(out, stage, pick);
+  }
+  return out;
+}
 
 /** Make `variant` the stage's engine, remembering it for its family. A voice
  *  that the new engine does not have gives way to its default (a native engine
@@ -573,8 +598,9 @@ export function loadPipelineConfig(): PipelineConfig {
 // The Voice and Speech engine tabs edit this config from several places (speed, engine,
 // cloned voice). Each holds a copy in state; without a change signal one saving
 // its stale copy would silently undo another's edit.
-const listeners = new Set<(c: PipelineConfig) => void>();
-export function onPipelineConfig(fn: (c: PipelineConfig) => void): () => void {
+// `settle` marks a write the person never made (the slow-machine seed).
+const listeners = new Set<(c: PipelineConfig, settle?: boolean) => void>();
+export function onPipelineConfig(fn: (c: PipelineConfig, settle?: boolean) => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
@@ -584,4 +610,16 @@ export function savePipelineConfig(c: PipelineConfig): PipelineConfig {
   useVoicePrefs.setState({ pipeline: clamped as unknown as Record<string, unknown> });
   for (const fn of listeners) fn(clamped);
   return clamped;
+}
+
+/** Saves only `c`'s engines for a person who picked none, so every other field
+ *  keeps following the defaults until they change it. Listeners hear a settle. */
+export function seedPipelineEngines(c: PipelineConfig): void {
+  const { stt, tts } = c;
+  useVoicePrefs.setState({ pipeline: {
+    stt: { family: stt.family, variant: stt.variant, variants: stt.variants },
+    tts: { family: tts.family, variant: tts.variant, variants: tts.variants, voice: tts.voice },
+  } });
+  const merged = loadPipelineConfig();
+  for (const fn of listeners) fn(merged, true);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { engineName, languageLabel, languagesNote, licenseTag, missingEngines, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
+import { engineName, languageLabel, languagesNote, licenseTag, missingEngines, slowHere, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
 import { TTS_FAMILIES, pickCompatible, chooseVariant, DEFAULT_PIPELINE_CONFIG } from "./pipelineConfig";
 
 describe("language names", () => {
@@ -12,7 +12,7 @@ describe("language names", () => {
   test("a greyed engine names the curated languages it speaks, in the picker's order", () => {
     expect(languagesNote(["en"])).toBe("English only");
     expect(languagesNote(["en", "es", "de", "fr"])).toBe("English, Spanish, French, German");
-    expect(languagesNote(["nl", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "ru"])).toBe("All 10 languages");
+    expect(languagesNote(["nl", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk", "ru"])).toBe("All 11 languages");
   });
 });
 
@@ -34,9 +34,9 @@ test("restrictive and unknown licenses are flagged, the rest pass through", () =
 
 describe("Model menu groups", () => {
   const piper = TTS_FAMILIES.find((f) => f.id === "piper")!.variants;
-  test("Piper's 32 voices group by language, the session's first, none lost", () => {
+  test("Piper's 33 voices group by language, the session's first, none lost", () => {
     const groups = variantGroups(piper, "de");
-    expect(groups.map((g) => g.lang)).toEqual(["de", "en", "es", "fr", "it", "pt", "hi", "zh"]);
+    expect(groups.map((g) => g.lang)).toEqual(["de", "en", "es", "fr", "it", "pt", "hi", "zh", "uk"]);
     expect(groups[0]!.variants.every((v) => v.id.startsWith("piper-de_DE"))).toBe(true);
     expect(groups.flatMap((g) => g.variants)).toHaveLength(piper.length);
   });
@@ -106,4 +106,25 @@ test("missingEngines: a selected native engine the agent has not downloaded, wit
     { stage: "tts", id: "matcha-en-ljspeech", standIn: null },
   ]);
   expect(missingEngines(DEFAULT_PIPELINE_CONFIG, catalog(false))).toEqual([]); // browser engines download in the browser
+});
+
+describe("slowHere", () => {
+  const here = { inBrowser: true, webgpu: true };
+  test("a measurement decides alone: 1 or more is slower than real time", () => {
+    expect(slowHere("piper", { ...here, rtf: 0.4, tier: "low" })).toBeUndefined();
+    expect(slowHere("clone", { ...here, rtf: 0.4, tier: "low" })).toBeUndefined();
+    expect(slowHere("kokoro-native", { ...here, rtf: 1 })).toBe("Slower than real time here (RTF 1)");
+    expect(slowHere("kokoro-native", { ...here, rtf: 2.4 })).toBe("Slower than real time here (RTF 2.4)");
+  });
+  test("without one, a cloned voice is marked on a low tier machine only", () => {
+    expect(slowHere("clone", { ...here, tier: "low" })).toBe("Too slow for live speech on this computer");
+    expect(slowHere("clone", { ...here, tier: "mid" })).toBeUndefined();
+    expect(slowHere("clone", here)).toBeUndefined();
+  });
+  test("without one, Supertonic is marked in a browser without WebGPU only", () => {
+    expect(slowHere("supertonic", { inBrowser: true, webgpu: false })).toBe("Slow without WebGPU");
+    expect(slowHere("supertonic", { inBrowser: true, webgpu: true })).toBeUndefined();
+    expect(slowHere("supertonic", { inBrowser: false, webgpu: false })).toBeUndefined();
+    expect(slowHere("kokoro", { inBrowser: true, webgpu: false })).toBeUndefined();
+  });
 });

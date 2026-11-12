@@ -8,7 +8,7 @@ import { Button, Keycaps, ListGroup, ListRow, Notice, Segmented, Select, type Se
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { useFlowCapabilities } from "@/lib/flow/useCapabilities";
 import { flowBridge, valueOr } from "@/lib/flow/bridge";
-import { keyListenerNote } from "@/lib/flow/failure";
+import { cliToggle, keyListenerNote } from "@/lib/flow/failure";
 import { bindingOf, hotkeyKeys, keyIssue, keyName, KEY_OWNER, mayBeAltGr, narrowNote, pickKey, silenceLabel, type Talk, type TalkKey } from "@/lib/dictate/hotkey";
 import { desktopPlatform, isDesktop } from "@/lib/platform";
 import { QueryState, StatusDot } from "./common";
@@ -78,7 +78,7 @@ function listenerNote(caps: ReturnType<typeof useFlowCapabilities>["caps"]): str
   const note = keyListenerNote(caps, "shared");
   if (!note) return "";
   const linux = caps?.hookError && desktopPlatform === "linux"
-    ? " On Linux the keys need the input group: run sudo usermod -aG input $USER, then sign out and back in." : "";
+    ? ` On Linux the keys need the input group: run sudo usermod -aG input $USER, then sign out and back in, or bind a desktop shortcut to ${cliToggle("dictate", caps.launchPath)}.` : "";
   return `${note}${linux} In a call, the Hold to talk button works without it.`;
 }
 

@@ -11,13 +11,15 @@ export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerato
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      if (buffer.length > MAX_SSE_LINE) throw new Error("SSE line exceeded the size limit")
+      let start = 0
       let idx: number
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx).replace(/\r$/, "")
-        buffer = buffer.slice(idx + 1)
+      while ((idx = buffer.indexOf("\n", start)) >= 0) {
+        const line = buffer.slice(start, idx).replace(/\r$/, "")
+        start = idx + 1
         if (line) yield line
       }
+      buffer = buffer.slice(start)
+      if (buffer.length > MAX_SSE_LINE) throw new Error("SSE line exceeded the size limit")
     }
     const tail = buffer.trim()
     if (tail) yield tail

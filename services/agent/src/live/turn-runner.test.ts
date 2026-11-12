@@ -56,6 +56,7 @@ test("the call's prompt gains one language line outside English, and stays byte-
   expect(withLanguage("PROMPT")).toBe("PROMPT");
   expect(withLanguage("PROMPT", "en")).toBe("PROMPT");
   expect(withLanguage("PROMPT", "ko")).toBe("PROMPT\n\n---\nAlways reply in Korean.");
+  expect(withLanguage("PROMPT", "uk")).toBe("PROMPT\n\n---\nAlways reply in Ukrainian.");
 });
 
 test("a turn that spends its tool budget still ends in a spoken reply, with every call answered", async () => {

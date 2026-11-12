@@ -148,7 +148,7 @@ export function FlowHome({ sessionId, onOpen, caps, onRetry }: {
           </ChipButton>
         </div>
         {hookError && (inputFix(caps?.inputAccess)
-          ? <InputAccessFix access={caps?.inputAccess} onRetry={onRetry} />
+          ? <InputAccessFix access={caps?.inputAccess} launchPath={caps?.launchPath} onRetry={onRetry} />
           : <p className="max-w-full break-words text-caption text-destructive-text">{hookError}</p>)}
         <div className="flex w-full flex-col gap-3">
           <BrainSetup config={config} save={save} />

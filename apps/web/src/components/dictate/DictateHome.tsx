@@ -118,7 +118,7 @@ function Status({ caps, refresh }: { caps: FlowCapabilities | null; refresh: () 
   const note = keyListenerNote(caps, "dictate");
   const missing = missingGrants(caps);
   if (missing.length) return <GrantPills mode="dictate" missing={missing} refresh={refresh} />;
-  if (caps.hookError && inputFix(caps.inputAccess)) return <InputAccessFix access={caps.inputAccess} onRetry={refresh} />;
+  if (caps.hookError && inputFix(caps.inputAccess)) return <InputAccessFix access={caps.inputAccess} launchPath={caps.launchPath} onRetry={refresh} />;
   if (note) return <StatusDot tone={caps.hookError ? "danger" : "arc"}>{note}</StatusDot>;
   return <StatusDot tone="success">Ready</StatusDot>;
 }

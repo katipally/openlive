@@ -22,6 +22,8 @@ export interface FlowHealth {
   addonError: string | null;
   /** Linux only: what reading /dev/input showed before the listener was armed. */
   inputAccess?: InputAccess | null;
+  /** A shortcut has driven Flow (capabilities.cliTrigger): on Linux with no input access, a dead key listener is not what stops it. */
+  cliTrigger?: boolean;
   /** An installed app rather than a dev checkout: decides how the addon is fixed. */
   packaged: boolean;
   /** A provider with a usable key resolved. */
@@ -42,6 +44,18 @@ export type InputAccess = "ok" | "not_in_group" | "needs_relogin" | "no_devices"
 
 export const INPUT_GROUP_COMMAND = "sudo usermod -aG input $USER";
 
+const shellQuoted = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+
+/** What a desktop shortcut runs to toggle `mode`: the app's own path (an AppImage is not on PATH), quoted. */
+export const cliToggle = (mode: "dictate" | "flow", launchPath?: string | null) =>
+  `${launchPath ? shellQuoted(launchPath) : "<path to the OpenLive AppImage>"} --toggle-${mode}`;
+
+/** The way round the key listener: a shortcut bound in the desktop that runs the app with a flag. */
+export const cliToggleExamples = (launchPath?: string | null) => [
+  { desktop: "Sway or Hyprland", command: `bindsym $mod+d exec ${cliToggle("dictate", launchPath)}` },
+  { desktop: "GNOME or KDE shortcut", command: cliToggle("dictate", launchPath) },
+];
+
 const INPUT_FIXES: Partial<Record<InputAccess, { title: string; detail: string; command?: string }>> = {
   not_in_group: { title: "Flow can't read your keyboard", detail: "Linux keeps keyboards behind the input group. Add yourself to it, then sign out and back in.", command: INPUT_GROUP_COMMAND },
   needs_relogin: { title: "Sign out and back in", detail: "You're in the input group, but this login session started before that. Sign out and back in, then check again." },
@@ -60,7 +74,9 @@ const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes th
  */
 export function deriveFailure(h: FlowHealth): FlowFailure | null {
   if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged, "flow"), actionLabel: "Try again" };
-  if (h.hookError) {
+  // Without input access the keys cannot work, so a shortcut that has driven Flow is the way it is used.
+  const shortcutDriven = h.cliTrigger && h.platform === "linux" && !!h.inputAccess && h.inputAccess !== "ok";
+  if (h.hookError && !shortcutDriven) {
     // Linux reads keys from /dev/input on X11 and Wayland alike, which takes the input group.
     const fix = h.platform === "linux" ? inputFix(h.inputAccess) : null;
     if (fix) return { code: "hook_failed", title: fix.title, detail: fix.command ? `${fix.detail} Run \`${fix.command}\`.` : fix.detail, actionLabel: "Try again" };

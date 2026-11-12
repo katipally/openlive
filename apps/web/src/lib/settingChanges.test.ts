@@ -4,10 +4,11 @@ import { DEFAULT_FLOW_CONFIG, type FlowConfig } from "@openlive/flow-store";
 const ui = vi.hoisted(() => ({ settingsOpen: false, liveOpen: false, mode: "chat" }));
 vi.mock("./uiStore", () => ({ useUi: { getState: () => ui } }));
 
-import { DEFAULT_PIPELINE_CONFIG } from "./live/pipelineConfig";
+import { chooseVariant, DEFAULT_PIPELINE_CONFIG, loadPipelineConfig, savePipelineConfig, seedPipelineEngines } from "./live/pipelineConfig";
+import { useVoicePrefs } from "./prefs";
 import {
   flowChanges, flowConfigChanged, flowOnboardingOpen, pipelineChanges, providerKeyChanged, reportSetting,
-  savedDefaultModel, seedServerSettings, serverChanges, serverSettingsChanged, settingSurface, SETTING_DEBOUNCE_MS,
+  savedDefaultModel, seedServerSettings, serverChanges, serverSettingsChanged, settingSurface, SETTING_DEBOUNCE_MS, watchPipelineConfig,
 } from "./settingChanges";
 
 const flow = (edit: (c: FlowConfig) => void): FlowConfig => {
@@ -298,6 +299,19 @@ describe("the reporter", () => {
     vi.advanceTimersByTime(SETTING_DEBOUNCE_MS);
     expect(track).toHaveBeenCalledWith("onboarding_step", { step: "flow_consent_granted" });
     expect(track).toHaveBeenCalledWith("setting_changed", { setting: "flow_consent", value: "on", from: "other" });
+  });
+
+  it("does not report the slow-machine engine seed, nor count it against the person's next change", () => {
+    const off = watchPipelineConfig();
+    try {
+      seedPipelineEngines(chooseVariant(chooseVariant(DEFAULT_PIPELINE_CONFIG, "stt", "moonshine-base-en-int8"), "tts", "piper-en_US-libritts_r-medium-int8"));
+      vi.advanceTimersByTime(SETTING_DEBOUNCE_MS);
+      expect(track).not.toHaveBeenCalled();
+      savePipelineConfig({ ...loadPipelineConfig(), sideTalk: "shadow" });
+      vi.advanceTimersByTime(SETTING_DEBOUNCE_MS);
+      expect(track).toHaveBeenCalledOnce();
+      expect(track).toHaveBeenCalledWith("setting_changed", expect.objectContaining({ setting: "side_talk" }));
+    } finally { off(); useVoicePrefs.setState({ pipeline: null }); }
   });
 
   it("reports a provider key by provider only, and marks the first one saved", () => {

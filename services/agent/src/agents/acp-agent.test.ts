@@ -2,7 +2,7 @@
 // slash commands, boolean config options, session/list paging and session/resume
 // with its fallback. Plus the pure mappers they rest on.
 import assert from "node:assert";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,15 +13,26 @@ const FIXTURE = fileURLToPath(new URL("./fake-acp-agent.fixture.mjs", import.met
 vi.mock("@openlive/db", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   // The driver's own override hook runs the fixture in place of the real adapter.
-  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : k === "disabledToolGroups" ? adapter.off : undefined),
+  getSetting: (k: string) => (k === "acpCommand:codex" || k === "acpCommand:pi" ? adapter.command ?? `${process.execPath} ${FIXTURE}` : k === "disabledToolGroups" ? adapter.off : k === "wslDistro" ? adapter.wsl : undefined),
 }));
-const adapter = vi.hoisted(() => ({ command: undefined as string | undefined, off: undefined as string | undefined }));
+// A WSL host for the adapter test runs, standing in for the Windows probe. Real behavior off Windows stays real while `host` is unset.
+vi.mock("@openlive/shared/node", async (importOriginal) => {
+  const real = await importOriginal<Record<string, any>>();
+  return {
+    ...real,
+    wslHostFor: (...a: unknown[]) => wslFake.host ? Promise.resolve(wslFake.host) : real.wslHostFor(...a),
+    wslMirrored: () => wslFake.mirrored,
+    toWslPath: (p: string, d: string) => wslFake.untranslatable ? null : real.toWslPath(p, d),
+  };
+});
+const wslFake = vi.hoisted(() => ({ host: null as { distro: string; path: string; bins: Record<string, string> } | null, mirrored: false, untranslatable: false }));
+const adapter = vi.hoisted(() => ({ command: undefined as string | undefined, off: undefined as string | undefined, wsl: undefined as string | undefined }));
 
 const { AcpAgent, commandsFromAcp, isAdvertised, optionFromAcp, sessionsFromAcp } = await import("./acp-agent.ts");
 
 const cwd = mkdtempSync(join(tmpdir(), "acp-agent-test-"));
 const live: { dispose(): Promise<void> }[] = [];
-afterEach(async () => { adapter.command = undefined; adapter.off = undefined; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
+afterEach(async () => { adapter.command = undefined; adapter.off = undefined; adapter.wsl = undefined; wslFake.host = null; wslFake.mirrored = false; wslFake.untranslatable = false; delete (process as any).parentPort; await Promise.all(live.splice(0).map((a) => a.dispose())); });
 
 function agent(opts: Record<string, unknown> = {}, id: "codex" | "pi" = "codex") {
   const metas: AgentMeta[] = [];
@@ -122,6 +133,68 @@ test("resume uses session/resume without a replay, and falls back to load then n
   // Resume refused: load takes over (and replays, harmlessly into a full chat).
   await agent({ resumeSessionId: "gone", onSession, onReplay }).a.start(new AbortController().signal);
   assert.deepEqual(sessions, ["s1", "s1", "gone"]);
+}, 20_000);
+
+test("the WSL setting changes nothing off Windows: the agent starts where it always did", async () => {
+  adapter.wsl = "Ubuntu";
+  const { a } = agent();
+  await a.start(new AbortController().signal);
+  assert.equal((a as unknown as { wsl: boolean }).wsl, false);
+}, 20_000);
+
+/** A `wsl.exe` on the PATH that records what it was given, then runs what follows --exec as the distro would. */
+function fakeWslExe(body = "") {
+  const dir = mkdtempSync(join(tmpdir(), "fake-wsl-"));
+  const log = join(dir, "args.log");
+  writeFileSync(join(dir, "wsl.exe"), `#!/bin/sh\n${body}printf '%s\\n' "$WSL_UTF8" "$WSLENV" "$@" > "${log}"\nwhile [ "$1" != "--exec" ]; do shift; done; shift; exec "$@"\n`);
+  chmodSync(join(dir, "wsl.exe"), 0o755);
+  const was = process.env.PATH;
+  process.env.PATH = `${dir}:${was}`;
+  return { log: () => readFileSync(log, "utf8").split("\n"), restore: () => { process.env.PATH = was; } };
+}
+// A POSIX shell script named wsl.exe can't be exec'd on Windows (spawn fails with -1).
+const posixTest = test.skipIf(process.platform === "win32");
+const hostOf = (distro = "Ubuntu") => ({ distro, path: "/home/x/.nvm/bin:/usr/bin", bins: { [process.execPath]: process.execPath } });
+
+posixTest("a WSL agent launches through wsl.exe with the distro's PATH and no shell, in UTF-8, and gets no OpenLive tools on NAT networking", async () => {
+  const wsl = fakeWslExe();
+  try {
+    wslFake.host = hostOf();
+    const { a } = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" });
+    await a.start(new AbortController().signal);
+    const [utf8, , ...args] = wsl.log();
+    assert.equal(utf8, "1");
+    assert.deepEqual(args.slice(0, 8), ["-d", "Ubuntu", "--cd", cwd, "--exec", "env", "PATH=/home/x/.nvm/bin:/usr/bin", process.execPath]);
+    assert.deepEqual(await said(a, { text: "[mcp]" }), []);
+    assert.doesNotMatch((await said(a, { text: "hello" }))[0]!, /HOSTED TOOLS/);
+  } finally { wsl.restore(); }
+}, 20_000);
+
+posixTest("a WSL agent keeps OpenLive's tools under mirrored networking", async () => {
+  const wsl = fakeWslExe();
+  try {
+    wslFake.host = hostOf();
+    wslFake.mirrored = true;
+    const { a } = agent({ mcpServers: [hosted], preamble: "[HOSTED TOOLS]" });
+    await a.start(new AbortController().signal);
+    assert.deepEqual(await said(a, { text: "[mcp]" }), ["openlive"]);
+  } finally { wsl.restore(); }
+}, 20_000);
+
+test("a folder the distro cannot open stops the start with a message that names it", async () => {
+  wslFake.host = hostOf("Debian");
+  wslFake.untranslatable = true;
+  const { a } = agent();
+  await assert.rejects(a.start(new AbortController().signal), (e: Error) => /WSL \(Debian\), which can't open/.test(e.message));
+});
+
+posixTest("wsl.exe's UTF-16 error text is still read as the reason the agent died", async () => {
+  const wsl = fakeWslExe(`printf 'n\\0o\\0t\\0 \\0s\\0i\\0g\\0n\\0e\\0d\\0 \\0i\\0n\\0' >&2; exit 1\n`);
+  try {
+    wslFake.host = hostOf();
+    const { a } = agent();
+    await assert.rejects(a.start(new AbortController().signal), (e: Error) => /sign|log/i.test(e.message) && !e.message.includes("\0"));
+  } finally { wsl.restore(); }
 }, 20_000);
 
 test("how a session came up is reported: none, resumed, loaded, or fell back to a fresh one", async () => {

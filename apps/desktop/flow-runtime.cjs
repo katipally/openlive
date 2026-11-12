@@ -145,7 +145,7 @@ function capabilities() {
   const wayland = report
     ? report.session === "wayland"
     : process.platform === "linux" && (process.env.XDG_SESSION_TYPE || "").toLowerCase() === "wayland";
-  return { platform: process.platform, wayland, permissions, secureInput, hookError, addonError, inputAccess: inputAccess(), packaged: app.isPackaged, report, armed: flowInput.isArmed() };
+  return { platform: process.platform, wayland, permissions, secureInput, hookError, addonError, inputAccess: inputAccess(), packaged: app.isPackaged, report, armed: flowInput.isArmed(), cliTrigger: flowInput.usedCli(), launchPath: app.isPackaged ? process.env.APPIMAGE || process.execPath : null };
 }
 
 // ── the device bridge ────────────────────────────────────────────────────────

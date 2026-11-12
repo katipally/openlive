@@ -89,7 +89,7 @@
         "turns": { "k": "int", "max": 999 },
         "acted": { "k": "bool" },
         "consent": { "k": "bool", "opt": true },
-        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"], "opt": true },
         "steered": { "k": "int", "max": 999, "opt": true },
         "quiet_turns": { "k": "int", "max": 999, "opt": true },
         "stops": { "k": "int", "max": 999, "opt": true },
@@ -151,7 +151,7 @@
         "typed_turns": { "k": "int", "max": 999, "opt": true },
         "interrupted": { "k": "int", "max": 999, "opt": true },
         "barge_ins": { "k": "int", "max": 999, "opt": true },
-        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"], "opt": true },
         "camera_used": { "k": "bool", "opt": true },
         "screen_used": { "k": "bool", "opt": true },
         "ptt_used": { "k": "bool", "opt": true },
@@ -208,7 +208,7 @@
         "latency_ms_p50": { "k": "int", "max": 30000, "step": 50, "opt": true },
         "latency_ms_p90": { "k": "int", "max": 30000, "step": 50, "opt": true },
         "talk_mode": { "k": "enum", "values": ["hands_free", "ptt"], "opt": true },
-        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "opt": true }
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"], "opt": true }
       }
     },
     "dictate_failure": {
@@ -327,7 +327,7 @@
     "setting_changed": {
       "props": {
         "setting": { "k": "enum", "values": ["login_item", "end_on_lock", "flow_armed", "theme", "look", "custom_instructions", "narrate_progress", "api_provider", "api_model", "vision_model", "api_effort", "ollama_address", "agent_hidden", "provider_key", "agent_model", "language", "stt_family", "tts_family", "wait_preset", "voiceprint", "side_talk", "allow_restricted", "default_brain", "flow_own_brain", "flow_brain", "flow_speak_replies", "flow_own_wait", "flow_own_stt", "flow_stt_family", "flow_own_voice", "flow_tts_family", "flow_quiet_meeting", "flow_quiet_mic", "flow_quiet_dnd", "flow_consent", "flow_insertion", "close_after_silence", "talk_mode", "ptt_key", "dictate_enabled", "dictate_polish", "dictate_tone", "dictate_own_brain", "dictate_own_stt", "dictate_stt_family", "dictate_brain", "flow_key", "dictate_key", "chat_history_keep", "flow_history_keep", "dictate_history_keep"] },
-        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "30s", "90s", "5m", "never", "hands_free", "ptt", "fn", "ctrl_right", "other", "natural", "casual", "formal", "ctrl", "option", "shift", "command", "day", "week", "month", "forever"] },
+        "value": { "k": "enum", "values": ["on", "off", "system", "light", "dark", "glass", "flat", "set", "cleared", "none", "changed", "auto", "low", "medium", "high", "xhigh", "max", "default", "local", "remote", "added", "removed", "en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk", "whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary", "kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha", "patient", "even", "quick", "custom", "label", "gate", "shadow", "ignore", "api", "acp", "paste", "type", "30s", "90s", "5m", "never", "hands_free", "ptt", "fn", "ctrl_right", "other", "natural", "casual", "formal", "ctrl", "option", "shift", "command", "day", "week", "month", "forever"] },
         "subject": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi", "none"], "opt": true },
         "from": { "k": "enum", "values": ["onboarding", "settings", "call_setup", "flow_home", "other"], "opt": true }
       },
@@ -518,7 +518,7 @@
         "brain_id": { "k": "enum", "values": ["anthropic", "openai", "minimax", "ollama", "ollama-cloud", "groq", "openrouter", "deepseek", "mistral", "xai", "google", "together", "fireworks", "cerebras", "perplexity", "claude-code", "codex", "cursor", "opencode", "hermes", "gemini", "copilot", "kiro", "pi"], "fold": "last" },
         "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "fold": "last" },
         "turns": { "k": "int", "max": 999, "fold": "sum" },
-        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"], "fold": "last" },
         "steered": { "k": "int", "max": 999, "fold": "sum" },
         "quiet_turns": { "k": "int", "max": 999, "fold": "sum" },
         "tool_calls": { "k": "int", "max": 999, "fold": "sum" },
@@ -565,7 +565,7 @@
         "brain_model": { "k": "enum", "values": ["haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other"], "fold": "last" },
         "turns": { "k": "int", "max": 999, "fold": "sum" },
         "interrupted": { "k": "int", "max": 999, "fold": "sum" },
-        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"], "fold": "last" },
+        "lang": { "k": "enum", "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"], "fold": "last" },
         "camera_used": { "k": "bool", "fold": "or" },
         "screen_used": { "k": "bool", "fold": "or" },
         "t_look": { "k": "int", "max": 999, "fold": "sum" },
@@ -617,7 +617,7 @@
     "agent_hidden": { "values": ["on", "off"], "subject": "agent" },
     "provider_key": { "values": ["added", "removed"], "subject": "provider" },
     "agent_model": { "values": ["changed"], "subject": "agent" },
-    "language": { "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] },
+    "language": { "values": ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"] },
     "stt_family": { "values": ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"] },
     "tts_family": { "values": ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"] },
     "wait_preset": { "values": ["patient", "even", "quick", "custom"] },

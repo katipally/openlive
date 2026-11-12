@@ -219,7 +219,7 @@ export function AccessRows({ config, save, askedFrom = "flow_settings" }: { conf
           run: () => save({ consent: consent ? { granted: false, at: "" } : { granted: true, at: new Date().toISOString() } }),
         }} keep menuSlot={menuSlot} />
     </ListGroup>
-    {caps?.hookError && <InputAccessFix access={caps.inputAccess} onRetry={refresh} />}
+    {caps?.hookError && <InputAccessFix access={caps.inputAccess} launchPath={caps.launchPath} onRetry={refresh} />}
     </div>
   );
 }

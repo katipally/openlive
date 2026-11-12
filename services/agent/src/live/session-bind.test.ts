@@ -37,3 +37,45 @@ test("binds the setup screen's folder for API mode on a new chat", async () => {
   expect(listChats().find((c) => c.id === "api-chat")?.cwd).toBe(realpathSync.native(workspace));
   ws.emit("close");
 });
+
+test("re-pointing a chat at another agent forgets the old agent's ACP session, rebinding the same one keeps it", async () => {
+  const { setSetting, getSetting } = await import("@openlive/db");
+  const workspace = join(dir, "repoint");
+  mkdirSync(workspace);
+  const bind = async (chat: string, agentId: string | null) => {
+    const ws = Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1 });
+    (ws as any).send = () => {};
+    const session = new LiveSession(ws as never, chat);
+    const started = session.start();
+    ws.emit("message", Buffer.from(JSON.stringify({ t: "bind", agentId, cwd: workspace })), false);
+    await started;
+    ws.emit("close");
+  };
+
+  await setSetting("bind:kept-chat", "");
+  await setSetting("acpSession:kept-chat", "sess-a");
+  await bind("kept-chat", null);
+  expect(getSetting("acpSession:kept-chat")).toBe("sess-a");
+
+  await setSetting("bind:moved-chat", "claude-code");
+  await setSetting("acpSession:moved-chat", "sess-a");
+  await bind("moved-chat", null);
+  expect(getSetting("acpSession:moved-chat")).toBe("");
+});
+
+test("a bind superseded before it commits leaves the original agent's ACP session alone", async () => {
+  const { setSetting, getSetting } = await import("@openlive/db");
+  const workspace = join(dir, "flipflop");
+  mkdirSync(workspace);
+  await setSetting("bind:flip-chat", "");
+  await setSetting("acpSession:flip-chat", "sess-a");
+  const ws = Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1 });
+  (ws as any).send = () => {};
+  const session = new LiveSession(ws as never, "flip-chat");
+  const started = session.start();
+  // codex, then straight back: the codex bind is superseded before it writes anything.
+  for (const agentId of ["codex", null]) ws.emit("message", Buffer.from(JSON.stringify({ t: "bind", agentId, cwd: workspace })), false);
+  await started;
+  expect(getSetting("acpSession:flip-chat")).toBe("sess-a");
+  ws.emit("close");
+});

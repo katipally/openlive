@@ -4,14 +4,15 @@ import { useState } from "react";
 import { Copy, KeyboardOff } from "lucide-react";
 import { Button } from "@/components/ui";
 import { flowBridge } from "@/lib/flow/bridge";
-import { inputFix, type InputAccess } from "@/lib/flow/failure";
+import { cliToggle, cliToggleExamples, inputFix, type InputAccess } from "@/lib/flow/failure";
 import { toast } from "@/lib/toast";
 
 // Linux only: the key listener cannot read /dev/input. Said with the exact fix,
 // a copy for the command (OpenLive never runs sudo), and a Check again that
-// reads the devices anew and starts the listener when they open.
+// reads the devices anew and starts the listener when they open. A shortcut in
+// the desktop that runs the app with a flag needs none of it, so that is said too.
 
-export function InputAccessFix({ access, onRetry }: { access: InputAccess | null | undefined; onRetry: () => void }) {
+export function InputAccessFix({ access, launchPath, onRetry }: { access: InputAccess | null | undefined; launchPath?: string | null; onRetry: () => void }) {
   const [checking, setChecking] = useState(false);
   const fix = inputFix(access);
   if (!fix) return null;
@@ -45,6 +46,15 @@ export function InputAccessFix({ access, onRetry }: { access: InputAccess | null
           <Button size="sm" variant="ghost" onClick={copy}><Copy aria-hidden /> Copy</Button>
         </div>
       )}
+      <div className="flex min-w-0 flex-col gap-1.5 text-label leading-relaxed text-muted-strong">
+        <span>Or skip the keys: bind a shortcut in your desktop to <code className="break-all font-mono text-caption">{cliToggle("dictate", launchPath)}</code> or <code className="break-all font-mono text-caption">{cliToggle("flow", launchPath)}</code>.</span>
+        {cliToggleExamples(launchPath).map((e) => (
+          <span key={e.desktop} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <span>{e.desktop}</span>
+            <code className="min-w-0 break-all font-mono text-caption">{e.command}</code>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

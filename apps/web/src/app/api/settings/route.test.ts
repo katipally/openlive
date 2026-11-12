@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+vi.mock("@openlive/shared/node", async (orig) => ({ ...(await orig<Record<string, unknown>>()), listWslDistros: async () => ["Ubuntu", "-d"] }));
 
 process.env.OPENLIVE_HOME = mkdtempSync(join(tmpdir(), "openlive-settings-"));
 const SECRET = "per-launch-secret";
@@ -92,5 +94,22 @@ describe("the default", () => {
     expect(getSetting("defaultAgent")).toBe("codex");
     await put({ defaultAgent: "", defaultAgentModel: "", defaultAgentEffort: "" });
     expect(getSetting("defaultAgent")).toBe("");
+  });
+});
+
+describe("wslDistro", () => {
+  it("takes a distro wsl.exe lists, or empty to turn it off", async () => {
+    expect((await put({ wslDistro: "Ubuntu" })).status).toBe(200);
+    expect(getSetting("wslDistro")).toBe("Ubuntu");
+    expect((await put({ wslDistro: "" })).status).toBe(200);
+    expect(getSetting("wslDistro")).toBe("");
+  });
+
+  it("refuses a name it did not list, or one that reads as an option, and keeps the one it had", async () => {
+    await put({ wslDistro: "Ubuntu" });
+    for (const wslDistro of ["Debian", "Ubuntu; calc", "-d", "--exec"]) {
+      expect((await put({ wslDistro })).status).toBe(400);
+    }
+    expect(getSetting("wslDistro")).toBe("Ubuntu");
   });
 });

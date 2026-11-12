@@ -56,6 +56,10 @@ export interface FlowCapabilities {
   report: CapabilityReport | null;
   /** False while Flow's off switch (on Flow's home) is off: the hook is suspended on purpose. */
   armed: boolean;
+  /** A desktop shortcut running `openlive --toggle-flow|--toggle-dictate` has driven Flow this run, so it needs no key listener. */
+  cliTrigger?: boolean;
+  /** What a shortcut runs to reach this app: the AppImage on Linux. Null in a dev checkout, which has no such file. */
+  launchPath?: string | null;
 }
 /** The binding ids main registers with the addon (apps/desktop/flow-input.cjs),
  *  as effects name them. Flow's and Dictate's report a double tap; the
@@ -143,6 +147,8 @@ export interface FlowBridge {
    *  person already was. */
   onShow?(cb: (to: string) => void): () => void;
   onEffect(cb: (e: HookEffect) => void): () => void;
+  /** The owner page is subscribed to effects: only now can a `--toggle-*` command reach it. */
+  ownerReady(): void;
   onSecureInput(cb: (s: SecureInputStatus) => void): () => void;
 }
 

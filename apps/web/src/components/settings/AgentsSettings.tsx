@@ -9,9 +9,9 @@ import { useAgentActions, trackAgentAction, INSTALL_TRIES, type ActionKind } fro
 import { telemetry } from "@/lib/telemetry";
 import type { AgentId } from "@/lib/live/liveClient";
 import { toast } from "@/lib/toast";
-import { Button, Tooltip, Input, groupLabel, type DotTone } from "@/components/ui";
+import { Button, Tooltip, Input, Select, Switch, groupLabel, type DotTone } from "@/components/ui";
 import { useSettingsNav } from "./nav";
-import { EmptyState, FILTER_AT, NoMatch, OneLine, QueryState, StatusCard, grid2, type MenuAction } from "./common";
+import { EmptyState, FILTER_AT, NoMatch, OneLine, QueryState, StatusCard, grid2, panel, type MenuAction } from "./common";
 
 // Re-probe on window focus: sign-in/out finishes in a separate terminal, so
 // coming back to the app should reflect the new state without a manual click.
@@ -24,6 +24,39 @@ export function AgentsRecheck() {
     <Button size="sm" onClick={() => refetch()} disabled={isFetching}>
       <RefreshCw className={isFetching ? "animate-spin" : undefined} /> Re-check
     </Button>
+  );
+}
+
+/** Windows with WSL2: run agents that are installed in a distro there. The server lists no distros anywhere else, so nothing shows. */
+function WslOption() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["wsl-distros"], queryFn: api.wslDistros, staleTime: 60_000 });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const distros = data?.distros ?? [];
+  const chosen = settings?.wslDistro?.trim() ?? "";
+  if (!distros.length && !chosen) return null;
+  const save = (wslDistro: string) =>
+    api.updateSettings({ wslDistro }).then((s) => {
+      qc.setQueryData(["settings"], s);
+      qc.invalidateQueries({ queryKey: ["agents"] });
+    }).catch(() => toast("Couldn’t save that choice. Try again."));
+  const options = chosen && !distros.includes(chosen) ? [chosen, ...distros] : distros;
+  return (
+    <div className={`${panel} sm:flex-row sm:flex-wrap sm:items-center`}>
+      <div className="flex min-w-[min(14rem,100%)] flex-1 flex-col gap-0.5">
+        <span className="text-body text-foreground">Run agents in WSL</span>
+        <span className="text-label text-muted-foreground">For agents installed in a Linux distro instead of Windows. Sign in to them from inside that distro.</span>
+      </div>
+      {chosen && (
+        <Select aria-label="WSL distro" value={chosen} onChange={(e) => void save(e.target.value)} className="w-full sm:w-48">
+          {options.map((d) => <option key={d} value={d}>{d}</option>)}
+        </Select>
+      )}
+      <label className="flex cursor-pointer items-center">
+        <span className="sr-only">Run agents in WSL</span>
+        <Switch on={!!chosen} onFlip={() => void save(chosen ? "" : distros[0] ?? "")} />
+      </label>
+    </div>
   );
 }
 
@@ -46,6 +79,7 @@ export function AgentsSettings() {
 
   return (
     <div id="set-agents-list" className="flex flex-col gap-7">
+      <WslOption />
       <QueryState loading={isLoading} error={error} retrying={isFetching} onRetry={() => refetch()} what="check the coding agents" />
       {agents.length > FILTER_AT && (
         <Input type="search" size="sm" icon={<Search />} value={query} onChange={(e) => setQuery(e.target.value)}
@@ -75,6 +109,7 @@ export function AgentsSettings() {
 /** The card's single readiness verdict, derived from install + credential probes. */
 function statusOf(a: AgentStatus): { text: string; tone: DotTone } {
   if (!a.installed) return { text: "Not installed", tone: "muted" };
+  if (a.host === "wsl") return { text: `Installed in WSL (${a.distro})`, tone: "success" };
   if (a.credState === "ready") return { text: "Ready", tone: "success" };
   // Wizard agents (hermes) aren't "signed out" in this state: their setup was
   // started but never finished (no provider picked). Say that.
@@ -152,9 +187,10 @@ function AgentCard({ a }: { a: AgentStatus }) {
   const spin = (kind: ActionKind, Icon: typeof Download) => running === kind ? <Loader2 className="animate-spin" /> : <Icon />;
 
   // While a run is in flight only the copy stays: the store runs one action per agent.
+  const inWsl = a.host === "wsl";
   const more: MenuAction[] = !a.installed ? [] : [
     ...(a.canUpdate && !busy ? [{ label: "Update", icon: ArrowUpCircle, run: () => start(a.id, "update") }] : []),
-    { label: "Copy sign-in command", icon: Copy, run: copyLogin },
+    ...(inWsl ? [] : [{ label: "Copy sign-in command", icon: Copy, run: copyLogin }]),
     ...(a.credState === "ready" && a.canLogout && !busy ? [{ label: "Sign out", icon: LogOut, run: () => start(a.id, "logout") }] : []),
     ...(a.canUninstall && !busy ? [{
       label: "Uninstall", icon: Trash2, run: () => start(a.id, "uninstall"),
@@ -173,7 +209,7 @@ function AgentCard({ a }: { a: AgentStatus }) {
     action = <Button variant="secondary" size="sm" onClick={copyInstall}><Copy /> Copy install command</Button>;
   } else if (!a.installed && a.canInstall) {
     action = <Button variant="primary" size="sm" onClick={() => start(a.id, "install")} disabled={busy}>{spin("install", Download)} Install</Button>;
-  } else if (a.installed && a.credState !== "ready") {
+  } else if (a.installed && !inWsl && a.credState !== "ready") {
     action = (
       <Button variant={a.credState === "login_required" ? "primary" : "secondary"} size="sm" onClick={() => start(a.id, "login")} disabled={busy}>
         {spin("login", LogIn)} {a.wizard ? "Finish setup" : "Sign in"}
@@ -207,9 +243,14 @@ function AgentCard({ a }: { a: AgentStatus }) {
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t border-border pt-3 text-label">
           {a.version && <Fact term="Version"><OneLine text={a.version} className="font-mono" /></Fact>}
           {a.authDetail && <Fact term="Signed in as"><OneLine text={a.authDetail} /></Fact>}
-          <Fact term="Sessions"><OneLine text={a.sessions} className="font-mono" /></Fact>
-          <Fact term="Sign in with"><OneLine text={a.loginCommand} className="font-mono" /></Fact>
+          {!inWsl && <Fact term="Sessions"><OneLine text={a.sessions} className="font-mono" /></Fact>}
+          {!inWsl && <Fact term="Sign in with"><OneLine text={a.loginCommand} className="font-mono" /></Fact>}
+          {inWsl && <Fact term="Runs in"><OneLine text={a.distro ?? "WSL"} /></Fact>}
         </dl>
+      )}
+
+      {inWsl && (
+        <p className="text-caption text-muted-foreground">Signed in and updated from a shell in {a.distro}, not here.</p>
       )}
 
       {waiting && a.credState !== "ready" && (

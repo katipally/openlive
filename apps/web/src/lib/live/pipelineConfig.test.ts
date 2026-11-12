@@ -6,7 +6,7 @@ import { LANGUAGE_CODES } from "@openlive/shared";
 import {
   mergePipelineConfig, clampPipelineConfig, PRONUNCIATION_LIMITS, workerTag, tagCached, DEFAULT_PIPELINE_CONFIG, KOKORO_VOICES, SUPERTONIC_VOICES,
   STT_FAMILIES, TTS_FAMILIES, CURATED_LANGUAGES, LANGUAGE_DEFAULTS, languageSupport, pickCompatible, chooseFamily, chooseVariant,
-  defaultVariant, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig,
+  defaultVariant, nativeFirst, whisperCheckpoint, whisperMaxTokens, browserTtsFallback, familyInfo, variantInfo, isRestricted, loadPipelineConfig, savePipelineConfig, seedPipelineEngines, onPipelineConfig,
   type PipelineConfig,
 } from "./pipelineConfig.ts";
 import { useVoicePrefs } from "../prefs.ts";
@@ -211,7 +211,7 @@ test("every curated language has a recommended STT and TTS engine that speaks it
 test("pickCompatible: from the browser defaults, every curated language", () => {
   const want: Record<string, string> = {
     en: "kokoro", es: "supertonic", fr: "supertonic", de: "supertonic", it: "supertonic", pt: "supertonic", hi: "supertonic",
-    zh: "kokoro-multi-v1_0", ja: "supertonic", ko: "supertonic",
+    zh: "kokoro-multi-v1_0", ja: "supertonic", ko: "supertonic", uk: "supertonic",
   };
   for (const lang of LANGUAGE_CODES) {
     const { cfg, changes, unsupported } = pickCompatible(DEFAULT_PIPELINE_CONFIG, lang);
@@ -232,6 +232,7 @@ test("pickCompatible: from native engines, every curated language, with and with
     de: ["parakeet-0.6b-v3-int8", "piper-de_DE-thorsten-medium-int8"], it: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"],
     pt: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"], hi: ["nemotron-3.5-160ms-int8", "kokoro-multi-v1_0"],
     zh: ["nemotron-3.5-160ms-int8", "kokoro-multi-v1_0"], ja: ["nemotron-3.5-160ms-int8", "supertonic"], ko: ["nemotron-3.5-160ms-int8", "supertonic"],
+    uk: ["parakeet-0.6b-v3-int8", "supertonic"],
   };
   for (const lang of LANGUAGE_CODES) {
     const { cfg } = pickCompatible(native, lang);
@@ -390,4 +391,62 @@ test("side talk log: off by default and for anything but an explicit yes", () =>
   assert.equal(mergePipelineConfig({ sideTalk: "shadow" }).sideTalkLog, false);
   assert.equal(mergePipelineConfig({ sideTalkLog: "yes" }).sideTalkLog, false);
   assert.equal(mergePipelineConfig({ sideTalkLog: true }).sideTalkLog, true);
+});
+
+const LIGHT = new Set(["moonshine-base-en-int8", "piper-en_US-libritts_r-medium-int8", "piper-de_DE-thorsten-medium-int8", "canary-180m-flash-int8"]);
+
+test("nativeFirst: WebGPU keeps the browser defaults", () => {
+  assert.equal(nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: true, installed: LIGHT }), DEFAULT_PIPELINE_CONFIG);
+});
+
+test("nativeFirst: no WebGPU and the light engines downloaded picks them, and nothing else changes", () => {
+  const c = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: LIGHT });
+  assert.equal(c.stt.variant, "moonshine-base-en-int8");
+  assert.equal(c.stt.family, "moonshine");
+  assert.equal(c.tts.variant, "piper-en_US-libritts_r-medium-int8");
+  assert.equal(c.tts.voice, "");
+  assert.equal(c.turn.engine, "smart-turn");
+  assert.deepEqual({ ...c, stt: DEFAULT_PIPELINE_CONFIG.stt, tts: DEFAULT_PIPELINE_CONFIG.tts }, DEFAULT_PIPELINE_CONFIG);
+});
+
+test("nativeFirst: the agent unreachable or nothing downloaded keeps the browser defaults", () => {
+  assert.equal(nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: null }), DEFAULT_PIPELINE_CONFIG);
+  assert.equal(nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: new Set() }), DEFAULT_PIPELINE_CONFIG);
+  assert.equal(nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: new Set(["parakeet-0.6b-v2-int8", "piper-en_US-lessac-high-int8"]) }), DEFAULT_PIPELINE_CONFIG);
+});
+
+test("nativeFirst: each stage moves on its own", () => {
+  const c = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: new Set(["piper-en_US-libritts_r-medium-int8"]) });
+  assert.equal(c.stt.variant, "whisper");
+  assert.equal(c.tts.variant, "piper-en_US-libritts_r-medium-int8");
+});
+
+test("nativeFirst: follows the session language, and a language nothing light speaks stays on the browser", () => {
+  const de = nativeFirst({ ...DEFAULT_PIPELINE_CONFIG, language: "de" }, { webgpu: false, installed: LIGHT });
+  assert.equal(de.stt.variant, "canary-180m-flash-int8");
+  assert.equal(de.tts.variant, "piper-de_DE-thorsten-medium-int8");
+  const ja = nativeFirst({ ...DEFAULT_PIPELINE_CONFIG, language: "ja" }, { webgpu: false, installed: LIGHT });
+  assert.equal(ja.stt.variant, "whisper");
+});
+
+test("nativeFirst: a restricted voice waits for the user's OK", () => {
+  const it = { ...DEFAULT_PIPELINE_CONFIG, language: "it" as const };
+  const installed = new Set(["piper-it_IT-paola-medium-int8"]);
+  assert.equal(nativeFirst(it, { webgpu: false, installed }), it);
+  assert.equal(nativeFirst({ ...it, allowRestricted: true }, { webgpu: false, installed }).tts.variant, "piper-it_IT-paola-medium-int8");
+});
+
+test("seedPipelineEngines saves only the engines, so the other defaults keep following", () => {
+  const seeded = nativeFirst(DEFAULT_PIPELINE_CONFIG, { webgpu: false, installed: LIGHT });
+  const heard: boolean[] = [];
+  const off = onPipelineConfig((_, settle) => heard.push(!!settle));
+  try {
+    seedPipelineEngines(seeded);
+    const saved = useVoicePrefs.getState().pipeline as Record<string, Record<string, unknown>>;
+    assert.deepEqual(Object.keys(saved).sort(), ["stt", "tts"]);
+    assert.equal(saved.stt.whisperSize, undefined);
+    assert.equal(saved.tts.speed, undefined);
+    assert.deepEqual(loadPipelineConfig(), seeded);
+    assert.deepEqual(heard, [true]);
+  } finally { off(); useVoicePrefs.setState({ pipeline: null }); }
 });

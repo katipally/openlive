@@ -123,6 +123,7 @@ const BACKCHANNELS: Record<LanguageCode, string[]> = {
   zh: ["嗯", "恩", "对", "对的", "是", "是的", "好", "好的", "好吧", "行", "哦", "噢", "啊", "呃", "嗯哼", "没错", "明白", "明白了", "知道了"],
   ja: ["はい", "うん", "ええ", "ああ", "あ", "え", "えー", "ん", "そう", "そうそう", "そうですね", "そっか", "そうか", "ですね", "ね", "なるほど", "へえ", "ほう", "ふーん", "確かに", "たしかに", "了解", "オッケー"],
   ko: ["네", "예", "응", "어", "음", "아", "오", "그래", "그래요", "그렇죠", "그렇구나", "맞아", "맞아요", "맞습니다", "알겠어", "알겠어요", "좋아", "좋아요", "오케이", "흠", "아하"],
+  uk: ["так", "ага", "угу", "ясно", "зрозуміло", "добре", "гаразд", "точно", "авжеж", "звісно", "окей", "ок", "аха", "ого", "супер", "розумію"],
 };
 // Lowercase, bracketed sound notes and punctuation out, then every run of one
 // letter down to one, so "Mmmm-hmm!" and "mm hmm" both read "m hm".
@@ -160,7 +161,7 @@ export function isBackchannel(text: string, lang: LanguageCode): boolean {
  *  BACKCHANNELS above: short, and said alike by every voice. */
 export const LISTENING: Record<LanguageCode, string[]> = {
   en: ["Mm-hmm.", "Yeah."], es: ["Ajá.", "Sí."], fr: ["Oui.", "D'accord."], de: ["Ja.", "Genau."], it: ["Sì.", "Certo."],
-  pt: ["Uhum.", "Sim."], hi: ["हाँ।", "अच्छा।"], zh: ["嗯。", "对。"], ja: ["うん。", "なるほど。"], ko: ["네.", "음."],
+  pt: ["Uhum.", "Sim."], hi: ["हाँ।", "अच्छा।"], zh: ["嗯。", "对。"], ja: ["うん。", "なるほど。"], ko: ["네.", "음."], uk: ["Ага.", "Так."],
 };
 
 const ASKS = /^(?:what|why|how|when|where|who|whose|which|can|could|would|will|should|shall|do|does|did|is|are|am|was|were|have|has)\b/i;

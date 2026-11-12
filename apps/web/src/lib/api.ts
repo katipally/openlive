@@ -21,11 +21,13 @@ export interface AppSettings {
   defaultAgent?: string;
   defaultAgentModel?: string;
   defaultAgentEffort?: string;
+  /** Windows: the WSL2 distro coding agents run in when their CLI is installed there instead; unset is off. */
+  wslDistro?: string;
   /** How long OpenLive's own chats are kept (HistoryKeep); unset is forever. */
   chatHistory?: string;
 }
 
-export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; installCommand?: string; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; hidden: boolean; sessions: string; home: string }
+export interface AgentStatus { id: string; label: string; installed: boolean; credState: "ready" | "login_required" | "unknown"; version?: string; authDetail?: string; wizard: boolean; loginCommand: string; canInstall: boolean; installCommand?: string; canUninstall: boolean; canLogout: boolean; canUpdate: boolean; /** Set when the agent is installed in the WSL distro `distro` names: its install, sign-in and sessions live there, out of reach of the Windows-side actions. */ host?: "wsl"; distro?: string; hidden: boolean; sessions: string; home: string }
 
 /** The computer-use helper's own grants, separate from OpenLive's: macOS asks for them by its name. */
 export interface ComputerGrant { id: "accessibility" | "screenRecording"; granted: boolean; settingsUrl?: string; detail?: string }
@@ -73,6 +75,8 @@ export const api = {
   deleteExternalSession: (agentId: string, id: string) =>
     fetch("/api/history/session", { method: "DELETE", headers: JSON_TYPE, body: JSON.stringify({ agentId, id }), keepalive: true }).then(j),
   agents: () => fetch("/api/agents").then(j<AgentStatus[]>),
+  /** `distros` is empty off Windows and where WSL is not installed. */
+  wslDistros: () => fetch("/api/agents/wsl").then(j<{ distros: string[] }>),
   /** Starts the agent once to ask what it can be set to, so this is seconds. */
   agentModels: (agentId: string) =>
     fetch(`/api/flow/agent-models?agent=${encodeURIComponent(agentId)}`)

@@ -166,6 +166,7 @@ const PIPER: PiperVoice[] = [
   { voice: "zh_CN-chaowen", license: "CC0; fine-tuned from xiao_ya", tiers: { medium: 14_011_298 }, pinyin: true },
   { voice: "zh_CN-xiao_ya", gender: "female", license: "non-commercial (Data Baker BZNSYP)", tiers: { medium: 14_016_124 }, pinyin: true },
   { voice: "zh_CN-huayan", gender: "female", license: "unknown (MODEL_CARD); fine-tuned from lessac", tiers: { medium: 67_255_926 }, fp32: true },
+  { voice: "uk_UA-lada", gender: "female", license: "Apache-2.0", tiers: { x_low: 13_332_976 } },
 ];
 const cap = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 const piperVariants = (p: PiperVoice): VariantSpec[] => Object.entries(p.tiers).map(([tier, sizeBytes]) => {
@@ -270,7 +271,7 @@ export const NATIVE_FAMILIES: EngineFamily[] = [
   family("supertonic", "tts", "Supertonic", [
     {
       id: "supertonic-3", type: "supertonic", name: "Supertonic 3", url: "https://huggingface.co/Supertone/supertonic-3/resolve/3cadd1ee6394adea1bd021217a0e650ede09a323",
-      sizeBytes: 401_276_744, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "ja", "ko"], license: "OpenRAIL-M",
+      sizeBytes: 401_276_744, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "uk"], license: "OpenRAIL-M",
       files: [...["duration_predictor.onnx", "text_encoder.onnx", "vector_estimator.onnx", "vocoder.onnx", "tts.json", "unicode_indexer.json"].map((f) => `onnx/${f}`),
         ...SUPERTONIC_VOICES.map((v) => `voice_styles/${v.id}.json`)],
       voices: SUPERTONIC_VOICES,
@@ -298,7 +299,7 @@ export const NATIVE_FAMILIES: EngineFamily[] = [
     {
       id: "addressee-mpnet-multi-int8", type: "addressee", name: "Paraphrase Multilingual MPNet (int8)",
       url: "https://huggingface.co/Xenova/paraphrase-multilingual-mpnet-base-v2/resolve/e5d116277351513fd260955ece953ecddde7046e",
-      sizeBytes: 278_647_663 + 17_082_913 + 418, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"],
+      sizeBytes: 278_647_663 + 17_082_913 + 418, quality: "balanced", languages: ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"],
       license: "Apache-2.0", files: ["onnx/model_quantized.onnx", "tokenizer.json", "tokenizer_config.json"],
     },
   ]),

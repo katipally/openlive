@@ -126,7 +126,17 @@ process.on("unhandledRejection", () => telemetry.track("main_exception", { proce
 const trackSetting = (setting, value) => telemetry.track("setting_changed", { setting, value });
 // Before the servers are up there is no page to show; boot opens the window itself.
 let serversUp = false;
-app.on("second-instance", () => { if (serversUp) restoreMainWindow(); });
+// The owner page says so once it is subscribed to effects, which is later than it has loaded.
+let ownerReady = false;
+/** `openlive --toggle-flow|--toggle-dictate`: that key's double tap, for a shortcut bound in a desktop
+ *  where the key listener cannot read /dev/input. Dropped until the owner page is listening.
+ *  True when the command line asked for a toggle. */
+function toggleFromCli(argv) {
+  const id = flowInput.toggleFromArgv(argv);
+  if (id && serversUp && ownerReady && ownerWin && !ownerWin.isDestroyed()) flowInput.triggerFromCli(id);
+  return !!id;
+}
+app.on("second-instance", (_e, argv) => { if (!toggleFromCli(argv) && serversUp) restoreMainWindow(); });
 
 // ── media (mic/camera) permissions — Electron blocks getUserMedia otherwise ──
 function wirePermissions() {
@@ -444,6 +454,14 @@ function firstTime(name) {
   done[name] = true;
   try { fs.writeFileSync(onceFile(), JSON.stringify(done)); } catch { /* best-effort */ }
   return true;
+}
+
+/** Welcome was finished or skipped, as the page saved it (packages/db ui-state): until then a launch owes a window. */
+function welcomeDone() {
+  try {
+    const o = JSON.parse(fs.readFileSync(stateFile("ui.json"), "utf8")).onboarding;
+    return o?.welcomed === true || (Array.isArray(o?.tours) && o.tours.includes("home"));
+  } catch { return false; }
 }
 
 // ── appearance: the theme and the look, known here before any page loads ─────
@@ -789,6 +807,7 @@ function createOwnerWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, additionalArguments: agentArgs() },
   });
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
+  ownerWin.webContents.on("did-start-loading", () => { ownerReady = false; });
   // Loaded means the web server answers, so Dictate's state can be read for the tray.
   ownerWin.webContents.on("did-finish-load", () => void syncFlowSettings());
   ownerWin.on("closed", () => { ownerWin = null; });
@@ -964,6 +983,7 @@ function wireFlowIpc() {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-resume-session", String(id || ""));
   });
   ipcMain.on("openlive:flow-armed", (_e, v) => setFlowArmed(v));
+  ipcMain.on("openlive:flow-owner-ready", (e) => { ownerReady = sentBy(e, ownerWin); });
   ipcMain.on("openlive:flow-settings-changed", () => {
     if (ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-settings-changed");
     void syncFlowSettings();
@@ -978,8 +998,9 @@ function routeEffect(effect) {
   const to = effect.bindingId === PTT_BINDING
     ? pttTo(effect.kind, { orbUp: flowSummoned, callLive: !!callState })
     : "owner";
-  if (to === "owner" && ownerWin && !ownerWin.isDestroyed()) ownerWin.webContents.send("openlive:flow-effect", effect);
-  else if (to === "main" && mainWin && !mainWin.isDestroyed()) mainWin.webContents.send("openlive:ptt", effect.kind);
+  if (to === "owner" && ownerWin && !ownerWin.isDestroyed()) { ownerWin.webContents.send("openlive:flow-effect", effect); return true; }
+  if (to === "main" && mainWin && !mainWin.isDestroyed()) { mainWin.webContents.send("openlive:ptt", effect.kind); return true; }
+  return false;
 }
 
 /** Flow's off switch, from Flow's home or the tray. One state, told to everyone
@@ -1698,7 +1719,9 @@ async function boot() {
   });
   if (ready && firstTime("loginItemDefault") && !loginItem()) loginItem(true);
   // A login launch comes up as just the tray, with Flow ready.
-  const hidden = !!tray && openedAtLogin;
+  // A launch that only asked for a toggle has no window to show either; the toggle itself is dropped.
+  // Before Welcome is done that would look like a launch that did nothing, so it opens the window.
+  const hidden = !!tray && (openedAtLogin || (!!flowInput.toggleFromArgv(process.argv) && welcomeDone()));
   if (hidden && process.platform === "darwin") app.dock.hide();
   if (!hidden) createSplash();
   const started = await startServers();

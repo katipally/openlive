@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Hono } from "hono";
 import { AGENT_REGISTRY, isAgentId } from "@openlive/shared";
-import { widenedPath } from "@openlive/shared/node";
+import { getSetting } from "@openlive/db";
+import { widenedPath, wslHostFor } from "@openlive/shared/node";
 import { AcpAgent } from "./acp-agent.js";
 import { flowAgentCwd, PERMISSION_CANCELLED, type AgentId } from "./index.js";
 import type { AgentMeta, AgentSession } from "./types.js";
@@ -95,7 +96,9 @@ async function onPath(bin: string): Promise<boolean> {
 }
 
 async function listProbe(id: AgentId): Promise<Listed> {
-  if (!(await Promise.all(AGENT_REGISTRY[id].bins.map(onPath))).some(Boolean)) return { supported: false, sessions: [] };
+  const { bins, adapter } = AGENT_REGISTRY[id];
+  const onWindows = await Promise.all(bins.map(onPath));
+  if (!onWindows.some(Boolean) && !(await wslHostFor(getSetting("wslDistro"), bins, adapter.command, () => false))) return { supported: false, sessions: [] };
   const agent = new AcpAgent(id, async () => PERMISSION_CANCELLED, { cwd: flowAgentCwd(), connectOnly: true, probe: true });
   const ac = new AbortController();
   const bell = setTimeout(() => ac.abort(), PROBE_MS);

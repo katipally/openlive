@@ -11,7 +11,7 @@ import {
   DEFAULT_PIPELINE_CONFIG, type PipelineConfig, type Stage, type EngineFamilyInfo, CURATED_LANGUAGES, languageSupport, pickCompatible,
   familyVariant, isRestricted, permitted,
 } from "@/lib/live/pipelineConfig";
-import { languageLabel, languagesNote, licenseTag, variantGroups, engineName, switchNotice, missingEngines } from "@/lib/live/engineMenu";
+import { languageLabel, languagesNote, licenseTag, variantGroups, engineName, switchNotice, missingEngines, slowHere } from "@/lib/live/engineMenu";
 import type { LanguageCode } from "@openlive/shared";
 import {
   tts, modelsReady, modelsCached, modelsCachedSettled, loadModels, removeModel, hasWebGPU, resetNativeFallbacks, voiceDownloadPlan,
@@ -281,13 +281,27 @@ function useWhereItRuns() {
   };
 }
 
+/** Why a family is a poor pick on this computer, for its card (engineMenu.ts slowHere):
+ *  the agent's benchmark of the variant it runs there when it has one. */
+function useSlowHere() {
+  const { data: engines } = useNativeEngines();
+  const { data: perf } = useVoicePerf();
+  return (f: EngineFamilyInfo, variant: string) => {
+    const copy = f.native ? undefined : engines?.find((x) => x.browser === f.id)?.variants.find((v) => v.installed && v.runnable);
+    const onComputer = f.native ? variant : copy?.id;
+    const a = onComputer ? perf?.engines[onComputer] : undefined;
+    const run = a?.results.find((r) => r.provider === a.provider);
+    return slowHere(f.id, { rtf: run && "rtf" in run ? run.rtf : undefined, tier: perf?.device.tier, inBrowser: !onComputer && f.id !== "clone", webgpu: hasWebGPU() });
+  };
+}
+
 // One engine in a stage's picker. A native engine adds its size and installed
 // state from the agent, which are missing while the agent is unreachable.
 // `unsupported` names the languages it does speak when the session's is not
 // among them: the card stays visible, greyed, and cannot be picked. `missing`
 // says what plays instead while the active engine is not downloaded.
-function EngineChoice({ id, active, streaming, note, where, status, unsupported, locked, missing, onPick }: {
-  id: string; active: boolean; streaming?: boolean; note?: string; where: string; status?: NativeEngineStatus; unsupported?: string; locked?: boolean; missing?: string; onPick: () => void;
+function EngineChoice({ id, active, streaming, note, where, status, unsupported, locked, missing, slow, onPick }: {
+  id: string; active: boolean; streaming?: boolean; note?: string; where: string; status?: NativeEngineStatus; unsupported?: string; locked?: boolean; missing?: string; slow?: string; onPick: () => void;
 }) {
   const meta = [where, status && mb(status.sizeBytes), note, status?.installed && "Downloaded"].filter(Boolean).join(" · ");
   const copy = ENGINE_COPY[id] ?? { title: id, desc: "" };
@@ -302,6 +316,7 @@ function EngineChoice({ id, active, streaming, note, where, status, unsupported,
         {active && missing && <Badge tone="arc" className="min-w-0"><Download aria-hidden /> {missing}</Badge>}
         {streaming && <Badge>Streaming</Badge>}
         {locked && <Badge tone="arc"><Lock aria-hidden /> Restricted license</Badge>}
+        {slow && <Badge tone="arc" className="min-w-0">{slow}</Badge>}
       </div>
       <Tooltip label={copy.desc} truncated className="mt-1 flex">
         <span className="line-clamp-2 text-caption text-muted-foreground">{copy.desc}</span>
@@ -647,6 +662,7 @@ const unsupportedNote = (f: EngineFamilyInfo, lang: LanguageCode) =>
 export function SttStage({ cfg, update, scope }: { cfg: PipelineConfig; update: Update; scope?: "flow" | "dictate" }) {
   const { data: engines } = useNativeEngines();
   const where = useWhereItRuns();
+  const slow = useSlowHere();
   const whisper = !isNativeVariant(cfg.stt.variant);
   const { pick, ask, gate } = useFamilyPick(cfg, "stt", update);
   const active = familyInfo("stt", cfg.stt.family);
@@ -660,7 +676,7 @@ export function SttStage({ cfg, update, scope }: { cfg: PipelineConfig; update: 
           return (
             <EngineChoice key={e.id} id={e.id} active={cfg.stt.family === e.id} streaming={e.variants.some((v) => v.streaming)} note={e.note}
               unsupported={unsupportedNote(e, cfg.language)} where={where(e, variant)} locked={!permitted(cfg, variant)}
-              missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
+              slow={slow(e, variant)} missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
           );
         })}
       </div>
@@ -791,6 +807,7 @@ export async function playPreview(text: string, cfg: PipelineConfig) {
 export function TtsStage({ cfg, update, scope }: { cfg: PipelineConfig; update: Update; scope?: "flow" }) {
   const { data: engines } = useNativeEngines();
   const where = useWhereItRuns();
+  const slow = useSlowHere();
   const native = isNativeVariant(cfg.tts.variant);
   const missing = missingNote(cfg, "tts", engines);
   // This browser voice's copy on the agent, when the agent has one that runs here.
@@ -809,7 +826,7 @@ export function TtsStage({ cfg, update, scope }: { cfg: PipelineConfig; update: 
           const variant = familyVariant(cfg, "tts", e);
           return (
             <EngineChoice key={e.id} id={e.id} active={cfg.tts.family === e.id} note={e.note} unsupported={unsupportedNote(e, cfg.language)}
-              locked={!permitted(cfg, variant)} where={where(e, variant)} missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
+              locked={!permitted(cfg, variant)} where={where(e, variant)} slow={slow(e, variant)} missing={missing} status={variantStatus(engines, variant)} onPick={() => pick(e)} />
           );
         })}
       </div>
