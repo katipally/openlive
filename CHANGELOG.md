@@ -6,6 +6,16 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-11
+
+### Changed
+- **Updates download only what changed.** Windows and macOS updates now fetch just the
+  changed parts of the app instead of the whole installer, so updates are much smaller.
+
+### Fixed
+- **Agents see OpenLive's real version.** OpenLive now reports its own version to
+  agents when it connects, instead of "0".
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
