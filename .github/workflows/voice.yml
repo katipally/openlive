@@ -4,10 +4,28 @@ name: Voice regression
 # stitching, and fails when the voice gets less continuous (tools/voice-regress).
 # PRs that touch the voice path run the fast tier on Linux; every engine runs
 # nightly on macOS. Models download on first use and are cached by the model
-# list (engines.ts pins each file's SHA-256).
+# list (engines.ts pins each file's SHA-256). Only main saves the caches (the
+# push run warms the PR one); PRs restore them.
 
 on:
   pull_request:
+    paths:
+      - "apps/web/src/lib/live/voiceText.ts"
+      - "apps/web/src/lib/live/pcm.ts"
+      - "apps/web/src/lib/live/models.worker.ts"
+      - "apps/web/src/lib/live/supertonic.ts"
+      - "apps/web/src/lib/live/voiceEngine.ts"
+      - "apps/web/src/lib/live/audioPlayback.ts"
+      - "apps/web/src/lib/live/pipelineConfig.ts"
+      - "packages/shared/src/speech/**"
+      - "services/agent/src/voice/native-models.ts"
+      - "services/agent/src/voice/native-worker.ts"
+      - "services/agent/src/voice/pcm.ts"
+      - "services/agent/src/voice/routes.ts"
+      - "tools/voice-regress/**"
+      - ".github/workflows/voice.yml"
+  push:
+    branches: [main]
     paths:
       - "apps/web/src/lib/live/voiceText.ts"
       - "apps/web/src/lib/live/pcm.ts"
@@ -29,48 +47,50 @@ on:
 
 jobs:
   pr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - id: models
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/openlive-voice-regress
           key: voice-models-${{ runner.os }}-pr-${{ hashFiles('tools/voice-regress/src/engines.ts') }}
       # --strict: a model that fails to download fails the job instead of skipping.
       - run: pnpm voice:regress --strict --report report
+      - if: github.ref == 'refs/heads/main' && steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/openlive-voice-regress
+          key: voice-models-${{ runner.os }}-pr-${{ hashFiles('tools/voice-regress/src/engines.ts') }}
       - if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: voice-regress-report
           path: report
 
   nightly:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - id: models
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/openlive-voice-regress
           key: voice-models-${{ runner.os }}-all-${{ hashFiles('tools/voice-regress/src/engines.ts') }}
       - run: pnpm voice:regress --engine all --strict --report report
+      - if: github.ref == 'refs/heads/main' && steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/openlive-voice-regress
+          key: voice-models-${{ runner.os }}-all-${{ hashFiles('tools/voice-regress/src/engines.ts') }}
       - if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: voice-regress-report
           path: report

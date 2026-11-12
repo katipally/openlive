@@ -1,9 +1,10 @@
 name: Release
 
-# Push a tag like v0.1.0 → fully automatic release. Builds the Mac + Windows
-# installers on their native runners, uploads them to a draft GitHub Release named
-# after the tag, then (once BOTH succeed) publishes it so it's downloadable. No
-# manual step. If either build fails the release stays a draft (nothing goes live).
+# Push a tag like v0.1.0 → fully automatic release. Once CI's `check` job passed
+# on the tagged commit, builds the Mac, Windows and Linux installers on their
+# native runners, uploads them to a draft GitHub Release named after the tag, then
+# (once ALL succeed) publishes it so it's downloadable. No manual step. If CI or a
+# build fails the release stays a draft (nothing goes live).
 on:
   push:
     tags: ['v*']
@@ -11,8 +12,39 @@ on:
 permissions:
   contents: write   # electron-builder needs this to create the release + upload assets
 
+# Never cancel a release half way through; a second push of the same tag waits.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  # The tag push starts this run and CI together, so wait for CI's `check` job
+  # (ci.yml) on the tagged commit instead of assuming it already finished.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      checks: read
+    steps:
+      - name: Require CI check on the tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in $(seq 1 80); do
+            conclusion=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/check-runs?check_name=check" \
+              --jq '[.check_runs[] | select(.status == "completed")] | sort_by(.completed_at) | last | .conclusion // empty')
+            case "$conclusion" in
+              success) echo "CI check passed"; exit 0 ;;
+              "") echo "Waiting for the CI check ($i/80)..."; sleep 15 ;;
+              *) echo "::error::CI check concluded $conclusion on ${{ github.sha }}"; exit 1 ;;
+            esac
+          done
+          echo "::error::Timed out waiting for the CI check on ${{ github.sha }}"
+          exit 1
+
   build:
+    needs: gate
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -25,12 +57,12 @@ jobs:
             name: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Reads the pnpm version from package.json "packageManager" — no pin to drift.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -51,8 +83,9 @@ jobs:
       # The ol-input addon (Flow's hotkey + text insertion) is Rust. The mac build
       # is one universal binary, so it needs both Apple targets; pack-native fails
       # if either is missing rather than shipping a host-only addon.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.name == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       # Assemble the Next standalone server, the agent bundle and the native addon
@@ -116,19 +149,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Both platforms uploaded their assets to the draft release. Flip it to
+  # Every platform uploaded its assets to the draft release. Flip it to
   # published (and mark it "Latest") so it's downloadable. Runs only if every
   # build succeeded, so a half-built release never goes public.
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # Need the repo checked out to read CHANGELOG.md for the release highlights.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Give users a clean release: this version's CHANGELOG highlights, a download
-      # table pointing at the two installers, and strip the *.blockmap noise. The
-      # *.yml + mac *.zip stay — auto-update (electron-updater) needs them.
+      # table pointing at the three installers. The *.yml, *.blockmap and mac *.zip
+      # stay: auto-update (electron-updater) needs them, the blockmaps for
+      # differential downloads.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -159,6 +194,3 @@ jobs:
           ${HIGHLIGHTS}"
           fi
           gh release edit "$TAG" --repo "$REPO" --draft=false --latest --notes "$NOTES"
-          for a in $(gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name' | grep -E '\.blockmap$'); do
-            gh release delete-asset "$TAG" "$a" --yes --repo "$REPO" || true
-          done

@@ -14,17 +14,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Reads the pnpm version from package.json "packageManager" — no pin to drift.
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Typecheck
         run: pnpm typecheck
@@ -37,27 +29,35 @@ jobs:
   mac:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Test
         run: pnpm test
 
       # The universal addon and helper need both Apple targets.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            native/ol-input
+            native/openlive-cu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Test computer-use helper
         run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
+
+      - id: next-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
+          restore-keys: next-${{ runner.os }}-
 
       - name: Pack web + agent + native
         run: |
@@ -71,21 +71,20 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      - if: github.ref == 'refs/heads/main' && steps.next-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
+
   # Windows parity is code-level (no hardware QA): prove the repo installs,
   # typechecks, tests, and produces an unsigned Windows build on windows-latest.
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Typecheck
         run: pnpm typecheck
@@ -94,7 +93,16 @@ jobs:
         run: pnpm test
 
       # The ol-input native addon is Rust; without it Flow can't load in the build.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            native/ol-input
+            native/openlive-cu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The computer-use helper's core and Windows backend, then the built helper
       # against this runner's desktop: handshake, permissions, listWindows over
@@ -103,6 +111,13 @@ jobs:
         run: cargo test --manifest-path native/openlive-cu/Cargo.toml --workspace
         env:
           OPENLIVE_CU_SMOKE: "1"
+
+      - id: next-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
+          restore-keys: next-${{ runner.os }}-
 
       - name: Pack web + agent + native
         run: |
@@ -117,21 +132,20 @@ jobs:
       - name: Build Windows installer (unsigned)
         run: pnpm --filter @openlive/desktop exec electron-builder --win --publish never
 
+      - if: github.ref == 'refs/heads/main' && steps.next-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
+
   # Linux parity smoke test: prove the repo installs, typechecks, tests, and
   # produces an unsigned AppImage on ubuntu-latest — same shape as the Windows job.
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Typecheck
         run: pnpm typecheck
@@ -140,7 +154,16 @@ jobs:
         run: pnpm test
 
       # The ol-input native addon is Rust; without it Flow can't load in the build.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            native/ol-input
+            native/openlive-cu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # A desktop for the computer-use helper: a virtual X display, a session
       # bus that starts the accessibility bus on demand, and one GTK 3 app.
@@ -161,6 +184,13 @@ jobs:
           OPENLIVE_CU_SMOKE: "1"
           OPENLIVE_CU_SMOKE_APP: gtk3-widget-factory
 
+      - id: next-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
+          restore-keys: next-${{ runner.os }}-
+
       - name: Pack web + agent + native
         run: |
           pnpm --filter @openlive/desktop pack:web
@@ -170,3 +200,9 @@ jobs:
 
       - name: Build Linux AppImage (unsigned)
         run: pnpm --filter @openlive/desktop exec electron-builder --linux --publish never
+
+      - if: github.ref == 'refs/heads/main' && steps.next-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/shared/**') }}
