@@ -360,6 +360,29 @@ export const LANGUAGE_DEFAULTS: Record<LanguageCode, Record<Stage, string>> = {
  *  `lang`, or null when none speaks it. Pure. */
 export const browserTtsFallback = (lang: LanguageCode): string | null => ["kokoro", "supertonic"].find((id) => speaks(id, lang)) ?? null;
 
+// The light native engines a machine without WebGPU runs instead of the
+// in-browser models (WASM, single-threaded: ~10x slower than the agent's
+// sherpa-onnx, #18). Only each family's own pick: Piper's high tier took 42 s
+// to a first sentence where medium took 2.5 s, and the 0.6B models are not
+// light. Whisper stands in where none speaks the language.
+const LIGHT_NATIVE: Record<Stage, string[]> = { stt: ["moonshine", "canary"], tts: ["piper"] };
+
+/** `c` with each stage moved to a light native engine, for a machine without
+ *  WebGPU whose agent (`installed`, null when unreachable) has one for the
+ *  language downloaded and permitted. Anything else comes back as `c` itself,
+ *  so the caller can tell nothing changed. Pure, O(families x variants). */
+export function nativeFirst(c: PipelineConfig, m: { webgpu: boolean; installed: ReadonlySet<string> | null }): PipelineConfig {
+  const { installed } = m;
+  if (m.webgpu || !installed) return c;
+  let out = c;
+  for (const stage of ["stt", "tts"] as const) {
+    const pick = LIGHT_NATIVE[stage].map((id) => defaultVariant(familyInfo(stage, id)!, c.language, c.allowRestricted))
+      .find((id) => speaks(id, c.language) && permitted(c, id) && installed.has(id));
+    if (pick) out = chooseVariant(out, stage, pick);
+  }
+  return out;
+}
+
 /** Make `variant` the stage's engine, remembering it for its family. A voice
  *  that the new engine does not have gives way to its default (a native engine
  *  without a static list: "", the agent picks one that speaks the language).

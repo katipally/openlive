@@ -100,3 +100,16 @@ export function missingEngines(c: PipelineConfig, catalog?: NativeCatalog): { st
     return [{ stage, id, standIn: standIn && (variantInfo(standIn)?.family.name ?? standIn) }];
   });
 }
+
+/** Why an engine is a poor pick on this computer, for a badge on its card, or
+ *  undefined. A measured real-time factor (the agent's benchmark, 1 or more is
+ *  slower than the audio) decides alone; with none, a cloned voice on a low
+ *  tier machine and a browser voice without WebGPU are marked from what is
+ *  known of them (ZipVoice and Supertonic ran 10 to 100 s to a first sentence on a 2-core CPU, #18).
+ *  Marked, never blocked: the pick stays the user's. Pure. */
+export function slowHere(family: string, here: { rtf?: number; tier?: "low" | "mid" | "high"; inBrowser: boolean; webgpu: boolean }): string | undefined {
+  if (here.rtf !== undefined) return here.rtf >= 1 ? `Slower than real time here (RTF ${here.rtf})` : undefined;
+  if (family === "clone" && here.tier === "low") return "Too slow for live speech on this computer";
+  if (family === "supertonic" && here.inBrowser && !here.webgpu) return "Slow without WebGPU";
+  return undefined;
+}

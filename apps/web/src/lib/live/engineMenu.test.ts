@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { engineName, languageLabel, languagesNote, licenseTag, missingEngines, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
+import { engineName, languageLabel, languagesNote, licenseTag, missingEngines, slowHere, switchNotice, variantGroups, voiceMenu } from "./engineMenu";
 import { TTS_FAMILIES, pickCompatible, chooseVariant, DEFAULT_PIPELINE_CONFIG } from "./pipelineConfig";
 
 describe("language names", () => {
@@ -106,4 +106,25 @@ test("missingEngines: a selected native engine the agent has not downloaded, wit
     { stage: "tts", id: "matcha-en-ljspeech", standIn: null },
   ]);
   expect(missingEngines(DEFAULT_PIPELINE_CONFIG, catalog(false))).toEqual([]); // browser engines download in the browser
+});
+
+describe("slowHere", () => {
+  const here = { inBrowser: true, webgpu: true };
+  test("a measurement decides alone: 1 or more is slower than real time", () => {
+    expect(slowHere("piper", { ...here, rtf: 0.4, tier: "low" })).toBeUndefined();
+    expect(slowHere("clone", { ...here, rtf: 0.4, tier: "low" })).toBeUndefined();
+    expect(slowHere("kokoro-native", { ...here, rtf: 1 })).toBe("Slower than real time here (RTF 1)");
+    expect(slowHere("kokoro-native", { ...here, rtf: 2.4 })).toBe("Slower than real time here (RTF 2.4)");
+  });
+  test("without one, a cloned voice is marked on a low tier machine only", () => {
+    expect(slowHere("clone", { ...here, tier: "low" })).toBe("Too slow for live speech on this computer");
+    expect(slowHere("clone", { ...here, tier: "mid" })).toBeUndefined();
+    expect(slowHere("clone", here)).toBeUndefined();
+  });
+  test("without one, Supertonic is marked in a browser without WebGPU only", () => {
+    expect(slowHere("supertonic", { inBrowser: true, webgpu: false })).toBe("Slow without WebGPU");
+    expect(slowHere("supertonic", { inBrowser: true, webgpu: true })).toBeUndefined();
+    expect(slowHere("supertonic", { inBrowser: false, webgpu: false })).toBeUndefined();
+    expect(slowHere("kokoro", { inBrowser: true, webgpu: false })).toBeUndefined();
+  });
 });
