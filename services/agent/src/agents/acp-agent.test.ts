@@ -152,9 +152,11 @@ function fakeWslExe(body = "") {
   process.env.PATH = `${dir}:${was}`;
   return { log: () => readFileSync(log, "utf8").split("\n"), restore: () => { process.env.PATH = was; } };
 }
+// A POSIX shell script named wsl.exe can't be exec'd on Windows (spawn fails with -1).
+const posixTest = test.skipIf(process.platform === "win32");
 const hostOf = (distro = "Ubuntu") => ({ distro, path: "/home/x/.nvm/bin:/usr/bin", bins: { [process.execPath]: process.execPath } });
 
-test("a WSL agent launches through wsl.exe with the distro's PATH and no shell, in UTF-8, and gets no OpenLive tools on NAT networking", async () => {
+posixTest("a WSL agent launches through wsl.exe with the distro's PATH and no shell, in UTF-8, and gets no OpenLive tools on NAT networking", async () => {
   const wsl = fakeWslExe();
   try {
     wslFake.host = hostOf();
@@ -168,7 +170,7 @@ test("a WSL agent launches through wsl.exe with the distro's PATH and no shell, 
   } finally { wsl.restore(); }
 }, 20_000);
 
-test("a WSL agent keeps OpenLive's tools under mirrored networking", async () => {
+posixTest("a WSL agent keeps OpenLive's tools under mirrored networking", async () => {
   const wsl = fakeWslExe();
   try {
     wslFake.host = hostOf();
@@ -186,7 +188,7 @@ test("a folder the distro cannot open stops the start with a message that names 
   await assert.rejects(a.start(new AbortController().signal), (e: Error) => /WSL \(Debian\), which can't open/.test(e.message));
 });
 
-test("wsl.exe's UTF-16 error text is still read as the reason the agent died", async () => {
+posixTest("wsl.exe's UTF-16 error text is still read as the reason the agent died", async () => {
   const wsl = fakeWslExe(`printf 'n\\0o\\0t\\0 \\0s\\0i\\0g\\0n\\0e\\0d\\0 \\0i\\0n\\0' >&2; exit 1\n`);
   try {
     wslFake.host = hostOf();
