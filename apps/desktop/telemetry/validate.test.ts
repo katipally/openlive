@@ -113,6 +113,7 @@ describe("setting_changed pairs", () => {
     expect(ok("api_effort", "xhigh")).toBeTruthy();
     expect(ok("api_effort", "on")).toBeNull();
     expect(ok("language", "ko")).toBeTruthy();
+    expect(ok("language", "uk")).toBeTruthy();
     expect(ok("language", "klingon")).toBeNull();
     expect(ok("close_after_silence", "never")).toBeTruthy();
   });

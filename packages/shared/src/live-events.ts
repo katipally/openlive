@@ -17,14 +17,14 @@ import { errorClassSchema } from "./error-class";
 // ── language ──────────────────────────────────────────────────────────────
 // The one language a voice session runs in: the browser transcribes and speaks
 // it, and each turn carries it so the model answers in it too.
-export const LANGUAGE_CODES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] as const;
+export const LANGUAGE_CODES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"] as const;
 export type LanguageCode = (typeof LANGUAGE_CODES)[number];
 export const languageSchema = z.enum(LANGUAGE_CODES);
 /** How the model is told to write it. Mandarin, simplified: the voices and
  *  transcribers for "zh" are Mandarin, and they read simplified characters. */
 const REPLY_LANGUAGE: Record<LanguageCode, string> = {
   en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian", pt: "Portuguese",
-  hi: "Hindi", zh: "Mandarin Chinese, in simplified characters", ja: "Japanese", ko: "Korean",
+  hi: "Hindi", zh: "Mandarin Chinese, in simplified characters", ja: "Japanese", ko: "Korean", uk: "Ukrainian",
 };
 /** The one instruction a non-English session adds; "" for English, so an
  *  English prompt stays exactly what it was. */

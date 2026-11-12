@@ -483,7 +483,7 @@ check reads words only), and real rooms.
 goes on) of a turn with 3 s of speech, at most once per 8 s, never after a
 question (a question mark, or an English question word first), over a reply,
 an ask or push-to-talk, the engine plays one of `LISTENING[lang]` (words the
-backchannel check itself counts as one, in all ten languages) at gain 0.4,
+backchannel check itself counts as one, in all eleven languages) at gain 0.4,
 rendered once per voice at call start in the voice the reply will use. It plays
 on its own AudioPlayer, so the reply's echo gate, barge-in and pause (P3) and
 the voiceprint's timing (P2) never see it, and the first voiced frame stops it.
@@ -566,7 +566,7 @@ device. The call's top bar shows the session's median voice-to-voice time, and
 its popover the median and p95 of each stage.
 
 A session runs in **one language** (`language` in `pipelineConfig.ts`: en, es, fr,
-de, it, pt, hi, zh, ja, ko) and every stage follows it: STT gets `lang` (Whisper
+de, it, pt, hi, zh, ja, ko, uk) and every stage follows it: STT gets `lang` (Whisper
 switches from its `.en` build to the multilingual build of the same size and
 pins the language), TTS gets it (Supertonic as its language tag), the chunker
 splits on Chinese, Japanese and Devanagari sentence marks, and the English

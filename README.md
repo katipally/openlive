@@ -105,8 +105,8 @@ What every mode is built on, the ears, mouth and eyes:
   accelerator it measures faster on your machine, and fall back to Whisper or the
   browser voice for the language when missing. On the desktop, Supertonic can run
   there too, on your GPU, with the browser's Supertonic as its fallback.
-- **Ten languages.** English, Spanish, French, German, Italian, Portuguese, Hindi,
-  Chinese, Japanese or Korean, picked once in Settings > Voice. Every stage and the
+- **Eleven languages.** English, Spanish, French, German, Italian, Portuguese, Hindi,
+  Chinese, Japanese, Korean or Ukrainian, picked once in Settings > Voice. Every stage and the
   reply follow it. Engines that don't speak it are greyed out, and switching
   swaps in one that does and tells you what changed.
 - **Speak as yourself.** Settings > Voice records 5 to 30 seconds of you

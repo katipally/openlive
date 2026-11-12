@@ -831,7 +831,7 @@ The Values cells link here for the long lists.
 
 ### Languages
 
-`en`, `es`, `fr`, `de`, `it`, `pt`, `hi`, `zh`, `ja`, `ko`
+`en`, `es`, `fr`, `de`, `it`, `pt`, `hi`, `zh`, `ja`, `ko`, `uk`
 
 ### Speech-to-text families
 

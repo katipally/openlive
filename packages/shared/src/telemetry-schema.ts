@@ -35,7 +35,7 @@ const BRAIN_IDS = [...PROVIDER_IDS, ...AGENT_IDS] as const;
 const MODEL_FAMILIES = [
   "haiku", "sonnet", "opus", "fable", "gpt", "gemini", "llama", "qwen", "deepseek", "mistral", "minimax", "grok", "other",
 ] as const;
-const LANGUAGES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko"] as const;
+const LANGUAGES = ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"] as const;
 const STT_FAMILIES = ["whisper", "nemotron", "nemotron-3.5", "parakeet", "moonshine", "canary"] as const;
 const TTS_FAMILIES = ["kokoro", "supertonic", "clone", "pocket", "kitten", "piper", "kokoro-native", "matcha"] as const;
 const ENGINE_FAMILIES = [

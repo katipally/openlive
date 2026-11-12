@@ -17,6 +17,7 @@ import * as hi from "n2words/hi";
 import * as zh from "n2words/zh-Hans-CN";
 import * as ja from "n2words/ja";
 import * as ko from "n2words/ko";
+import * as uk from "n2words/uk";
 import type { Lexicon } from "./lexicon";
 
 // pt-BR and zh type their currency option as their own codes; money() checks
@@ -109,6 +110,23 @@ add({
   times: "곱하기", by: "곱하기", fold: "배", equals: "이퀄", to: "에서", about: "약", version: "버전", dash: "대시",
   number: (n) => `${n}번`, percent: (n) => `${n} 퍼센트`,
   time(h, m) { return `${h >= 1 && h <= 12 ? koNative(h) : card(this, String(h))} 시${m ? ` ${card(this, String(m))} 분` : ""}`; },
+});
+// n2words spells its Ukrainian "і" with a Latin "i", which a voice reads as another script.
+const cyrillic = (s: string) => s.replace(/i/g, "і");
+const ukWords = uk as N2W;
+const ukN: N2W = {
+  toCardinal: (v, o) => cyrillic(ukWords.toCardinal(v, o)), toOrdinal: (v, o) => cyrillic(ukWords.toOrdinal(v, o)),
+  toCurrency: (v, o) => cyrillic(ukWords.toCurrency(v, o)), currencyValues: ukWords.currencyValues,
+};
+add({
+  code: "uk", locale: "uk", n: ukN, point: "кома", vsep: "крапка", dot: "крапка", at: "равлик", and: "і", plus: "плюс", minus: "мінус",
+  times: "помножити на", by: "на", fold: "рази", equals: "дорівнює", to: "до", about: "близько", version: "версія", dash: "тире", more: "більше ніж", less: "менше ніж",
+  number: (n) => `номер ${n}`, percent: (n) => `${n} ${/(один|одна)$/.test(n) ? "відсоток" : /(два|три|чотири)$/.test(n) ? "відсотки" : "відсотків"}`,
+  time(h, m) {
+    const hour = card(this, String(h)).replace(/один$/, "одна").replace(/два$/, "дві");
+    const d = h % 10, noun = (h % 100 > 10 && h % 100 < 15) || d === 0 || d > 4 ? "годин" : d === 1 ? "година" : "години";
+    return `${hour} ${noun}${m ? ` ${card(this, String(m))}` : ""}`;
+  },
 });
 const DECIMAL = new Map(Object.values(LANGS).map((l) => [l.code, new Intl.NumberFormat(l.locale).formatToParts(1.5).find((p) => p.type === "decimal")!.value]));
 

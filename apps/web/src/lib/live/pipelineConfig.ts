@@ -74,6 +74,7 @@ export const CURATED_LANGUAGES: { code: LanguageCode; name: string; native: stri
   { code: "zh", name: "Chinese (Mandarin)", native: "中文" },
   { code: "ja", name: "Japanese", native: "日本語" },
   { code: "ko", name: "Korean", native: "한국어" },
+  { code: "uk", name: "Ukrainian", native: "Українська" },
 ];
 
 // Defaults are tuned for modest devices; the bigger models are opt-in for machines
@@ -200,12 +201,12 @@ const PIPER_IDS = "en_US-lessac-low-int8 en_US-lessac-medium-int8 en_US-lessac-h
   + "fr_FR-upmc-medium-int8 de_DE-thorsten-low-int8 de_DE-thorsten-medium-int8 de_DE-thorsten-high-int8 de_DE-kerstin-low-int8 "
   + "de_DE-ramona-low-int8 it_IT-paola-medium-int8 it_IT-riccardo-x_low-int8 pt_BR-faber-medium-int8 pt_BR-cadu-medium-int8 "
   + "pt_PT-tugao-medium-int8 hi_IN-pratham-medium-int8 hi_IN-priyamvada-medium-int8 hi_IN-rohan-medium-int8 "
-  + "zh_CN-chaowen-medium-int8 zh_CN-xiao_ya-medium-int8 zh_CN-huayan-medium";
+  + "zh_CN-chaowen-medium-int8 zh_CN-xiao_ya-medium-int8 zh_CN-huayan-medium uk_UA-lada-x_low-int8";
 // Voices whose own data is CC0, CC BY or BSD-style, whatever voice they were
 // fine-tuned from; the rest are research-only, non-commercial, share-alike,
 // AGPL or unknown (licenses in native-models.ts PIPER).
 const PIPER_OPEN = new Set(["en_US-libritts_r", "es_ES-davefx", "es_ES-sharvard", "fr_FR-siwis", "de_DE-thorsten", "de_DE-kerstin",
-  "de_DE-ramona", "it_IT-riccardo", "pt_BR-faber", "pt_BR-cadu", "pt_PT-tugao", "zh_CN-chaowen"]);
+  "de_DE-ramona", "it_IT-riccardo", "pt_BR-faber", "pt_BR-cadu", "pt_PT-tugao", "zh_CN-chaowen", "uk_UA-lada"]);
 const KOKORO_MULTI = langs("en es fr hi it pt zh");
 
 export const STT_FAMILIES: EngineFamilyInfo[] = [
@@ -228,7 +229,7 @@ export const STT_FAMILIES: EngineFamilyInfo[] = [
       { id: "parakeet-110m-int8", languages: EN },
       { id: "parakeet-0.6b-v2-int8", languages: EN, legacy: "parakeet" },
       { id: "parakeet-0.6b-v2-fp16", languages: EN },
-      { id: "parakeet-0.6b-v3-int8", languages: langs("en es fr de it pt") },
+      { id: "parakeet-0.6b-v3-int8", languages: langs("en es fr de it pt uk") },
     ],
     defaultVariant: "parakeet-0.6b-v2-int8",
   },
@@ -245,7 +246,7 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
   // Verified 2026-09-24 against huggingface.co/Supertone/supertonic-3: 31
   // languages, Chinese not among them; the language rides as a tag (supertonic.ts).
   {
-    id: "supertonic", stage: "tts", name: "Supertonic", native: false, variants: one("supertonic", langs("en es fr de it pt hi ja ko")),
+    id: "supertonic", stage: "tts", name: "Supertonic", native: false, variants: one("supertonic", langs("en es fr de it pt hi ja ko uk")),
     note: "OpenRAIL-M, with use restrictions", licenseUrl: "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
     defaultVariant: "supertonic", voices: SUPERTONIC_VOICES, defaultVoice: "M1", onAgent: true,
   },
@@ -281,7 +282,7 @@ export const TTS_FAMILIES: EngineFamilyInfo[] = [
     // Each language's pick; a restricted one (it, hi) waits for the user's OK.
     byLanguage: {
       es: "piper-es_ES-davefx-medium-int8", fr: "piper-fr_FR-siwis-medium-int8", de: "piper-de_DE-thorsten-medium-int8",
-      it: "piper-it_IT-paola-medium-int8", pt: "piper-pt_BR-faber-medium-int8", hi: "piper-hi_IN-rohan-medium-int8", zh: "piper-zh_CN-chaowen-medium-int8",
+      it: "piper-it_IT-paola-medium-int8", pt: "piper-pt_BR-faber-medium-int8", hi: "piper-hi_IN-rohan-medium-int8", zh: "piper-zh_CN-chaowen-medium-int8", uk: "piper-uk_UA-lada-x_low-int8",
     },
   },
   {
@@ -352,6 +353,7 @@ export const LANGUAGE_DEFAULTS: Record<LanguageCode, Record<Stage, string>> = {
   zh: { stt: "nemotron-3.5-160ms-int8", tts: "kokoro-multi-v1_0" },
   ja: { stt: "nemotron-3.5-160ms-int8", tts: "supertonic" },
   ko: { stt: "nemotron-3.5-160ms-int8", tts: "supertonic" },
+  uk: { stt: "parakeet-0.6b-v3-int8", tts: "supertonic" },
 };
 
 /** The in-browser voice that stands in for a failed native or cloned one in

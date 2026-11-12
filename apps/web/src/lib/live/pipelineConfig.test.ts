@@ -211,7 +211,7 @@ test("every curated language has a recommended STT and TTS engine that speaks it
 test("pickCompatible: from the browser defaults, every curated language", () => {
   const want: Record<string, string> = {
     en: "kokoro", es: "supertonic", fr: "supertonic", de: "supertonic", it: "supertonic", pt: "supertonic", hi: "supertonic",
-    zh: "kokoro-multi-v1_0", ja: "supertonic", ko: "supertonic",
+    zh: "kokoro-multi-v1_0", ja: "supertonic", ko: "supertonic", uk: "supertonic",
   };
   for (const lang of LANGUAGE_CODES) {
     const { cfg, changes, unsupported } = pickCompatible(DEFAULT_PIPELINE_CONFIG, lang);
@@ -232,6 +232,7 @@ test("pickCompatible: from native engines, every curated language, with and with
     de: ["parakeet-0.6b-v3-int8", "piper-de_DE-thorsten-medium-int8"], it: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"],
     pt: ["parakeet-0.6b-v3-int8", "kokoro-multi-v1_0"], hi: ["nemotron-3.5-160ms-int8", "kokoro-multi-v1_0"],
     zh: ["nemotron-3.5-160ms-int8", "kokoro-multi-v1_0"], ja: ["nemotron-3.5-160ms-int8", "supertonic"], ko: ["nemotron-3.5-160ms-int8", "supertonic"],
+    uk: ["parakeet-0.6b-v3-int8", "supertonic"],
   };
   for (const lang of LANGUAGE_CODES) {
     const { cfg } = pickCompatible(native, lang);
