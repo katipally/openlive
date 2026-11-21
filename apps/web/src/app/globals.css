@@ -98,27 +98,27 @@
   /* ── Type scale — the ONLY font sizes in the app. Each token is a Tailwind
      text-* utility (text-micro, text-caption, …). Desktop-app scale: denser
      than web defaults, aligned to the SF/Segoe optical sizes. ────────────── */
-  --text-micro: 10px;            /* smallest legal size: keycaps, badges */
-  --text-micro--line-height: 14px;
-  --text-caption: 11px;          /* secondary metadata, eyebrows, timestamps */
-  --text-caption--line-height: 15px;
-  --text-label: 12px;            /* control labels, list secondary text */
-  --text-label--line-height: 16px;
-  --text-body: 13px;             /* default UI + chat text */
-  --text-body--line-height: 20px;
-  --text-callout: 14px;          /* emphasized body, primary buttons */
-  --text-callout--line-height: 20px;
-  --text-title-sm: 15px;         /* card titles, section headers */
-  --text-title-sm--line-height: 21px;
-  --text-title: 17px;            /* page/panel titles */
-  --text-title--line-height: 23px;
-  --text-title-lg: 22px;         /* screen headlines */
-  --text-title-lg--line-height: 27px;
-  --text-display: 32px;          /* the hero wordmark only */
-  --text-display--line-height: 38px;
+  --text-micro: 0.625rem;               /* smallest legal size: keycaps, badges */
+  --text-micro--line-height: 0.875rem;
+  --text-caption: 0.6875rem;            /* secondary metadata, eyebrows, timestamps */
+  --text-caption--line-height: 0.9375rem;
+  --text-label: 0.75rem;                /* control labels, list secondary text */
+  --text-label--line-height: 1rem;
+  --text-body: 0.8125rem;               /* default UI + chat text */
+  --text-body--line-height: 1.25rem;
+  --text-callout: 0.875rem;             /* emphasized body, primary buttons */
+  --text-callout--line-height: 1.25rem;
+  --text-title-sm: 0.9375rem;           /* card titles, section headers */
+  --text-title-sm--line-height: 1.3125rem;
+  --text-title: 1.0625rem;              /* page/panel titles */
+  --text-title--line-height: 1.4375rem;
+  --text-title-lg: 1.375rem;            /* screen headlines */
+  --text-title-lg--line-height: 1.6875rem;
+  --text-display: 2rem;                 /* the hero wordmark only */
+  --text-display--line-height: 2.375rem;
   /* legacy alias — same metrics as body */
-  --text-chat: 13px;
-  --text-chat--line-height: 21px;
+  --text-chat: 0.8125rem;
+  --text-chat--line-height: 1.3125rem;
 
   /* One radius system. sm: chips' inner marks, badges, checkboxes, tooltips,
      menu items. md: fields, selects, segmented tracks, list rows. lg: cards and

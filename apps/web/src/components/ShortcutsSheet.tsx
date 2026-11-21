@@ -15,8 +15,8 @@ import { useMotionTokens } from "@/lib/motion";
 type Row = { label: string; keys: string[] };
 type Group = { title: string; note?: string; rows: Row[] };
 
-// Only what is really bound. Settings and ⌘Q are native menu accelerators and
-// the talk keys live in the desktop shell, so the browser build leaves them out.
+// Only what is really bound. Settings and ⌘Q are native menu accelerators, zoom is the
+// desktop shell's, and the talk keys live there too, so the browser build leaves them out.
 // Flow's, Dictate's and push to talk's groups come from the person's own keys.
 const APP_GROUPS: Group[] = [
   { title: "Anywhere in OpenLive", rows: [
@@ -24,6 +24,11 @@ const APP_GROUPS: Group[] = [
     ...(isDesktop ? [{ label: "Settings", keys: [MOD, ","] }] : []),
     { label: "Keyboard shortcuts", keys: ["?"] },
     ...(isDesktop ? [{ label: `Close to ${isMac ? "menu bar" : "tray"}`, keys: [MOD, "Q"] }] : []),
+    ...(isDesktop ? [
+      { label: "Zoom in", keys: [MOD, "="] },
+      { label: "Zoom out", keys: [MOD, "-"] },
+      { label: "Reset zoom", keys: [MOD, "0"] },
+    ] : []),
   ] },
 ];
 const CALL_GROUPS: Group[] = [

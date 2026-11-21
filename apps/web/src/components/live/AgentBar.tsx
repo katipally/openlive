@@ -33,7 +33,7 @@ function PillMenu({ icon: Icon, label, title, items, current, onPick, footer }: 
       <Tooltip label={title} className="flex max-w-full">
         <button onClick={toggle} aria-label={`${title}: ${label}`} aria-haspopup="menu" aria-expanded={open}
           className={cn(pill, "min-w-0")}>
-          <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> <span className="min-w-0 truncate">{label}</span>
+          <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> <span data-chip-label className="min-w-0 truncate">{label}</span>
           <ChevronDown aria-hidden className={cn("size-3 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
         </button>
       </Tooltip>

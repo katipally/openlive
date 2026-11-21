@@ -54,6 +54,14 @@ contextBridge.exposeInMainWorld("openlive", {
     set: (patch) => ipcRenderer.invoke("openlive:appearance-set", patch),
     onChange: (cb) => listen("openlive:appearance-changed", cb),
   },
+  // The main window's UI scale, the same way: `get` is synchronous. Resolves /
+  // delivers { factor, steps }, `factor` being one of `steps` (1 is 100%). `set`
+  // takes a factor and snaps it to the nearest step; the shortcuts move it too.
+  zoom: {
+    get: () => ipcRenderer.sendSync("openlive:zoom"),
+    set: (factor) => ipcRenderer.invoke("openlive:zoom-set", factor),
+    onChange: (cb) => listen("openlive:zoom-changed", cb),
+  },
   // Product-usage telemetry. Main checks every message against its schema and keeps
   // nothing else; only the main window and Flow's owner are heard. get() resolves to
   // { active, enabled, noticeSeen, installIdTail, username, feedback, appVersion, osName, osMajor }, and

@@ -41,7 +41,7 @@ utility (`bg-card`, `text-label`, `rounded-lg`, `shadow-pop`, `z-modal`,
 | `track`, `thumb`, `control`, `secondary`, `chip` | Kit fills: recessed tracks, thumbs, fields, secondary buttons, chips |
 | `tooltip`, `tooltip-foreground` | The inverted tooltip |
 | `scrim` (utility) | The one dim behind a modal; blurs under glass |
-| `text-micro` to `text-display` | The only font sizes |
+| `text-micro` to `text-display` | The only font sizes, in rem so they follow the root size and the app's UI scale |
 | `rounded-sm/md/lg/xl`, `rounded-full` | sm marks and menu items, md fields and tracks, lg cards and menus, xl panels and sheets, full buttons |
 | `h-control-sm/field/control-md/control-lg`, `min-h-row`, `px-card-x` | Control heights (28/32/36/44), list rows, card padding |
 | `gap-beat`, `gap-turn` (and `pt-`) | The timeline's one rhythm: a beat within a turn, a turn between speakers (in-call Activity and Flow sessions) |

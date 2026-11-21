@@ -6,6 +6,21 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Added
+- **UI scale and zoom shortcuts.** Ctrl or Cmd with `=` (or `+`), `-` and `0` zoom the
+  window in, out and back to 100%, from 75% up to 300%, and Settings > General > UI scale
+  picks a size too. It is remembered, and the orb stays at its own size. (#60)
+
+### Fixed
+- **Ctrl+= now zooms in.** Only Ctrl+- worked before, because the menu's zoom in needed Shift.
+- **The window fits small and scaled screens.** A first launch opens at most as large as the
+  screen's usable area, centered, and the window can always be resized down to fit the screen
+  it is on, such as a 1080p laptop at 150% scaling.
+- **Layouts hold up at large zoom.** The call's orb shrinks to the room it has instead of
+  overlapping the hints and controls, the top bar folds its chips to icons in a narrow window,
+  the home page's version no longer sits over the buttons, and text sizes follow the root
+  size. (#60)
+
 ## [0.4.1] - 2026-11-11
 
 ### Changed

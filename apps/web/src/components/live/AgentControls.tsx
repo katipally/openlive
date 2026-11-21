@@ -96,7 +96,7 @@ export function AgentSelect({ up = false, pending = false }: { up?: boolean; pen
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
           {pending ? null : boundAgent ? <AgentIcon id={boundAgent} className="size-3.5" /> : <OpenLiveOrb size={16} />}
         </span>
-        <span className="min-w-0 truncate">{label}</span>
+        <span data-chip-label className="min-w-0 truncate">{label}</span>
         <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
       </button>
       {mounted && (

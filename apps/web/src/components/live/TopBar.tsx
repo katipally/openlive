@@ -100,7 +100,10 @@ export function TopBar() {
     // [settings]. The 1fr side columns keep the middle cluster centered
     // (it expands symmetrically as more selectors appear); the empty side space is
     // the window drag handle.
-    <header className={cn("grid h-12 shrink-0 grid-cols-[minmax(min-content,1fr)_minmax(0,auto)_minmax(min-content,1fr)] items-center gap-2",
+    // A size container: the center cluster folds its chips to icons by the bar's own
+    // width, so it follows the window and the zoom alike. A container is a stacking
+    // context, so the z keeps its menus above the stage's.
+    <header className={cn("@container/top relative z-10 grid h-12 shrink-0 grid-cols-[minmax(min-content,1fr)_minmax(0,auto)_minmax(min-content,1fr)] items-center gap-2",
       isMacDesktop ? "pl-traffic-lights" : "pl-3",
       isNonMacDesktop ? "pr-window-controls" : "pr-3",
       isDesktop && "[-webkit-app-region:drag]")}>
@@ -115,7 +118,7 @@ export function TopBar() {
           <span className="truncate text-callout font-semibold tracking-tight">OpenLive</span>
         </div>
       </div>
-      <div className={cn("flex min-w-0 items-center justify-center gap-1.5", noDrag)}>
+      <div className={cn("flex min-w-0 items-center justify-center gap-1.5 @max-4xl/top:[&_[data-chip-label]]:sr-only", noDrag)}>
         <WorkspacePill />
         <div className="min-w-0"><AgentSelect /></div>
         <AgentBar />

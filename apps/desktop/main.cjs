@@ -17,7 +17,8 @@ const flowRuntime = require("./flow-runtime.cjs");
 const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
-const { restoreWindow, windowSnapshot } = require("./window-state.cjs");
+const { restoreWindow, minFor, fitRect, firstRunWindow, windowSnapshot } = require("./window-state.cjs");
+const { sameZoom, sanitizeZoom, nextZoom, zoomKeyAction, ZOOM_STEPS } = require("./zoom.cjs");
 const { trayTemplate, orbOwner } = require("./tray-menu.cjs");
 const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
@@ -435,6 +436,7 @@ function agentArgs() {
 // ── window bounds: remember size, position, maximized and fullscreen ─────────
 const windowStateFile = () => stateFile("window-state.json");
 const MAIN_MIN = { width: 940, height: 640 };
+const MAIN_PREFERRED = { width: 1180, height: 800 };
 function loadWindowState() {
   let saved = null;
   try { saved = JSON.parse(fs.readFileSync(windowStateFile(), "utf8")); } catch { /* no saved state */ }
@@ -443,6 +445,21 @@ function loadWindowState() {
 function saveWindowState() {
   if (!mainWin || mainWin.isDestroyed()) return;
   try { writeAtomic(fs, windowStateFile(), JSON.stringify(windowSnapshot(mainWin))); } catch { /* best-effort */ }
+}
+/** The work area of the display `bounds` sits on, or the primary's for a window with no place yet. */
+const workAreaOf = (bounds) => (bounds?.x != null ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()).workArea;
+/** Keeps the window usable on the display it is on: its minimum never exceeds that
+ *  work area and, when `reclamp`, a window that no longer fits is brought back inside it.
+ *  Not on every move: pulling a window back mid-drag would fight the person dragging it. */
+function fitMainWindow(reclamp = true) {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  const bounds = mainWin.getBounds();
+  const work = workAreaOf(bounds);
+  const min = minFor(MAIN_MIN, work);
+  mainWin.setMinimumSize(min.width, min.height);
+  if (!reclamp || mainWin.isMaximized() || mainWin.isFullScreen() || mainWin.isMinimized()) return;
+  const fit = fitRect(bounds, work, MAIN_MIN);
+  if (["x", "y", "width", "height"].some((k) => fit[k] !== bounds[k])) mainWin.setBounds(fit);
 }
 
 // ── one-time things (first ⌘Q notice, the login-item default) ────────────────
@@ -475,13 +492,15 @@ const CLEAR = "#00000000";
 const PAGE_BG = { dark: "#0b0b0c", light: "#efede8" }; // --background in .dark / :root
 const THEMES = new Set(["system", "light", "dark"]);
 const appearanceFile = () => stateFile("appearance.json");
-let appearance = {};          // { theme, look, probe: { version, slow } }
+let appearance = {};          // { theme, look, zoom, probe: { version, slow } }
 let look = "flat";            // what the main window wears right now
 let lookTimer = null;
 let winTransparencyOff = false;
+let zoom = 1;                 // the main window's UI scale, one of ZOOM_STEPS
 
 function loadAppearance() {
   try { appearance = JSON.parse(fs.readFileSync(appearanceFile(), "utf8")) || {}; } catch { appearance = {}; }
+  zoom = sanitizeZoom(appearance.zoom);
   // Native surfaces (the material's tint, the title bar) follow the app's theme, not the OS's.
   nativeTheme.themeSource = THEMES.has(appearance.theme) ? appearance.theme : "system";
   readWinTransparency();
@@ -602,6 +621,39 @@ function wireAppearance() {
   app.on("gpu-info-update", refreshLook);
 }
 
+// ── zoom: the main window's UI scale, kept in appearance.json beside the theme ─
+// Chromium zooms per origin and every window here is on the same one, so a level
+// set on the main window would scale the orb and the hidden owner with it. Every
+// window therefore opens `zoomMode: "isolated"` (its own level), and the orb and
+// the owner are held at 100% (holdZoom).
+const zoomState = () => ({ factor: zoom, steps: ZOOM_STEPS });
+
+/** Holds `wc` at `factor()` now and after every load, so a reload never leaves it at the origin's level. */
+function holdZoom(wc, factor) {
+  const apply = () => { if (!wc.isDestroyed() && !sameZoom(wc.getZoomFactor(), factor())) wc.setZoomFactor(factor()); };
+  apply();
+  wc.on("dom-ready", apply);
+}
+
+function setZoom(v) {
+  const next = sanitizeZoom(v);
+  if (next !== zoom) {
+    zoom = next;
+    appearance.zoom = next;
+    saveAppearance();
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.setZoomFactor(zoom);
+      mainWin.webContents.send("openlive:zoom-changed", zoomState());
+    }
+  }
+  return zoomState();
+}
+
+function wireZoom() {
+  ipcMain.on("openlive:zoom", (e) => { e.returnValue = zoomState(); });
+  ipcMain.handle("openlive:zoom-set", (e, v) => (isMainWc(e.sender) ? setZoom(v) : zoomState()));
+}
+
 // ── windows ──────────────────────────────────────────────────────────────────
 function createSplash() {
   splashWin = new BrowserWindow({
@@ -617,9 +669,11 @@ function createSplash() {
 
 function createMainWindow() {
   const saved = loadWindowState();
+  const start = saved ?? firstRunWindow(MAIN_PREFERRED, screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, MAIN_MIN);
+  const min = minFor(MAIN_MIN, workAreaOf(start));
   mainWin = new BrowserWindow({
-    width: saved?.width || 1180, height: saved?.height || 800, minWidth: MAIN_MIN.width, minHeight: MAIN_MIN.height,
-    ...(saved && saved.x != null ? { x: saved.x, y: saved.y } : {}),
+    width: start.width, height: start.height, minWidth: min.width, minHeight: min.height,
+    ...(start.x != null ? { x: start.x, y: start.y } : {}),
     show: false,
     // Never `transparent: true`: transparent windows take a slower macOS compositing
     // path that competes with the on-device WebGPU voice models (adds turn latency),
@@ -641,6 +695,8 @@ function createMainWindow() {
       // in-origin) — keep it in the Chromium sandbox. The preload only uses
       // contextBridge/ipcRenderer, which are available in sandboxed preloads.
       sandbox: true,
+      // The UI scale is this window's own (see the zoom section), set before its first frame.
+      zoomMode: "isolated", zoomFactor: zoom,
       // A call keeps running while this window is minimised or hidden, and its
       // renderer runs the whole voice pipeline: throttled timers would wreck
       // turn-taking (hold timers, TTS drain).
@@ -657,6 +713,18 @@ function createMainWindow() {
     },
   });
   for (const ev of ["resize", "move", "close", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) mainWin.on(ev, saveWindowState);
+  // A new display brings its own work area, so its minimum size has to follow.
+  mainWin.on("moved", () => fitMainWindow(false));
+  holdZoom(mainWin.webContents, () => zoom);
+  // The menu's zoom accelerators are display only (menu click below). A key
+  // handled here is claimed, which stops the menu's own accelerator for it, so
+  // one press steps once, and it works on layouts where the menu's does not.
+  mainWin.webContents.on("before-input-event", (e, input) => {
+    const action = zoomKeyAction(input, process.platform);
+    if (!action) return;
+    e.preventDefault();
+    setZoom(nextZoom(zoom, action));
+  });
   // A backstop for OS settings that change without telling nativeTheme.
   mainWin.on("focus", refreshLook);
   mainWin.on("focus", () => telemetry.markActiveDay("main_window"));
@@ -727,8 +795,9 @@ function makePanelWindow(route, bounds) {
     // on Windows, and one the window manager never focuses on Linux.
     focusable: false,
     ...(process.platform === "darwin" ? { type: "panel" } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, zoomMode: "isolated", zoomFactor: 1 },
   });
+  holdZoom(win.webContents, () => 1);
   win.setAlwaysOnTop(true, "floating", 1);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   // Electron's panel still activates OpenLive on a click, bringing the main
@@ -805,8 +874,9 @@ function createOwnerWindow() {
   if (ownerWin && !ownerWin.isDestroyed()) return ownerWin;
   ownerWin = new BrowserWindow({
     width: 480, height: 320, show: false, skipTaskbar: true,
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, additionalArguments: agentArgs() },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, zoomMode: "isolated", zoomFactor: 1, additionalArguments: agentArgs() },
   });
+  holdZoom(ownerWin.webContents, () => 1);
   ownerWin.loadURL(`${WEB_URL}/flow-owner`);
   ownerWin.webContents.on("did-start-loading", () => { ownerReady = false; });
   // Loaded means the web server answers, so Dictate's state can be read for the tray.
@@ -1373,6 +1443,7 @@ function wireWindowIpc() {
       telemetry.track("remote_ollama_prompt", { outcome, scheme: u.protocol === "https:" ? "https" : "http" });
     }
   });
+  for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, () => fitMainWindow());
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
   ipcMain.on("openlive:win-zoom", () => {
@@ -1564,6 +1635,11 @@ function buildMenu() {
     { label: `Close to ${isMac ? "Menu Bar" : "Tray"}`, accelerator: "CmdOrCtrl+Q", click: closeToMenuBar },
     { label: "Quit OpenLive", click: () => quitApp("app_menu") },
   ];
+  // The role's Zoom In wants Shift (its accelerator is Ctrl+Plus), which left Ctrl+= dead.
+  // The key itself is handled in createMainWindow, so a click is all this item answers.
+  const zoomItem = (label, accelerator, action) => ({
+    label, accelerator, click: (_item, _win, e) => { if (!e.triggeredByAccelerator) setZoom(nextZoom(zoom, action)); },
+  });
   const template = [
     ...(isMac ? [{ role: "appMenu", submenu: [
       { role: "about", label: "About OpenLive" },
@@ -1577,7 +1653,15 @@ function buildMenu() {
       { type: "separator" }, ...closeItems,
     ] }] : [{ label: "File", submenu: closeItems }]),
     { role: "editMenu" },
-    { role: "viewMenu" },
+    { label: "View", submenu: [
+      { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" },
+      { type: "separator" },
+      zoomItem("Actual Size", "CommandOrControl+0", "reset"),
+      zoomItem("Zoom In", "CommandOrControl+=", "in"),
+      zoomItem("Zoom Out", "CommandOrControl+-", "out"),
+      { type: "separator" },
+      { role: "togglefullscreen" },
+    ] },
     { role: "windowMenu" },
     { role: "help", submenu: [
       { label: "OpenLive on GitHub", click: () => shell.openExternal("https://github.com/katipally/openlive") },
@@ -1693,6 +1777,7 @@ async function boot() {
   loadAppearance();
   loadPreferences();
   wireAppearance();
+  wireZoom();
   wirePermissions();
   wirePanelIpc();
   wireNotifyIpc();
