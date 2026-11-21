@@ -92,7 +92,7 @@ const PRE_SPEECH_FRAMES = Math.floor(800 / 32) + 1;
 const KEEP_WARM_MS = 2 * 60_000;
 // Voiced time (Silero frames over the speech threshold) past which a sound over
 // the reply is taken for talk before its words are in. Measured on macOS voices
-// through Silero v6: one backchannel in any of the ten languages voices 256-864 ms
+// through Silero v6: one backchannel in any of the app's languages voices 256-864 ms
 // ("claro, claro" the longest), four laughing "ha"s 992 ms, while "mhm, right,
 // okay" said as one runs 1760 ms. Human delivery is slower than a TTS voice's.
 const BACKCHANNEL_MAX_MS = 1500;

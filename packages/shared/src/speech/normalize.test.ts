@@ -356,6 +356,19 @@ const OTHER_GOLDEN: [lang: string, text: string, said: string][] = [
   ["uk", "№5", "номер п'ять"],
   ["uk", "№ 5", "номер п'ять"],
   ["uk", "2.5%", "два кома п'ять відсотка"],
+  ["ru", "У меня 42 яблока", "У меня сорок два яблока"],
+  ["ru", "в 15:30", "в пятнадцать часов тридцать минут"],
+  ["ru", "в 3:00", "в три часа"],
+  ["ru", "25%", "двадцать пять процентов"],
+  ["ru", "2026", "две тысячи двадцать шесть"],
+  ["ru", "v2.1", "версия два точка один"],
+  ["ru", "2026-09-25", "двадцать пять сентября две тысячи двадцать шесть года"],
+  ["ru", "№5", "номер пять"],
+  ["ru", "№ 5", "номер пять"],
+  ["ru", "2.5%", "два запятая пять процента"],
+  ["ru", "Итого 12,50 ₽", "Итого двенадцать рублей и пятьдесят копеек"],
+  ["ru", "Это стоит 100 ₽", "Это стоит сто рублей"],
+  ["ru", "и т.д.", "и так далее"],
 ];
 
 test("English golden set", () => {
@@ -366,7 +379,7 @@ test("English golden set", () => {
 test("golden sets for the other session languages", () => {
   for (const [lang, text, said] of OTHER_GOLDEN) expect(normalizeSpeech(text, lang), `${lang}: ${text}`).toBe(said);
   // Every language the app runs in has cases.
-  expect(new Set(OTHER_GOLDEN.map(([l]) => l))).toEqual(new Set(["es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"]));
+  expect(new Set(OTHER_GOLDEN.map(([l]) => l))).toEqual(new Set(["es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk", "ru"]));
 });
 
 test("no digit reaches a voice, and a second pass changes nothing", () => {

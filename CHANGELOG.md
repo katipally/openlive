@@ -6,6 +6,13 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+### Added
+- **Russian speech recognition and voice replies.** Pick Russian in Settings > Voice
+  and OpenLive hears you with Parakeet v3, Whisper or Nemotron 3.5 and answers with
+  Supertonic or Piper (Denis or Dmitri). Numbers, dates, times, percentages, "№" and
+  rubles (₽) are read aloud in Russian too, and the interface font now covers Cyrillic.
+  The interface stays in English. (#61)
+
 ## [0.4.1] - 2026-11-11
 
 ### Changed
