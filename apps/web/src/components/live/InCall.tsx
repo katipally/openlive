@@ -156,7 +156,7 @@ export function InCall(props: InCallProps) {
         <main className="relative flex min-w-0 flex-1 flex-col items-center overflow-hidden [container:stage/size]">
           {/* Only the orb box shrinks; once it is gone the rest scrolls here, so it never reaches the dock. */}
           {!sharing && (
-            <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center-safe overflow-y-auto">
+            <div className="openlive-scroll flex min-h-0 w-full flex-1 flex-col items-center justify-center-safe overflow-y-auto">
               <div ref={orbBox} className="flex min-h-0 w-[13.75rem] max-w-full shrink grow-0 basis-[13.75rem] items-center justify-center">
                 {orbSize > 0 && <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={orbSize} />}
               </div>

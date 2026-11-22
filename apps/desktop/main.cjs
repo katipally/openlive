@@ -505,11 +505,16 @@ function legacyZoom() {
   try { return legacyHostZoom(JSON.parse(fs.readFileSync(path.join(app.getPath("userData"), "Preferences"), "utf8")), WEB_HOST); } catch { return null; }
 }
 function loadAppearance() {
-  try { appearance = JSON.parse(fs.readFileSync(appearanceFile(), "utf8")) || {}; } catch { appearance = {}; }
+  let writable = false;         // only a missing file or a valid object may be written back; anything else might be recoverable
+  appearance = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(appearanceFile(), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) { appearance = parsed; writable = true; }
+  } catch (e) { writable = e.code === "ENOENT"; }
   if (appearance.zoom === undefined) {
     // Before the scale was kept here, Chromium kept the main window's as a per-host zoom level.
     appearance.zoom = legacyZoom() ?? 1; // kept even when none, so Preferences is read once
-    saveAppearance();
+    if (writable) saveAppearance();
   }
   zoom = sanitizeZoom(appearance.zoom);
   // Native surfaces (the material's tint, the title bar) follow the app's theme, not the OS's.
