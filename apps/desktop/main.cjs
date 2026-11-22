@@ -508,8 +508,8 @@ function loadAppearance() {
   try { appearance = JSON.parse(fs.readFileSync(appearanceFile(), "utf8")) || {}; } catch { appearance = {}; }
   if (appearance.zoom === undefined) {
     // Before the scale was kept here, Chromium kept the main window's as a per-host zoom level.
-    const old = legacyZoom();
-    if (old) { appearance.zoom = old; saveAppearance(); }
+    appearance.zoom = legacyZoom() ?? 1; // kept even when none, so Preferences is read once
+    saveAppearance();
   }
   zoom = sanitizeZoom(appearance.zoom);
   // Native surfaces (the material's tint, the title bar) follow the app's theme, not the OS's.

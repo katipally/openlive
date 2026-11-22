@@ -154,13 +154,14 @@ export function InCall(props: InCallProps) {
         {/* The stage is a size container, so its secondary lines can give way to the
             orb by the stage's own height (not the window's) at any zoom. */}
         <main className="relative flex min-w-0 flex-1 flex-col items-center overflow-hidden [container:stage/size]">
+          {/* Only the orb box shrinks; once it is gone the rest scrolls here, so it never reaches the dock. */}
           {!sharing && (
-            <div className="pointer-events-none flex min-h-0 w-full flex-1 flex-col items-center justify-center">
+            <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center-safe overflow-y-auto">
               <div ref={orbBox} className="flex min-h-0 w-[13.75rem] max-w-full shrink grow-0 basis-[13.75rem] items-center justify-center">
                 {orbSize > 0 && <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={orbSize} />}
               </div>
               <Caption phase={phase} />
-              <div className="mt-3 min-h-[1.875rem]"><HoldToSend sendNow={sendNow} /></div>
+              <div className="mt-3 min-h-[1.875rem] shrink-0"><HoldToSend sendNow={sendNow} /></div>
             </div>
           )}
 
@@ -286,7 +287,7 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
   );
   return (
     <>
-      <p className="mt-8 min-h-7 max-w-xl shrink overflow-hidden px-6 text-center text-title-lg leading-snug tracking-tight [@container_stage_(max-height:28rem)]:mt-3">{words}</p>
+      <p className="mt-8 min-h-7 max-w-xl shrink-0 overflow-hidden px-6 text-center text-title-lg leading-snug tracking-tight [@container_stage_(max-height:28rem)]:mt-3">{words}</p>
       <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
     </>
   );
