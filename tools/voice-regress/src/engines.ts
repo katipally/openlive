@@ -258,7 +258,7 @@ export const ENGINES: Engine[] = [
   // renders pooled cut the spread by a factor of 1.7.
   {
     ...native("matcha", "matcha-en-ljspeech", "matcha", "Apache-2.0", "nightly", 2, {
-      "model-steps-3.onnx": "4d7771c0ec063ca74f2fa92ba0ecfe14f73fa3f61c236d9469b92e102d8e9574",
+      "model-steps-3.onnx": "f8e8bae6f731310a1cda0012871ed5e91b0d19f1e2ceff077f62922bba95e3c1",
       "vocos-22khz-univ.onnx": "0574a135aa1db2de6e181050db2ec528496cacd4a4701fc5d7faf9f9804c0081",
       "tokens.txt": "bcb4a50830e9402112fe8cb57d53ae8523908868a5015f2040dde5f5fd231697",
     }, { f0JumpSt: 5.5, loudJumpDb: 6, startPitchSt: 3.5, roughJoins: 1 }),

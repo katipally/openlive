@@ -283,7 +283,7 @@ export const NATIVE_FAMILIES: EngineFamily[] = [
     {
       id: "matcha-en-ljspeech", type: "matcha", name: "Matcha LJSpeech", url: tts("matcha-icefall-en_US-ljspeech"),
       vocoder: `${RELEASES}/vocoder-models/vocos-22khz-univ.onnx`,
-      sizeBytes: 76_741_121 + 53_884_024, quality: "fast", languages: ["en"], license: "Apache-2.0 (icefall); LJSpeech is public domain",
+      sizeBytes: 76_764_067 + 53_884_024, quality: "fast", languages: ["en"], license: "Apache-2.0 (icefall); LJSpeech is public domain",
       files: ["model-steps-3.onnx", "tokens.txt", ESPEAK, "vocos-22khz-univ.onnx"], voices: [{ id: "ljspeech", name: "Linda", lang: "en", gender: "female", sid: 0 }],
     },
   ]),
