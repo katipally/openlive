@@ -34,7 +34,7 @@ interface N2W {
  *  a noun where it differs from counting ("un kilómetro", "ein Kilometer"). */
 interface Lang {
   code: string; locale: string; n: N2W; opts?: object; unspaced?: boolean; one?: string;
-  point: string; vsep: string; dot: string; at: string; and: string; plus: string; minus: string; times: string; by: string; fold: string;
+  point: string; vsep: string; dot: string; at: string; and: string; plus: string; minus: string; times: string; by: string; fold: string | ((said: string) => string);
   equals: string; to: string; about: string; version: string; dash: string; more?: string; less?: string;
   number(n: string): string; percent(n: string): string; time(h: number, m: number, clock12: boolean): string;
 }
@@ -121,7 +121,7 @@ const ukN: N2W = {
 };
 add({
   code: "uk", locale: "uk", n: ukN, point: "кома", vsep: "крапка", dot: "крапка", at: "равлик", and: "і", plus: "плюс", minus: "мінус",
-  times: "помножити на", by: "на", fold: "рази", equals: "дорівнює", to: "до", about: "близько", version: "версія", dash: "тире", more: "більше ніж", less: "менше ніж",
+  times: "помножити на", by: "на", fold: (n) => `${n} ${n.includes(" кома ") ? "раза" : /(один|одна)$/.test(n) ? "раз" : /(два|три|чотири)$/.test(n) ? "рази" : "разів"}`, equals: "дорівнює", to: "до", about: "близько", version: "версія", dash: "тире", more: "більше ніж", less: "менше ніж",
   number: (n) => `номер ${n}`, percent: (n) => `${n} ${n.includes(" кома ") ? "відсотка" : /(один|одна)$/.test(n) ? "відсоток" : /(два|три|чотири)$/.test(n) ? "відсотки" : "відсотків"}`,
   time(h, m) {
     const hour = card(this, String(h)).replace(/один$/, "одна").replace(/два$/, "дві");
@@ -131,7 +131,7 @@ add({
 });
 add({
   code: "ru", locale: "ru", n: ru as N2W, point: "запятая", vsep: "точка", dot: "точка", at: "собака", and: "и", plus: "плюс", minus: "минус",
-  times: "умножить на", by: "на", fold: "раз", equals: "равно", to: "до", about: "около", version: "версия", dash: "тире", more: "больше чем", less: "меньше чем",
+  times: "умножить на", by: "на", fold: (n) => `${n} ${n.includes(" запятая ") ? "раза" : /(один|одна)$/.test(n) ? "раз" : /(два|три|четыре)$/.test(n) ? "раза" : "раз"}`, equals: "равно", to: "до", about: "около", version: "версия", dash: "тире", more: "больше чем", less: "меньше чем",
   number: (n) => `номер ${n}`, percent: (n) => `${n} ${n.includes(" запятая ") ? "процента" : /(один|одна)$/.test(n) ? "процент" : /(два|три|четыре)$/.test(n) ? "процента" : "процентов"}`,
   time(h, m) {
     const noun = (x: number, [one, few, many]: [string, string, string]) => { const d = x % 10; return x % 100 > 10 && x % 100 < 15 ? many : d === 1 ? one : d > 1 && d < 5 ? few : many; };
@@ -330,7 +330,7 @@ const ABBREVIATIONS: Record<string, [RegExp, string][]> = {
   it: [[/\becc\./gi, "eccetera"], [/\bn\.\s?(?=\d)/g, "numero "]],
   pt: [[/\betc\./gi, "etcétera"], [/\bn\.?º\s?(?=\d)/gi, "número "], [/\bSr\.(?=\s)/g, "senhor"], [/\bSra\.(?=\s)/g, "senhora"]],
   uk: [[/№\s?/g, "номер "]],
-  ru: [[/№\s?/g, "номер "], [/(?<!\p{L})т\.\s?е\./giu, "то есть"], [/(?<!\p{L})т\.\s?д\./giu, "так далее"], [/(?<!\p{L})т\.\s?п\./giu, "тому подобное"]],
+  ru: [[/№\s?/g, "номер "], [/(?<=\b\d{1,2}[./]\d{1,2}[./](?:1[1-9]|20)\d{2})\s?г\./g, ""], [/(?<=\b(?:1[1-9]|20)\d{2})\s?г\./g, " года"], [/(?<=\d\s?)руб\./g, "₽"], [/(?<!\p{L})т\.\s?е\./giu, "то есть"], [/(?<!\p{L})т\.\s?д\./giu, "так далее"], [/(?<!\p{L})т\.\s?п\./giu, "тому подобное"]],
 };
 const EN_FRACTIONS: Record<string, string> = { "1/2": "one half", "1/3": "one third", "2/3": "two thirds", "1/4": "one quarter", "3/4": "three quarters", "½": "one half", "⅓": "one third", "⅔": "two thirds", "¼": "one quarter", "¾": "three quarters" };
 
@@ -458,8 +458,8 @@ export function normalizeAligned(text: string, langCode: string, lexicon?: Lexic
     return parts.map((p) => card(L, p)).join(` ${ip ? L.dot : L.vsep} `);
   });
 
-  // French groups thousands with a space; a typed space groups like the narrow one.
-  if (L.code === "fr") r(/(?<![\d.,  ])\d{1,3}(?: \d{3})+(?!\d)/g, (m) => m.replace(/ /g, "\u202f"));
+  // French, Russian and Ukrainian group thousands with a space; a typed space groups like the narrow one.
+  if (L.code === "fr" || L.code === "ru" || L.code === "uk") r(/(?<![\d.,  ])\d{1,3}(?: \d{3})+(?!\d)/g, (m) => m.replace(/ /g, "\u202f"));
 
   // Ranges and signs, while both ends are still digits.
   r(/(?<![\p{L}\d.,\-–])(\d[\d.,]*)\s?[-–\u2014~]\s?(?=[$€£¥₹₩₽]?\d[\d.,]*(?![\d\-–]))/gu, (_, a) => `${a} ${L.to} `);
@@ -485,7 +485,7 @@ export function normalizeAligned(text: string, langCode: string, lexicon?: Lexic
   r(new RegExp(String.raw`(?<![\p{L}\d.,])(${NUM})(k|M|B|bn)\b`, "gu"), (_, v, k) => { const q = shift(num(v), SCALE[k]!); return words(L, q.int, q.frac, true); });
   r(/(\d)K\b/g, (_, d) => `${d} K`); // 4K is a resolution, 5K a race
   r(new RegExp(String.raw`(${NUM})\s?[x×]\s?(?=\d)`, "g"), (m, v) => `${v} ${L.code === "en" && !/\s/.test(m) ? L.by : L.times} `);
-  r(new RegExp(String.raw`(${NUM})[x×](?![\p{L}\d])`, "gu"), (_, v) => `${n(v)}${sp(L)}${L.fold}`);
+  r(new RegExp(String.raw`(${NUM})[x×](?![\p{L}\d])`, "gu"), (_, v) => (typeof L.fold === "function" ? L.fold(n(v)) : `${n(v)}${sp(L)}${L.fold}`));
 
   // Ordinals and the rest of what numbers are glued to.
   if (L.code === "en") {
