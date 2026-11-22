@@ -6,6 +6,8 @@ Releases before 0.1.9 predate this file — see the
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-21
+
 ### Added
 - **UI scale and zoom shortcuts.** Ctrl or Cmd with `=` (or `+`), `-` and `0` zoom the
   window in, out and back to 100%, from 75% up to 300%, and Settings > General > UI scale
