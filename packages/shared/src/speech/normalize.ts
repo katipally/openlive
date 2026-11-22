@@ -330,7 +330,7 @@ const ABBREVIATIONS: Record<string, [RegExp, string][]> = {
   it: [[/\becc\./gi, "eccetera"], [/\bn\.\s?(?=\d)/g, "numero "]],
   pt: [[/\betc\./gi, "etcétera"], [/\bn\.?º\s?(?=\d)/gi, "número "], [/\bSr\.(?=\s)/g, "senhor"], [/\bSra\.(?=\s)/g, "senhora"]],
   uk: [[/№\s?/g, "номер "]],
-  ru: [[/№\s?/g, "номер "], [/(?<=\b\d{1,2}[./]\d{1,2}[./](?:1[1-9]|20)\d{2})\s?г\./g, ""], [/(?<=\b(?:1[1-9]|20)\d{2})\s?г\./g, " года"], [/(?<=\d\s?)руб\./g, "₽"], [/(?<!\p{L})т\.\s?е\./giu, "то есть"], [/(?<!\p{L})т\.\s?д\./giu, "так далее"], [/(?<!\p{L})т\.\s?п\./giu, "тому подобное"]],
+  ru: [[/№\s?/g, "номер "], [/(?<=\b\d{1,2}[./]\d{1,2}[./](?:1[1-9]|20)\d{2})\s?г\.(?!\p{L})/gu, ""], [/(?<=\b(?:1[1-9]|20)\d{2})\s?г\.(?!\p{L})/gu, " года"], [/(?<=\d\s?)руб\.(?!\s?\d|\p{L})/gu, "₽"], [/(?<!\p{L})т\.\s?е\./giu, "то есть"], [/(?<!\p{L})т\.\s?д\./giu, "так далее"], [/(?<!\p{L})т\.\s?п\./giu, "тому подобное"]],
 };
 const EN_FRACTIONS: Record<string, string> = { "1/2": "one half", "1/3": "one third", "2/3": "two thirds", "1/4": "one quarter", "3/4": "three quarters", "½": "one half", "⅓": "one third", "⅔": "two thirds", "¼": "one quarter", "¾": "three quarters" };
 
@@ -445,7 +445,7 @@ export function normalizeAligned(text: string, langCode: string, lexicon?: Lexic
   // Numbers read as digits: phones, versions, addresses. A phone is 7+ digits in a shape no
   // range takes: a leading +, an (area code), 3+ groups, or 3+4 unless both ends are round (100-1000).
   // A YYYY-MM-DD the date rule refused (2026-02-30) is left as written.
-  r(/(?:\+\d{1,3}(?:[\s.-]\d{1,8}){1,6}|(?:\b1[-.\s])?\(\d{2,4}\)\s?\d{3,4}[-.\s]\d{4}|(?:\b1[.\s])?\b\d{3}([.\s])\d{3}\1\d{4}|(?<![\d.,\-–])(?:\d{1,4}(?:-\d{2,4}){2,4}|\d{3}-\d{4}))(?![\d-])/g, (m) =>
+  r(/(?:\+\d{1,3}(?:[\s.-]\d{1,8}){1,6}|(?:\b1[-.\s])?\(\d{2,4}\)\s?\d{3,4}[-.\s]\d{4}|(?:\b1[.\s])?\b\d{3}([.\s])\d{3}\1\d{4}|\b[78](?:\s\d{3}){2}(?:\s\d{2}){2}|(?<![\d.,\-–])(?:\d{1,4}(?:-\d{2,4}){2,4}|\d{3}-\d{4}))(?![\d-])/g, (m) =>
     m.replace(/\D/g, "").length < 7 || /^(\d\d0-[1-9]\d\d0|\d{4}-\d\d-\d\d)$/.test(m) ? m
       : (m[0] === "+" ? `${L.plus} ` : "") + m.split(/\D+/).filter(Boolean).map((g) => digits(L, g)).join(pause));
   r(/\bv(\d+(?:\.\d+)*)\b/g, (_, v) => `${L.version} ${v.split(".").map((p: string) => card(L, p)).join(` ${L.vsep} `)}`);
