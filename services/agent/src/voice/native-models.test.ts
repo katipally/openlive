@@ -57,7 +57,7 @@ describe("native engine catalog", () => {
     expect(rest).toEqual([]);
     expect(m.onOrt(e!)).toBe(true);
     expect(e!.files).toEqual(["onnx/model_quantized.onnx", "tokenizer.json", "tokenizer_config.json"]);
-    expect(e!.languages).toEqual(["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"]);
+    expect(e!.languages).toEqual(["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk", "ru"]);
     expect(["Apache-2.0", "MIT"]).toContain(e!.license);
     expect(e!.id).toBe(HEAD.model); // the head was fitted on this model's embeddings
   });
@@ -101,7 +101,7 @@ describe("native engine catalog", () => {
   });
 
   it("covers every curated language with a streaming ASR and a TTS variant", () => {
-    for (const lang of ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk"]) {
+    for (const lang of ["en", "es", "fr", "de", "it", "pt", "hi", "zh", "ja", "ko", "uk", "ru"]) {
       expect(m.NATIVE_ENGINES.some((e) => e.streaming && e.languages.includes(lang))).toBe(true);
       if (lang !== "ko" && lang !== "ja") expect(m.NATIVE_ENGINES.some((e) => e.kind === "tts" && e.languages.includes(lang))).toBe(true);
     }
@@ -113,6 +113,9 @@ describe("native engine catalog", () => {
     expect(p.files).toEqual(["en_US-lessac-medium.onnx", "tokens.txt", "espeak-ng-data/phontab"]);
     expect(m.nativeEngine("piper-zh_CN-huayan-medium")!.url).toMatch(/vits-piper-zh_CN-huayan-medium\.tar\.bz2$/);
     expect(m.nativeEngine("piper-zh_CN-chaowen-medium-int8")!.files).toContain("lexicon.txt");
+    const denis = m.nativeEngine("piper-ru_RU-denis-medium-int8")!;
+    expect(denis.url).toMatch(/\/tts-models\/vits-piper-ru_RU-denis-medium-int8\.tar\.bz2$/);
+    expect(denis.files).toEqual(["ru_RU-denis-medium.onnx", "tokens.txt", "espeak-ng-data/phontab"]);
     const perLang = new Map<string, Set<string>>();
     for (const e of m.NATIVE_ENGINES.filter((x) => x.family === "piper")) {
       const speaker = e.id.split("-")[2]!;

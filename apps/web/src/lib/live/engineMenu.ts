@@ -14,7 +14,7 @@ export function languageLabel(code: LanguageCode): string {
 }
 
 /** Which curated languages `langs` covers, for a greyed-out engine:
- *  "English only", "English, Spanish, French, German", "All 10 languages". */
+ *  "English only", "English, Spanish, French, German", "All <n> languages". */
 export function languagesNote(langs: readonly string[]): string {
   const known = CURATED_LANGUAGES.filter((l) => langs.includes(l.code));
   if (known.length === CURATED_LANGUAGES.length) return `All ${known.length} languages`;

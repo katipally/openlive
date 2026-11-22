@@ -26,8 +26,8 @@ import { synthetic, type Row } from "./data";
 const { values: args } = parseArgs({ options: { models: { type: "string" }, rate: { type: "string" }, json: { type: "string" }, write: { type: "boolean" } } });
 const RATE = Number(args.rate ?? 0.01);
 
-// Multilingual sentence encoders with an int8 ONNX export, all ten app
-// languages and an open license, pinned with their sha256 (2026-09-26). Also tried
+// Multilingual sentence encoders with an int8 ONNX export, every app
+// language and an open license, pinned with their sha256 (2026-09-26). Also tried
 // (through transformers.js, docs/ARCHITECTURE.md): paraphrase-multilingual-
 // MiniLM-L12-v2 and multilingual-e5-small scored below this one on the
 // English test split, Qwen2.5-0.5B-Instruct asked zero-shot near chance.
