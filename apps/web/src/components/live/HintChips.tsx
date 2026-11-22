@@ -22,8 +22,10 @@ export function HintChips({ className }: { className?: string }) {
   const { smooth, fade, exit: leave } = useMotionTokens();
 
   const hints = selectHints({ phase, active, boundAgent, agentMeta, error, errorCode }).filter((h) => !dismissed.includes(h.id));
+  // The wrapper gives way with its tips, or it would still hold a gap in the dock's stack.
+  const hasError = hints.some((h) => h.id.startsWith("err"));
   return (
-    <div className={cn("pointer-events-none flex flex-col items-center gap-1.5", className)}>
+    <div className={cn("pointer-events-none flex flex-col items-center gap-1.5", !hasError && "[@container_stage_(max-height:28rem)]:hidden", className)}>
       <AnimatePresence initial={false}>
       {hints.map((h) => (
         <motion.div key={h.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, transition: leave }}

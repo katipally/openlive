@@ -13,6 +13,7 @@ Releases before 0.1.9 predate this file — see the
 
 ### Fixed
 - **Ctrl+= now zooms in.** Only Ctrl+- worked before, because the menu's zoom in needed Shift.
+- **An older Ctrl+- zoom carries over.** A zoom level set before UI scale existed becomes the nearest step on first launch.
 - **The window fits small and scaled screens.** A first launch opens at most as large as the
   screen's usable area, centered, and the window can always be resized down to fit the screen
   it is on, such as a 1080p laptop at 150% scaling.

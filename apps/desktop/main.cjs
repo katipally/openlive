@@ -18,7 +18,7 @@ const { osHasGlass, glassSupport, effectiveLook } = require("./look.cjs");
 const orbPointer = require("./orb-pointer.cjs");
 const { isExternalUrl } = require("./external-url.cjs");
 const { restoreWindow, minFor, fitRect, firstRunWindow, windowSnapshot } = require("./window-state.cjs");
-const { sameZoom, sanitizeZoom, nextZoom, zoomKeyAction, ZOOM_STEPS } = require("./zoom.cjs");
+const { sameZoom, sanitizeZoom, nextZoom, zoomKeyAction, legacyHostZoom, ZOOM_STEPS } = require("./zoom.cjs");
 const { trayTemplate, orbOwner } = require("./tray-menu.cjs");
 const { talkBindings, pttRouter } = require("./talk.cjs");
 const { loginDefaultReady } = require("./login-item.cjs");
@@ -448,10 +448,13 @@ function saveWindowState() {
 }
 /** The work area of the display `bounds` sits on, or the primary's for a window with no place yet. */
 const workAreaOf = (bounds) => (bounds?.x != null ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()).workArea;
+const mainDisplayId = () => screen.getDisplayMatching(mainWin.getBounds()).id;
 /** Keeps the window usable on the display it is on: its minimum never exceeds that
  *  work area and, when `reclamp`, a window that no longer fits is brought back inside it.
- *  Not on every move: pulling a window back mid-drag would fight the person dragging it. */
-function fitMainWindow(reclamp = true) {
+ *  Never on a move (it would fight the person dragging), and only where the window's
+ *  own screen lost room: a resize that follows is saved, so a passing change (a remote
+ *  session, a projector, a taskbar that hides) must not shrink it for good. */
+function fitMainWindow(reclamp = false) {
   if (!mainWin || mainWin.isDestroyed()) return;
   const bounds = mainWin.getBounds();
   const work = workAreaOf(bounds);
@@ -498,8 +501,16 @@ let lookTimer = null;
 let winTransparencyOff = false;
 let zoom = 1;                 // the main window's UI scale, one of ZOOM_STEPS
 
+function legacyZoom() {
+  try { return legacyHostZoom(JSON.parse(fs.readFileSync(path.join(app.getPath("userData"), "Preferences"), "utf8")), WEB_HOST); } catch { return null; }
+}
 function loadAppearance() {
   try { appearance = JSON.parse(fs.readFileSync(appearanceFile(), "utf8")) || {}; } catch { appearance = {}; }
+  if (appearance.zoom === undefined) {
+    // Before the scale was kept here, Chromium kept the main window's as a per-host zoom level.
+    const old = legacyZoom();
+    if (old) { appearance.zoom = old; saveAppearance(); }
+  }
   zoom = sanitizeZoom(appearance.zoom);
   // Native surfaces (the material's tint, the title bar) follow the app's theme, not the OS's.
   nativeTheme.themeSource = THEMES.has(appearance.theme) ? appearance.theme : "system";
@@ -651,7 +662,7 @@ function setZoom(v) {
 
 function wireZoom() {
   ipcMain.on("openlive:zoom", (e) => { e.returnValue = zoomState(); });
-  ipcMain.handle("openlive:zoom-set", (e, v) => (isMainWc(e.sender) ? setZoom(v) : zoomState()));
+  ipcMain.handle("openlive:zoom-set", (e, v) => (isMainWc(e.sender) && Number.isFinite(v) ? setZoom(v) : zoomState()));
 }
 
 // ── windows ──────────────────────────────────────────────────────────────────
@@ -713,8 +724,15 @@ function createMainWindow() {
     },
   });
   for (const ev of ["resize", "move", "close", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) mainWin.on(ev, saveWindowState);
-  // A new display brings its own work area, so its minimum size has to follow.
-  mainWin.on("moved", () => fitMainWindow(false));
+  // A new display brings its own work area, so its minimum size has to follow. `moved`
+  // is macOS and Windows only, so this listens to `move` and acts when the display changes.
+  let onDisplay = null;
+  mainWin.on("move", () => {
+    const id = mainDisplayId();
+    if (id === onDisplay) return;
+    onDisplay = id;
+    fitMainWindow();
+  });
   holdZoom(mainWin.webContents, () => zoom);
   // The menu's zoom accelerators are display only (menu click below). A key
   // handled here is claimed, which stops the menu's own accelerator for it, so
@@ -1443,7 +1461,12 @@ function wireWindowIpc() {
       telemetry.track("remote_ollama_prompt", { outcome, scheme: u.protocol === "https:" ? "https" : "http" });
     }
   });
-  for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, () => fitMainWindow());
+  screen.on("display-added", () => fitMainWindow());
+  screen.on("display-removed", () => fitMainWindow(true));
+  screen.on("display-metrics-changed", (_e, display, changed) => {
+    const room = changed.some((m) => m === "workArea" || m === "bounds" || m === "scaleFactor");
+    fitMainWindow(room && !!mainWin && !mainWin.isDestroyed() && mainDisplayId() === display.id);
+  });
   ipcMain.on("openlive:win-close", () => { if (mainWin) mainWin.close(); });
   ipcMain.on("openlive:win-min", () => { if (mainWin) mainWin.minimize(); });
   ipcMain.on("openlive:win-zoom", () => {
@@ -1638,7 +1661,10 @@ function buildMenu() {
   // The role's Zoom In wants Shift (its accelerator is Ctrl+Plus), which left Ctrl+= dead.
   // The key itself is handled in createMainWindow, so a click is all this item answers.
   const zoomItem = (label, accelerator, action) => ({
-    label, accelerator, click: (_item, _win, e) => { if (!e.triggeredByAccelerator) setZoom(nextZoom(zoom, action)); },
+    label, accelerator,
+    // Electron flags every click with no mouse button as an accelerator (VoiceOver and
+    // menu-key activations included), so only one with Ctrl or Cmd down is the shortcut itself.
+    click: (_item, _win, e) => { if (!(e.triggeredByAccelerator && (e.ctrlKey || e.metaKey))) setZoom(nextZoom(zoom, action)); },
   });
   const template = [
     ...(isMac ? [{ role: "appMenu", submenu: [

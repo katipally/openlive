@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 
-const { ZOOM_STEPS, sameZoom, sanitizeZoom, nextZoom, zoomKeyAction } = createRequire(import.meta.url)("./zoom.cjs");
+const { ZOOM_STEPS, sameZoom, sanitizeZoom, nextZoom, zoomKeyAction, legacyHostZoom } = createRequire(import.meta.url)("./zoom.cjs");
 
 describe("ZOOM_STEPS", () => {
   it("run from 75 to 300 percent, ascending, with 100 among them", () => {
@@ -99,6 +99,14 @@ describe("zoomKeyAction", () => {
     expect(zoomKeyAction(ctrl({ key: "+", code: "BracketRight" }), "linux")).toBe("in");
     expect(zoomKeyAction(ctrl({ key: "-", code: "Slash" }), "linux")).toBe("out");
   });
+  it("finds reset on the 0 key of a layout that types something else there", () => {
+    expect(zoomKeyAction(ctrl({ key: "à", code: "Digit0" }), "win32")).toBe("reset");
+    expect(zoomKeyAction(ctrl({ key: "0", code: "Digit0", shift: true }), "linux")).toBe("reset");
+  });
+  it("does not read the Equal and Minus keys by position", () => {
+    expect(zoomKeyAction(ctrl({ key: "´", code: "Equal" }), "linux")).toBeNull();
+    expect(zoomKeyAction(ctrl({ key: "ß", code: "Minus" }), "linux")).toBeNull();
+  });
   it("needs the platform's modifier and no other", () => {
     expect(zoomKeyAction(key({ key: "=" }), "win32")).toBeNull();
     expect(zoomKeyAction(cmd({ key: "=" }), "win32")).toBeNull();
@@ -111,5 +119,29 @@ describe("zoomKeyAction", () => {
     expect(zoomKeyAction(ctrl({ type: "keyUp", key: "=" }), "win32")).toBeNull();
     expect(zoomKeyAction(ctrl({ key: "r", code: "KeyR" }), "win32")).toBeNull();
     expect(zoomKeyAction(ctrl({ key: "1", code: "Digit1" }), "win32")).toBeNull();
+  });
+});
+
+describe("legacyHostZoom", () => {
+  const prefs = (hosts: object, part = "1234567") => ({ partition: { per_host_zoom_levels: { [part]: hosts } } });
+
+  it("turns Chromium's saved level into the nearest step", () => {
+    expect(legacyHostZoom(prefs({ localhost: 1 }), "localhost")).toBe(1.25);
+    expect(legacyHostZoom(prefs({ localhost: 3 }), "localhost")).toBe(1.75);
+    expect(legacyHostZoom(prefs({ localhost: -1 }), "localhost")).toBe(0.9);
+    expect(legacyHostZoom(prefs({ localhost: -9 }), "localhost")).toBe(0.75);
+    expect(legacyHostZoom(prefs({ localhost: 5 }), "localhost")).toBe(2.5);
+    expect(legacyHostZoom(prefs({ localhost: 99 }), "localhost")).toBe(3);
+  });
+  it("reads the host from whichever partition holds it", () => {
+    const p = { partition: { per_host_zoom_levels: { a: { "example.com": 2 }, b: { localhost: 2 } } } };
+    expect(legacyHostZoom(p, "localhost")).toBe(1.5);
+  });
+  it("answers null when there is nothing usable to carry over", () => {
+    for (const p of [undefined, null, "x", 3, [], {}, { partition: null }, { partition: {} }, { partition: { per_host_zoom_levels: "x" } },
+      { partition: { per_host_zoom_levels: { a: null } } }, prefs({}), prefs({ "example.com": 2 }),
+      prefs({ localhost: "2" }), prefs({ localhost: NaN }), prefs({ localhost: null })]) {
+      expect(legacyHostZoom(p, "localhost")).toBeNull();
+    }
   });
 });

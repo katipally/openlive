@@ -286,8 +286,8 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
   );
   return (
     <>
-      <p className="mt-8 min-h-7 max-w-xl shrink overflow-hidden px-6 text-center text-title-lg leading-snug tracking-tight">{words}</p>
-      <p className={cn("mt-1 text-label uppercase tracking-wide [@container_stage_(max-height:28rem)]:hidden", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
+      <p className="mt-8 min-h-7 max-w-xl shrink overflow-hidden px-6 text-center text-title-lg leading-snug tracking-tight [@container_stage_(max-height:28rem)]:mt-3">{words}</p>
+      <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
     </>
   );
 }
