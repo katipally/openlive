@@ -35,9 +35,35 @@ function restoreWindow(saved, { displays, primary, min }) {
   };
 }
 
+/** The smallest the window may be on `work`: its minimum, or the whole work
+ *  area where that is smaller, so a small or heavily scaled screen never has a
+ *  window it cannot fit. */
+const minFor = (min, work) => ({ width: Math.min(min.width, work.width), height: Math.min(min.height, work.height) });
+
+/** `rect` shrunk to fit `work` (not under `minFor`) and pulled inside it. */
+function fitRect(rect, work, min) {
+  const m = minFor(min, work);
+  const width = Math.round(clamp(rect.width, m.width, work.width));
+  const height = Math.round(clamp(rect.height, m.height, work.height));
+  return {
+    x: Math.round(clamp(rect.x, work.x, work.x + work.width - width)),
+    y: Math.round(clamp(rect.y, work.y, work.y + work.height - height)),
+    width, height,
+  };
+}
+
+/** The first launch's window: `preferred` size, shrunk to the work area of the
+ *  display it opens on and centered in it. */
+function firstRunWindow(preferred, work, min) {
+  const m = minFor(min, work);
+  const width = Math.round(clamp(preferred.width, m.width, work.width));
+  const height = Math.round(clamp(preferred.height, m.height, work.height));
+  return { x: work.x + Math.round((work.width - width) / 2), y: work.y + Math.round((work.height - height) / 2), width, height };
+}
+
 /** What to save: the bounds it returns to, whatever state it is in now. */
 function windowSnapshot(win) {
   return { ...win.getNormalBounds(), maximized: win.isMaximized(), fullscreen: win.isFullScreen() };
 }
 
-module.exports = { restoreWindow, windowSnapshot };
+module.exports = { restoreWindow, minFor, fitRect, firstRunWindow, windowSnapshot };

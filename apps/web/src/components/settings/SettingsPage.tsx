@@ -261,7 +261,7 @@ export function SettingsPage() {
         {/* side nav: the way back first, then the sections. Esc and ⌘[ go back too
             (focus trap + history). */}
         <motion.nav layoutScroll aria-label="Settings sections" data-tour="settings-nav"
-          className={cn("w-[236px] shrink-0 space-y-1 overflow-y-auto overscroll-contain p-3", rail && "@max-3xl/settings:w-auto @max-3xl/settings:p-2")}>
+          className={cn("w-[14.75rem] shrink-0 space-y-1 overflow-y-auto overscroll-contain p-3", rail && "@max-3xl/settings:w-auto @max-3xl/settings:p-2")}>
           <Tooltip label={`Back to ${origin}`} keys="Esc" truncated className="sticky top-0 z-10 mb-2 flex w-full">
             <button type="button" onClick={requestClose} aria-label={`Back to ${origin}`}
               className="flex w-full items-center gap-2 rounded-xl bg-background px-3 py-2 text-left text-body font-medium text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground">

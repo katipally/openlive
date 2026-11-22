@@ -104,6 +104,20 @@ export function InCall(props: InCallProps) {
   }, []);
   const overlay = bodyW - panelW < STAGE_MIN;
 
+  // The orb takes the room its box has, up to that box's own design size (rem),
+  // so a short or zoomed window shrinks it instead of letting it collide with the
+  // lines under it. Measured before paint, so it never shows at a stale size.
+  const orbBox = useRef<HTMLDivElement>(null);
+  const [orbSize, setOrbSize] = useState(0);
+  useLayoutEffect(() => {
+    const el = orbBox.current;
+    if (!el) return;
+    setOrbSize(Math.min(el.clientWidth, el.clientHeight));
+    const ro = new ResizeObserver(([e]) => setOrbSize(Math.floor(Math.min(e!.contentRect.width, e!.contentRect.height))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sharing]);
+
   // In-call keyboard shortcuts (Enter already belongs to hold-commit).
   // Skipped while Settings, a prompt or any modal is up, when typing or choosing
   // in a field, and when a modifier is involved, except ⌘E (end).
@@ -137,12 +151,17 @@ export function InCall(props: InCallProps) {
 
       <div ref={body} className="relative flex min-h-0 flex-1">
         {/* stage — orb hero, floating tiles, control bar */}
-        <main className="relative min-w-0 flex-1 overflow-hidden">
+        {/* The stage is a size container, so its secondary lines can give way to the
+            orb by the stage's own height (not the window's) at any zoom. */}
+        <main className="relative flex min-w-0 flex-1 flex-col items-center overflow-hidden [container:stage/size]">
+          {/* Only the orb box shrinks; once it is gone the rest scrolls here, so it never reaches the dock. */}
           {!sharing && (
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={220} />
+            <div className="openlive-scroll flex min-h-0 w-full flex-1 flex-col items-center justify-center-safe overflow-y-auto">
+              <div ref={orbBox} className="flex min-h-0 w-[13.75rem] max-w-full shrink grow-0 basis-[13.75rem] items-center justify-center">
+                {orbSize > 0 && <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={orbSize} />}
+              </div>
               <Caption phase={phase} />
-              <div className="mt-3 min-h-[30px]"><HoldToSend sendNow={sendNow} /></div>
+              <div className="mt-3 min-h-[1.875rem] shrink-0"><HoldToSend sendNow={sendNow} /></div>
             </div>
           )}
 
@@ -162,10 +181,13 @@ export function InCall(props: InCallProps) {
             </Tooltip>
           )}
 
-          {/* Status pill (orb + caption) while sharing — floats ABOVE the control bar
+          {/* Stacked in flow above the bottom edge, so whatever is shown (the sharing
+              pill, hints) takes its own height and nothing can lie over the dock. */}
+          <div className="mt-auto flex w-full shrink-0 flex-col items-center gap-3 px-4 pb-6 pt-3">
+          {/* Status pill (orb + caption) while sharing, above the control bar
               so toggling a screen/camera share never resizes the bar itself. */}
           {sharing && (
-            <div className="absolute bottom-[96px] left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-hairline px-3 py-1.5 shadow-pop surface-float">
+            <div className="flex max-w-full items-center gap-2 rounded-full border border-hairline px-3 py-1.5 shadow-pop surface-float">
               <Orb phase={phase} getLevels={getLevels} getBands={getBands} size={26} />
               <Caption phase={phase} pill />
               <HoldToSend sendNow={sendNow} compact />
@@ -173,12 +195,12 @@ export function InCall(props: InCallProps) {
           )}
 
           {/* contextual hints — above the control bar, quiet, at most two chips */}
-          <HintChips className={cn("absolute inset-x-0", sharing ? "bottom-[140px]" : "bottom-[96px]")} />
+          <HintChips className="w-full empty:hidden" />
 
           {/* The dock: one capsule of equal controls, glass under the glass look and
               solid in flat. A stable width regardless of sharing. */}
           <div data-tour="controls" role="toolbar" aria-label="Call controls"
-            className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline p-1.5 shadow-pop surface-float">
+            className="flex max-w-full items-center gap-1.5 rounded-full border border-hairline p-1.5 shadow-pop surface-float">
             {ptt && <HoldToTalk down={pttDown} up={pttUp} />}
             <ControlWithMenu on={!muted} icon={muted ? MicOff : Mic} danger={muted} label={muted ? "Unmute" : "Mute"} keys="M" onClick={toggleMute}
               devices={mics} activeId={micId} onPick={setMic} kind="Microphone" />
@@ -187,6 +209,7 @@ export function InCall(props: InCallProps) {
             <IconBtn on={screenOn} label={screenOn ? "Stop sharing screen" : "Share screen"} keys="S" onClick={() => void toggleScreen()} icon={screenOn ? ScreenShareOff : ScreenShare} />
             <span aria-hidden className="mx-1 h-6 w-px bg-border-heavy" />
             <EndCallButton onEnd={handleEnd} />
+          </div>
           </div>
         </main>
 
@@ -258,13 +281,13 @@ function Caption({ phase, pill }: { phase: LivePhase; pill?: boolean }) {
   const statusBusy = !!toolStatus || warming;
 
   if (pill) return (
-    <span className="min-w-0 max-w-[260px] truncate text-label" aria-live="polite">
+    <span className="min-w-0 max-w-[16.25rem] truncate text-label" aria-live="polite">
       {words ?? <span className={cn(statusBusy ? "arc-shimmer font-medium" : "text-muted-foreground")}>{statusLabel}</span>}
     </span>
   );
   return (
     <>
-      <p className="mt-8 min-h-[28px] max-w-xl px-6 text-center text-title-lg leading-snug tracking-tight">{words}</p>
+      <p className="mt-8 min-h-7 max-w-xl shrink-0 overflow-hidden px-6 text-center text-title-lg leading-snug tracking-tight [@container_stage_(max-height:28rem)]:mt-3">{words}</p>
       <p className={cn("mt-1 text-label uppercase tracking-wide", statusBusy ? "arc-shimmer font-medium" : "text-faint")}>{statusLabel}</p>
     </>
   );

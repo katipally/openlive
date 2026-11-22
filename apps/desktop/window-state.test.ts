@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 
-const { restoreWindow, windowSnapshot } = createRequire(import.meta.url)("./window-state.cjs");
+const { restoreWindow, minFor, fitRect, firstRunWindow, windowSnapshot } = createRequire(import.meta.url)("./window-state.cjs");
 
 const display = (x: number, y: number, width: number, height: number) => ({ workArea: { x, y, width, height } });
 const laptop = display(0, 25, 1440, 875);          // macOS: under the menu bar
@@ -42,6 +42,43 @@ describe("restoreWindow", () => {
 
   it("treats a window with no position as one to center", () => {
     expect(restoreWindow({ width: 1000, height: 700 }, at([laptop]))).toEqual({ width: 1000, height: 700, maximized: false, fullscreen: false });
+  });
+});
+
+describe("minFor", () => {
+  it("is the minimum where the work area holds it, and the work area where it does not", () => {
+    expect(minFor(min, laptop.workArea)).toEqual(min);
+    expect(minFor(min, { x: 0, y: 0, width: 640, height: 480 })).toEqual({ width: 640, height: 480 });
+    expect(minFor(min, { x: 0, y: 0, width: 1920, height: 400 })).toEqual({ width: 940, height: 400 });
+  });
+});
+
+describe("fitRect", () => {
+  it("leaves a window that fits where it is", () => {
+    expect(fitRect({ x: 100, y: 100, width: 1000, height: 700 }, laptop.workArea, min)).toEqual({ x: 100, y: 100, width: 1000, height: 700 });
+  });
+  it("shrinks a window the work area cannot hold and pulls it inside", () => {
+    expect(fitRect({ x: 300, y: 300, width: 1180, height: 800 }, { x: 0, y: 0, width: 1024, height: 576 }, min))
+      .toEqual({ x: 0, y: 0, width: 1024, height: 576 });
+    expect(fitRect({ x: -200, y: 900, width: 1000, height: 700 }, laptop.workArea, min)).toEqual({ x: 0, y: 200, width: 1000, height: 700 });
+  });
+  it("never goes under the minimum the work area allows", () => {
+    expect(fitRect({ x: 0, y: 0, width: 100, height: 100 }, laptop.workArea, min)).toMatchObject({ width: 940, height: 640 });
+  });
+});
+
+describe("firstRunWindow", () => {
+  const preferred = { width: 1180, height: 800 };
+  it("opens the preferred size centered in a work area that holds it", () => {
+    expect(firstRunWindow(preferred, laptop.workArea, min)).toEqual({ x: 130, y: 63, width: 1180, height: 800 });
+    expect(firstRunWindow(preferred, external.workArea, min)).toEqual({ x: 2130, y: 300, width: 1180, height: 800 });
+  });
+  it("shrinks to a work area that cannot hold it, such as 1080p at 150 percent", () => {
+    expect(firstRunWindow(preferred, { x: 0, y: 0, width: 1280, height: 672 }, min)).toEqual({ x: 50, y: 0, width: 1180, height: 672 });
+    expect(firstRunWindow(preferred, { x: 0, y: 0, width: 1000, height: 600 }, min)).toEqual({ x: 0, y: 0, width: 1000, height: 600 });
+  });
+  it("fills a work area smaller than the minimum, never spilling off it", () => {
+    expect(firstRunWindow(preferred, { x: 10, y: 20, width: 800, height: 500 }, min)).toEqual({ x: 10, y: 20, width: 800, height: 500 });
   });
 });
 

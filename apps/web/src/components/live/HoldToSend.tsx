@@ -28,7 +28,7 @@ export function HoldPill({ until, holdMs, onSend, compact }: { until: number; ho
   return (
     <Tooltip label="Send now" keys="Enter">
       <Button ref={ref} size="sm" onClick={onSend} aria-label="Send now"
-        className={cn("pointer-events-auto text-muted-foreground enabled:hover:text-foreground", compact && "h-6 px-2 text-caption")}>
+        className={cn("text-muted-foreground enabled:hover:text-foreground", compact && "h-6 px-2 text-caption")}>
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
           <circle cx="8" cy="8" r={R} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="1.5" />
           <circle ref={ring} cx="8" cy="8" r={R} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"

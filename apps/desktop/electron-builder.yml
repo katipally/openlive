@@ -40,6 +40,7 @@ files:
   - splash.html
   - telemetry-map.cjs
   - window-state.cjs
+  - zoom.cjs
   - login-item.cjs
   - update-gate.cjs
   - prev-exit.cjs

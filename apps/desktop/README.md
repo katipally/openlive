@@ -76,6 +76,15 @@ NSIS installers run unsigned (users see a SmartScreen warning). To sign, provide
 code-signing cert via electron-builder's `win.certificateFile` +
 `CSC_KEY_PASSWORD`, or an Azure Trusted Signing / EV cert. Not required to ship.
 
+## Zoom
+
+`Ctrl`/`Cmd` + `=` (or `+`) zooms in, `-` zooms out, `0` resets, on the main window
+only (also the numpad keys, and View in the menu). It moves through 75, 90, 100,
+110, 125, 150, 175, 200, 250 and 300 percent, and Settings > General > UI scale
+picks one too. The scale is kept in `<home>/state/appearance.json`. The orb stays
+at 100 percent. On a first launch the window opens at most as large as the work
+area of the screen it is on, and its minimum size follows the screen it moves to.
+
 ## What's in the package
 
 ```

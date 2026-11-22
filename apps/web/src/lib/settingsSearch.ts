@@ -52,6 +52,7 @@ const LANGUAGE_WORDS = CURATED_LANGUAGES.flatMap((l) => [l.name, l.native, l.nat
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
   { label: "Appearance", keywords: "theme dark light system mode look glass flat transparency blur", tab: "general", anchor: "set-general-appearance" },
+  { label: "UI scale", keywords: "zoom scale size text bigger larger smaller magnify low vision accessibility display ctrl cmd plus minus", tab: "general", anchor: "set-general-zoom", desktop: true },
   { label: "Assistant style", keywords: "your assistant's custom instructions prompt tone behave", tab: "general", anchor: "set-general-style" },
   { label: "Keyboard shortcuts", keywords: "keys hotkeys", tab: "general", anchor: "set-general-shortcuts" },
   { label: "Open at login", keywords: "startup launch boot background", tab: "general", anchor: "set-general-startup", desktop: true },

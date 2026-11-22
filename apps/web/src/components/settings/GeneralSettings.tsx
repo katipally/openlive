@@ -6,11 +6,12 @@ import { useTheme } from "next-themes";
 import { Monitor, Sun, Moon, Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUi } from "@/lib/uiStore";
-import { desktopPlatform, isDesktop } from "@/lib/platform";
+import { desktopPlatform, isDesktop, MOD } from "@/lib/platform";
 import { toast } from "@/lib/toast";
 import type { InsertionMethod } from "@openlive/flow-store";
-import { Switch, Button, ListGroup, ListRow, Segmented, type SegOption, Textarea, Advanced, Slider } from "@/components/ui";
+import { Switch, Button, ListGroup, ListRow, Segmented, type SegOption, Select, Textarea, Advanced, Slider } from "@/components/ui";
 import { GLASS_REASON, setLook, useAppearance, type Look } from "@/lib/look";
+import { setZoom, useZoom, zoomLabel } from "@/lib/zoom";
 import { useFlowConfig } from "@/lib/flow/useFlowConfig";
 import { cn } from "@/lib/cn";
 import { Section } from "./Section";
@@ -45,6 +46,26 @@ function LookRow() {
     <ListRow label="Look" detail={a.look === "glass" ? "See-through to your desktop" : "Solid surfaces"} info="Glass needs a window that can blur what is behind it. Without one, it falls back to Flat.">
       <Segmented label="Look" options={options} value={a.look} onChange={setLook} />
     </ListRow>
+  );
+}
+
+/** How large everything in the window is. Only the desktop app has it (a browser
+ *  has its own zoom), so the row is absent on the web. */
+function ZoomRow() {
+  const z = useZoom();
+  if (!z) return null;
+  return (
+    <div id="set-general-zoom">
+      <ListRow label="UI scale" detail={z.factor === 1 ? "Default size" : `${zoomLabel(z.factor)} of the default size`}
+        info={`Makes everything in this window larger or smaller. ${MOD} and = zooms in, ${MOD} and - zooms out, ${MOD} and 0 resets.`}>
+        <div className="flex items-center gap-2">
+          <Select aria-label="UI scale" value={String(z.factor)} onChange={(e) => setZoom(Number(e.target.value))}>
+            {z.steps.map((s) => <option key={s} value={String(s)}>{zoomLabel(s)}</option>)}
+          </Select>
+          <Button size="sm" onClick={() => setZoom(1)} disabled={z.factor === 1}>Reset</Button>
+        </div>
+      </ListRow>
+    </div>
   );
 }
 
@@ -158,6 +179,7 @@ export function GeneralSettings() {
         <ListGroup>
           <ListRow label="Theme"><ThemePicker /></ListRow>
           <LookRow />
+          <ZoomRow />
         </ListGroup>
       </Section>
 

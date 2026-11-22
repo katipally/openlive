@@ -168,7 +168,7 @@ export default function Home() {
           </motion.main>
         ) : (
           <motion.main key="chat" custom={dir} {...VIEW} className="openlive-scroll fade-top fade-under-switch relative h-dvh overflow-y-auto">
-            <div className="relative flex min-h-full flex-col items-center justify-center px-6 py-20 text-center">
+            <div className="relative flex min-h-full flex-col items-center px-6 pb-4 pt-20 text-center">
               {/* Frameless-window drag handle: a title-bar-high strip clear of the macOS
                   traffic lights and the Windows/Linux caption buttons, both (the
                   server cannot tell which this window has). Desktop only (.desktop). Settings lives in the hero CTA row
@@ -177,7 +177,7 @@ export default function Home() {
               <div className="app-drag fixed left-traffic-lights right-window-controls top-0 z-0 h-14"><SwitchHole /></div>
 
 
-              <div ref={heroRef} className="flex max-w-full flex-col items-center gap-7">
+              <div ref={heroRef} className="my-auto flex max-w-full flex-col items-center gap-7">
                 <div className="ol-hero-mark"><OpenLiveMark paused={liveOpen || settingsOpen} /></div>
                 <div className="space-y-2">
                   <h1 className="ol-hero-title text-display font-semibold tracking-tight">OpenLive</h1>
@@ -207,7 +207,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <footer className="absolute inset-x-0 bottom-4 flex items-center justify-center text-caption text-faint">
+              <footer className="mt-6 flex shrink-0 items-center justify-center text-caption text-faint">
                 <a href="https://github.com/katipally/openlive/releases" target="_blank" rel="noreferrer" className="transition hover:text-muted-foreground">
                   {appVersion ? `v${appVersion}` : "dev"}
                 </a>

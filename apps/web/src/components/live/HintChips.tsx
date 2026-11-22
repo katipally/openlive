@@ -22,13 +22,17 @@ export function HintChips({ className }: { className?: string }) {
   const { smooth, fade, exit: leave } = useMotionTokens();
 
   const hints = selectHints({ phase, active, boundAgent, agentMeta, error, errorCode }).filter((h) => !dismissed.includes(h.id));
+  // The wrapper gives way with its tips, or it would still hold a gap in the dock's stack.
+  const hasError = hints.some((h) => h.id.startsWith("err"));
   return (
-    <div className={cn("pointer-events-none flex flex-col items-center gap-1.5", className)}>
+    <div className={cn("pointer-events-none flex flex-col items-center gap-1.5", !hasError && "[@container_stage_(max-height:28rem)]:hidden", className)}>
       <AnimatePresence initial={false}>
       {hints.map((h) => (
         <motion.div key={h.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, transition: leave }}
           transition={{ ...smooth, opacity: fade }}
-          className="pointer-events-auto flex max-w-md items-center gap-2 rounded-full py-1.5 pl-3 pr-1.5 shadow-card surface-float">
+          className={cn("pointer-events-auto flex max-w-md items-center gap-2 rounded-full py-1.5 pl-3 pr-1.5 shadow-card surface-float",
+            // Tips give way to the orb when the stage is short; an error's fix never does.
+            !h.id.startsWith("err") && "[@container_stage_(max-height:28rem)]:hidden")}>
           {h.id.startsWith("err") ? <AlertCircle className="size-3.5 shrink-0 text-danger" /> : <Lightbulb className="size-3.5 shrink-0 text-accent" />}
           <span className="min-w-0 truncate text-label text-foreground">{h.text}</span>
           {h.action && (
