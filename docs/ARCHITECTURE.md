@@ -470,7 +470,7 @@ dog?", "hang on, John, I'm on a call"). `VoiceEngine` asks the agent
 voiced so far and the voiceprint's label, in parallel with the turn model, so
 it adds at most the check's own few ms after the transcript. The agent embeds
 the sentence with Paraphrase Multilingual MPNet (sentence-transformers,
-Apache-2.0, int8 ONNX export by Xenova, 296 MB; 50+ languages, all ten of the
+Apache-2.0, int8 ONNX export by Xenova, 296 MB; 50+ languages, every one of the
 app's) on onnxruntime-node in the native worker (`addressee` kind, P0's
 benchmark and accelerator choice like any engine: CPU on this M4, 8 ms per
 sentence against 30 ms on CoreML), and scores it with a logistic head
@@ -533,7 +533,7 @@ check reads words only), and real rooms.
 goes on) of a turn with 3 s of speech, at most once per 8 s, never after a
 question (a question mark, or an English question word first), over a reply,
 an ask or push-to-talk, the engine plays one of `LISTENING[lang]` (words the
-backchannel check itself counts as one, in all eleven languages) at gain 0.4,
+backchannel check itself counts as one, in every language) at gain 0.4,
 rendered once per voice at call start in the voice the reply will use. It plays
 on its own AudioPlayer, so the reply's echo gate, barge-in and pause (P3) and
 the voiceprint's timing (P2) never see it, and the first voiced frame stops it.
@@ -616,7 +616,7 @@ device. The call's top bar shows the session's median voice-to-voice time, and
 its popover the median and p95 of each stage.
 
 A session runs in **one language** (`language` in `pipelineConfig.ts`: en, es, fr,
-de, it, pt, hi, zh, ja, ko, uk) and every stage follows it: STT gets `lang` (Whisper
+de, it, pt, hi, zh, ja, ko, uk, ru) and every stage follows it: STT gets `lang` (Whisper
 switches from its `.en` build to the multilingual build of the same size and
 pins the language), TTS gets it (Supertonic as its language tag), the chunker
 splits on Chinese, Japanese and Devanagari sentence marks, and the English

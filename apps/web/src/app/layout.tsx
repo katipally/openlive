@@ -10,8 +10,8 @@ import "./globals.css";
 // Bundled at BUILD time by next/font (self-hosted, no runtime fetch): the same
 // Geist files ship inside the app, so type renders identically on macOS and
 // Windows — the layout's spacing was designed around Geist metrics.
-const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+const geistSans = Geist({ subsets: ["latin", "cyrillic"], variable: "--font-geist-sans" });
+const geistMono = Geist_Mono({ subsets: ["latin", "cyrillic"], variable: "--font-geist-mono" });
 
 const BOOT_LOOK = `try{var a=window.openlive&&window.openlive.appearance&&window.openlive.appearance.get();if(a&&a.look==="glass")document.documentElement.dataset.look="glass"}catch(e){}`;
 

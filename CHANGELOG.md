@@ -10,6 +10,11 @@ Releases before 0.1.9 predate this file — see the
 - **UI scale and zoom shortcuts.** Ctrl or Cmd with `=` (or `+`), `-` and `0` zoom the
   window in, out and back to 100%, from 75% up to 300%, and Settings > General > UI scale
   picks a size too. It is remembered, and the orb stays at its own size. (#60)
+- **Russian speech recognition and voice replies.** Pick Russian in Settings > Voice
+  and OpenLive hears you with Parakeet v3, Whisper or Nemotron 3.5 and answers with
+  Supertonic or Piper (Denis or Dmitri). Numbers, dates, times, percentages, "№" and
+  rubles (₽) are read aloud in Russian too, and the interface font now covers Cyrillic.
+  The interface stays in English. (#61)
 
 ### Fixed
 - **Ctrl+= now zooms in.** Only Ctrl+- worked before, because the menu's zoom in needed Shift.
